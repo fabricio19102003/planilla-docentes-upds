@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+~$*
+
+# Data files - Excel originals (sensitive, not for repo)
+*.xls
+*.xlsx
+
+# Generated data (can be regenerated)
+designaciones_normalizadas.json
+horarios_medicina_estructurado.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Uploads directory
+backend/data/uploads/
+
+# Analysis scripts (temporary)
+analysis_*.py
