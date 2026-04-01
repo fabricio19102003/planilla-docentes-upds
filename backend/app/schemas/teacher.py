@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
@@ -51,6 +51,29 @@ class TeacherResponse(TeacherBase):
 
 
 class TeacherWithDesignations(TeacherResponse):
-    designations: list[DesignationResponse] = []
+    designations: list[DesignationResponse] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TeacherAttendanceSummary(BaseModel):
+    total_records: int = 0
+    attended: int = 0
+    late: int = 0
+    absent: int = 0
+    no_exit: int = 0
+    total_academic_hours: int = 0
+
+
+class PaginatedTeachersResponse(BaseModel):
+    items: list[TeacherResponse] = Field(default_factory=list)
+    total: int
+    page: int
+    per_page: int
+
+
+class TeacherDetailResponse(TeacherResponse):
+    designations: list[DesignationResponse] = Field(default_factory=list)
+    attendance_summary: TeacherAttendanceSummary = Field(default_factory=TeacherAttendanceSummary)
 
     model_config = ConfigDict(from_attributes=True)

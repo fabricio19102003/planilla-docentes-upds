@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional
 from decimal import Decimal
+
+from app.schemas.attendance import MonthlyAttendanceSummaryResponse
+from app.schemas.biometric import BiometricUploadResponse
 
 
 class PlanillaOutputResponse(BaseModel):
@@ -24,6 +27,7 @@ class PlanillaGenerateRequest(BaseModel):
     """Request body to trigger planilla generation."""
     month: int
     year: int
+    payment_overrides: dict[str, float] = Field(default_factory=dict)
 
 
 class PlanillaGenerateResponse(BaseModel):
@@ -31,8 +35,15 @@ class PlanillaGenerateResponse(BaseModel):
     planilla_id: int
     month: int
     year: int
-    file_url: Optional[str] = None
+    file_path: Optional[str] = None
     total_teachers: int
     total_hours: int
     total_payment: Decimal
-    status: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DashboardSummaryResponse(BaseModel):
+    recent_uploads: list[BiometricUploadResponse] = Field(default_factory=list)
+    latest_attendance_summary: Optional[MonthlyAttendanceSummaryResponse] = None
+    teacher_count: int
+    designation_count: int

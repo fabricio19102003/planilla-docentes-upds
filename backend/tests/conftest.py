@@ -3,6 +3,8 @@ Test configuration and shared fixtures.
 Phase 2 will add fixtures for DB session, test client, sample data.
 """
 import pytest
+import os
+import tempfile
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,8 +13,9 @@ from app.main import app
 from app.database import Base, get_db
 
 
-# Test database URL (uses a separate test DB to avoid polluting production)
-TEST_DATABASE_URL = "postgresql+psycopg2://postgres:1234@localhost:5432/planilla_docentes_upds_test"
+# Test database URL (defaults to SQLite smoke DB to avoid external dependencies)
+_TEST_DB_FILE = os.path.join(tempfile.gettempdir(), "planilla_docentes_upds_test.sqlite")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", f"sqlite:///{_TEST_DB_FILE}")
 
 
 @pytest.fixture(scope="session")

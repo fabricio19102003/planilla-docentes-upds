@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, Any
 
@@ -27,3 +27,11 @@ class DesignationResponse(DesignationBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DesignationUploadResponse(BaseModel):
+    teachers_created: int
+    teachers_reused: int
+    designations_loaded: int
+    skipped: int
+    warnings: list[str] = Field(default_factory=list)

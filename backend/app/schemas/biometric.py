@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime, date, time
 from typing import Optional
 
@@ -41,3 +41,11 @@ class BiometricUploadCreate(BaseModel):
     filename: str
     month: int
     year: int
+
+
+class BiometricUploadResult(BaseModel):
+    upload_id: int
+    filename: str
+    teachers_found: int
+    records_count: int
+    warnings: list[str] = Field(default_factory=list)
