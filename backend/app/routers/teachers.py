@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
 from app.models.teacher import Teacher
+from app.models.user import User
 from app.schemas.teacher import (
     PaginatedTeachersResponse,
     TeacherAttendanceSummary,
     TeacherDetailResponse,
     TeacherResponse,
 )
+from app.utils.auth import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ def list_teachers(
     search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PaginatedTeachersResponse:
     try:
@@ -57,7 +60,17 @@ def list_teachers(
 
 
 @router.get("/{ci}", response_model=TeacherDetailResponse)
-def get_teacher(ci: str, db: Session = Depends(get_db)) -> TeacherDetailResponse:
+def get_teacher(
+    ci: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TeacherDetailResponse:
+    # Admin can see any teacher; docente can only see their own
+    if current_user.role == "docente" and current_user.teacher_ci != ci:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo podés ver tu propio perfil de docente",
+        )
     try:
         teacher = (
             db.query(Teacher)

@@ -5,6 +5,8 @@ from app.models.designation import Designation
 from app.models.biometric import BiometricUpload, BiometricRecord
 from app.models.attendance import AttendanceRecord
 from app.models.planilla import PlanillaOutput
+from app.models.user import User
+from app.models.detail_request import DetailRequest
 
 __all__ = [
     "Teacher",
@@ -13,4 +15,6 @@ __all__ = [
     "BiometricRecord",
     "AttendanceRecord",
     "PlanillaOutput",
+    "User",
+    "DetailRequest",
 ]

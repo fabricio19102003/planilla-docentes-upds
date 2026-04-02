@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.biometric import BiometricUpload
+from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse, BiometricUploadResult
 from app.services.biometric_parser import BiometricParser
 from app.services.designation_loader import DesignationLoader
+from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ def upload_biometric(
     file: UploadFile = File(...),
     month: int = Form(..., ge=1, le=12),
     year: int = Form(..., ge=2000, le=2100),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> BiometricUploadResult:
     filename = file.filename or ""
@@ -97,7 +100,10 @@ def upload_biometric(
 
 
 @router.get("/history", response_model=list[BiometricUploadResponse])
-def get_upload_history(db: Session = Depends(get_db)) -> list[BiometricUploadResponse]:
+def get_upload_history(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[BiometricUploadResponse]:
     try:
         uploads = (
             db.query(BiometricUpload)

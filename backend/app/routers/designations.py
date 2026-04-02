@@ -11,8 +11,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
 from app.schemas.designation import DesignationUploadResponse
 from app.services.designation_loader import DesignationLoader
+from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,7 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
 @router.post("/designations", response_model=DesignationUploadResponse, status_code=status.HTTP_201_CREATED)
 def upload_designations(
     file: UploadFile = File(...),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationUploadResponse:
     filename = file.filename or ""

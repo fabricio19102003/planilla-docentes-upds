@@ -6,19 +6,87 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Users,
+  Shield,
+  MessageSquare,
+  Receipt,
+  History,
+  User,
+  LogOut,
 } from 'lucide-react'
 import { Logo } from './Logo'
+import { useAuth } from '@/context/AuthContext'
+import type { LucideIcon } from 'lucide-react'
 
-const navItems = [
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  exact?: boolean
+  badge?: number
+}
+
+const adminNavItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/upload', label: 'Subir Archivos', icon: Upload, exact: false },
-  { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck, exact: false },
-  { to: '/observations', label: 'Observaciones', icon: AlertTriangle, exact: false },
-  { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet, exact: false },
-  { to: '/teachers', label: 'Docentes', icon: Users, exact: false },
+  { to: '/upload', label: 'Subir Archivos', icon: Upload },
+  { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck },
+  { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
+  { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
+  { to: '/teachers', label: 'Docentes', icon: Users },
+  { to: '/users', label: 'Gestión Usuarios', icon: Shield },
+  { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
 ]
 
+const docenteNavItems: NavItem[] = [
+  { to: '/portal', label: 'Mi Facturación', icon: Receipt, exact: true },
+  { to: '/portal/history', label: 'Histórico', icon: History },
+  { to: '/portal/requests', label: 'Mis Solicitudes', icon: MessageSquare },
+  { to: '/portal/profile', label: 'Mi Perfil', icon: User },
+]
+
+function NavItemLink({ item }: { item: NavItem }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.exact}
+      className={({ isActive }) =>
+        [
+          'flex items-center gap-3 px-4 py-3 text-sm transition-colors relative',
+          isActive
+            ? 'text-white border-l-4 border-[#4DA8DA]'
+            : 'text-white/70 border-l-4 border-transparent hover:text-white',
+        ].join(' ')
+      }
+      style={({ isActive }) =>
+        isActive ? { backgroundColor: '#0066CC' } : undefined
+      }
+      onMouseEnter={(e) => {
+        const target = e.currentTarget
+        if (target.style.backgroundColor !== 'rgb(0, 102, 204)') {
+          target.style.backgroundColor = '#004080'
+        }
+      }}
+      onMouseLeave={(e) => {
+        const target = e.currentTarget
+        if (target.style.backgroundColor === 'rgb(0, 64, 128)') {
+          target.style.backgroundColor = ''
+        }
+      }}
+    >
+      <item.icon size={18} />
+      <span className="flex-1">{item.label}</span>
+      {item.badge !== undefined && item.badge > 0 && (
+        <span className="bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+          {item.badge > 9 ? '9+' : item.badge}
+        </span>
+      )}
+    </NavLink>
+  )
+}
+
 export function Sidebar() {
+  const { user, isAdmin, logout } = useAuth()
+  const navItems = isAdmin ? adminNavItems : docenteNavItems
+
   return (
     <aside
       className="fixed left-0 top-0 h-screen w-64 flex flex-col z-50"
@@ -32,48 +100,49 @@ export function Sidebar() {
         </p>
       </div>
 
+      {/* User info */}
+      <div className="px-4 py-3 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+            style={{ backgroundColor: '#0066CC' }}
+          >
+            {user?.full_name?.charAt(0).toUpperCase() ?? 'U'}
+          </div>
+          <div className="min-w-0">
+            <p className="text-white text-sm font-medium truncate leading-tight">
+              {user?.full_name ?? ''}
+            </p>
+            <span
+              className="text-xs font-semibold px-1.5 py-0.5 rounded"
+              style={
+                isAdmin
+                  ? { backgroundColor: '#1d4ed8', color: '#bfdbfe' }
+                  : { backgroundColor: '#15803d', color: '#bbf7d0' }
+              }
+            >
+              {isAdmin ? 'Admin' : 'Docente'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Navigation */}
       <nav className="flex-1 py-4 overflow-y-auto">
-        {navItems.map(({ to, label, icon: Icon, exact }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={exact}
-            className={({ isActive }) =>
-              [
-                'flex items-center gap-3 px-4 py-3 text-sm transition-colors',
-                isActive
-                  ? 'text-white border-l-4 border-[#4DA8DA]'
-                  : 'text-white/70 border-l-4 border-transparent hover:text-white',
-              ].join(' ')
-            }
-            style={({ isActive }) =>
-              isActive ? { backgroundColor: '#0066CC' } : undefined
-            }
-            onMouseEnter={(e) => {
-              const target = e.currentTarget
-              if (!target.classList.contains('text-white') || target.style.backgroundColor !== 'rgb(0, 102, 204)') {
-                target.style.backgroundColor = '#004080'
-              }
-            }}
-            onMouseLeave={(e) => {
-              const target = e.currentTarget
-              if (target.style.backgroundColor === 'rgb(0, 64, 128)') {
-                target.style.backgroundColor = ''
-              }
-            }}
-          >
-            <Icon size={18} />
-            <span>{label}</span>
-          </NavLink>
+        {navItems.map((item) => (
+          <NavItemLink key={item.to} item={item} />
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-4 border-t border-white/10">
-        <p className="text-white/40 text-xs text-center">
-          Sistema de Planillas v1.0
-        </p>
+      {/* Logout */}
+      <div className="border-t border-white/10">
+        <button
+          onClick={logout}
+          className="flex items-center gap-3 w-full px-4 py-4 text-sm text-white/60 hover:text-red-300 transition-colors hover:bg-red-500/10"
+        >
+          <LogOut size={18} />
+          <span>Cerrar Sesión</span>
+        </button>
       </div>
     </aside>
   )

@@ -1,3 +1,84 @@
+// ─── Auth & Users ────────────────────────────────────────────────────────────
+export interface AuthUser {
+  id: number
+  ci: string
+  full_name: string
+  email: string | null
+  role: 'admin' | 'docente'
+  teacher_ci: string | null
+  is_active: boolean
+  last_login: string | null
+}
+
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+  user: AuthUser
+}
+
+export interface UserCreate {
+  ci: string
+  full_name: string
+  email?: string
+  password: string
+  role: string
+  teacher_ci?: string
+}
+
+export interface UserUpdate {
+  full_name?: string
+  email?: string
+  is_active?: boolean
+  role?: string
+}
+
+// ─── Billing (Portal Docente) ─────────────────────────────────────────────────
+export interface BillingDesignation {
+  subject: string
+  group: string
+  hours: number
+  payment: number
+}
+
+export interface BillingInfo {
+  month: number
+  year: number
+  month_name: string
+  total_hours: number
+  rate_per_hour: number
+  total_payment: number
+  adjusted_payment: number | null
+  designations: BillingDesignation[]
+}
+
+// ─── Detail Requests ──────────────────────────────────────────────────────────
+export interface DetailRequestCreate {
+  month: number
+  year: number
+  request_type: string
+  message?: string
+}
+
+export interface DetailRequestInfo {
+  id: number
+  teacher_ci: string
+  teacher_name?: string
+  month: number
+  year: number
+  request_type: string
+  message?: string
+  status: string
+  admin_response?: string
+  responded_at?: string
+  created_at: string
+}
+
+export interface DetailRequestAction {
+  status: 'approved' | 'rejected'
+  admin_response?: string
+}
+
+// ─── Existing types ───────────────────────────────────────────────────────────
 export interface ScheduleSlot {
   day?: string
   dia?: string

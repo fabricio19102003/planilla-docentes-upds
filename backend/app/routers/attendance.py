@@ -11,6 +11,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricUpload
 from app.models.designation import Designation
 from app.models.teacher import Teacher
+from app.models.user import User
 from app.schemas.attendance import (
     AttendanceProcessRequest,
     AttendanceProcessResponse,
@@ -20,6 +21,7 @@ from app.schemas.attendance import (
     PaginatedAttendanceResponse,
 )
 from app.services.attendance_engine import AttendanceEngine
+from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ def _to_observation_response(row) -> ObservationResponse:
 @router.post("/attendance/process", response_model=AttendanceProcessResponse)
 def process_attendance(
     payload: AttendanceProcessRequest,
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> AttendanceProcessResponse:
     try:
@@ -124,7 +127,12 @@ def process_attendance(
 
 
 @router.get("/attendance/{month}/{year}/summary", response_model=MonthlyAttendanceSummaryResponse)
-def get_attendance_summary(month: int, year: int, db: Session = Depends(get_db)) -> MonthlyAttendanceSummaryResponse:
+def get_attendance_summary(
+    month: int,
+    year: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> MonthlyAttendanceSummaryResponse:
     try:
         engine = AttendanceEngine()
         base_summary = engine.get_month_summary(db=db, month=month, year=year)
@@ -169,6 +177,7 @@ def get_attendance(
     status_filter: str | None = Query(default=None, alias="status"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PaginatedAttendanceResponse:
     try:
@@ -206,6 +215,7 @@ def get_observations(
     year: int,
     type: str | None = Query(default=None),
     teacher_ci: str | None = Query(default=None),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[ObservationResponse]:
     try:

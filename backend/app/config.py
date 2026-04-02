@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     HOURLY_RATE: float = 70.0  # Bs/hora académica
     TOLERANCE_MINUTES: int = 5  # Minutos de tolerancia para asistencia
 
+    # JWT / Auth
+    JWT_SECRET: str = "planilla-docentes-upds-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 480  # 8 horas
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -4,13 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import create_tables
+from app.database import SessionLocal, create_tables
 from app.routers import (
     teachers_router,
     biometric_router,
     designations_router,
     attendance_router,
     planilla_router,
+    auth_router,
+    users_router,
+    detail_requests_router,
+    docente_portal_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,12 +24,25 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Application lifespan: runs on startup and shutdown.
-    On startup: create all DB tables if they don't exist.
+    On startup: create all DB tables and seed default admin if needed.
     """
     try:
         create_tables()
     except Exception as exc:
         logger.exception("Failed to create tables on startup: %s", exc)
+
+    # Create default admin user if none exists
+    try:
+        from app.services.auth_service import auth_service
+
+        db = SessionLocal()
+        try:
+            auth_service.create_default_admin(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.exception("Failed to create default admin on startup: %s", exc)
+
     yield
     # Cleanup on shutdown (none needed for now)
 
@@ -46,7 +63,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include routers — auth first, then protected routes
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(detail_requests_router)
+app.include_router(docente_portal_router)
 app.include_router(teachers_router)
 app.include_router(biometric_router)
 app.include_router(designations_router)

@@ -14,6 +14,7 @@ from app.models.biometric import BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
+from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse
 from app.schemas.planilla import (
     DashboardSummaryResponse,
@@ -23,6 +24,7 @@ from app.schemas.planilla import (
 )
 from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PlanillaGenerator
+from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ def _output_dir() -> Path:
 @router.post("/planilla/generate", response_model=PlanillaGenerateResponse)
 def generate_planilla(
     payload: PlanillaGenerateRequest,
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PlanillaGenerateResponse:
     try:
@@ -80,7 +83,11 @@ def generate_planilla(
 
 
 @router.get("/planilla/{planilla_id}/download")
-def download_planilla(planilla_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def download_planilla(
+    planilla_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> FileResponse:
     try:
         planilla = db.query(PlanillaOutput).filter(PlanillaOutput.id == planilla_id).first()
         if planilla is None:
@@ -106,7 +113,10 @@ def download_planilla(planilla_id: int, db: Session = Depends(get_db)) -> FileRe
 
 
 @router.get("/planilla/history", response_model=list[PlanillaOutputResponse])
-def planilla_history(db: Session = Depends(get_db)) -> list[PlanillaOutputResponse]:
+def planilla_history(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[PlanillaOutputResponse]:
     try:
         rows = db.query(PlanillaOutput).order_by(PlanillaOutput.generated_at.desc()).all()
         return [PlanillaOutputResponse.model_validate(row) for row in rows]
@@ -119,7 +129,10 @@ def planilla_history(db: Session = Depends(get_db)) -> list[PlanillaOutputRespon
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummaryResponse)
-def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryResponse:
+def dashboard_summary(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DashboardSummaryResponse:
     try:
         recent_uploads = (
             db.query(BiometricUpload)
