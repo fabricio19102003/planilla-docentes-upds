@@ -60,7 +60,7 @@ export function TeachersPage() {
       },
     },
     {
-      key: 'ci',
+      key: 'actions',
       header: 'Detalle',
       render: (item) => (
         <button
