@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, exists, select
+from sqlalchemy import and_, exists, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.models.attendance import AttendanceRecord
@@ -331,6 +331,29 @@ class DesignationLoader:
                 else:
                     old_ci = teacher.ci
 
+                    # Strategy: create a new Teacher row with the real CI first,
+                    # then migrate all FK references, then delete the TEMP teacher.
+                    # This avoids the PostgreSQL "cannot update PK with non-deferrable
+                    # FK constraints" problem.
+                    real_teacher = Teacher(
+                        ci=matched_ci,
+                        full_name=matched_name or teacher.full_name,
+                        email=teacher.email,
+                        phone=teacher.phone,
+                        gender=teacher.gender,
+                        external_permanent=teacher.external_permanent,
+                        academic_level=teacher.academic_level,
+                        profession=teacher.profession,
+                        specialty=teacher.specialty,
+                        bank=teacher.bank,
+                        account_number=teacher.account_number,
+                        sap_code=teacher.sap_code,
+                        invoice_retention=teacher.invoice_retention,
+                    )
+                    db.add(real_teacher)
+                    db.flush()  # insert real teacher row so FK target exists
+
+                    # Migrate all referencing rows to the new real CI
                     db.query(AttendanceRecord).filter(
                         AttendanceRecord.teacher_ci == old_ci
                     ).update({"teacher_ci": matched_ci}, synchronize_session=False)
@@ -341,13 +364,13 @@ class DesignationLoader:
                         Designation.teacher_ci == old_ci
                     ).update({"teacher_ci": matched_ci}, synchronize_session=False)
 
-                    teacher.ci = matched_ci  # type: ignore[assignment]
-                    if matched_name:
-                        teacher.full_name = matched_name
+                    # Now safe to delete the TEMP teacher (no more FK refs)
+                    db.delete(teacher)
+                    db.flush()
 
                 updated += 1
                 logger.info(
-                    "Linked '%s': %s → %s", teacher.full_name, teacher.ci, matched_ci
+                    "Linked '%s': TEMP → %s", matched_name or teacher.full_name, matched_ci
                 )
 
             db.commit()
