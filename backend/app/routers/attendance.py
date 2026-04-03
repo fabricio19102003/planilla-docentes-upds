@@ -89,6 +89,8 @@ def process_attendance(
             upload_id=payload.upload_id,
             month=payload.month,
             year=payload.year,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
         )
         db.commit()
 

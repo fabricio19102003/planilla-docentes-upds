@@ -55,7 +55,7 @@ export function Header() {
     : 'U'
 
   return (
-    <header className="bg-white shadow-sm border-b h-16 flex items-center justify-between px-6 sticky top-0 z-40">
+    <header className="relative bg-white shadow-md h-16 flex items-center justify-between px-6 sticky top-0 z-40">
       <h1 className="text-xl font-semibold" style={{ color: '#003366' }}>
         {title}
       </h1>
@@ -113,6 +113,12 @@ export function Header() {
           </div>
         )}
       </div>
+
+      {/* Gradient accent line */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-0.5"
+        style={{ background: 'linear-gradient(90deg, #003366 0%, #0066CC 50%, #4DA8DA 80%, transparent 100%)' }}
+      />
     </header>
   )
 }

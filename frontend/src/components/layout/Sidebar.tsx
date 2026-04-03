@@ -50,24 +50,24 @@ function NavItemLink({ item }: { item: NavItem }) {
       end={item.exact}
       className={({ isActive }) =>
         [
-          'flex items-center gap-3 px-4 py-3 text-sm transition-colors relative',
+          'flex items-center gap-3 px-4 py-3 text-sm transition-all duration-200 relative',
           isActive
             ? 'text-white border-l-4 border-[#4DA8DA]'
             : 'text-white/70 border-l-4 border-transparent hover:text-white',
         ].join(' ')
       }
       style={({ isActive }) =>
-        isActive ? { backgroundColor: '#0066CC' } : undefined
+        isActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined
       }
       onMouseEnter={(e) => {
         const target = e.currentTarget
-        if (target.style.backgroundColor !== 'rgb(0, 102, 204)') {
-          target.style.backgroundColor = '#004080'
+        if (target.style.backgroundColor !== 'rgba(0, 102, 204, 0.85)') {
+          target.style.backgroundColor = 'rgba(0, 64, 128, 0.5)'
         }
       }}
       onMouseLeave={(e) => {
         const target = e.currentTarget
-        if (target.style.backgroundColor === 'rgb(0, 64, 128)') {
+        if (target.style.backgroundColor === 'rgba(0, 64, 128, 0.5)') {
           target.style.backgroundColor = ''
         }
       }}
@@ -89,11 +89,11 @@ export function Sidebar() {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-screen w-64 flex flex-col z-50"
-      style={{ backgroundColor: '#003366' }}
+      className="fixed left-0 top-0 h-screen w-64 flex flex-col z-50 gradient-navy"
+      style={{ boxShadow: '4px 0 24px rgba(0,0,0,0.15)' }}
     >
       {/* Logo Section */}
-      <div className="px-6 py-5 border-b border-white/10">
+      <div className="px-6 py-5 border-b border-white/10" style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.05)' }}>
         <Logo size="md" />
         <p className="text-white/60 text-xs mt-1 font-medium tracking-wide">
           Planilla Docentes

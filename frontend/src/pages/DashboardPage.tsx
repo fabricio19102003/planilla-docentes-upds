@@ -3,7 +3,7 @@ import { Users, BookOpen, Upload, TrendingUp } from 'lucide-react'
 import { useDashboard } from '@/api/hooks/useDashboard'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
@@ -40,56 +40,70 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Welcome Banner */}
+      <div className="gradient-navy rounded-xl p-6 text-white animate-fade-in">
+        <h2 className="text-2xl font-bold">Bienvenido al Panel de Administración</h2>
+        <p className="text-white/70 mt-1">UPDS — Sistema de Planilla Docentes</p>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          icon={Users}
-          title="Total Docentes"
-          value={data?.teacher_count ?? 0}
-          subtitle="Docentes registrados"
-          color="#003366"
-        />
-        <StatCard
-          icon={BookOpen}
-          title="Designaciones Activas"
-          value={data?.designation_count ?? 0}
-          subtitle="Materias asignadas"
-          color="#0066CC"
-        />
-        <StatCard
-          icon={Upload}
-          title="Último Upload"
-          value={
-            lastUpload
-              ? `${MONTH_NAMES[lastUpload.month]} ${lastUpload.year}`
-              : 'Sin datos'
-          }
-          subtitle={lastUpload ? `${lastUpload.total_records} registros` : undefined}
-          color="#4DA8DA"
-        />
-        <StatCard
-          icon={TrendingUp}
-          title="Tasa de Asistencia"
-          value={
-            attendanceRate != null
-              ? `${attendanceRate.toFixed(1)}%`
-              : 'Sin datos'
-          }
-          subtitle="Último mes procesado"
-          color="#16a34a"
-        />
+        <div className="animate-fade-in-up stagger-1">
+          <StatCard
+            icon={Users}
+            title="Total Docentes"
+            value={data?.teacher_count ?? 0}
+            subtitle="Docentes registrados"
+            color="#003366"
+          />
+        </div>
+        <div className="animate-fade-in-up stagger-2">
+          <StatCard
+            icon={BookOpen}
+            title="Designaciones Activas"
+            value={data?.designation_count ?? 0}
+            subtitle="Materias asignadas"
+            color="#0066CC"
+          />
+        </div>
+        <div className="animate-fade-in-up stagger-3">
+          <StatCard
+            icon={Upload}
+            title="Último Upload"
+            value={
+              lastUpload
+                ? `${MONTH_NAMES[lastUpload.month]} ${lastUpload.year}`
+                : 'Sin datos'
+            }
+            subtitle={lastUpload ? `${lastUpload.total_records} registros` : undefined}
+            color="#4DA8DA"
+          />
+        </div>
+        <div className="animate-fade-in-up stagger-4">
+          <StatCard
+            icon={TrendingUp}
+            title="Tasa de Asistencia"
+            value={
+              attendanceRate != null
+                ? `${attendanceRate.toFixed(1)}%`
+                : 'Sin datos'
+            }
+            subtitle="Último mes procesado"
+            color="#16a34a"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Uploads */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
+        <div className="lg:col-span-2 animate-fade-in-up stagger-3">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
                 Últimas Subidas de Datos
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+              </h3>
+            </div>
+            <div className="p-5">
               {!data?.recent_uploads?.length ? (
                 <p className="text-gray-400 text-sm py-6 text-center">
                   No hay subidas recientes
@@ -98,7 +112,7 @@ export function DashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b">
+                      <tr className="border-b border-gray-100">
                         <th className="text-left py-2 px-3 text-gray-500 font-medium text-xs uppercase">Archivo</th>
                         <th className="text-left py-2 px-3 text-gray-500 font-medium text-xs uppercase">Período</th>
                         <th className="text-left py-2 px-3 text-gray-500 font-medium text-xs uppercase">Fecha</th>
@@ -107,17 +121,17 @@ export function DashboardPage() {
                     </thead>
                     <tbody>
                       {data.recent_uploads.slice(0, 5).map((upload) => (
-                        <tr key={upload.id} className="border-b last:border-0 hover:bg-gray-50">
-                          <td className="py-2 px-3 font-medium text-gray-700 max-w-[180px] truncate">
+                        <tr key={upload.id} className="border-b border-gray-50 last:border-0 hover:bg-blue-50/40 transition-colors duration-150">
+                          <td className="py-2.5 px-3 font-medium text-gray-700 max-w-[180px] truncate">
                             {upload.filename}
                           </td>
-                          <td className="py-2 px-3 text-gray-600">
+                          <td className="py-2.5 px-3 text-gray-600">
                             {MONTH_NAMES[upload.month]} {upload.year}
                           </td>
-                          <td className="py-2 px-3 text-gray-500">
+                          <td className="py-2.5 px-3 text-gray-500">
                             {formatDate(upload.upload_date)}
                           </td>
-                          <td className="py-2 px-3">
+                          <td className="py-2.5 px-3">
                             <Badge
                               className={
                                 upload.status === 'PROCESSED'
@@ -134,24 +148,24 @@ export function DashboardPage() {
                   </table>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {/* Quick Actions */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
+        <div className="animate-fade-in-up stagger-4">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
                 Acciones Rápidas
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+              </h3>
+            </div>
+            <div className="p-5">
               <div className="space-y-3">
                 <Link to="/upload" className="block">
                   <Button
-                    className="w-full justify-start gap-2 h-11"
-                    style={{ backgroundColor: '#003366' }}
+                    className="w-full justify-start gap-2 h-11 text-white transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5 shadow-md"
+                    style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}
                   >
                     <Upload size={16} />
                     Subir Datos Biométricos
@@ -160,7 +174,7 @@ export function DashboardPage() {
                 <Link to="/planilla" className="block">
                   <Button
                     variant="outline"
-                    className="w-full justify-start gap-2 h-11 border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
+                    className="w-full justify-start gap-2 h-11 border-[#0066CC] text-[#0066CC] hover:bg-blue-50 transition-all duration-200"
                   >
                     <TrendingUp size={16} />
                     Generar Planilla
@@ -169,15 +183,15 @@ export function DashboardPage() {
                 <Link to="/attendance" className="block">
                   <Button
                     variant="outline"
-                    className="w-full justify-start gap-2 h-11"
+                    className="w-full justify-start gap-2 h-11 transition-all duration-200"
                   >
                     <BookOpen size={16} />
                     Ver Asistencia
                   </Button>
                 </Link>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from decimal import Decimal
 
@@ -28,6 +28,8 @@ class PlanillaGenerateRequest(BaseModel):
     month: int
     year: int
     payment_overrides: dict[str, float] = Field(default_factory=dict)
+    start_date: date | None = None   # Optional: start of attendance period for filtering
+    end_date: date | None = None     # Optional: end of attendance period for filtering
 
 
 class PlanillaGenerateResponse(BaseModel):

@@ -54,6 +54,8 @@ class AttendanceProcessRequest(BaseModel):
     upload_id: int
     month: int
     year: int
+    start_date: date | None = None   # Optional: start of attendance period (inclusive)
+    end_date: date | None = None     # Optional: end of attendance period (inclusive)
 
 
 class AttendanceProcessResponse(BaseModel):

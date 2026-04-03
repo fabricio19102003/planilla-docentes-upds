@@ -1,6 +1,16 @@
 """
 Service: Designation Loader
-Loads designaciones_normalizadas.json into the database.
+Loads designation JSON files into the database.
+
+Supported JSON formats
+----------------------
+1. New format (designacion_new.json) — direct array:
+   [{"docente": ..., "materias": ..., "carga_horaria": ..., "mes": ..., "semana": ...,
+     "horario": "...(raw string)...", "horario_detalle": [{"dia": "Lunes", ...}], ...}]
+
+2. Old format (designaciones_normalizadas.json) — dict with wrapper:
+   {"metadata": {...}, "designaciones": [...old entries...]}
+   Kept for backwards compatibility during transition.
 
 Strategy for teacher CI resolution:
   - Designations don't have CI → create teachers with TEMP-{slug} CI
@@ -14,6 +24,7 @@ import json
 import logging
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +35,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
 from app.models.teacher import Teacher
+from app.utils.helpers import calc_academic_hours, normalize_group_code
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +132,24 @@ class DesignationLoader:
         json_path: str,
     ) -> DesignationLoadResult:
         """
-        Load designations from designaciones_normalizadas.json.
+        Load designations from a JSON file.
+
+        Supports two formats automatically detected at runtime:
+        - New format (designacion_new.json): top-level JSON array
+        - Old format (designaciones_normalizadas.json): dict with "designaciones" key
 
         Steps
         -----
         1. Read and validate JSON file.
-        2. For each designation entry:
+        2. Detect format (array → new, dict → old).
+        3. For each designation entry:
            a. Skip entries without schedule (prácticas clínicas sin docente).
            b. Create or reuse a Teacher row using a TEMP CI derived from the name.
-           c. Create a Designation row with schedule_json.
-        3. Commit the session and return load statistics.
+           c. Transform horario_detalle (new format) into the internal schedule_json
+              format with lowercase days, duracion_minutos, and horas_academicas.
+           d. Normalize group code (e.g. "M-06" → "M-6").
+           e. Create a Designation row with schedule_json.
+        4. Commit the session and return load statistics.
         """
         result = DesignationLoadResult()
         path = Path(json_path)
@@ -138,29 +158,61 @@ class DesignationLoader:
             raise FileNotFoundError(f"JSON file not found: {json_path}")
 
         with path.open(encoding="utf-8") as fh:
-            data: dict[str, Any] = json.load(fh)
+            data = json.load(fh)
 
-        entries: list[dict[str, Any]] = data.get("designaciones", [])
-        logger.info("Read %d designation entries from %s", len(entries), path.name)
+        # ---- Detect format ----
+        if isinstance(data, list):
+            entries: list[dict[str, Any]] = data
+            is_new_format = True
+            logger.info("Detected NEW format (direct array) — %d entries from %s", len(entries), path.name)
+        else:
+            entries = data.get("designaciones", [])
+            is_new_format = False
+            logger.info("Detected OLD format (dict wrapper) — %d entries from %s", len(entries), path.name)
 
         # Cache of name → TEMP CI to avoid repeated DB lookups within this run
         name_to_ci: dict[str, str] = {}
 
         for entry in entries:
             docente_raw = entry.get("docente")
-            horario: list[dict] = entry.get("horario") or []
+
+            if is_new_format:
+                # New format: horario_detalle is the parsed schedule array
+                horario_detalle: list[dict] = entry.get("horario_detalle") or []
+                # Transform to internal format expected by attendance_engine
+                schedule_json = self._transform_horario_detalle(horario_detalle)
+                subject = entry.get("materias", "")
+                semester_hours = entry.get("carga_horaria")
+                monthly_hours = entry.get("mes")
+                weekly_hours = entry.get("semana")
+                schedule_raw = entry.get("horario")  # raw string
+                raw_group = entry.get("grupo", "")
+                # Calculate total weekly academic hours from the transformed slots
+                weekly_hours_calculated = sum(
+                    slot.get("horas_academicas", 0) for slot in schedule_json
+                )
+            else:
+                # Old format: horario is already the parsed schedule array
+                schedule_json = entry.get("horario") or []
+                subject = entry.get("materia", "")
+                semester_hours = entry.get("carga_horaria_semestral")
+                monthly_hours = entry.get("carga_horaria_mensual")
+                weekly_hours = entry.get("carga_horaria_semanal")
+                schedule_raw = entry.get("horario_raw")
+                raw_group = entry.get("grupo", "")
+                weekly_hours_calculated = entry.get("total_horas_academicas_semanal_calculado")
 
             # ---- Skip: no schedule ----
-            if not horario:
+            if not schedule_json:
                 if not docente_raw:
                     # Prácticas clínicas sin docente asignado
                     result.skipped_no_schedule += 1
-                    logger.debug("Skipped entry without docente or schedule: %s", entry.get("materia"))
+                    logger.debug("Skipped entry without docente or schedule: %s", subject)
                 else:
-                    # Docente exists but no schedule slots (skipped_no_time)
+                    # Docente exists but no schedule slots
                     result.skipped_no_time += 1
                     result.warnings.append(
-                        f"Sin horario para docente '{docente_raw}' — materia '{entry.get('materia')}'"
+                        f"Sin horario para docente '{docente_raw}' — materia '{subject}'"
                     )
                 continue
 
@@ -169,8 +221,8 @@ class DesignationLoader:
                 result.skipped_no_schedule += 1
                 logger.debug(
                     "Skipped entry with schedule but no docente: %s %s",
-                    entry.get("materia"),
-                    entry.get("grupo"),
+                    subject,
+                    raw_group,
                 )
                 continue
 
@@ -178,6 +230,9 @@ class DesignationLoader:
             if not docente_name:
                 result.skipped_no_schedule += 1
                 continue
+
+            # ---- Normalize group code (strips leading zeros: M-06 → M-6) ----
+            group_code = normalize_group_code(raw_group) if raw_group else raw_group
 
             # ---- Resolve or create Teacher ----
             teacher_ci = self._get_or_create_teacher(
@@ -187,9 +242,7 @@ class DesignationLoader:
                 result=result,
             )
 
-            subject = entry.get("materia", "")
             semester = entry.get("semestre", "")
-            group_code = entry.get("grupo", "")
 
             # ---- Create or update Designation ----
             designation = (
@@ -209,21 +262,21 @@ class DesignationLoader:
                     subject=subject,
                     semester=semester,
                     group_code=group_code,
-                    schedule_json=horario,
-                    semester_hours=entry.get("carga_horaria_semestral"),
-                    monthly_hours=entry.get("carga_horaria_mensual"),
-                    weekly_hours=entry.get("carga_horaria_semanal"),
-                    weekly_hours_calculated=entry.get("total_horas_academicas_semanal_calculado"),
-                    schedule_raw=entry.get("horario_raw"),
+                    schedule_json=schedule_json,
+                    semester_hours=semester_hours,
+                    monthly_hours=monthly_hours,
+                    weekly_hours=weekly_hours,
+                    weekly_hours_calculated=weekly_hours_calculated,
+                    schedule_raw=schedule_raw,
                 )
                 db.add(designation)
             else:
-                designation.schedule_json = horario
-                designation.semester_hours = entry.get("carga_horaria_semestral")
-                designation.monthly_hours = entry.get("carga_horaria_mensual")
-                designation.weekly_hours = entry.get("carga_horaria_semanal")
-                designation.weekly_hours_calculated = entry.get("total_horas_academicas_semanal_calculado")
-                designation.schedule_raw = entry.get("horario_raw")
+                designation.schedule_json = schedule_json
+                designation.semester_hours = semester_hours
+                designation.monthly_hours = monthly_hours
+                designation.weekly_hours = weekly_hours
+                designation.weekly_hours_calculated = weekly_hours_calculated
+                designation.schedule_raw = schedule_raw
 
             result.designations_loaded += 1
 
@@ -239,6 +292,47 @@ class DesignationLoader:
         )
         return result
 
+    @staticmethod
+    def _transform_horario_detalle(horario_detalle: list[dict]) -> list[dict]:
+        """
+        Transform new-format horario_detalle slots into the internal schedule_json format.
+
+        Input (new format):
+            {"dia": "Lunes", "hora_inicio": "06:30", "hora_fin": "08:00"}
+
+        Output (internal format, as expected by attendance_engine):
+            {"dia": "lunes", "hora_inicio": "06:30", "hora_fin": "08:00",
+             "duracion_minutos": 90, "horas_academicas": 2}
+        """
+        result_slots = []
+        for slot in horario_detalle:
+            dia = (slot.get("dia") or "").lower()
+            hora_inicio = slot.get("hora_inicio", "")
+            hora_fin = slot.get("hora_fin", "")
+
+            # Calculate duration in minutes
+            duracion_minutos = 0
+            try:
+                fmt = "%H:%M"
+                t_inicio = datetime.strptime(hora_inicio, fmt)
+                t_fin = datetime.strptime(hora_fin, fmt)
+                duracion_minutos = int((t_fin - t_inicio).total_seconds() / 60)
+                if duracion_minutos < 0:
+                    duracion_minutos = 0
+            except (ValueError, TypeError):
+                pass
+
+            horas_academicas = calc_academic_hours(duracion_minutos)
+
+            result_slots.append({
+                "dia": dia,
+                "hora_inicio": hora_inicio,
+                "hora_fin": hora_fin,
+                "duracion_minutos": duracion_minutos,
+                "horas_academicas": horas_academicas,
+            })
+        return result_slots
+
     def load_from_excel(
         self,
         db: Session,
@@ -252,7 +346,7 @@ class DesignationLoader:
         """
         excel_p = Path(excel_path)
         # Convention: JSON lives next to the Excel with a fixed name
-        json_path = excel_p.parent / "designaciones_normalizadas.json"
+        json_path = excel_p.parent / "designacion_new.json"
         logger.info(
             "load_from_excel called — delegating to load_from_json (%s)", json_path
         )

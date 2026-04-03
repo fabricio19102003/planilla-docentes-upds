@@ -32,6 +32,7 @@ def seed_core_data(db_session):
             }
         ],
         weekly_hours=2,
+        monthly_hours=8,  # Model C: base pay = 8 × 70 = 560 Bs
     )
     db_session.add(designation)
 
@@ -204,7 +205,7 @@ def test_attendance_endpoints(client, db_session, monkeypatch):
 
     import app.routers.attendance as attendance_router_module
 
-    def fake_process_month(self, db, upload_id, month, year):
+    def fake_process_month(self, db, upload_id, month, year, start_date=None, end_date=None):
         return ProcessResult(
             upload_id=upload_id,
             month=month,

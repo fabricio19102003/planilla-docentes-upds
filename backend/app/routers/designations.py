@@ -77,37 +77,31 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
                 warnings.append(f"Fila {fila}: no se pudo interpretar el horario de '{docente}'")
             continue
 
+        # Transform entries from old internal format to new horario_detalle format
+        horario_detalle = [
+            {
+                "dia": entry["dia"].capitalize(),  # "lunes" → "Lunes"
+                "hora_inicio": entry["hora_inicio"],
+                "hora_fin": entry["hora_fin"],
+            }
+            for entry in entries
+        ]
+
         designaciones.append(
             {
                 "docente": row["docente"],
-                "materia": row["materia"],
+                "materias": row["materia"],
                 "semestre": row["semestre"],
                 "grupo": module.normalize_group(row["grupo"]),
-                "carga_horaria_semestral": row["carga_semestral"],
-                "carga_horaria_mensual": row["carga_mensual"],
-                "carga_horaria_semanal": row["carga_semanal_ex"],
-                "horario": entries,
-                "total_horas_academicas_semanal_calculado": sum(
-                    entry["horas_academicas"] for entry in entries
-                ),
-                "horario_raw": horario,
+                "carga_horaria": row["carga_semestral"],
+                "mes": row["carga_mensual"],
+                "semana": row["carga_semanal_ex"],
+                "horario": horario,
+                "horario_detalle": horario_detalle,
             }
         )
 
-    output = {
-        "metadata": {
-            "source_file": excel_path.name,
-            "generated_at": datetime.now().isoformat(),
-            "total_designaciones": len(rows),
-            "parsed_successfully": len(designaciones),
-            "skipped_no_schedule": skipped_no_schedule,
-            "skipped_no_time": skipped_no_time,
-            "parse_errors": parse_errors,
-        },
-        "designaciones": designaciones,
-        "errores": [],
-        "advertencias": warnings,
-    }
+    output = designaciones  # direct array — new format
 
     json_path = excel_path.with_name(f"{excel_path.stem}_normalizado.json")
     with json_path.open("w", encoding="utf-8") as handle:

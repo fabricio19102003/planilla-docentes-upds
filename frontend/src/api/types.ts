@@ -296,12 +296,16 @@ export interface ProcessAttendancePayload {
   upload_id: number
   month: number
   year: number
+  start_date?: string   // ISO date format "YYYY-MM-DD"
+  end_date?: string     // ISO date format "YYYY-MM-DD"
 }
 
 export interface GeneratePlanillaPayload {
   month: number
   year: number
   payment_overrides: Record<string, number>
+  start_date?: string   // ISO date format "YYYY-MM-DD"
+  end_date?: string     // ISO date format "YYYY-MM-DD"
 }
 
 export interface UploadBiometricPayload {
@@ -314,4 +318,44 @@ export interface UploadBiometricPayload {
 export interface UploadDesignationsPayload {
   file: File
   onProgress?: (progress: number) => void
+}
+
+// ─── Planilla Detail ──────────────────────────────────────────────────────────
+export interface PlanillaDetailRow {
+  teacher_ci: string
+  teacher_name: string
+  subject: string
+  semester: string
+  group_code: string
+  base_monthly_hours: number
+  absent_hours: number
+  payable_hours: number
+  rate_per_hour: number
+  calculated_payment: number
+  has_biometric: boolean
+  late_count: number
+  absent_count: number
+  observations: string[]
+}
+
+export interface PlanillaTeacherTotal {
+  teacher_ci: string
+  teacher_name: string
+  total_base_hours: number
+  total_absent_hours: number
+  total_payable_hours: number
+  total_payment: number
+  designation_count: number
+  has_biometric: boolean
+}
+
+export interface PlanillaDetailResponse {
+  month: number
+  year: number
+  total_teachers: number
+  total_designations: number
+  total_payment: number
+  detail: PlanillaDetailRow[]
+  teacher_totals: PlanillaTeacherTotal[]
+  warnings: string[]
 }

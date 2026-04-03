@@ -4,7 +4,7 @@ import { useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/a
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { BiometricUploadResult, DesignationUploadResponse, BiometricUpload } from '@/api/types'
@@ -102,14 +102,12 @@ export function UploadPage() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biometric Upload */}
-        <Card>
-          <CardHeader>
-            <CardTitle style={{ color: '#003366' }}>Reporte Biométrico</CardTitle>
-            <CardDescription>
-              Subí el archivo .xls exportado del sistema biométrico
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="card-3d overflow-hidden animate-fade-in-up stagger-1">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Reporte Biométrico</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Subí el archivo .xls exportado del sistema biométrico</p>
+          </div>
+          <div className="p-5 space-y-4">
             <FileUploader
               accept=".xls,.xlsx"
               label="Seleccioná el reporte biométrico"
@@ -184,18 +182,16 @@ export function UploadPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Designations Upload */}
-        <Card>
-          <CardHeader>
-            <CardTitle style={{ color: '#003366' }}>Designaciones Docentes</CardTitle>
-            <CardDescription>
-              Subí el archivo de designaciones docentes (JSON o Excel)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="card-3d overflow-hidden animate-fade-in-up stagger-2">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Designaciones Docentes</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Subí el archivo de designaciones docentes (JSON o Excel)</p>
+          </div>
+          <div className="p-5 space-y-4">
             <FileUploader
               accept=".json,.xlsx"
               label="Seleccioná el archivo de designaciones"
@@ -246,16 +242,16 @@ export function UploadPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* Upload History */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ color: '#003366' }}>Historial de Subidas</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-3">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Subidas</h3>
+        </div>
+        <div className="p-5">
           {historyLoading ? (
             <LoadingPage />
           ) : (
@@ -265,8 +261,8 @@ export function UploadPage() {
               emptyMessage="No hay subidas registradas aún"
             />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

@@ -25,7 +25,7 @@ from __future__ import annotations
 import calendar
 import logging
 from dataclasses import dataclass, field
-from datetime import date, time
+from datetime import date, time, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -126,6 +126,8 @@ class AttendanceEngine:
         upload_id: int,
         month: int,
         year: int,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> ProcessResult:
         """
         Process an entire month of attendance.
@@ -134,7 +136,7 @@ class AttendanceEngine:
         -----
         1. Load all BiometricRecord rows for this upload, indexed by (ci, date).
         2. Load all Designation rows from DB, indexed by teacher_ci.
-        3. For each calendar date in the month:
+        3. For each calendar date in the range (configurable or full month):
            a. Determine the day of week.
            b. For each teacher that has at least one class on that day:
               - Retrieve their biometric records for that date.
@@ -142,6 +144,13 @@ class AttendanceEngine:
               - Accumulate SlotResult list.
         4. Bulk-save results to attendance_records table.
         5. Return a ProcessResult with summary statistics.
+
+        Args:
+            start_date: Optional start of the attendance period (inclusive).
+                        If provided with end_date, overrides full-month iteration.
+            end_date:   Optional end of the attendance period (inclusive).
+                        March 2026 exceptional range: date(2026,3,2) – date(2026,3,20).
+                        Normal months: 21st of prev month to 20th of current month.
         """
         summary = ProcessResult(upload_id=upload_id, month=month, year=year)
 
@@ -178,12 +187,34 @@ class AttendanceEngine:
             len(desig_index),
         )
 
-        # ── Step 3: Iterate over every day of the month ─────────────────
-        _, last_day = calendar.monthrange(year, month)
+        # ── Step 3: Build list of dates to process ─────────────────────
+        if start_date is not None and end_date is not None:
+            # Configurable date range (e.g. March 2026: 2–20, normal months: 21 prev–20 curr)
+            dates_to_process: list[date] = []
+            current = start_date
+            while current <= end_date:
+                dates_to_process.append(current)
+                current += timedelta(days=1)
+            logger.info(
+                "process_month: using configurable range %s – %s (%d days)",
+                start_date,
+                end_date,
+                len(dates_to_process),
+            )
+        else:
+            # Default: full calendar month
+            _, last_day = calendar.monthrange(year, month)
+            dates_to_process = [date(year, month, day) for day in range(1, last_day + 1)]
+            logger.info(
+                "process_month: using full calendar month %d/%d (%d days)",
+                month,
+                year,
+                last_day,
+            )
+
         all_results: list[SlotResult] = []
 
-        for day in range(1, last_day + 1):
-            target_date = date(year, month, day)
+        for target_date in dates_to_process:
             weekday_name = WEEKDAY_MAP[target_date.weekday()]
 
             # Collect teachers who have at least one slot on this weekday
@@ -210,7 +241,7 @@ class AttendanceEngine:
         logger.info(
             "process_month: matched %d slot results across %d calendar days",
             len(all_results),
-            last_day,
+            len(dates_to_process),
         )
 
         # ── Step 4: Persist results ────────────────────────────────────

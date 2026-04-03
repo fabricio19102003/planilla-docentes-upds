@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatCard } from '@/components/shared/StatCard'
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { UserPlus, RotateCcw, UserX, UserCheck } from 'lucide-react'
+import {
+  UserPlus,
+  RotateCcw,
+  UserX,
+  UserCheck,
+  Users,
+  Shield,
+  GraduationCap,
+  IdCard,
+  KeyRound,
+  User as UserIcon,
+  Loader2,
+} from 'lucide-react'
 import type { AuthUser, UserCreate } from '@/api/types'
 
 const MONTH_NAMES: Record<number, string> = {
@@ -77,85 +89,125 @@ function CreateUserDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>Nuevo Usuario</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>CI *</Label>
-              <Input
-                value={form.ci}
-                onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
-                placeholder="12345678"
-              />
+      <DialogContent className="max-w-lg p-0 overflow-hidden">
+        {/* Header with gradient */}
+        <div className="gradient-navy px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+              <UserPlus size={20} className="text-white" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Rol *</Label>
-              <Select
-                value={form.role}
-                onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                  <SelectItem value="docente">Docente</SelectItem>
-                </SelectContent>
-              </Select>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Nuevo Usuario</h2>
+              <p className="text-white/60 text-sm">Completá los datos para crear un nuevo usuario</p>
             </div>
           </div>
+        </div>
 
-          <div className="space-y-1.5">
-            <Label>Nombre Completo *</Label>
-            <Input
-              value={form.full_name}
-              onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
-              placeholder="Juan Pérez García"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Email</Label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              placeholder="juan@upds.edu.bo"
-            />
-          </div>
-
-          {form.role === 'docente' && (
-            <div className="space-y-1.5">
-              <Label>Docente vinculado</Label>
-              <Select
-                value={form.teacher_ci ?? ''}
-                onValueChange={(v) => setForm((f) => ({ ...f, teacher_ci: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar docente..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-48">
-                  {teachers?.items?.map((t) => (
-                    <SelectItem key={t.ci} value={t.ci}>
-                      {t.full_name} — {t.ci}
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+          {/* Section 1: Identification */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <IdCard size={14} className="text-gray-400" />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Identificación</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm">CI *</Label>
+                <Input
+                  value={form.ci}
+                  onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
+                  placeholder="12345678"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Rol *</Label>
+                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">
+                      <div className="flex items-center gap-2">
+                        <Shield size={14} className="text-blue-600" />
+                        Administrador
+                      </div>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    <SelectItem value="docente">
+                      <div className="flex items-center gap-2">
+                        <GraduationCap size={14} className="text-green-600" />
+                        Docente
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          )}
+          </div>
 
-          <div className="space-y-1.5">
-            <Label>Contraseña *</Label>
-            <Input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              placeholder="••••••••"
-            />
+          {/* Section 2: Personal info */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <UserIcon size={14} className="text-gray-400" />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Datos Personales</p>
+            </div>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm">Nombre Completo *</Label>
+                <Input
+                  value={form.full_name}
+                  onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+                  placeholder="Juan Pérez García"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Email</Label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="juan@upds.edu.bo"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Access */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <KeyRound size={14} className="text-gray-400" />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Acceso</p>
+            </div>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm">Contraseña *</Label>
+                <Input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="••••••••"
+                />
+              </div>
+              {form.role === 'docente' && (
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Docente vinculado</Label>
+                  <Select
+                    value={form.teacher_ci ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, teacher_ci: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar docente..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {teachers?.items?.map((t) => (
+                        <SelectItem key={t.ci} value={t.ci}>
+                          {t.full_name} — {t.ci}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
           </div>
 
           {error && (
@@ -164,7 +216,7 @@ function CreateUserDialog({
             </p>
           )}
 
-          <DialogFooter>
+          <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
@@ -172,10 +224,21 @@ function CreateUserDialog({
               type="submit"
               disabled={createUser.isPending}
               style={{ backgroundColor: '#003366' }}
+              className="text-white"
             >
-              {createUser.isPending ? 'Creando...' : 'Crear Usuario'}
+              {createUser.isPending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                  Creando...
+                </>
+              ) : (
+                <>
+                  <UserPlus size={16} className="mr-2" />
+                  Crear Usuario
+                </>
+              )}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -313,34 +376,31 @@ export function UsersPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Total', value: users?.length ?? 0, color: '#003366' },
-          { label: 'Administradores', value: users?.filter((u) => u.role === 'admin').length ?? 0, color: '#1d4ed8' },
-          { label: 'Docentes', value: users?.filter((u) => u.role === 'docente').length ?? 0, color: '#15803d' },
-          { label: 'Activos', value: users?.filter((u) => u.is_active).length ?? 0, color: '#0066CC' },
-        ].map((s) => (
-          <Card key={s.label} className={`border-l-4`} style={{ borderLeftColor: s.color }}>
-            <CardContent className="py-3 px-4">
-              <p className="text-2xl font-bold text-gray-800">{s.value}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="animate-fade-in-up stagger-1">
+          <StatCard icon={Users} title="Total" value={users?.length ?? 0} subtitle="Usuarios registrados" color="#003366" />
+        </div>
+        <div className="animate-fade-in-up stagger-2">
+          <StatCard icon={Shield} title="Administradores" value={users?.filter(u => u.role === 'admin').length ?? 0} subtitle="Rol administrativo" color="#1d4ed8" />
+        </div>
+        <div className="animate-fade-in-up stagger-3">
+          <StatCard icon={GraduationCap} title="Docentes" value={users?.filter(u => u.role === 'docente').length ?? 0} subtitle="Rol docente" color="#15803d" />
+        </div>
+        <div className="animate-fade-in-up stagger-4">
+          <StatCard icon={UserCheck} title="Activos" value={users?.filter(u => u.is_active).length ?? 0} subtitle="Usuarios activos" color="#0066CC" />
+        </div>
       </div>
 
       {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-            Lista de Usuarios
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-5">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Usuarios</h3>
+        </div>
+        <div className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr style={{ backgroundColor: '#003366' }}>
+                <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
                   {['Nombre', 'CI', 'Rol', 'Vinculado a', 'Estado', 'Último Login', 'Acciones'].map((h) => (
                     <th
                       key={h}
@@ -424,8 +484,8 @@ export function UsersPage() {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Dialogs */}
       <CreateUserDialog open={createOpen} onClose={() => setCreateOpen(false)} />

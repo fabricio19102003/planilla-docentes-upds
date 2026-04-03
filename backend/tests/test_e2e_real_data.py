@@ -28,7 +28,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 # ── Paths ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = BACKEND_DIR.parent
 BIOMETRIC_FILE = PROJECT_ROOT / "reporte biometrico marzo_docentes.xls"
-DESIGNATIONS_FILE = PROJECT_ROOT / "designaciones_normalizadas.json"
+DESIGNATIONS_FILE = PROJECT_ROOT / "designacion_new.json"
 OUTPUT_DIR = BACKEND_DIR / "data" / "output"
 OUTPUT_FILE = OUTPUT_DIR / "planilla_marzo_2026.xlsx"
 
@@ -496,6 +496,8 @@ def step8_test_api():
         from fastapi.testclient import TestClient
         from app.main import app
         from app.models.teacher import Teacher
+        from app.models.user import User
+        from app.services.auth_service import auth_service
 
         # Get a real CI for parameterized tests
         db = get_real_db_session()
@@ -506,16 +508,41 @@ def step8_test_api():
                 .first()
             )
             sample_ci = sample_teacher.ci if sample_teacher else None
+
+            # Ensure a test admin user exists and get a token
+            admin_user = db.query(User).filter(User.ci == "admin").first()
+            if admin_user is None:
+                # Create default admin if not present
+                auth_service.create_default_admin(db)
+                admin_user = db.query(User).filter(User.ci == "admin").first()
+
+            if admin_user is None:
+                # Fallback: create a fresh test admin
+                admin_user = User(
+                    ci="E2E_TEST_ADMIN",
+                    full_name="E2E Test Admin",
+                    password_hash=auth_service.hash_password("testpass123"),
+                    role="admin",
+                    is_active=True,
+                )
+                db.add(admin_user)
+                db.commit()
+                db.refresh(admin_user)
+
+            admin_token = auth_service.create_access_token(
+                data={"sub": str(admin_user.id), "role": "admin"}
+            )
         finally:
             db.close()
 
+        auth_headers = {"Authorization": f"Bearer {admin_token}"}
         client = TestClient(app, raise_server_exceptions=False)
 
         endpoint_results = []
 
         def check(method, url, expected_status=200, label=None):
             t0 = time.perf_counter()
-            resp = getattr(client, method)(url)
+            resp = getattr(client, method)(url, headers=auth_headers)
             elapsed = time.perf_counter() - t0
             ok = resp.status_code == expected_status
             status_str = "✅" if ok else "❌"

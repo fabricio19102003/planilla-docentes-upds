@@ -4,7 +4,7 @@ import { Search, Users } from 'lucide-react'
 import { useTeachers } from '@/api/hooks/useTeachers'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 import type { Teacher } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
@@ -76,8 +76,8 @@ export function TeachersPage() {
   return (
     <div className="space-y-6">
       {/* Search */}
-      <Card>
-        <CardContent className="py-4">
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+        <div className="py-4 px-5">
           <div className="relative max-w-md">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -85,25 +85,23 @@ export function TeachersPage() {
               placeholder="Buscar por nombre o C.I."
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-shadow bg-gray-50/50"
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle style={{ color: '#003366' }}>Listado de Docentes</CardTitle>
-            {data && (
-              <span className="text-sm text-gray-500">
-                {data.total} docente{data.total !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Listado de Docentes</h3>
+          {data && (
+            <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full font-medium">
+              {data.total} docente{data.total !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <div className="p-5">
           {isLoading ? (
             <LoadingPage />
           ) : !data?.items.length ? (
@@ -125,8 +123,8 @@ export function TeachersPage() {
               emptyMessage="No se encontraron docentes"
             />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

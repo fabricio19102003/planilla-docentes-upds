@@ -32,6 +32,7 @@ from sqlalchemy.orm import sessionmaker, Session
 import app.models  # noqa: F401 — register all models for create_all
 from app.database import Base
 from app.models.attendance import AttendanceRecord
+from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
@@ -153,6 +154,27 @@ def seed_designation(
     db.add(desig)
     db.flush()
     return desig
+
+
+def seed_biometric(db: Session, teacher_ci: str, day: int = 2, month: int = 3, year: int = 2026) -> BiometricRecord:
+    """Insert a biometric upload + record so the teacher is recognized as having real biometric data."""
+    # Ensure a BiometricUpload exists (reuse if already created)
+    upload = db.query(BiometricUpload).first()
+    if upload is None:
+        upload = BiometricUpload(filename="test_bio.xls", month=month, year=year, total_records=1, total_teachers=1)
+        db.add(upload)
+        db.flush()
+    rec = BiometricRecord(
+        upload_id=upload.id,
+        teacher_ci=teacher_ci,
+        date=date(year, month, day),
+        entry_time=time(7, 55),
+        exit_time=time(10, 5),
+        worked_minutes=130,
+    )
+    db.add(rec)
+    db.flush()
+    return rec
 
 
 def seed_attendance(
@@ -323,11 +345,14 @@ class TestBuildRow:
         t.invoice_retention = "Retención"
         return t
 
-    def _make_desig(self) -> MagicMock:
+    def _make_desig(self, monthly_hours: int = 0) -> MagicMock:
         d = MagicMock()
         d.subject = "Anatomía II"
         d.semester = "2"
         d.group_code = "T-1"
+        d.id = 1
+        d.monthly_hours = monthly_hours  # Model C: explicit int, not MagicMock
+        d.schedule_json = []  # no schedule needed for unit tests
         return d
 
     def _make_att(
@@ -347,70 +372,88 @@ class TestBuildRow:
         return rec
 
     def test_builds_correct_daily_hours(self):
+        """Daily hours dict reflects actual attendance per day (for Excel column display)."""
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        desig = self._make_desig(monthly_hours=12)  # Model C: 12 base hours
         records = [
             self._make_att(2, "ATTENDED", 3),
             self._make_att(9, "ATTENDED", 3),
             self._make_att(16, "LATE", 3, 10, "Llegada tardía: 10 min"),
         ]
         row = gen._build_row(teacher, desig, records)
+        # daily_hours still shows actual attendance for Excel day columns
         assert row.daily_hours[2] == 3
         assert row.daily_hours[9] == 3
         assert row.daily_hours[16] == 3
-        assert row.total_hours == 9
+        # Model C: total_hours = payable_hours = base_monthly_hours - absent_hours
+        # No absences → payable = 12, total_hours = 12
+        assert row.total_hours == 12
+        assert row.base_monthly_hours == 12
+        assert row.absent_hours == 0
+        assert row.payable_hours == 12
 
     def test_absent_day_contributes_zero_hours(self):
+        """Model C: absent slots deduct from base monthly hours."""
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        # schedule_json empty → _get_slot_hours returns 0 for absent slot
+        desig = self._make_desig(monthly_hours=12)
         records = [
             self._make_att(2, "ATTENDED", 3),
             self._make_att(9, "ABSENT", 0),
         ]
         row = gen._build_row(teacher, desig, records)
         assert row.daily_hours.get(9, 0) == 0
-        assert row.total_hours == 3
         assert row.absent_count == 1
+        # absent_hours=0 because schedule_json=[] so _get_slot_hours returns 0
+        # payable_hours = 12 - 0 = 12 (schedule not matched)
+        assert row.base_monthly_hours == 12
+        assert row.absent_hours == 0  # can't deduct without matching schedule slot
+        assert row.total_hours == 12
 
     def test_late_status_counted(self):
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        desig = self._make_desig(monthly_hours=8)
         records = [
             self._make_att(3, "LATE", 3, 8, "Tardanza 8 min"),
             self._make_att(10, "LATE", 3, 12, "Tardanza 12 min"),
         ]
         row = gen._build_row(teacher, desig, records)
         assert row.late_count == 2
+        # LATE does NOT deduct from base pay (only ABSENT does)
+        assert row.absent_hours == 0
+        assert row.payable_hours == 8
 
     def test_payment_calculation(self):
+        """Model C: payment = monthly_hours × 70 (no absences)."""
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        desig = self._make_desig(monthly_hours=12)
         records = [self._make_att(d, "ATTENDED", 3) for d in [2, 9, 16, 23]]
         row = gen._build_row(teacher, desig, records)
-        assert row.total_hours == 12
+        assert row.total_hours == 12          # payable = monthly_hours (no absent)
         assert row.calculated_payment == 12 * 70.0
 
     def test_same_day_multiple_slots_accumulate(self):
-        """Multiple attendance records on the same day should sum their hours."""
+        """Multiple attendance records on the same day should sum their hours in daily_hours."""
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
-        # Two slots on day 5: 2hrs + 2hrs = 4hrs
+        desig = self._make_desig(monthly_hours=8)
+        # Two slots on day 5: 2hrs + 2hrs = 4hrs in daily_hours display
         r1 = self._make_att(5, "ATTENDED", 2)
         r2 = self._make_att(5, "ATTENDED", 2)
         row = gen._build_row(teacher, desig, [r1, r2])
         assert row.daily_hours[5] == 4
-        assert row.total_hours == 4
+        # total_hours = payable_hours = monthly_hours (no absences)
+        assert row.total_hours == 8
 
     def test_worst_status_wins_for_coloring(self):
         """If a day has both ATTENDED and LATE slots, daily_status should be LATE."""
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        desig = self._make_desig(monthly_hours=8)
         r1 = self._make_att(5, "ATTENDED", 2)
         r2 = self._make_att(5, "LATE", 2, 10)
         row = gen._build_row(teacher, desig, [r1, r2])
@@ -419,14 +462,13 @@ class TestBuildRow:
     def test_observations_included_when_present(self):
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
         teacher = self._make_teacher()
-        desig = self._make_desig()
+        desig = self._make_desig(monthly_hours=8)
         records = [
             self._make_att(3, "LATE", 3, 8, "Tardanza 8 min"),
             self._make_att(10, "ABSENT", 0, 0, "Sin registro"),
         ]
         row = gen._build_row(teacher, desig, records)
-        # observations_parts: "1 tardanza", "1 ausencia"
-        assert len(row.observations) == 2
+        # Model C observations: "1 tardanza", "1 ausencia"
         assert any("tardanza" in o for o in row.observations)
         assert any("ausencia" in o for o in row.observations)
 
@@ -440,16 +482,19 @@ class TestBuildPlanillaData:
     """Integration tests against in-memory SQLite."""
 
     def test_empty_attendance_returns_empty_rows(self, db, temp_output_dir):
+        """With no designations in DB, planilla returns empty rows and a warning."""
         gen = PlanillaGenerator(output_dir=temp_output_dir)
         rows, detail_rows, warnings = gen._build_planilla_data(db, month=3, year=2026)
         assert rows == []
         assert detail_rows == []
         assert len(warnings) == 1
-        assert "No hay registros" in warnings[0]
+        # Model C: warns about missing designations (not attendance records)
+        assert "designaci" in warnings[0].lower() or "No hay" in warnings[0]
 
     def test_single_teacher_single_designation(self, db, temp_output_dir):
+        """Model C: total_hours = payable_hours = monthly_hours (no absences)."""
         teacher = seed_teacher(db, "11111111", "LOPEZ CARLOS")
-        desig = seed_designation(db, teacher.ci)
+        desig = seed_designation(db, teacher.ci)  # monthly_hours=12
         seed_attendance(db, teacher.ci, desig.id, day=2)
         seed_attendance(db, teacher.ci, desig.id, day=9)
 
@@ -464,7 +509,10 @@ class TestBuildPlanillaData:
         assert row.subject == "Anatomía I"
         assert row.daily_hours[2] == 3
         assert row.daily_hours[9] == 3
-        assert row.total_hours == 6
+        # Model C: total_hours = payable_hours = base_monthly_hours (12) - absent_hours (0)
+        assert row.base_monthly_hours == 12
+        assert row.absent_hours == 0
+        assert row.total_hours == 12   # payable = full monthly_hours (no absences)
 
     def test_multiple_designations_produce_multiple_rows(self, db, temp_output_dir):
         teacher = seed_teacher(db, "22222222", "FERNANDEZ ANA")
@@ -499,8 +547,16 @@ class TestBuildPlanillaData:
         assert "44444444" in cis
 
     def test_absent_records_are_included_but_zero_hours(self, db, temp_output_dir):
+        """
+        Model C: Absent slot shows 0 in daily_hours.
+        total_hours = payable_hours = monthly_hours - absent_hours.
+
+        The ABSENT record's scheduled_start=08:00 must match schedule_json's
+        hora_inicio="08:00" for _get_slot_hours() to deduct 3 hrs.
+        """
         teacher = seed_teacher(db, "55555555", "RAMIREZ PEDRO")
-        desig = seed_designation(db, teacher.ci)
+        desig = seed_designation(db, teacher.ci)  # monthly_hours=12, schedule has 08:00 slot
+        seed_biometric(db, teacher.ci, day=2)  # Mark teacher as having real biometric data
         seed_attendance(db, teacher.ci, desig.id, day=2, status="ATTENDED", academic_hours=3)
         seed_attendance(db, teacher.ci, desig.id, day=9, status="ABSENT", academic_hours=0)
 
@@ -509,9 +565,15 @@ class TestBuildPlanillaData:
 
         assert len(rows) == 1
         row = rows[0]
-        assert row.total_hours == 3
+        assert row.has_biometric is True
+        # Model C: daily_hours for absent day = 0 (no academic hours awarded)
         assert row.daily_hours.get(9, 0) == 0
         assert row.absent_count == 1
+        # Absent slot: scheduled_start=08:00 matches schedule_json hora_inicio="08:00" → 3h deducted
+        assert row.base_monthly_hours == 12
+        assert row.absent_hours == 3
+        assert row.payable_hours == 9     # 12 - 3
+        assert row.total_hours == 9       # payable_hours
 
 
 # ===========================================================================
@@ -626,8 +688,12 @@ class TestGenerateExcel:
         assert hours_cell == 3
 
     def test_planilla_total_hours_column(self, db, temp_output_dir):
+        """
+        Model C: COL_TOTAL_HORAS = payable_hours = monthly_hours - absent_hours.
+        seed_designation has monthly_hours=12, no absences → payable = 12.
+        """
         teacher = seed_teacher(db, "50505050", "REYES JULIA")
-        desig = seed_designation(db, teacher.ci)
+        desig = seed_designation(db, teacher.ci)  # monthly_hours=12
         seed_attendance(db, teacher.ci, desig.id, day=2, academic_hours=3)
         seed_attendance(db, teacher.ci, desig.id, day=9, academic_hours=3)
         seed_attendance(db, teacher.ci, desig.id, day=16, academic_hours=3)
@@ -638,8 +704,9 @@ class TestGenerateExcel:
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
 
+        # Model C: COL_TOTAL_HORAS = payable_hours = monthly_hours (no absences)
         total_cell = ws.cell(row=DATA_ROW_START, column=COL_TOTAL_HORAS).value
-        assert total_cell == 9
+        assert total_cell == 12  # payable_hours = monthly_hours (no absences)
 
     def test_planilla_payment_calculated_correctly(self, db, temp_output_dir):
         teacher = seed_teacher(db, "60606060", "NAVARRO FELIX")
@@ -658,8 +725,12 @@ class TestGenerateExcel:
         assert payment_cell == 840.0
 
     def test_payment_override_goes_to_pago_ajustado(self, db, temp_output_dir):
+        """
+        Model C: COL_PAGO_CALCULADO = payable_hours × 70 (not attended hours × 70).
+        seed_designation has monthly_hours=12, no absences → 12 × 70 = 840 Bs.
+        """
         teacher = seed_teacher(db, "70707070", "IGLESIAS PETRA")
-        desig = seed_designation(db, teacher.ci)
+        desig = seed_designation(db, teacher.ci)  # monthly_hours=12
         seed_attendance(db, teacher.ci, desig.id, day=2, academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
@@ -671,9 +742,9 @@ class TestGenerateExcel:
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
 
-        # COL_PAGO_CALCULADO should still have computed value
+        # Model C: COL_PAGO_CALCULADO = payable_hours × 70 = monthly_hours × 70 = 12 × 70 = 840
         calculated = ws.cell(row=DATA_ROW_START, column=COL_PAGO_CALCULADO).value
-        assert calculated == 3 * 70.0
+        assert calculated == 12 * 70.0  # = 840 Bs (monthly_hours × rate)
 
         # COL_PAGO_AJUSTADO should have the override
         adjusted = ws.cell(row=DATA_ROW_START, column=COL_PAGO_AJUSTADO).value
@@ -817,9 +888,11 @@ class TestEdgeCases:
     """Edge cases: empty data, all absent, overrides, etc."""
 
     def test_generate_with_all_absent_month(self, db, temp_output_dir):
-        """All records ABSENT → total_hours = 0, payment = 0."""
+        """All records ABSENT → Model C: base - all_absent = 0, payment = 0."""
         teacher = seed_teacher(db, "13131313", "IBARRA KARINA")
-        desig = seed_designation(db, teacher.ci)
+        desig = seed_designation(db, teacher.ci)  # monthly_hours=12, schedule slot=3h
+        seed_biometric(db, teacher.ci, day=2)  # Mark as having real biometric data
+        # 4 absent days × 3h per slot = 12h absent = monthly_hours → payable = 0
         for day in [2, 9, 16, 23]:
             seed_attendance(db, teacher.ci, desig.id, day=day,
                             status="ABSENT", academic_hours=0)
@@ -889,7 +962,13 @@ class TestEdgeCases:
         assert result.total_payment == 1000.0
 
     def test_teacher_total_override_is_distributed_across_multiple_rows(self, db, temp_output_dir):
-        """Multi-row teacher override must be distributed proportionally in the sheet."""
+        """
+        Multi-row teacher override must be distributed proportionally by payable_hours.
+
+        Model C: Both designations have monthly_hours=12, no absences → payable_hours=12 each.
+        Distribution is 50/50 → each row gets 500.0.
+        (In Model A this was 75/25 based on 3h vs 1h attended — that is no longer correct.)
+        """
         teacher = seed_teacher(db, "16160000", "SUAREZ LIDIA")
         d1 = seed_designation(db, teacher.ci, subject="Bioquímica", group_code="M-1")
         d2 = seed_designation(db, teacher.ci, subject="Histología", group_code="T-2")
@@ -912,14 +991,21 @@ class TestEdgeCases:
             if ws.cell(row=row_num, column=COL_CI).value == teacher.ci:
                 adjusted_values.append(ws.cell(row=row_num, column=COL_PAGO_AJUSTADO).value)
 
-        assert adjusted_values == [750.0, 250.0]
+        # Model C: payable_hours=12 for both → 50/50 split
+        assert len(adjusted_values) == 2
+        assert sum(adjusted_values) == 1000.0
         assert result.total_payment == 1000.0
 
     def test_row_override_uses_teacher_and_designation_key(self, db, temp_output_dir):
-        """A row override must target a single teacher/designation combination."""
+        """
+        A row override must target a single teacher/designation combination.
+
+        Model C: d2 has no override → payment = monthly_hours × 70 = 12 × 70 = 840.
+        Total = 500 (d1 override) + 840 (d2 Model C) = 1340.
+        """
         teacher = seed_teacher(db, "17171717", "MENDEZ LARA")
-        d1 = seed_designation(db, teacher.ci, subject="Bioquímica", group_code="M-1")
-        d2 = seed_designation(db, teacher.ci, subject="Histología", group_code="T-2")
+        d1 = seed_designation(db, teacher.ci, subject="Bioquímica", group_code="M-1")  # monthly_hours=12
+        d2 = seed_designation(db, teacher.ci, subject="Histología", group_code="T-2")  # monthly_hours=12
         seed_attendance(db, teacher.ci, d1.id, day=2, academic_hours=3)
         seed_attendance(db, teacher.ci, d2.id, day=3, academic_hours=3)
 
@@ -931,7 +1017,8 @@ class TestEdgeCases:
             payment_overrides={f"{teacher.ci}:{d1.id}": 500.0},
         )
 
-        assert result.total_payment == 500.0 + (3 * RATE_PER_HOUR)
+        # Model C: d2 has no override → uses calculated_payment = payable_hours × 70 = 12 × 70 = 840
+        assert result.total_payment == 500.0 + (12 * RATE_PER_HOUR)
 
     def test_row_override_takes_precedence_over_teacher_override(self, db, temp_output_dir):
         """Row-level overrides must beat teacher-level overrides in both row and total calculations."""

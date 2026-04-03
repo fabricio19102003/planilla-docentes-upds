@@ -5,7 +5,7 @@ Two test layers:
   1. Unit tests  — pure Python, no DB (test helpers and data structures)
   2. Integration tests — real SQLite in-memory DB (no PostgreSQL needed)
 
-Integration tests load the REAL designaciones_normalizadas.json so they
+Integration tests load the REAL designacion_new.json so they
 also serve as acceptance tests for T-005.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ from app.services.designation_loader import (
 # Resolve path to the real JSON regardless of where pytest is invoked from
 _HERE = Path(__file__).parent
 _REPO_ROOT = _HERE.parent.parent  # backend/tests → backend → repo root
-REAL_JSON = _REPO_ROOT / "designaciones_normalizadas.json"
+REAL_JSON = _REPO_ROOT / "designacion_new.json"
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +177,13 @@ class TestLoadFromJson:
 
     def test_designations_count(self, loader, db):
         """
-        The JSON contains 399 'parsed_successfully' entries.
+        designacion_new.json contains 400 entries.
         Of those, 2 have docente=null (with schedule) → skipped by loader.
-        Expected: 397 designations loaded.
+        Expected: 398 designations loaded.
         """
         result = loader.load_from_json(db, str(REAL_JSON))
-        assert result.designations_loaded == 397, (
-            f"Expected 397 designations (399 in JSON minus 2 null-docente), got {result.designations_loaded}"
+        assert result.designations_loaded == 398, (
+            f"Expected 398 designations (400 in JSON minus 2 null-docente), got {result.designations_loaded}"
         )
 
     def test_skipped_no_schedule(self, loader, db):
@@ -207,8 +207,8 @@ class TestLoadFromJson:
         assert 125 <= result.teachers_created <= 135, (
             f"Expected ~130 unique teachers, got {result.teachers_created}"
         )
-        # reused + created = total designation assignments = 397
-        assert result.teachers_created + result.teachers_reused == 397, (
+        # reused + created = total designation assignments = 398
+        assert result.teachers_created + result.teachers_reused == 398, (
             "teachers_created + teachers_reused must equal total designations loaded"
         )
 

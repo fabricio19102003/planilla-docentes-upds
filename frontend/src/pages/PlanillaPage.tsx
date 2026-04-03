@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle } from 'lucide-react'
-import { useGeneratePlanilla, usePlanillaHistory } from '@/api/hooks/usePlanilla'
+import { useState, useEffect } from 'react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search } from 'lucide-react'
+import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail } from '@/api/hooks/usePlanilla'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { PlanillaGenerateResponse, PlanillaOutput } from '@/api/types'
@@ -62,14 +62,13 @@ const historyColumns: Column<PlanillaOutput>[] = [
     header: 'Descargar',
     render: (item) =>
       item.file_path ? (
-        <a
-          href={`/api/planilla/${item.id}/download`}
+        <button
+          onClick={(e) => { e.stopPropagation(); void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`) }}
           className="inline-flex items-center gap-1 text-[#0066CC] hover:underline text-sm font-medium"
-          onClick={(e) => e.stopPropagation()}
         >
           <Download size={14} />
           Excel
-        </a>
+        </button>
       ) : (
         <span className="text-gray-400 text-sm">No disponible</span>
       ),
@@ -83,14 +82,38 @@ export function PlanillaPage() {
   const [month, setMonth] = useState<number>(currentMonth)
   const [year, setYear] = useState<number>(currentYear)
   const [lastResult, setLastResult] = useState<PlanillaGenerateResponse | null>(null)
+  const [startDate, setStartDate] = useState<string>('')
+  const [endDate, setEndDate] = useState<string>('')
+  const [showDetail] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
+
+  useEffect(() => {
+    if (month === 3 && year === 2026) {
+      setStartDate('2026-03-02')
+      setEndDate('2026-03-20')
+    } else {
+      const prevMonth = month === 1 ? 12 : month - 1
+      const prevYear = month === 1 ? year - 1 : year
+      setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
+      setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
+    }
+  }, [month, year])
 
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
+  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail)
 
   const handleGenerate = () => {
     setLastResult(null)
     generatePlanilla.mutate(
-      { month, year, payment_overrides: {} },
+      {
+        month,
+        year,
+        payment_overrides: {},
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      },
       {
         onSuccess: (data) => setLastResult(data),
       },
@@ -100,14 +123,12 @@ export function PlanillaPage() {
   return (
     <div className="space-y-6">
       {/* Generator Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ color: '#003366' }}>Generar Planilla de Pagos</CardTitle>
-          <CardDescription>
-            Seleccioná el período y generá la planilla de haberes docentes
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+        <div className="px-6 py-5 border-b border-gray-100">
+          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Generar Planilla de Pagos</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Seleccioná el período y generá la planilla de haberes docentes</p>
+        </div>
+        <div className="px-6 py-5">
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Mes</label>
@@ -154,6 +175,33 @@ export function PlanillaPage() {
             </Button>
           </div>
 
+          <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
+            <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
+            <div className="flex items-end gap-4 flex-wrap">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha inicio</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha fin</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <p className="text-xs text-gray-400 self-center">
+                Estándar: del 21 del mes anterior al 20 del mes actual
+              </p>
+            </div>
+          </div>
+
           {generatePlanilla.isError && (
             <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-sm text-red-600">
@@ -161,13 +209,16 @@ export function PlanillaPage() {
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Result Card */}
       {lastResult && (
-        <Card className="border-l-4" style={{ borderLeftColor: '#16a34a' }}>
-          <CardContent className="py-5">
+        <div
+          className="card-3d-static overflow-hidden border-l-4 animate-fade-in-up"
+          style={{ borderLeftColor: '#16a34a' }}
+        >
+          <div className="py-5 px-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
                 <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-0.5" />
@@ -189,27 +240,224 @@ export function PlanillaPage() {
                 </div>
               </div>
               {lastResult.file_path && (
-                <a href={`/api/planilla/${lastResult.planilla_id}/download`}>
-                  <Button
-                    variant="outline"
-                    className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
-                  >
-                    <Download size={16} />
-                    Descargar Excel
-                  </Button>
-                </a>
+                <Button
+                  variant="outline"
+                  className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
+                  onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
+                >
+                  <Download size={16} />
+                  Descargar Excel
+                </Button>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
+      {/* Planilla Detail Section — ALWAYS visible */}
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+        {/* Header */}
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-100">
+          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
+            <Users size={16} className="text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              Detalle por Docente
+            </h3>
+            <p className="text-xs text-gray-500">
+              {detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+            </p>
+          </div>
+        </div>
+
+        {/* Detail content */}
+        <div className="p-5">
+          {detailLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 size={24} className="animate-spin text-[#003366]" />
+            </div>
+          ) : detail ? (
+            <div className="space-y-4">
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_teachers}</p>
+                  <p className="text-xs text-gray-500">Docentes</p>
+                </div>
+                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_designations}</p>
+                  <p className="text-xs text-gray-500">Designaciones</p>
+                </div>
+                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>Bs {detail.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-gray-500">Total a Pagar</p>
+                </div>
+              </div>
+
+              {/* Tabs + Search row */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                  <button
+                    onClick={() => setDetailTab('teachers')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      detailTab === 'teachers' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Por Docente
+                  </button>
+                  <button
+                    onClick={() => setDetailTab('designations')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      detailTab === 'designations' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Por Designación
+                  </button>
+                </div>
+
+                {/* Search */}
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar docente por nombre o CI..."
+                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent bg-gray-50/50"
+                  />
+                </div>
+              </div>
+
+              {/* Tab: Por Docente */}
+              {detailTab === 'teachers' && (
+                <div className="space-y-3">
+                  {detail.teacher_totals
+                    .filter(t => {
+                      if (!searchTerm) return true
+                      const term = searchTerm.toLowerCase()
+                      return t.teacher_name.toLowerCase().includes(term) || t.teacher_ci.includes(term)
+                    })
+                    .sort((a, b) => b.total_payment - a.total_payment)
+                    .map(teacher => (
+                      <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
+                        {/* Teacher header */}
+                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full gradient-stat-navy flex items-center justify-center">
+                              <span className="text-white text-sm font-bold">{teacher.teacher_name.charAt(0)}</span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-800 text-sm">{teacher.teacher_name}</p>
+                              <p className="text-xs text-gray-500">CI: {teacher.teacher_ci} · {teacher.designation_count} materia(s)</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold" style={{ color: '#003366' }}>
+                              Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {teacher.total_payable_hours}h de {teacher.total_base_hours}h
+                              {!teacher.has_biometric && (
+                                <span className="ml-1 text-yellow-600 font-medium">· Sin Bio</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Teacher designations */}
+                        <div className="divide-y divide-gray-100">
+                          {detail.detail
+                            .filter(d => d.teacher_ci === teacher.teacher_ci)
+                            .map(d => (
+                              <div key={`${d.subject}-${d.group_code}`} className="flex items-center justify-between px-4 py-2 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-gray-700">{d.subject}</span>
+                                  <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                                  <span className="text-gray-400 text-xs">{d.semester}</span>
+                                </div>
+                                <div className="flex items-center gap-4 text-xs">
+                                  <span className="text-gray-500">{d.base_monthly_hours}h base</span>
+                                  {d.absent_hours > 0 && <span className="text-red-500">-{d.absent_hours}h</span>}
+                                  <span className="font-semibold text-gray-800">{d.payable_hours}h</span>
+                                  <span className="font-bold min-w-[80px] text-right" style={{ color: '#003366' }}>
+                                    Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
+
+              {/* Tab: Por Designación */}
+              {detailTab === 'designations' && (
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
+                        {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs a Pagar', 'Monto (Bs)', 'Estado'].map(h => (
+                          <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.detail
+                        .filter(row => {
+                          if (!searchTerm) return true
+                          const term = searchTerm.toLowerCase()
+                          return row.teacher_name.toLowerCase().includes(term) || row.teacher_ci.includes(term)
+                        })
+                        .map((row, i) => (
+                          <tr key={`${row.teacher_ci}-${row.subject}-${row.group_code}`} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                            <td className="px-3 py-2.5 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
+                            <td className="px-3 py-2.5 text-gray-700 max-w-[180px] truncate">{row.subject}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{row.group_code}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{row.semester}</td>
+                            <td className="px-3 py-2.5 text-gray-700 font-medium">{row.base_monthly_hours}h</td>
+                            <td className="px-3 py-2.5">
+                              {row.absent_hours > 0 ? (
+                                <span className="text-red-600 font-medium">-{row.absent_hours}h</span>
+                              ) : (
+                                <span className="text-green-600">0h</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-800 font-semibold">{row.payable_hours}h</td>
+                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>{row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2.5">
+                              {!row.has_biometric ? (
+                                <Badge className="bg-yellow-100 text-yellow-700 text-xs">Sin Bio</Badge>
+                              ) : row.absent_count > 0 ? (
+                                <Badge className="bg-red-100 text-red-700 text-xs">{row.absent_count} falta(s)</Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-700 text-xs">Completo</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              No hay datos para {MONTH_NAMES[month]} {year}. Generá la planilla para ver el detalle.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* History */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ color: '#003366' }}>Historial de Planillas</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
+        </div>
+        <div className="p-5">
           {historyLoading ? (
             <LoadingPage />
           ) : (
@@ -219,8 +467,8 @@ export function PlanillaPage() {
               emptyMessage="No hay planillas generadas aún"
             />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

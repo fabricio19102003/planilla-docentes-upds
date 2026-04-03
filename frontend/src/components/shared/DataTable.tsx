@@ -41,15 +41,17 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+    <div className="card-3d-static overflow-hidden">
       <Table>
         <TableHeader>
-          <TableRow className="border-0">
+          <TableRow
+            className="border-0"
+            style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}
+          >
             {columns.map((col) => (
               <TableHead
                 key={String(col.key)}
                 className="text-white font-semibold text-xs uppercase tracking-wider h-10 px-4"
-                style={{ backgroundColor: '#003366' }}
               >
                 {col.header}
               </TableHead>
@@ -71,8 +73,8 @@ export function DataTable<T>({
               <TableRow
                 key={rowIndex}
                 className={[
-                  'transition-colors hover:bg-blue-50 cursor-default',
-                  rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white',
+                  'transition-all duration-150 hover:bg-blue-50/70 cursor-default',
+                  rowIndex % 2 === 1 ? 'bg-gray-50/60' : 'bg-white',
                 ].join(' ')}
               >
                 {columns.map((col) => (
@@ -87,8 +89,8 @@ export function DataTable<T>({
       </Table>
 
       {totalPages > 1 && onPageChange && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-white">
-          <p className="text-xs text-gray-500">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/50">
+          <p className="text-xs text-gray-500 font-medium">
             Página {page} de {totalPages}
           </p>
           <div className="flex items-center gap-1">

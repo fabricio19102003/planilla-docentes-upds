@@ -11,18 +11,24 @@ Design Decisions:
     and teacher-total keys {teacher_ci: float} for admin adjustments.
   - Freeze panes at row 7, col 4 (so identity cols + headers always visible).
 
+Payment Model C:
+  - Base pay = designation.monthly_hours × 70 Bs
+  - Deduct ONLY hours where status=ABSENT
+  - Teachers without ANY biometric record get full pay (0 absences assumed)
+  - Payable hours = max(0, monthly_hours - absent_hours)
+
 Column Layout:
   A(1)–P(16)  : Identity columns (Semestre, Nombre, CI, ..., Banco)
   Q(17)–AU(47): Days 1–31 of the month (always 31 columns; empty for non-existent days)
-  AV(48)      : Total Horas Mes
+  AV(48)      : Hrs Pagables (payable_hours = base - absent)
   AW(49)      : Grupo
   AX(50)      : Materia
   AY(51)      : Pago por Hora (70 Bs)
-  AZ(52)      : Horas Teoría
-  BA(53)      : Horas Práct. Interna
-  BB(54)      : Horas Práct. Externa
-  BC(55)      : Total Horas (verificación)
-  BD(56)      : Total Pago Calculado (BC × AY)
+  AZ(52)      : Hrs Asignadas (base_monthly_hours from designation)
+  BA(53)      : Hrs Descontadas (absent_hours)
+  BB(54)      : Hrs Asistidas (attended hours, informational)
+  BC(55)      : Total Pagable (payable_hours, verification)
+  BD(56)      : Total Pago Calculado (payable_hours × 70 Bs)
   BE(57)      : Pago Ajustado (admin override, NULL = use BD)
   BF(58)      : Observaciones
 
@@ -54,6 +60,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from app.models.attendance import AttendanceRecord
+from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
@@ -191,11 +198,16 @@ class PlanillaRow:
     # Status per day: {day_of_month: status_string}  — for background coloring
     daily_status: dict[int, str] = field(default_factory=dict)
 
-    # Monthly totals by type
-    total_hours: int = 0
-    total_theory_hours: int = 0
-    total_practice_internal_hours: int = 0
-    total_practice_external_hours: int = 0
+    # Model C payment fields
+    base_monthly_hours: int = 0        # From designation.monthly_hours (assigned load)
+    absent_hours: int = 0              # Hours deducted for ABSENT slots
+    payable_hours: int = 0             # base_monthly_hours - absent_hours (effective pay)
+
+    # Legacy totals (kept for backward compat and Excel day-column sums)
+    total_hours: int = 0               # payable_hours — used for payment calculation
+    total_theory_hours: int = 0        # base_monthly_hours shown in summary
+    total_practice_internal_hours: int = 0   # absent_hours shown as deductions
+    total_practice_external_hours: int = 0   # attended hours (informational)
 
     # Payment
     rate_per_hour: float = RATE_PER_HOUR
@@ -205,6 +217,7 @@ class PlanillaRow:
     observations: list[str] = field(default_factory=list)
     late_count: int = 0
     absent_count: int = 0
+    has_biometric: bool = True         # False = no biometric records at all → full pay
 
 
 @dataclass
@@ -310,8 +323,8 @@ class PlanillaGenerator:
         wb.save(str(file_path))
         logger.info("Saved planilla to %s", file_path)
 
-        # Step 4: Persist to DB
-        total_hours = sum(r.total_hours for r in rows)
+        # Step 4: Persist to DB — Model C: total payable hours
+        total_hours = sum(r.payable_hours for r in rows)
         total_payment = self._calculate_total_payment(rows, payment_overrides)
         unique_teachers = len({r.teacher_ci for r in rows})
 
@@ -350,12 +363,21 @@ class PlanillaGenerator:
         """
         Build PlanillaRow and DetailRow lists from DB data.
 
-        Groups attendance_records by teacher_ci × designation_id.
-        Each unique (teacher_ci, designation_id) pair = one PlanillaRow.
+        Model C logic:
+          - Iterates ALL designations (not just those with attendance records).
+          - Teachers WITHOUT any biometric record get full pay (0 absences assumed).
+          - Teachers WITH biometric records: deduct only ABSENT hours from monthly_hours.
         """
         warnings: list[str] = []
 
-        # Load all attendance records for this month
+        # ── Step 1: Load ALL designations ──────────────────────────────
+        all_designations: list[Designation] = db.query(Designation).all()
+
+        if not all_designations:
+            warnings.append("No hay designaciones en la base de datos")
+            return [], [], warnings
+
+        # ── Step 2: Load attendance records for this month ──────────────
         att_records: list[AttendanceRecord] = (
             db.query(AttendanceRecord)
             .filter(
@@ -367,55 +389,66 @@ class PlanillaGenerator:
         )
 
         if not att_records:
-            logger.warning(
-                "No attendance records found for %d/%d — planilla will be empty",
+            logger.info(
+                "No attendance records found for %d/%d — all docentes get full pay (Model C)",
                 month,
                 year,
             )
             warnings.append(
-                f"No hay registros de asistencia para {MONTH_NAMES.get(month)} {year}"
+                f"Sin registros de asistencia para {MONTH_NAMES.get(month)} {year} — "
+                f"todos los docentes recibirán pago completo (sin biométrico)"
             )
-            return [], [], warnings
 
-        # Load related designations and teachers in bulk (avoid N+1)
-        desig_ids = {r.designation_id for r in att_records}
-        teacher_cis = {r.teacher_ci for r in att_records}
-
-        designations: dict[int, Designation] = {
-            d.id: d
-            for d in db.query(Designation).filter(Designation.id.in_(desig_ids)).all()
-        }
-        teachers: dict[str, Teacher] = {
-            t.ci: t
-            for t in db.query(Teacher).filter(Teacher.ci.in_(teacher_cis)).all()
-        }
-
-        # Group records by (teacher_ci, designation_id)
-        groups: dict[tuple[str, int], list[AttendanceRecord]] = {}
+        # ── Step 3: Index attendance by (teacher_ci, designation_id) ───
+        att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
         for rec in att_records:
             key = (rec.teacher_ci, rec.designation_id)
-            groups.setdefault(key, []).append(rec)
+            att_index.setdefault(key, []).append(rec)
+
+        # ── Step 3b: Determine which teachers have REAL biometric data ──
+        # CRITICAL: We query biometric_records (real scanner data), NOT
+        # attendance_records (which the engine generates including ABSENT
+        # slots for ALL teachers on scheduled days — even those without
+        # any biometric data at all).
+        cis_with_biometric: set[str] = {
+            row[0]
+            for row in db.query(BiometricRecord.teacher_ci).distinct().all()
+        }
+        logger.info(
+            "_build_planilla_data: %d teacher CIs with real biometric records",
+            len(cis_with_biometric),
+        )
+
+        # ── Step 4: Bulk-load teachers ──────────────────────────────────
+        all_teacher_cis = {d.teacher_ci for d in all_designations}
+        teachers: dict[str, Teacher] = {
+            t.ci: t
+            for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis)).all()
+        }
 
         planilla_rows: list[PlanillaRow] = []
         detail_rows: list[DetailRow] = []
 
-        for (ci, desig_id), records in sorted(groups.items()):
-            desig = designations.get(desig_id)
+        # ── Step 5: One PlanillaRow per designation ─────────────────────
+        for desig in all_designations:
+            ci = desig.teacher_ci
             teacher = teachers.get(ci)
 
-            if desig is None:
-                warnings.append(f"Designación {desig_id} no encontrada para CI {ci}")
-                continue
-
             if teacher is None:
-                warnings.append(f"Docente CI {ci} no encontrado en la base")
+                warnings.append(f"Docente CI {ci} no encontrado en la base (designación {desig.id})")
                 continue
 
-            # Build the PlanillaRow
-            row = self._build_row(teacher, desig, records)
+            key = (ci, desig.id)
+            records = att_index.get(key, [])
+
+            # A teacher "has biometric" if ANY attendance record exists for them this month.
+            # If they have no attendance records at all, they get full pay.
+            has_biometric = ci in cis_with_biometric
+
+            row = self._build_row(teacher, desig, records, has_biometric=has_biometric)
             planilla_rows.append(row)
 
-            # Build detail rows for each slot
+            # Build detail rows for each attendance slot (only when records exist)
             for rec in records:
                 detail_rows.append(
                     DetailRow(
@@ -439,8 +472,10 @@ class PlanillaGenerator:
         detail_rows.sort(key=lambda r: (r.teacher_name, r.date, r.scheduled_start))
 
         logger.info(
-            "_build_planilla_data: %d rows, %d detail records",
+            "_build_planilla_data: %d rows (%d with biometric, %d without), %d detail records",
             len(planilla_rows),
+            len(cis_with_biometric),
+            len({d.teacher_ci for d in all_designations} - cis_with_biometric),
             len(detail_rows),
         )
         return planilla_rows, detail_rows, warnings
@@ -450,11 +485,21 @@ class PlanillaGenerator:
         teacher: Teacher,
         desig: Designation,
         records: list[AttendanceRecord],
+        has_biometric: bool = True,
     ) -> PlanillaRow:
-        """Build a single PlanillaRow from teacher, designation and attendance records."""
+        """
+        Build a single PlanillaRow using Payment Model C.
+
+        Model C rules:
+          - Base pay = designation.monthly_hours × 70 Bs
+          - Deduct ONLY hours where status=ABSENT
+          - No biometric at all → full pay (has_biometric=False)
+          - attended/late/no_exit hours in daily_hours are for display only
+        """
         daily_hours: dict[int, int] = {}
         daily_status: dict[int, str] = {}
-        total_hours = 0
+        attended_hours = 0   # for informational display only
+        absent_hours = 0     # hours to deduct (Model C)
         late_count = 0
         absent_count = 0
         observations: list[str] = []
@@ -465,6 +510,8 @@ class PlanillaGenerator:
             status = rec.status.upper()
 
             # Accumulate hours for the day (could have multiple slots on same day)
+            # For absent slots, academic_hours=0 per engine logic, but we count
+            # the SCHEDULED hours via designation — here we show 0 for absent days
             daily_hours[day] = daily_hours.get(day, 0) + hours
 
             # Track worst status for coloring: ABSENT > LATE > NO_EXIT > ATTENDED
@@ -472,27 +519,47 @@ class PlanillaGenerator:
             if status == "ABSENT":
                 daily_status[day] = "ABSENT"
                 absent_count += 1
+                # Absent slots have academic_hours=0 in the record; we need to
+                # count the slot hours from the designation schedule for deduction.
+                # The engine sets academic_hours=0 for ABSENT — we must compute
+                # absent_hours from the slot's scheduled hours in schedule_json.
+                absent_hours += self._get_slot_hours(desig, rec)
             elif status == "LATE" and current_status != "ABSENT":
                 daily_status[day] = "LATE"
                 late_count += 1
+                attended_hours += hours
             elif status == "NO_EXIT" and current_status not in ("ABSENT", "LATE"):
                 daily_status[day] = "NO_EXIT"
+                attended_hours += hours
             elif status == "ATTENDED" and not current_status:
                 daily_status[day] = "ATTENDED"
-
-            total_hours += hours
+                attended_hours += hours
 
             if rec.observation:
                 observations.append(f"Día {day}: {rec.observation}")
 
-        calculated_payment = total_hours * RATE_PER_HOUR
+        # ── Model C payment calculation ─────────────────────────────────
+        base_monthly_hours = desig.monthly_hours or 0
+
+        if not has_biometric:
+            # No biometric data at all → full pay, 0 deductions
+            absent_hours = 0
+            absent_count = 0
+
+        payable_hours = max(0, base_monthly_hours - absent_hours)
+        calculated_payment = payable_hours * RATE_PER_HOUR
 
         # Build observation summary
         obs_parts: list[str] = []
-        if late_count > 0:
-            obs_parts.append(f"{late_count} tardanza{'s' if late_count > 1 else ''}")
-        if absent_count > 0:
-            obs_parts.append(f"{absent_count} ausencia{'s' if absent_count > 1 else ''}")
+        if not has_biometric:
+            obs_parts.append("Sin biométrico — pago completo")
+        else:
+            if late_count > 0:
+                obs_parts.append(f"{late_count} tardanza{'s' if late_count > 1 else ''}")
+            if absent_count > 0:
+                obs_parts.append(f"{absent_count} ausencia{'s' if absent_count > 1 else ''}")
+            if absent_hours > 0:
+                obs_parts.append(f"{absent_hours}h descontadas")
 
         return PlanillaRow(
             teacher_ci=teacher.ci,
@@ -514,16 +581,44 @@ class PlanillaGenerator:
             bank=teacher.bank,
             daily_hours=daily_hours,
             daily_status=daily_status,
-            total_hours=total_hours,
-            total_theory_hours=total_hours,   # All hours treated as theory unless typed
-            total_practice_internal_hours=0,
-            total_practice_external_hours=0,
+            # Model C fields
+            base_monthly_hours=base_monthly_hours,
+            absent_hours=absent_hours,
+            payable_hours=payable_hours,
+            # Legacy totals mapped to Model C semantics for Excel columns
+            total_hours=payable_hours,                        # used for payment sum
+            total_theory_hours=base_monthly_hours,            # COL_HRS_TEORIA = assigned
+            total_practice_internal_hours=absent_hours,       # COL_HRS_PRACT_INT = deducted
+            total_practice_external_hours=attended_hours,     # COL_HRS_PRACT_EXT = attended (info)
             rate_per_hour=RATE_PER_HOUR,
             calculated_payment=calculated_payment,
             observations=obs_parts if obs_parts else [],
             late_count=late_count,
             absent_count=absent_count,
+            has_biometric=has_biometric,
         )
+
+    def _get_slot_hours(self, desig: Designation, rec: AttendanceRecord) -> int:
+        """
+        Find the scheduled academic_hours for an ABSENT slot.
+
+        The engine sets academic_hours=0 for ABSENT records; we must recover
+        the scheduled hours from the designation's schedule_json by matching
+        the slot's scheduled_start time.
+        """
+        schedule: list[dict] = desig.schedule_json or []
+        rec_start_str = rec.scheduled_start.strftime("%H:%M")
+        for slot in schedule:
+            if slot.get("hora_inicio", "") == rec_start_str:
+                return int(slot.get("horas_academicas", 0))
+        # Fallback: use academic_hours from the record (may be 0 for absent)
+        # If we can't match, we won't deduct to avoid over-penalizing
+        logger.debug(
+            "Could not find schedule slot for absent record (designation=%d, start=%s)",
+            desig.id,
+            rec_start_str,
+        )
+        return 0
 
     # ------------------------------------------------------------------
     # Workbook creation
@@ -678,16 +773,16 @@ class PlanillaGenerator:
                 cell.value = None  # Month doesn't have this day
             self._style_col_header(cell, is_day=True)
 
-        # Summary column headers
+        # Summary column headers — Model C semantics
         summary_headers = {
-            COL_TOTAL_HORAS: "Total\nHoras",
+            COL_TOTAL_HORAS: "Hrs\nPagables",        # payable_hours (base - absent)
             COL_GRUPO_RESUMEN: "Grupo",
             COL_MATERIA_RESUMEN: "Materia",
             COL_PAGO_HORA: "Pago\n/Hora",
-            COL_HRS_TEORIA: "Hrs\nTeoría",
-            COL_HRS_PRACT_INT: "Hrs\nPráct.Int.",
-            COL_HRS_PRACT_EXT: "Hrs\nPráct.Ext.",
-            COL_TOTAL_HRS_CHECK: "Total\nHoras",
+            COL_HRS_TEORIA: "Hrs\nAsignadas",         # base_monthly_hours (from designation)
+            COL_HRS_PRACT_INT: "Hrs\nDescontadas",    # absent_hours (deducted)
+            COL_HRS_PRACT_EXT: "Hrs\nAsistidas",      # attended hours (informational)
+            COL_TOTAL_HRS_CHECK: "Total\nPagable",    # payable_hours (verification)
             COL_PAGO_CALCULADO: "Total Pago\nCalculado",
             COL_PAGO_AJUSTADO: "Pago\nAjustado",
             COL_OBSERVACIONES: "Observaciones",
@@ -896,14 +991,20 @@ class PlanillaGenerator:
             if is_currency:
                 cell.number_format = '#,##0.00 "Bs"'
 
-        write_summary(COL_TOTAL_HORAS, data.total_hours)
+        # Model C column semantics:
+        #   COL_TOTAL_HORAS     = payable_hours (base - absent) — primary hours field
+        #   COL_HRS_TEORIA      = base_monthly_hours (assigned load from designation)
+        #   COL_HRS_PRACT_INT   = absent_hours (hours deducted)
+        #   COL_HRS_PRACT_EXT   = attended hours (informational, not used for payment)
+        #   COL_TOTAL_HRS_CHECK = payable_hours (verification = base - deducted)
+        write_summary(COL_TOTAL_HORAS, data.payable_hours)
         write_summary(COL_GRUPO_RESUMEN, data.group_code)
         write_summary(COL_MATERIA_RESUMEN, data.subject)
         write_summary(COL_PAGO_HORA, data.rate_per_hour, is_currency=True)
-        write_summary(COL_HRS_TEORIA, data.total_theory_hours)
-        write_summary(COL_HRS_PRACT_INT, data.total_practice_internal_hours)
-        write_summary(COL_HRS_PRACT_EXT, data.total_practice_external_hours)
-        write_summary(COL_TOTAL_HRS_CHECK, data.total_hours)
+        write_summary(COL_HRS_TEORIA, data.base_monthly_hours)
+        write_summary(COL_HRS_PRACT_INT, data.absent_hours if data.absent_hours > 0 else None)
+        write_summary(COL_HRS_PRACT_EXT, data.total_practice_external_hours if data.total_practice_external_hours > 0 else None)
+        write_summary(COL_TOTAL_HRS_CHECK, data.payable_hours)
         write_summary(COL_PAGO_CALCULADO, data.calculated_payment, is_currency=True)
 
         # Pago Ajustado
@@ -942,10 +1043,11 @@ class PlanillaGenerator:
         if not rows:
             return
 
-        total_hours = sum(r.total_hours for r in rows)
-        total_theory = sum(r.total_theory_hours for r in rows)
-        total_pract_int = sum(r.total_practice_internal_hours for r in rows)
-        total_pract_ext = sum(r.total_practice_external_hours for r in rows)
+        # Model C totals
+        total_hours = sum(r.payable_hours for r in rows)                    # total payable hours
+        total_theory = sum(r.base_monthly_hours for r in rows)              # total assigned hours
+        total_pract_int = sum(r.absent_hours for r in rows)                 # total deducted hours
+        total_pract_ext = sum(r.total_practice_external_hours for r in rows)  # total attended (info)
         total_payment = self._calculate_total_payment(rows, payment_overrides)
         total_teachers = len({r.teacher_ci for r in rows})
 

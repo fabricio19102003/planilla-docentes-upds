@@ -71,6 +71,6 @@ def normalize_group_code(raw_group: str) -> str:
             # Extract number
             remainder = raw[len(prefix):].strip().strip("-").strip()
             if remainder.isdigit():
-                return f"{turn}-{remainder}"
+                return f"{turn}-{int(remainder)}"
 
     return raw_group  # Return as-is if no pattern matches

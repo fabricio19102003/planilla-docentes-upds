@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useAllRequests, useRespondRequest } from '@/api/hooks/useAuth'
+import { usePlanillaDetail } from '@/api/hooks/usePlanilla'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -60,6 +60,20 @@ function RespondDialog({
   const [adminResponse, setAdminResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // Load planilla detail for this teacher's billing info
+  const { data: planillaDetail } = usePlanillaDetail(
+    request?.month ?? 0,
+    request?.year ?? 0,
+    Boolean(request),
+  )
+
+  const teacherBilling = planillaDetail?.teacher_totals?.find(
+    t => t.teacher_ci === request?.teacher_ci,
+  )
+  const teacherDesignations = planillaDetail?.detail?.filter(
+    d => d.teacher_ci === request?.teacher_ci,
+  )
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!request || !action) return
@@ -90,6 +104,7 @@ function RespondDialog({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Request info */}
           <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
             <p>
               <span className="text-gray-500">Docente:</span>{' '}
@@ -114,6 +129,34 @@ function RespondDialog({
               </p>
             )}
           </div>
+
+          {/* Teacher billing info */}
+          {teacherBilling && (
+            <div className="bg-blue-50/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Facturación del período</p>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total a facturar</span>
+                <span className="text-lg font-bold" style={{ color: '#003366' }}>
+                  Bs {teacherBilling.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>{teacherBilling.total_base_hours}h asignadas</span>
+                <span>{teacherBilling.total_absent_hours > 0 ? `-${teacherBilling.total_absent_hours}h ausencias` : 'Sin ausencias'}</span>
+                <span>{teacherBilling.total_payable_hours}h a pagar</span>
+              </div>
+              {teacherDesignations && teacherDesignations.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {teacherDesignations.map(d => (
+                    <div key={`${d.subject}-${d.group_code}`} className="flex justify-between text-xs">
+                      <span className="text-gray-600">{d.subject} ({d.group_code})</span>
+                      <span className="font-medium text-gray-800">Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Respuesta al docente (opcional)</Label>
@@ -194,7 +237,7 @@ export function AdminRequestsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between animate-fade-in-up stagger-1">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
             Solicitudes de Docentes
@@ -208,7 +251,7 @@ export function AdminRequestsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap animate-fade-in-up stagger-1">
         <Filter size={15} className="text-gray-400" />
         {filterButtons.map((btn) => (
           <button
@@ -232,17 +275,17 @@ export function AdminRequestsPage() {
       </div>
 
       {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
             {filtered?.length ?? 0} solicitud{filtered?.length !== 1 ? 'es' : ''}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
+          </h3>
+        </div>
+        <div className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr style={{ backgroundColor: '#003366' }}>
+                <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
                   {['Docente', 'Período', 'Tipo de Solicitud', 'Mensaje', 'Estado', 'Fecha', 'Acciones'].map((h) => (
                     <th
                       key={h}
@@ -316,8 +359,8 @@ export function AdminRequestsPage() {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <RespondDialog request={respondTarget} action={respondAction} onClose={handleClose} />
     </div>

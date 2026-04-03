@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ClipboardCheck, Loader2 } from 'lucide-react'
 import {
   useAttendance,
@@ -9,7 +9,6 @@ import { useUploadHistory } from '@/api/hooks/useBiometric'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { AttendanceWithDetails } from '@/api/types'
@@ -89,6 +88,20 @@ export function AttendancePage() {
   const [page, setPage] = useState(1)
   const [processed, setProcessed] = useState(false)
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null)
+  const [startDate, setStartDate] = useState<string>('')
+  const [endDate, setEndDate] = useState<string>('')
+
+  useEffect(() => {
+    if (month === 3 && year === 2026) {
+      setStartDate('2026-03-02')
+      setEndDate('2026-03-20')
+    } else {
+      const prevMonth = month === 1 ? 12 : month - 1
+      const prevYear = month === 1 ? year - 1 : year
+      setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
+      setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
+    }
+  }, [month, year])
 
   const { data: uploads } = useUploadHistory()
   const processAttendance = useProcessAttendance()
@@ -106,7 +119,13 @@ export function AttendancePage() {
   const handleProcess = () => {
     if (!selectedUploadId) return
     processAttendance.mutate(
-      { upload_id: selectedUploadId, month, year },
+      {
+        upload_id: selectedUploadId,
+        month,
+        year,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      },
       { onSuccess: () => setProcessed(true) },
     )
   }
@@ -116,8 +135,8 @@ export function AttendancePage() {
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <Card>
-        <CardContent className="py-4">
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+        <div className="py-4 px-6">
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Mes</label>
@@ -180,6 +199,33 @@ export function AttendancePage() {
             </Button>
           </div>
 
+          <div className="mt-4 pt-4 bg-gray-50/50 rounded-lg p-4">
+            <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
+            <div className="flex items-end gap-4 flex-wrap">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha inicio</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha fin</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <p className="text-xs text-gray-400 self-center">
+                Estándar: del 21 del mes anterior al 20 del mes actual
+              </p>
+            </div>
+          </div>
+
           {processAttendance.isError && (
             <p className="text-red-500 text-sm mt-3">
               Error al procesar. Verificá que el upload corresponda al mes seleccionado.
@@ -190,38 +236,46 @@ export function AttendancePage() {
               ✓ Asistencia procesada exitosamente
             </p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Summary Cards */}
       {summaryLoading ? (
         <LoadingPage />
       ) : hasData ? (
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard
-            icon={Users}
-            title="Asistencias"
-            value={summary.attended}
-            color="#16a34a"
-          />
-          <StatCard
-            icon={Clock}
-            title="Tardanzas"
-            value={summary.late}
-            color="#d97706"
-          />
-          <StatCard
-            icon={XCircle}
-            title="Ausencias"
-            value={summary.absent}
-            color="#dc2626"
-          />
-          <StatCard
-            icon={AlertTriangle}
-            title="Sin Salida"
-            value={summary.no_exit}
-            color="#ea580c"
-          />
+          <div className="animate-fade-in-up stagger-1">
+            <StatCard
+              icon={Users}
+              title="Asistencias"
+              value={summary.attended}
+              color="#16a34a"
+            />
+          </div>
+          <div className="animate-fade-in-up stagger-2">
+            <StatCard
+              icon={Clock}
+              title="Tardanzas"
+              value={summary.late}
+              color="#d97706"
+            />
+          </div>
+          <div className="animate-fade-in-up stagger-3">
+            <StatCard
+              icon={XCircle}
+              title="Ausencias"
+              value={summary.absent}
+              color="#dc2626"
+            />
+          </div>
+          <div className="animate-fade-in-up stagger-4">
+            <StatCard
+              icon={AlertTriangle}
+              title="Sin Salida"
+              value={summary.no_exit}
+              color="#ea580c"
+            />
+          </div>
         </div>
       ) : (
         <div className="bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 py-16 text-center">
@@ -237,13 +291,13 @@ export function AttendancePage() {
 
       {/* Records Table */}
       {hasData && (
-        <Card>
-          <CardHeader>
-            <CardTitle style={{ color: '#003366' }}>
+        <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-5">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
               Registros de Asistencia — {MONTH_NAMES[month]} {year}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
+          </div>
+          <div className="p-5">
             {recordsLoading ? (
               <LoadingPage />
             ) : (
@@ -256,8 +310,8 @@ export function AttendancePage() {
                 emptyMessage="No hay registros para este período"
               />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </div>
   )

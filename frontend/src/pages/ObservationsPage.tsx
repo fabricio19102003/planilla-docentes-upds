@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useObservations } from '@/api/hooks/useAttendance'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import type { Observation } from '@/api/types'
@@ -100,8 +100,8 @@ export function ObservationsPage() {
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <Card>
-        <CardContent className="py-4">
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+        <div className="py-4 px-5">
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Mes</label>
@@ -128,17 +128,17 @@ export function ObservationsPage() {
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Observations Table with Tabs */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ color: '#003366' }}>
+      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
             Observaciones — {MONTH_NAMES[month]} {year}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h3>
+        </div>
+        <div className="p-5">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4">
               {TABS.map((tab) => (
@@ -177,8 +177,8 @@ export function ObservationsPage() {
               </TabsContent>
             ))}
           </Tabs>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
