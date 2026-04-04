@@ -358,14 +358,16 @@ class ReportGenerator:
         attended = sum(1 for r in records if r.status == "ATTENDED")
         late = sum(1 for r in records if r.status == "LATE")
         absent = sum(1 for r in records if r.status == "ABSENT")
+        no_exit = sum(1 for r in records if r.status == "NO_EXIT")
         total = len(records)
-        rate = (attended + late) / total * 100 if total > 0 else 0
+        # NO_EXIT counts as present (teacher was physically there, just forgot to clock out)
+        rate = (attended + late + no_exit) / total * 100 if total > 0 else 0
 
         summary_data = [
-            [_cell(h, cs["header"]) for h in ["Total Registros", "Asistidos", "Tardanzas", "Ausencias", "Tasa Asistencia"]],
-            [_cell(v, cs["cell_center"]) for v in [str(total), str(attended), str(late), str(absent), f"{rate:.1f}%"]],
+            [_cell(h, cs["header"]) for h in ["Total Registros", "Asistidos", "Tardanzas", "Sin Salida", "Ausencias", "Tasa Asistencia"]],
+            [_cell(v, cs["cell_center"]) for v in [str(total), str(attended), str(late), str(no_exit), str(absent), f"{rate:.1f}%"]],
         ]
-        summary_table = Table(summary_data, colWidths=[90, 80, 80, 80, 90])
+        summary_table = Table(summary_data, colWidths=[80, 70, 70, 70, 70, 80])
         summary_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),

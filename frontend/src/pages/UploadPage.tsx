@@ -250,14 +250,11 @@ export function UploadPage() {
                         {desResult.users_created} usuarios docentes creados automáticamente
                       </p>
                       <p className="text-xs text-blue-600 mt-0.5">
-                        Contraseña por defecto: <span className="font-mono font-bold">{desResult.default_password}</span>
+                        Los docentes deberán solicitar el restablecimiento de su contraseña al administrador
                       </p>
-                      <p className="text-xs text-blue-500 mt-0.5">
-                        Los docentes deberán cambiar su contraseña al iniciar sesión por primera vez
-                      </p>
-                      {desResult.users_skipped > 0 && (
+                          {desResult.users_skipped > 0 && (
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {desResult.users_skipped} usuarios ya existían y fueron omitidos
+                          {desResult.users_skipped} usuario(s) no se pudieron crear (posible CI duplicado)
                         </p>
                       )}
                     </div>

@@ -282,7 +282,6 @@ export interface DesignationUploadResponse {
   skipped: number
   users_created: number
   users_skipped: number
-  default_password: string
   warnings: string[]
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -155,16 +156,30 @@ class AuthService:
     # ------------------------------------------------------------------
 
     def create_default_admin(self, db: Session) -> None:
-        """Create default admin user if no admin exists."""
+        """
+        Create default admin user if no admin exists.
+
+        Requires the ADMIN_DEFAULT_PASSWORD environment variable to be set.
+        If the variable is absent, bootstrap is skipped and a warning is logged
+        so the deployment is not silently left with a hardcoded credential.
+        """
         admin_exists = db.query(User).filter(User.role == "admin").first()
         if admin_exists:
+            return
+
+        admin_password = os.environ.get("ADMIN_DEFAULT_PASSWORD")
+        if not admin_password:
+            logger.warning(
+                "No ADMIN_DEFAULT_PASSWORD env var set — skipping default admin creation. "
+                "Set ADMIN_DEFAULT_PASSWORD to bootstrap the first admin account."
+            )
             return
 
         logger.info("No admin user found — creating default admin (CI: admin)")
         admin = User(
             ci="admin",
             full_name="Administrador",
-            password_hash=self.hash_password("admin123"),
+            password_hash=self.hash_password(admin_password),
             role="admin",
             is_active=True,
         )

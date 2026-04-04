@@ -83,10 +83,12 @@ def names_match(name1: str, name2: str) -> bool:
     """
     Return True if two names likely refer to the same person.
 
-    Strategies (in order):
-    1. Exact match after normalization.
-    2. One name is a substring of the other (handles abbreviations).
-    3. At least 2 tokens in common (handles different orderings / middle names).
+    Stricter matching to avoid false positives with common surnames:
+      1. Exact match after normalization.
+      2. At least 3 shared tokens AND >= 80% token overlap.
+
+    Substring matching has been removed — it produces too many false positives
+    when teachers share common surnames (e.g., "GARCIA" matching unrelated people).
     """
     n1 = normalize_name(name1)
     n2 = normalize_name(name2)
@@ -94,13 +96,20 @@ def names_match(name1: str, name2: str) -> bool:
     if n1 == n2:
         return True
 
-    if n1 in n2 or n2 in n1:
-        return True
-
     tokens1 = set(n1.split())
     tokens2 = set(n2.split())
-    common = tokens1 & tokens2
-    return len(common) >= 2
+
+    if not tokens1 or not tokens2:
+        return False
+
+    shared = tokens1 & tokens2
+    min_len = min(len(tokens1), len(tokens2))
+
+    # Require at least 3 shared tokens AND 80%+ overlap relative to the shorter name
+    if len(shared) >= 3 and len(shared) / min_len >= 0.8:
+        return True
+
+    return False
 
 
 def _make_temp_ci(full_name: str) -> str:

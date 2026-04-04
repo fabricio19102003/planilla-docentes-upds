@@ -60,7 +60,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from app.models.attendance import AttendanceRecord
-from app.models.biometric import BiometricRecord
+from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
@@ -283,6 +283,8 @@ class PlanillaGenerator:
         month: int,
         year: int,
         payment_overrides: Optional[dict[str, float]] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> PlanillaResult:
         """
         Generate the planilla Excel for a given month/year.
@@ -300,6 +302,8 @@ class PlanillaGenerator:
             year: Calendar year
             payment_overrides: Optional {"teacher_ci:designation_id": override_amount}
                 and/or {teacher_ci: teacher_total_override} for admin adjustments
+            start_date: Optional start of attendance window to filter records
+            end_date: Optional end of attendance window to filter records
 
         Returns:
             PlanillaResult with file path and statistics
@@ -307,10 +311,15 @@ class PlanillaGenerator:
         if payment_overrides is None:
             payment_overrides = {}
 
-        logger.info("PlanillaGenerator.generate: month=%d year=%d", month, year)
+        logger.info(
+            "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s",
+            month, year, start_date, end_date,
+        )
 
         # Step 1: Build data
-        rows, detail_rows, warnings = self._build_planilla_data(db, month, year)
+        rows, detail_rows, warnings = self._build_planilla_data(
+            db, month, year, start_date=start_date, end_date=end_date
+        )
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
         # Step 2: Create workbook
@@ -359,14 +368,20 @@ class PlanillaGenerator:
         db: Session,
         month: int,
         year: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> tuple[list[PlanillaRow], list[DetailRow], list[str]]:
         """
         Build PlanillaRow and DetailRow lists from DB data.
 
         Model C logic:
           - Iterates ALL designations (not just those with attendance records).
-          - Teachers WITHOUT any biometric record get full pay (0 absences assumed).
+          - Teachers WITHOUT any biometric record for this period get full pay.
           - Teachers WITH biometric records: deduct only ABSENT hours from monthly_hours.
+
+        Args:
+            start_date: When provided, attendance records are filtered to >= start_date.
+            end_date:   When provided, attendance records are filtered to <= end_date.
         """
         warnings: list[str] = []
 
@@ -377,13 +392,18 @@ class PlanillaGenerator:
             warnings.append("No hay designaciones en la base de datos")
             return [], [], warnings
 
-        # ── Step 2: Load attendance records for this month ──────────────
+        # ── Step 2: Load attendance records for this period ─────────────
+        att_query = db.query(AttendanceRecord).filter(
+            AttendanceRecord.month == month,
+            AttendanceRecord.year == year,
+        )
+        if start_date is not None:
+            att_query = att_query.filter(AttendanceRecord.date >= start_date)
+        if end_date is not None:
+            att_query = att_query.filter(AttendanceRecord.date <= end_date)
+
         att_records: list[AttendanceRecord] = (
-            db.query(AttendanceRecord)
-            .filter(
-                AttendanceRecord.month == month,
-                AttendanceRecord.year == year,
-            )
+            att_query
             .order_by(AttendanceRecord.teacher_ci, AttendanceRecord.date)
             .all()
         )
@@ -406,13 +426,16 @@ class PlanillaGenerator:
             att_index.setdefault(key, []).append(rec)
 
         # ── Step 3b: Determine which teachers have REAL biometric data ──
-        # CRITICAL: We query biometric_records (real scanner data), NOT
-        # attendance_records (which the engine generates including ABSENT
-        # slots for ALL teachers on scheduled days — even those without
-        # any biometric data at all).
+        # CRITICAL: Scoped to this specific month/year period so that a teacher
+        # with biometric data in March is NOT treated as "has bio" in April.
+        # We join to BiometricUpload to filter by month+year.
         cis_with_biometric: set[str] = {
             row[0]
-            for row in db.query(BiometricRecord.teacher_ci).distinct().all()
+            for row in db.query(BiometricRecord.teacher_ci)
+            .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
+            .filter(BiometricUpload.month == month, BiometricUpload.year == year)
+            .distinct()
+            .all()
         }
         logger.info(
             "_build_planilla_data: %d teacher CIs with real biometric records",
@@ -604,19 +627,45 @@ class PlanillaGenerator:
 
         The engine sets academic_hours=0 for ABSENT records; we must recover
         the scheduled hours from the designation's schedule_json by matching
-        the slot's scheduled_start time.
+        the slot's weekday + scheduled_start time (and optionally hora_fin).
+
+        Matching priority:
+          1. day-of-week + hora_inicio (most specific — avoids cross-day false match)
+          2. hora_inicio only (fallback when schedule_json lacks "dia" field)
         """
         schedule: list[dict] = desig.schedule_json or []
         rec_start_str = rec.scheduled_start.strftime("%H:%M")
+
+        # Map Python weekday (0=Mon…6=Sun) → Spanish lowercase day name
+        _WEEKDAY_MAP: dict[int, str] = {
+            0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
+            4: "viernes", 5: "sábado", 6: "domingo",
+        }
+        # Also handle common variants without accent
+        _WEEKDAY_ALT: dict[int, str] = {
+            2: "miercoles", 5: "sabado",
+        }
+        target_weekday = rec.date.weekday()
+        target_day = _WEEKDAY_MAP.get(target_weekday, "")
+        target_day_alt = _WEEKDAY_ALT.get(target_weekday, target_day)
+
+        # Pass 1: match by weekday + hora_inicio (most accurate)
+        for slot in schedule:
+            if slot.get("hora_inicio", "") == rec_start_str:
+                slot_dia = slot.get("dia", "").lower()
+                if slot_dia in (target_day, target_day_alt):
+                    return int(slot.get("horas_academicas", 0))
+
+        # Pass 2: fallback — match by hora_inicio only (slot may lack "dia")
         for slot in schedule:
             if slot.get("hora_inicio", "") == rec_start_str:
                 return int(slot.get("horas_academicas", 0))
-        # Fallback: use academic_hours from the record (may be 0 for absent)
-        # If we can't match, we won't deduct to avoid over-penalizing
+
         logger.debug(
-            "Could not find schedule slot for absent record (designation=%d, start=%s)",
+            "Could not find schedule slot for absent record (designation=%d, start=%s, day=%s)",
             desig.id,
             rec_start_str,
+            target_day,
         )
         return 0
 

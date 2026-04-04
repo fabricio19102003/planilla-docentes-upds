@@ -48,12 +48,12 @@ const historyColumns: Column<PlanillaOutput>[] = [
     render: (item) => (
       <Badge
         className={
-          item.status === 'GENERATED'
+          item.status?.toLowerCase() === 'generated'
             ? 'bg-green-100 text-green-700'
             : 'bg-blue-100 text-blue-700'
         }
       >
-        {item.status === 'GENERATED' ? 'Generada' : item.status}
+        {item.status?.toLowerCase() === 'generated' ? 'Generada' : item.status}
       </Badge>
     ),
   },

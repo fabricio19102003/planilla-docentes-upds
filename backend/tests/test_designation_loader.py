@@ -113,11 +113,23 @@ class TestNamesMatch:
         assert names_match("MARIA GARCIA", "MARÍA GARCÍA")
 
     def test_partial_subset(self):
-        # Biometric might store only two surnames
-        assert names_match("ABNER FLORES MAMANI", "ABNER FLORES")
+        # Stricter matching: 2-token subset no longer matches (too ambiguous).
+        # "ABNER FLORES" shares only 2 tokens with "ABNER FLORES MAMANI" which
+        # is below the 3-token + 80% threshold — correctly returns False.
+        assert not names_match("ABNER FLORES MAMANI", "ABNER FLORES")
 
     def test_token_overlap_two_tokens(self):
-        assert names_match("JUAN CARLOS PEREZ LUNA", "PEREZ LUNA RODRIGO")
+        # Stricter matching: "PEREZ LUNA RODRIGO" vs "JUAN CARLOS PEREZ LUNA"
+        # shares 2 tokens — below the 3-token threshold, correctly returns False.
+        assert not names_match("JUAN CARLOS PEREZ LUNA", "PEREZ LUNA RODRIGO")
+
+    def test_full_three_token_match(self):
+        # Three shared tokens with high overlap — should match
+        assert names_match("ABNER FLORES MAMANI VARGAS", "ABNER FLORES MAMANI")
+
+    def test_exact_four_token_match(self):
+        # Exact match on all four tokens — should match
+        assert names_match("JUAN CARLOS PEREZ LUNA", "JUAN CARLOS PEREZ LUNA")
 
     def test_no_match_single_common_token(self):
         assert not names_match("JUAN GARCIA", "PEDRO GARCIA")

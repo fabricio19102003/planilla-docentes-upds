@@ -245,7 +245,11 @@ class AttendanceEngine:
         )
 
         # ── Step 4: Persist results ────────────────────────────────────
-        records_saved = self.save_results(db, all_results, upload_id, month, year)
+        records_saved = self.save_results(
+            db, all_results, upload_id, month, year,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         # ── Step 5: Build summary ──────────────────────────────────────
         summary.total_slots = len(all_results)
@@ -390,6 +394,8 @@ class AttendanceEngine:
         upload_id: int,
         month: int,
         year: int,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> int:
         """
         Persist SlotResults as AttendanceRecord rows.
@@ -397,6 +403,10 @@ class AttendanceEngine:
         Uses upsert semantics on the natural key
         (teacher_ci, designation_id, date, scheduled_start) so re-processing
         updates existing rows instead of leaving stale attendance states behind.
+
+        When start_date/end_date are provided (partial-range processing), the
+        stale-row deletion is scoped to only that date range, preserving valid
+        records outside the processed window.
 
         Returns the number of rows inserted or updated.
         """
@@ -406,15 +416,18 @@ class AttendanceEngine:
         saved = 0
         processed_teachers = {row.teacher_ci for row in results}
 
-        existing_rows = (
-            db.query(AttendanceRecord)
-            .filter(
-                AttendanceRecord.month == month,
-                AttendanceRecord.year == year,
-                AttendanceRecord.teacher_ci.in_(processed_teachers),
-            )
-            .all()
+        # Load existing rows only within the processed date range (if given)
+        existing_query = db.query(AttendanceRecord).filter(
+            AttendanceRecord.month == month,
+            AttendanceRecord.year == year,
+            AttendanceRecord.teacher_ci.in_(processed_teachers),
         )
+        if start_date is not None:
+            existing_query = existing_query.filter(AttendanceRecord.date >= start_date)
+        if end_date is not None:
+            existing_query = existing_query.filter(AttendanceRecord.date <= end_date)
+
+        existing_rows = existing_query.all()
         existing_by_key = {
             (row.teacher_ci, row.designation_id, row.date, row.scheduled_start): row
             for row in existing_rows
@@ -461,6 +474,9 @@ class AttendanceEngine:
 
             saved += 1
 
+        # Only delete stale rows that fall within the processed date range.
+        # This prevents wiping valid data outside the range when reprocessing
+        # a partial window (e.g., March 2–20 should not delete March 21–31 rows).
         stale_record_ids = [
             row.id
             for key, row in existing_by_key.items()
@@ -473,9 +489,12 @@ class AttendanceEngine:
 
         db.flush()
         logger.info(
-            "save_results: upserted %d attendance records and deleted %d stale rows",
+            "save_results: upserted %d attendance records and deleted %d stale rows "
+            "(range: %s – %s)",
             saved,
             len(stale_record_ids),
+            start_date or "month-start",
+            end_date or "month-end",
         )
         return saved
 

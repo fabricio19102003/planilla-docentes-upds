@@ -261,7 +261,7 @@ def test_teacher_planilla_and_dashboard_endpoints(client, db_session, monkeypatc
 
     import app.routers.planilla as planilla_router_module
 
-    def fake_generate(self, db, month, year, payment_overrides=None):
+    def fake_generate(self, db, month, year, payment_overrides=None, start_date=None, end_date=None):
         output = PlanillaOutput(
             month=month,
             year=year,

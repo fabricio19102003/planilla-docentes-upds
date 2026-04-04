@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -116,12 +117,13 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     """Create user accounts for all teachers that don't have one yet,
     and fix existing docente users that have ``teacher_ci=None``.
 
-    Password: ``upds{current_year}`` (e.g. ``upds2026``).
+    Each new user receives a unique random password via secrets.token_urlsafe(8).
+    Passwords are NOT stored in plaintext, NOT returned in responses, NOT logged.
+    Admins must use the password reset flow to provide credentials to teachers.
+
     Returns ``(created, skipped)`` counts.
     """
     auth_service = AuthService()
-    current_year = datetime.now().year
-    default_password = f"upds{current_year}"
 
     # ── Phase 1: Fix existing docente users with teacher_ci=None ─────
     unlinked_users = (
@@ -156,10 +158,12 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 
     for teacher in teachers_without_user:
         try:
+            # Each teacher gets a unique random password — never reused across accounts
+            password = secrets.token_urlsafe(8)
             user = User(
                 ci=teacher.ci,
                 full_name=teacher.full_name,
-                password_hash=auth_service.hash_password(default_password),
+                password_hash=auth_service.hash_password(password),
                 role="docente",
                 teacher_ci=teacher.ci,
                 is_active=True,
@@ -171,12 +175,8 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
             skipped += 1
             logger.warning("Could not create user for teacher CI=%s", teacher.ci)
 
-    logger.info(
-        "Auto-created %d docente users (%d skipped), password: %s",
-        created,
-        skipped,
-        default_password,
-    )
+    # NOTE: passwords are NOT logged — admin must use password reset flow
+    logger.info("Auto-created %d docente users (%d skipped)", created, skipped)
     return created, skipped
 
 
@@ -207,7 +207,6 @@ def upload_designations(
 
         # Auto-create docente user accounts for all loaded teachers
         users_created, users_skipped = _auto_create_docente_users(db)
-        default_password = f"upds{datetime.now().year}"
 
         db.commit()
 
@@ -218,7 +217,6 @@ def upload_designations(
             skipped=result.total_skipped,
             users_created=users_created,
             users_skipped=users_skipped,
-            default_password=default_password,
             warnings=warnings + result.warnings,
         )
     except HTTPException:

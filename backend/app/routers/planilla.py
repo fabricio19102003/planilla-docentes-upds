@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -51,6 +52,8 @@ def generate_planilla(
             month=payload.month,
             year=payload.year,
             payment_overrides=payload.payment_overrides,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
         )
         db.commit()
 
@@ -116,13 +119,22 @@ def download_planilla(
 def get_planilla_detail(
     month: int,
     year: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Return detailed planilla breakdown per teacher/designation for a given month/year."""
+    """Return detailed planilla breakdown per teacher/designation for a given month/year.
+
+    Optional ``start_date`` / ``end_date`` query parameters narrow the attendance
+    window passed to the generator (same semantics as the generate endpoint).
+    """
     try:
         generator = PlanillaGenerator()
-        rows, _detail_rows, warnings = generator._build_planilla_data(db, month=month, year=year)
+        rows, _detail_rows, warnings = generator._build_planilla_data(
+            db, month=month, year=year,
+            start_date=start_date, end_date=end_date,
+        )
 
         detail = []
         for row in rows:
@@ -164,16 +176,36 @@ def get_planilla_detail(
             teacher_totals[ci]["total_payment"] += d["calculated_payment"]
             teacher_totals[ci]["designation_count"] += 1
 
-        return {
+        # Check if there is a stored planilla with potential admin overrides
+        stored = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+
+        computed_total = sum(d["calculated_payment"] for d in detail)
+
+        # Use stored planilla total ONLY for full-month requests (no date filter).
+        # Partial date ranges produce a subset of data that won't match the stored total.
+        is_full_month = start_date is None and end_date is None
+        use_stored = stored is not None and is_full_month
+
+        response: dict = {
             "month": month,
             "year": year,
             "total_teachers": len(teacher_totals),
             "total_designations": len(detail),
-            "total_payment": sum(d["calculated_payment"] for d in detail),
+            "total_payment": float(stored.total_payment) if use_stored else computed_total,
             "detail": detail,
             "teacher_totals": list(teacher_totals.values()),
             "warnings": warnings,
+            "has_stored_planilla": stored is not None,
         }
+        if stored is not None:
+            response["stored_total_payment"] = float(stored.total_payment)
+
+        return response
     except Exception as exc:
         logger.exception("Failed to load planilla detail: %s", exc)
         raise HTTPException(
@@ -332,6 +364,19 @@ def dashboard_summary(
                     teacher_payments[r.teacher_ci]["payment"] += r.calculated_payment
                 total_monthly_payment = sum(v["payment"] for v in teacher_payments.values())
                 top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
+
+                # If there is a stored planilla with admin overrides, use its total
+                stored_planilla = (
+                    db.query(PlanillaOutput)
+                    .filter(
+                        PlanillaOutput.month == latest_period.month,
+                        PlanillaOutput.year == latest_period.year,
+                    )
+                    .order_by(PlanillaOutput.generated_at.desc())
+                    .first()
+                )
+                if stored_planilla:
+                    total_monthly_payment = float(stored_planilla.total_payment)
             except Exception:
                 logger.warning("Could not compute top earners for dashboard")
 
