@@ -211,6 +211,7 @@ export function TeacherDetailPage() {
   useEffect(() => {
     if (teacher) {
       setEditForm({
+        ci: teacher.ci ?? '',
         full_name: teacher.full_name ?? '',
         email: teacher.email ?? '',
         phone: teacher.phone ?? '',
@@ -235,13 +236,16 @@ export function TeacherDetailPage() {
     if (!ci) return
     setEditError(null)
     try {
-      // Build the update payload — send empty strings as null to the API
       const payload: Record<string, string | null> = {}
       for (const [k, v] of Object.entries(editForm)) {
         payload[k] = v === '' ? null : v
       }
       await updateTeacher.mutateAsync({ ci, data: payload })
       setEditMode(false)
+      // If CI changed, redirect to the new URL
+      if (editForm.ci && editForm.ci !== ci) {
+        navigate(`/teachers/${editForm.ci}`, { replace: true })
+      }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } }
       setEditError(axiosErr?.response?.data?.detail ?? 'No se pudo actualizar el docente.')
@@ -251,6 +255,7 @@ export function TeacherDetailPage() {
   const handleCancelEdit = () => {
     if (teacher) {
       setEditForm({
+        ci: teacher.ci ?? '',
         full_name: teacher.full_name ?? '',
         email: teacher.email ?? '',
         phone: teacher.phone ?? '',
@@ -396,6 +401,13 @@ export function TeacherDetailPage() {
                   </p>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <EditField
+                    label="C.I. *"
+                    field="ci"
+                    value={editForm.ci}
+                    onChange={handleFieldChange}
+                    placeholder="12345678"
+                  />
                   <EditField
                     label="Nombre Completo *"
                     field="full_name"

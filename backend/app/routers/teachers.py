@@ -171,13 +171,42 @@ def update_teacher(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> TeacherResponse:
-    """Update an existing teacher's information."""
+    """Update an existing teacher's information. Supports CI change with cascade."""
     try:
         teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
         if teacher is None:
             raise HTTPException(status_code=404, detail="Docente no encontrado")
 
         update_data = payload.model_dump(exclude_unset=True)
+        new_ci = update_data.pop("ci", None)
+
+        # Handle CI change — must cascade to all FK references
+        if new_ci and new_ci != ci:
+            # Check new CI doesn't already exist
+            existing = db.query(Teacher).filter(Teacher.ci == new_ci).first()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ya existe un docente con CI {new_ci}",
+                )
+
+            from app.models.designation import Designation
+            from sqlalchemy import text
+
+            # Update FK references via raw SQL (SQLAlchemy can't cascade PK changes)
+            db.execute(text("UPDATE designations SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
+            db.execute(text("UPDATE attendance_records SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
+            db.execute(text("UPDATE biometric_records SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
+            db.execute(text("UPDATE users SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
+
+            # Update the PK itself
+            db.execute(text("UPDATE teachers SET ci = :new WHERE ci = :old"), {"new": new_ci, "old": ci})
+            db.flush()
+
+            # Re-fetch with new CI
+            teacher = db.query(Teacher).filter(Teacher.ci == new_ci).first()
+
+        # Update remaining fields
         for field, value in update_data.items():
             setattr(teacher, field, value)
 
@@ -185,9 +214,9 @@ def update_teacher(
             db,
             "update_teacher",
             "teachers",
-            f"Docente actualizado: {teacher.full_name} (CI: {ci})",
+            f"Docente actualizado: {teacher.full_name} (CI: {teacher.ci})" + (f" [CI cambiado: {ci} → {new_ci}]" if new_ci and new_ci != ci else ""),
             user=current_user,
-            details={"ci": ci, "fields_updated": list(update_data.keys())},
+            details={"old_ci": ci, "new_ci": new_ci or ci, "fields_updated": list(update_data.keys()) + (["ci"] if new_ci and new_ci != ci else [])},
             request=request,
         )
 

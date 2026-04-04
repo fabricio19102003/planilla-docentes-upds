@@ -29,6 +29,7 @@ class TeacherCreate(TeacherBase):
 
 
 class TeacherUpdate(BaseModel):
+    ci: Optional[str] = None  # Changing CI cascades to designations, attendance, users
     full_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
