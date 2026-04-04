@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useMyProfile, useChangePassword, useUpdateProfile, useMySchedule } from '@/api/hooks/useAuth'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import {
   XCircle,
   Eye,
   EyeOff,
+  ChevronRight,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -304,96 +306,40 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
   )
 }
 
-// ─── Schedule card ────────────────────────────────────────────────────────────
+// ─── Schedule summary card (links to dedicated SchedulePage) ─────────────────
 
-function ScheduleCard() {
-  const { data: schedule, isLoading, error } = useMySchedule()
-
-  if (isLoading) {
-    return (
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Calendar size={16} style={{ color: '#003366' }} />
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            Mi Horario Semanal
-          </h3>
-        </div>
-        <div className="p-5 flex items-center justify-center py-10">
-          <div className="w-6 h-6 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !schedule) {
-    return (
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Calendar size={16} style={{ color: '#003366' }} />
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            Mi Horario Semanal
-          </h3>
-        </div>
-        <div className="p-5">
-          <p className="text-sm text-gray-400 text-center py-4">
-            No se pudo cargar el horario
-          </p>
-        </div>
-      </div>
-    )
-  }
+function ScheduleSummaryCard() {
+  const { data: schedule } = useMySchedule()
 
   return (
-    <div className="card-3d-static overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-        <Calendar size={16} style={{ color: '#003366' }} />
-        <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-          Mi Horario Semanal
-        </h3>
-        <span className="text-xs text-gray-500 ml-auto">{schedule.total_weekly_hours}h/semana</span>
-      </div>
-
-      {schedule.designations.length === 0 ? (
-        <div className="p-5">
-          <p className="text-sm text-gray-400 text-center py-4">
-            No tenés materias asignadas actualmente
-          </p>
+    <div className="card-3d overflow-hidden">
+      <Link
+        to="/portal/schedule"
+        className="flex items-center justify-between p-5 group"
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, #003366 0%, #0066CC 100%)' }}
+          >
+            <Calendar size={18} className="text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              Mi Horario Semanal
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {schedule
+                ? `${schedule.designation_count} materia(s) · ${schedule.total_weekly_hours}h/semana`
+                : 'Cargando...'}
+            </p>
+          </div>
         </div>
-      ) : (
-        <div className="p-5 space-y-4">
-          {schedule.designations.map((d) => (
-            <div key={`${d.subject}-${d.group_code}`} className="text-sm">
-              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <span className="font-medium text-gray-800">{d.subject}</span>
-                <Badge className="bg-gray-100 text-gray-600 border-gray-200 text-xs font-mono">
-                  {d.group_code}
-                </Badge>
-                <span className="text-xs text-gray-400">{d.semester}</span>
-                {d.weekly_hours != null && (
-                  <span className="text-xs text-gray-500 ml-auto">{d.weekly_hours}h/sem</span>
-                )}
-              </div>
-              {d.schedule.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 ml-2">
-                  {d.schedule.map((slot, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700"
-                    >
-                      <span className="font-medium capitalize">{slot.dia}</span>
-                      <span>
-                        {slot.hora_inicio} - {slot.hora_fin}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 ml-2 italic">Sin horario registrado</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+        <ChevronRight
+          size={18}
+          className="text-gray-400 group-hover:text-[#0066CC] transition-colors flex-shrink-0"
+        />
+      </Link>
     </div>
   )
 }
@@ -614,8 +560,8 @@ export function MyProfilePage() {
       {/* Personal data — editable */}
       {p && <PersonalDataCard p={p} />}
 
-      {/* Weekly schedule */}
-      <ScheduleCard />
+      {/* Weekly schedule — compact link to dedicated page */}
+      <ScheduleSummaryCard />
 
       {/* Change Password */}
       <ChangePasswordCard />

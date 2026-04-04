@@ -57,11 +57,21 @@ class AuthService:
     # ------------------------------------------------------------------
 
     def authenticate_user(self, db: Session, ci: str, password: str) -> Optional[User]:
-        user = db.query(User).filter(User.ci == ci, User.is_active == True).first()  # noqa: E712
+        """Authenticate user. Raises HTTPException with specific detail for disabled accounts."""
+        # First check if user exists (active or not)
+        user = db.query(User).filter(User.ci == ci).first()
         if user is None:
-            return None
+            return None  # User not found
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu cuenta ha sido deshabilitada. Contactá al administrador para más información.",
+            )
+
         if not self.verify_password(password, user.password_hash):
-            return None
+            return None  # Wrong password
+
         return user
 
     def get_current_user(self, token: str, db: Session) -> User:

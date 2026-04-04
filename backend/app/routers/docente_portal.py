@@ -428,6 +428,29 @@ def update_profile(
     }
 
 
+@router.get("/schedule/pdf")
+def export_schedule_pdf(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+):
+    """Generate and return a PDF of the docente's weekly schedule."""
+    from fastapi.responses import FileResponse
+
+    from app.services.schedule_pdf import generate_schedule_pdf
+
+    teacher = _get_teacher_or_raise(current_user, db)
+    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+
+    pdf_path = generate_schedule_pdf(teacher, designations)
+
+    safe_name = teacher.full_name.replace(' ', '_')
+    return FileResponse(
+        path=pdf_path,
+        filename=f"horario_{safe_name}.pdf",
+        media_type="application/pdf",
+    )
+
+
 @router.get("/schedule", response_model=MyScheduleResponse)
 def get_my_schedule(
     current_user: User = Depends(require_docente),

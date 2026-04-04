@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { AlertCircle, LogIn, Eye, EyeOff } from 'lucide-react'
+import { AlertCircle, LogIn, Eye, EyeOff, ShieldAlert } from 'lucide-react'
 
 function UPDSLogo() {
   return (
@@ -41,7 +41,9 @@ export function LoginPage() {
       await login(ci.trim(), password)
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
-      if (axiosErr?.response?.status === 401) {
+      if (axiosErr?.response?.status === 403) {
+        setError(axiosErr.response?.data?.detail ?? 'Tu cuenta ha sido deshabilitada.')
+      } else if (axiosErr?.response?.status === 401) {
         setError('CI o contraseña incorrectos.')
       } else if (axiosErr?.response?.data?.detail) {
         setError(axiosErr.response.data.detail)
@@ -145,9 +147,19 @@ export function LoginPage() {
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-2.5 bg-red-500/15 border border-red-500/30 rounded-lg px-3 py-2.5">
-              <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-red-300 text-sm leading-snug">{error}</p>
+            <div className={`flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${
+              error.includes('deshabilitada')
+                ? 'bg-orange-500/15 border border-orange-400/40'
+                : 'bg-red-500/15 border border-red-500/30'
+            }`}>
+              {error.includes('deshabilitada') ? (
+                <ShieldAlert size={16} className="text-orange-300 flex-shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+              )}
+              <p className={`text-sm leading-snug ${error.includes('deshabilitada') ? 'text-orange-200' : 'text-red-300'}`}>
+                {error}
+              </p>
             </div>
           )}
 

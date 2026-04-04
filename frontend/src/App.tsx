@@ -26,6 +26,7 @@ import { BillingHistoryPage } from './pages/BillingHistoryPage'
 import { MyRequestsPage } from './pages/MyRequestsPage'
 import { MyProfilePage } from './pages/MyProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { SchedulePage } from './pages/SchedulePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +80,7 @@ function AppRoutes() {
           <Route path="requests" element={<MyRequestsPage />} />
           <Route path="profile" element={<MyProfilePage />} />
           <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
         </Route>
       </Routes>
     </AuthProvider>
