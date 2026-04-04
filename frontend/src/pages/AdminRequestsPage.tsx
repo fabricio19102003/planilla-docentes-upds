@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Check, X, Filter } from 'lucide-react'
+import { Check, X, Filter, Eye } from 'lucide-react'
 import type { DetailRequestInfo } from '@/api/types'
 
 type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected'
@@ -47,19 +47,13 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function RespondDialog({
+function RequestDetailDialog({
   request,
-  action,
   onClose,
 }: {
   request: DetailRequestInfo | null
-  action: 'approved' | 'rejected' | null
   onClose: () => void
 }) {
-  const respond = useRespondRequest()
-  const [adminResponse, setAdminResponse] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
   // Load planilla detail for this teacher's billing info
   const { data: planillaDetail } = usePlanillaDetail(
     request?.month ?? 0,
@@ -73,6 +67,116 @@ function RespondDialog({
   const teacherDesignations = planillaDetail?.detail?.filter(
     d => d.teacher_ci === request?.teacher_ci,
   )
+
+  if (!request) return null
+
+  return (
+    <Dialog open={Boolean(request)} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle style={{ color: '#003366' }}>Detalle de Solicitud</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {/* Request info */}
+          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+            <p>
+              <span className="text-gray-500">Docente:</span>{' '}
+              <span className="font-medium">{request.teacher_name ?? request.teacher_ci}</span>
+            </p>
+            <p>
+              <span className="text-gray-500">Solicitud:</span>{' '}
+              <span className="font-medium">
+                {REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}
+              </span>
+            </p>
+            <p>
+              <span className="text-gray-500">Período:</span>{' '}
+              <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
+            </p>
+            <p>
+              <span className="text-gray-500">Fecha:</span>{' '}
+              <span className="font-medium">{new Date(request.created_at).toLocaleDateString('es-BO')}</span>
+            </p>
+          </div>
+
+          {/* Docente's message */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Mensaje del docente</p>
+            <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+              {request.message || <span className="text-gray-400 italic">Sin mensaje</span>}
+            </div>
+          </div>
+
+          {/* Admin response */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Respuesta del administrador</p>
+            {request.admin_response ? (
+              <div className={`border rounded-lg p-3 text-sm ${
+                request.status === 'approved'
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : request.status === 'rejected'
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+              }`}>
+                {request.admin_response}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
+                Sin respuesta
+              </div>
+            )}
+            {request.responded_at && (
+              <p className="text-xs text-gray-400 mt-1">
+                Respondido el {new Date(request.responded_at).toLocaleDateString('es-BO')}
+              </p>
+            )}
+          </div>
+
+          {/* Teacher billing info */}
+          {teacherBilling && (
+            <div className="bg-blue-50/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Facturación del período</p>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total a facturar</span>
+                <span className="text-lg font-bold" style={{ color: '#003366' }}>
+                  Bs {teacherBilling.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>{teacherBilling.total_base_hours}h asignadas</span>
+                <span>{teacherBilling.total_absent_hours > 0 ? `-${teacherBilling.total_absent_hours}h ausencias` : 'Sin ausencias'}</span>
+                <span>{teacherBilling.total_payable_hours}h a pagar</span>
+              </div>
+              {teacherDesignations && teacherDesignations.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {teacherDesignations.map(d => (
+                    <div key={`${d.subject}-${d.group_code}`} className="flex justify-between text-xs">
+                      <span className="text-gray-600">{d.subject} ({d.group_code})</span>
+                      <span className="font-medium text-gray-800">Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RespondDialog({
+  request,
+  action,
+  onClose,
+}: {
+  request: DetailRequestInfo | null
+  action: 'approved' | 'rejected' | null
+  onClose: () => void
+}) {
+  const respond = useRespondRequest()
+  const [adminResponse, setAdminResponse] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -118,45 +222,17 @@ function RespondDialog({
             </p>
             <p>
               <span className="text-gray-500">Período:</span>{' '}
-              <span className="font-medium">
-                {MONTH_NAMES[request.month]} {request.year}
-              </span>
+              <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
             </p>
             {request.message && (
-              <p>
-                <span className="text-gray-500">Mensaje:</span>{' '}
-                <span className="text-gray-700 italic">"{request.message}"</span>
-              </p>
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <span className="text-gray-500">Mensaje del docente:</span>
+                <p className="text-gray-700 mt-1 bg-white rounded p-2 border border-gray-200 text-sm">
+                  {request.message}
+                </p>
+              </div>
             )}
           </div>
-
-          {/* Teacher billing info */}
-          {teacherBilling && (
-            <div className="bg-blue-50/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Facturación del período</p>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total a facturar</span>
-                <span className="text-lg font-bold" style={{ color: '#003366' }}>
-                  Bs {teacherBilling.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>{teacherBilling.total_base_hours}h asignadas</span>
-                <span>{teacherBilling.total_absent_hours > 0 ? `-${teacherBilling.total_absent_hours}h ausencias` : 'Sin ausencias'}</span>
-                <span>{teacherBilling.total_payable_hours}h a pagar</span>
-              </div>
-              {teacherDesignations && teacherDesignations.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {teacherDesignations.map(d => (
-                    <div key={`${d.subject}-${d.group_code}`} className="flex justify-between text-xs">
-                      <span className="text-gray-600">{d.subject} ({d.group_code})</span>
-                      <span className="font-medium text-gray-800">Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           <div className="space-y-1.5">
             <Label>Respuesta al docente (opcional)</Label>
@@ -201,6 +277,7 @@ export function AdminRequestsPage() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [respondTarget, setRespondTarget] = useState<DetailRequestInfo | null>(null)
   const [respondAction, setRespondAction] = useState<'approved' | 'rejected' | null>(null)
+  const [viewTarget, setViewTarget] = useState<DetailRequestInfo | null>(null)
 
   const handleRespond = (req: DetailRequestInfo, action: 'approved' | 'rejected') => {
     setRespondTarget(req)
@@ -348,9 +425,13 @@ export function AdminRequestsPage() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-400">
-                            {req.admin_response ? `"${req.admin_response.slice(0, 30)}..."` : 'Sin respuesta'}
-                          </span>
+                          <button
+                            onClick={() => setViewTarget(req)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-blue-50 text-[#0066CC] hover:bg-blue-100 transition-colors"
+                          >
+                            <Eye size={12} />
+                            Ver detalle
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -363,6 +444,7 @@ export function AdminRequestsPage() {
       </div>
 
       <RespondDialog request={respondTarget} action={respondAction} onClose={handleClose} />
+      <RequestDetailDialog request={viewTarget} onClose={() => setViewTarget(null)} />
     </div>
   )
 }

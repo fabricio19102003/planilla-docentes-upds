@@ -40,6 +40,7 @@ class DesignationBilling(BaseModel):
     group: str
     hours: int
     semester: str
+    payment: float = 0.0
 
 
 class BillingResponse(BaseModel):
@@ -123,6 +124,8 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
     designations: list[DesignationBilling] = []
     total_hours = 0
 
+    rate = settings.HOURLY_RATE
+
     if designation_ids:
         desigs = db.query(Designation).filter(Designation.id.in_(designation_ids)).all()
         for d in desigs:
@@ -134,10 +137,9 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
                     group=d.group_code,
                     hours=h,
                     semester=d.semester,
+                    payment=round(h * rate, 2),
                 )
             )
-
-    rate = settings.HOURLY_RATE
     total_payment = round(total_hours * rate, 2)
 
     return BillingResponse(

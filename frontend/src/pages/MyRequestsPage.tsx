@@ -20,7 +20,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { PlusCircle, MessageSquare } from 'lucide-react'
+import { PlusCircle, MessageSquare, Eye } from 'lucide-react'
+import type { DetailRequestInfo } from '@/api/types'
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
   biometric_detail: 'Detalle Biométrico',
@@ -178,9 +179,82 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
   )
 }
 
+function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | null; onClose: () => void }) {
+  if (!request) return null
+
+  return (
+    <Dialog open={Boolean(request)} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle style={{ color: '#003366' }}>Detalle de Solicitud</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {/* Request info */}
+          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+            <p>
+              <span className="text-gray-500">Tipo:</span>{' '}
+              <span className="font-medium">{REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}</span>
+            </p>
+            <p>
+              <span className="text-gray-500">Período:</span>{' '}
+              <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
+            </p>
+            <p>
+              <span className="text-gray-500">Fecha de envío:</span>{' '}
+              <span className="font-medium">{new Date(request.created_at).toLocaleDateString('es-BO')}</span>
+            </p>
+            <p>
+              <span className="text-gray-500">Estado:</span>{' '}
+              <StatusBadge status={request.status} />
+            </p>
+          </div>
+
+          {/* My message */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Tu mensaje</p>
+            <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+              {request.message || <span className="text-gray-400 italic">Sin mensaje</span>}
+            </div>
+          </div>
+
+          {/* Admin response */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Respuesta del administrador</p>
+            {request.admin_response ? (
+              <div className={`border rounded-lg p-3 text-sm ${
+                request.status === 'approved'
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : request.status === 'rejected'
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+              }`}>
+                {request.admin_response}
+              </div>
+            ) : request.status === 'pending' ? (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-700 italic">
+                Esperando respuesta del administrador...
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
+                El administrador no dejó una respuesta escrita
+              </div>
+            )}
+            {request.responded_at && (
+              <p className="text-xs text-gray-400 mt-1">
+                Respondido el {new Date(request.responded_at).toLocaleDateString('es-BO')}
+              </p>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function MyRequestsPage() {
   const { data: requests, isLoading } = useMyRequests()
   const [createOpen, setCreateOpen] = useState(false)
+  const [viewTarget, setViewTarget] = useState<DetailRequestInfo | null>(null)
 
   if (isLoading) {
     return (
@@ -246,7 +320,7 @@ export function MyRequestsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ backgroundColor: '#003366' }}>
-                    {['Período', 'Tipo', 'Mensaje', 'Estado', 'Respuesta', 'Fecha'].map((h) => (
+                    {['Período', 'Tipo', 'Estado', 'Fecha', 'Acciones'].map((h) => (
                       <th
                         key={h}
                         className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
@@ -270,27 +344,20 @@ export function MyRequestsPage() {
                       <td className="px-4 py-3 text-gray-700">
                         {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate">
-                        {req.message || '—'}
-                      </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={req.status} />
                       </td>
-                      <td className="px-4 py-3 max-w-[200px]">
-                        {req.admin_response ? (
-                          <span
-                            className={`text-xs ${
-                              req.status === 'rejected' ? 'text-red-600' : 'text-green-700'
-                            }`}
-                          >
-                            {req.admin_response}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
-                      </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {new Date(req.created_at).toLocaleDateString('es-BO')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setViewTarget(req)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-blue-50 text-[#0066CC] hover:bg-blue-100 transition-colors"
+                        >
+                          <Eye size={12} />
+                          Ver detalle
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -302,6 +369,7 @@ export function MyRequestsPage() {
       )}
 
       <NewRequestDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <ViewRequestDialog request={viewTarget} onClose={() => setViewTarget(null)} />
     </div>
   )
 }
