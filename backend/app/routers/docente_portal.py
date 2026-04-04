@@ -443,10 +443,13 @@ def export_schedule_pdf(
 
     pdf_path = generate_schedule_pdf(teacher, designations)
 
+    from datetime import datetime as dt
+
     safe_name = teacher.full_name.replace(' ', '_')
+    year = dt.now().year
     return FileResponse(
         path=pdf_path,
-        filename=f"horario_{safe_name}.pdf",
+        filename=f"Horario_de_{safe_name}_Gestion_{year}.pdf",
         media_type="application/pdf",
     )
 

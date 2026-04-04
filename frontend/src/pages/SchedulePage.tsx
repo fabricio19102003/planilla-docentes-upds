@@ -394,7 +394,7 @@ export function SchedulePage() {
   const handleExportPDF = async () => {
     setIsExportingPDF(true)
     try {
-      await downloadSchedulePDF()
+      await downloadSchedulePDF(schedule?.teacher_name)
     } catch (e) {
       console.error('Error exporting PDF:', e)
     } finally {
@@ -408,8 +408,23 @@ export function SchedulePage() {
     try {
       const canvas = await html2canvas(contentRef.current, {
         scale: 2,
-        backgroundColor: '#f8fafc',
+        backgroundColor: '#ffffff',
         useCORS: true,
+        onclone: (clonedDoc) => {
+          // html2canvas doesn't support oklch() colors (Tailwind 4 default).
+          // Convert all oklch colors to rgb by reading computed styles.
+          const allElements = clonedDoc.querySelectorAll('*')
+          allElements.forEach((el) => {
+            const computed = window.getComputedStyle(el)
+            const htmlEl = el as HTMLElement
+            const bg = computed.backgroundColor
+            const color = computed.color
+            const borderColor = computed.borderColor
+            if (bg) htmlEl.style.backgroundColor = bg
+            if (color) htmlEl.style.color = color
+            if (borderColor) htmlEl.style.borderColor = borderColor
+          })
+        },
       })
       const link = document.createElement('a')
       link.download = `horario_${schedule?.teacher_name?.replace(/\s+/g, '_') ?? 'docente'}.png`

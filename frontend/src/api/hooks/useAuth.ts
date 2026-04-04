@@ -184,12 +184,14 @@ export function useMySchedule() {
 
 // ─── Schedule PDF export ──────────────────────────────────────────────────────
 
-export async function downloadSchedulePDF(): Promise<void> {
+export async function downloadSchedulePDF(teacherName?: string): Promise<void> {
   const response = await api.get('/portal/schedule/pdf', { responseType: 'blob' })
   const url = window.URL.createObjectURL(new Blob([response.data as BlobPart]))
   const link = document.createElement('a')
   link.href = url
-  link.download = 'mi_horario.pdf'
+  const year = new Date().getFullYear()
+  const safeName = (teacherName ?? 'docente').replace(/\s+/g, '_')
+  link.download = `Horario_de_${safeName}_Gestion_${year}.pdf`
   document.body.appendChild(link)
   link.click()
   link.remove()
