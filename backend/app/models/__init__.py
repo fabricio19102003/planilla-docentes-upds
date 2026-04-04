@@ -8,6 +8,8 @@ from app.models.planilla import PlanillaOutput
 from app.models.user import User
 from app.models.detail_request import DetailRequest
 from app.models.report import Report
+from app.models.billing_publication import BillingPublication
+from app.models.notification import Notification
 
 __all__ = [
     "Teacher",
@@ -19,4 +21,6 @@ __all__ = [
     "User",
     "DetailRequest",
     "Report",
+    "BillingPublication",
+    "Notification",
 ]

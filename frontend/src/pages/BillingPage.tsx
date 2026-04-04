@@ -19,20 +19,34 @@ export function BillingPage() {
   }
 
   if (error) {
-    const is400 = (error as { response?: { status?: number } })?.response?.status === 400
+    const status = (error as any)?.response?.status
+    if (status === 404) {
+      return (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+          <Clock size={40} className="text-yellow-400 mx-auto mb-3" />
+          <p className="text-yellow-700 font-medium">Facturación aún no publicada</p>
+          <p className="text-yellow-500 text-sm mt-1">
+            El administrador aún no ha publicado los montos a facturar para este mes.
+            Serás notificado cuando estén disponibles.
+          </p>
+        </div>
+      )
+    }
+    if (status === 400) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+          <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
+          <p className="text-red-600 font-medium">Tu cuenta no está vinculada a un docente</p>
+          <p className="text-red-400 text-sm mt-1">
+            Contactá al administrador para que vincule tu cuenta con tu registro de docente.
+          </p>
+        </div>
+      )
+    }
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
         <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
-        <p className="text-red-600 font-medium">
-          {is400
-            ? 'Tu cuenta no está vinculada a un docente'
-            : 'No hay información de facturación disponible'}
-        </p>
-        <p className="text-red-400 text-sm mt-1">
-          {is400
-            ? 'Contactá al administrador para que vincule tu cuenta con tu registro de docente.'
-            : 'Es posible que la planilla del mes actual aún no haya sido generada.'}
-        </p>
+        <p className="text-red-600 font-medium">No hay información de facturación disponible</p>
       </div>
     )
   }

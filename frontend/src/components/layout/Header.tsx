@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
-import { LogOut, ChevronDown } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { LogOut, ChevronDown, Bell } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { useUnreadCount } from '@/api/hooks/useNotifications'
 
 const routeTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -16,6 +17,7 @@ const routeTitles: Record<string, string> = {
   '/portal/history': 'Histórico de Facturación',
   '/portal/requests': 'Mis Solicitudes',
   '/portal/profile': 'Mi Perfil',
+  '/portal/notifications': 'Notificaciones',
 }
 
 function getTitleFromPath(pathname: string): string {
@@ -29,10 +31,12 @@ function getTitleFromPath(pathname: string): string {
 
 export function Header() {
   const { pathname } = useLocation()
-  const { user, isAdmin, logout } = useAuth()
+  const navigate = useNavigate()
+  const { user, isAdmin, isDocente, logout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const title = getTitleFromPath(pathname)
+  const { data: unreadCount = 0 } = useUnreadCount(isDocente)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -60,8 +64,24 @@ export function Header() {
         {title}
       </h1>
 
-      {/* User section */}
-      <div className="relative" ref={dropdownRef}>
+      {/* Notification bell — docentes only */}
+      <div className="flex items-center gap-2">
+        {isDocente && (
+          <button
+            onClick={() => navigate('/portal/notifications')}
+            className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <Bell size={20} className="text-gray-600" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* User section */}
+        <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen((v) => !v)}
           className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
@@ -112,6 +132,7 @@ export function Header() {
             </button>
           </div>
         )}
+        </div>
       </div>
 
       {/* Gradient accent line */}

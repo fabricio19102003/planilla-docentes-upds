@@ -169,7 +169,7 @@ export function BillingHistoryPage() {
                 {!history.length ? (
                   <tr>
                     <td colSpan={5} className="text-center py-12 text-gray-400">
-                      Sin historial de facturación
+                      No hay meses publicados en tu historial de facturación
                     </td>
                   </tr>
                 ) : (

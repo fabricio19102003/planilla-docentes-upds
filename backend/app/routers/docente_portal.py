@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import settings
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
+from app.models.billing_publication import BillingPublication
 from app.models.designation import Designation
+from app.models.notification import Notification
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.teacher import TeacherResponse
@@ -89,6 +91,21 @@ class ProfileResponse(BaseModel):
     bank: Optional[str] = None
     account_number: Optional[str] = None
     designation_count: int = 0
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    title: str
+    message: str
+    notification_type: str
+    is_read: bool
+    reference_month: Optional[int] = None
+    reference_year: Optional[int] = None
+    created_at: datetime
+
+
+class UnreadCountResponse(BaseModel):
+    count: int
 
 
 # ------------------------------------------------------------------
@@ -249,9 +266,29 @@ def get_current_billing(
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ) -> BillingResponse:
-    """Get current month billing summary for the authenticated docente."""
+    """Get current month billing summary for the authenticated docente.
+
+    Returns 404 if the current month's billing has not been published by admin.
+    """
     teacher = _get_teacher_or_raise(current_user, db)
     now = datetime.now()
+
+    # Check publication status before returning billing
+    publication = (
+        db.query(BillingPublication)
+        .filter(
+            BillingPublication.month == now.month,
+            BillingPublication.year == now.year,
+            BillingPublication.status == "published",
+        )
+        .first()
+    )
+    if not publication:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La facturación de este mes aún no ha sido publicada",
+        )
+
     return _build_billing(teacher.ci, now.month, now.year, db)
 
 
@@ -260,7 +297,10 @@ def get_billing_history(
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ) -> list[BillingHistoryItem]:
-    """Get billing history (all months with attendance data) for the authenticated docente."""
+    """Get billing history for the authenticated docente.
+
+    Only returns periods that have a published BillingPublication.
+    """
     teacher = _get_teacher_or_raise(current_user, db)
 
     # Get distinct month/year combinations that have ANY attendance data
@@ -273,8 +313,18 @@ def get_billing_history(
         .all()
     )
 
+    # Only return periods that have a published BillingPublication
+    published_periods = (
+        db.query(BillingPublication.month, BillingPublication.year)
+        .filter(BillingPublication.status == "published")
+        .all()
+    )
+    published_set = {(p.month, p.year) for p in published_periods}
+
     history: list[BillingHistoryItem] = []
     for period in periods:
+        if (period.month, period.year) not in published_set:
+            continue
         billing = _build_billing(teacher.ci, period.month, period.year, db)
         history.append(
             BillingHistoryItem(
@@ -318,3 +368,90 @@ def get_docente_profile(
         account_number=teacher.account_number,
         designation_count=int(designation_count),
     )
+
+
+# ------------------------------------------------------------------
+# Notification endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/notifications", response_model=list[NotificationResponse])
+def get_notifications(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> list[NotificationResponse]:
+    """Get the 20 most recent notifications for the authenticated docente."""
+    notifications = (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    return [
+        NotificationResponse(
+            id=n.id,
+            title=n.title,
+            message=n.message,
+            notification_type=n.notification_type,
+            is_read=n.is_read,
+            reference_month=n.reference_month,
+            reference_year=n.reference_year,
+            created_at=n.created_at,
+        )
+        for n in notifications
+    ]
+
+
+@router.get("/notifications/unread-count", response_model=UnreadCountResponse)
+def get_unread_count(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> UnreadCountResponse:
+    """Get the count of unread notifications for the authenticated docente."""
+    count = (
+        db.query(func.count(Notification.id))
+        .filter(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
+        .scalar()
+        or 0
+    )
+    return UnreadCountResponse(count=int(count))
+
+
+@router.post("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: int,
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Mark a specific notification as read."""
+    notification = (
+        db.query(Notification)
+        .filter(
+            Notification.id == notification_id,
+            Notification.user_id == current_user.id,
+        )
+        .first()
+    )
+    if notification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notificación no encontrada",
+        )
+    notification.is_read = True
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/notifications/read-all")
+def mark_all_notifications_read(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Mark all notifications as read for the authenticated docente."""
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,  # noqa: E712
+    ).update({"is_read": True})
+    db.commit()
+    return {"success": True}

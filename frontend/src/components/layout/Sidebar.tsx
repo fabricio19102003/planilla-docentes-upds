@@ -13,6 +13,7 @@ import {
   User,
   LogOut,
   FileText,
+  Bell,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -42,6 +43,7 @@ const docenteNavItems: NavItem[] = [
   { to: '/portal', label: 'Mi Facturación', icon: Receipt, exact: true },
   { to: '/portal/history', label: 'Histórico', icon: History },
   { to: '/portal/requests', label: 'Mis Solicitudes', icon: MessageSquare },
+  { to: '/portal/notifications', label: 'Notificaciones', icon: Bell },
   { to: '/portal/profile', label: 'Mi Perfil', icon: User },
 ]
 
