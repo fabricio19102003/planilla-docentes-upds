@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,9 +13,12 @@ from app.models.user import User
 from app.schemas.teacher import (
     PaginatedTeachersResponse,
     TeacherAttendanceSummary,
+    TeacherCreate,
     TeacherDetailResponse,
     TeacherResponse,
+    TeacherUpdate,
 )
+from app.services.activity_logger import log_activity
 from app.utils.auth import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
@@ -102,3 +105,135 @@ def get_teacher(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo obtener el docente",
         ) from exc
+
+
+@router.post("", response_model=TeacherResponse, status_code=status.HTTP_201_CREATED)
+def create_teacher(
+    request: Request,
+    payload: TeacherCreate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TeacherResponse:
+    """Create a new teacher manually."""
+    try:
+        existing = db.query(Teacher).filter(Teacher.ci == payload.ci).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ya existe un docente con CI {payload.ci}",
+            )
+
+        teacher = Teacher(
+            ci=payload.ci,
+            full_name=payload.full_name,
+            email=payload.email,
+            phone=payload.phone,
+            gender=payload.gender,
+            external_permanent=payload.external_permanent,
+            academic_level=payload.academic_level,
+            profession=payload.profession,
+            specialty=payload.specialty,
+            bank=payload.bank,
+            account_number=payload.account_number,
+            sap_code=payload.sap_code,
+            invoice_retention=payload.invoice_retention,
+        )
+        db.add(teacher)
+
+        log_activity(
+            db,
+            "create_teacher",
+            "teachers",
+            f"Docente creado: {teacher.full_name} (CI: {teacher.ci})",
+            user=current_user,
+            details={"ci": teacher.ci, "full_name": teacher.full_name},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+
+        return TeacherResponse.model_validate(teacher)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create teacher: %s", exc)
+        raise HTTPException(status_code=500, detail="No se pudo crear el docente") from exc
+
+
+@router.put("/{ci}", response_model=TeacherResponse)
+def update_teacher(
+    request: Request,
+    ci: str,
+    payload: TeacherUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TeacherResponse:
+    """Update an existing teacher's information."""
+    try:
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+        if teacher is None:
+            raise HTTPException(status_code=404, detail="Docente no encontrado")
+
+        update_data = payload.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(teacher, field, value)
+
+        log_activity(
+            db,
+            "update_teacher",
+            "teachers",
+            f"Docente actualizado: {teacher.full_name} (CI: {ci})",
+            user=current_user,
+            details={"ci": ci, "fields_updated": list(update_data.keys())},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+
+        return TeacherResponse.model_validate(teacher)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to update teacher %s: %s", ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo actualizar el docente") from exc
+
+
+@router.delete("/{ci}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_teacher(
+    request: Request,
+    ci: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete a teacher. This also cascades to their designations."""
+    try:
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+        if teacher is None:
+            raise HTTPException(status_code=404, detail="Docente no encontrado")
+
+        name = teacher.full_name
+        log_activity(
+            db,
+            "delete_teacher",
+            "teachers",
+            f"Docente eliminado: {name} (CI: {ci})",
+            user=current_user,
+            details={"ci": ci, "full_name": name},
+            request=request,
+        )
+
+        db.delete(teacher)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete teacher %s: %s", ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo eliminar el docente") from exc
