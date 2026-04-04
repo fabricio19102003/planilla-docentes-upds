@@ -266,6 +266,13 @@ export interface DashboardSummary {
   latest_attendance_summary: AttendanceSummary | null
   teacher_count: number
   designation_count: number
+  // Chart data
+  attendance_distribution: { name: string; value: number; color: string }[]
+  top_earners: { name: string; hours: number; payment: number }[]
+  group_distribution: { group: string; count: number }[]
+  semester_distribution: { semester: string; count: number }[]
+  total_monthly_payment: number
+  pending_requests: number
 }
 
 export interface DesignationUploadResponse {

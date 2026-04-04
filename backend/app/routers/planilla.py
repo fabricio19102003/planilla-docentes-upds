@@ -307,11 +307,67 @@ def dashboard_summary(
                 observations=[],
             )
 
+        # ── Attendance distribution (for donut chart) ────
+        attendance_distribution = []
+        if latest_summary:
+            attendance_distribution = [
+                {"name": "Asistidos", "value": latest_summary.attended, "color": "#16a34a"},
+                {"name": "Tardanzas", "value": latest_summary.late, "color": "#d97706"},
+                {"name": "Ausencias", "value": latest_summary.absent, "color": "#dc2626"},
+                {"name": "Sin salida", "value": latest_summary.no_exit, "color": "#6b7280"},
+            ]
+
+        # ── Top earners (for bar chart) ──────────────────
+        top_earners = []
+        total_monthly_payment = 0.0
+        if latest_period:
+            try:
+                gen = PlanillaGenerator()
+                planilla_rows, _, _ = gen._build_planilla_data(db, month=latest_period.month, year=latest_period.year)
+                teacher_payments: dict = {}
+                for r in planilla_rows:
+                    if r.teacher_ci not in teacher_payments:
+                        teacher_payments[r.teacher_ci] = {"name": r.teacher_name, "hours": 0, "payment": 0.0}
+                    teacher_payments[r.teacher_ci]["hours"] += r.payable_hours
+                    teacher_payments[r.teacher_ci]["payment"] += r.calculated_payment
+                total_monthly_payment = sum(v["payment"] for v in teacher_payments.values())
+                top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
+            except Exception:
+                logger.warning("Could not compute top earners for dashboard")
+
+        # ── Group distribution (for pie/bar chart) ───────
+        group_dist_query = (
+            db.query(Designation.group_code, func.count(Designation.id))
+            .group_by(Designation.group_code)
+            .order_by(func.count(Designation.id).desc())
+            .all()
+        )
+        group_distribution = [{"group": g, "count": c} for g, c in group_dist_query]
+
+        # ── Semester distribution ────────────────────────
+        semester_dist_query = (
+            db.query(Designation.semester, func.count(Designation.id))
+            .group_by(Designation.semester)
+            .order_by(func.count(Designation.id).desc())
+            .all()
+        )
+        semester_distribution = [{"semester": s, "count": c} for s, c in semester_dist_query]
+
+        # ── Pending requests ─────────────────────────────
+        from app.models.detail_request import DetailRequest
+        pending_requests = db.query(func.count(DetailRequest.id)).filter(DetailRequest.status == "pending").scalar() or 0
+
         return DashboardSummaryResponse(
             recent_uploads=[BiometricUploadResponse.model_validate(upload) for upload in recent_uploads],
             latest_attendance_summary=latest_summary,
             teacher_count=teacher_count,
             designation_count=designation_count,
+            attendance_distribution=attendance_distribution,
+            top_earners=top_earners,
+            group_distribution=group_distribution,
+            semester_distribution=semester_distribution,
+            total_monthly_payment=total_monthly_payment,
+            pending_requests=pending_requests,
         )
     except Exception as exc:
         logger.exception("Failed to load dashboard summary: %s", exc)

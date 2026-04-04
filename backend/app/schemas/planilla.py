@@ -49,3 +49,11 @@ class DashboardSummaryResponse(BaseModel):
     latest_attendance_summary: Optional[MonthlyAttendanceSummaryResponse] = None
     teacher_count: int
     designation_count: int
+
+    # Chart data
+    attendance_distribution: list[dict] = Field(default_factory=list)
+    top_earners: list[dict] = Field(default_factory=list)
+    group_distribution: list[dict] = Field(default_factory=list)
+    semester_distribution: list[dict] = Field(default_factory=list)
+    total_monthly_payment: float = 0.0
+    pending_requests: int = 0

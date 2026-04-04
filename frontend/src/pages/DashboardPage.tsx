@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
-import { Users, BookOpen, Upload, TrendingUp } from 'lucide-react'
+import { Users, BookOpen, Upload, TrendingUp, DollarSign, AlertCircle, ClipboardCheck } from 'lucide-react'
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+} from 'recharts'
 import { useDashboard } from '@/api/hooks/useDashboard'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
@@ -19,6 +22,10 @@ function formatDate(dateStr: string): string {
   const month = String(d.getMonth() + 1).padStart(2, '0')
   const year = d.getFullYear()
   return `${day}/${month}/${year}`
+}
+
+function formatCurrency(value: number): string {
+  return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 export function DashboardPage() {
@@ -37,6 +44,8 @@ export function DashboardPage() {
 
   const attendanceRate = data?.latest_attendance_summary?.attendance_rate
   const lastUpload = data?.recent_uploads?.[0]
+  const totalPayment = data?.total_monthly_payment ?? 0
+  const pendingRequests = data?.pending_requests ?? 0
 
   return (
     <div className="space-y-6">
@@ -46,8 +55,8 @@ export function DashboardPage() {
         <p className="text-white/70 mt-1">UPDS — Sistema de Planilla Docentes</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* Stats Grid — 6 cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <div className="animate-fade-in-up stagger-1">
           <StatCard
             icon={Users}
@@ -68,19 +77,6 @@ export function DashboardPage() {
         </div>
         <div className="animate-fade-in-up stagger-3">
           <StatCard
-            icon={Upload}
-            title="Último Upload"
-            value={
-              lastUpload
-                ? `${MONTH_NAMES[lastUpload.month]} ${lastUpload.year}`
-                : 'Sin datos'
-            }
-            subtitle={lastUpload ? `${lastUpload.total_records} registros` : undefined}
-            color="#4DA8DA"
-          />
-        </div>
-        <div className="animate-fade-in-up stagger-4">
-          <StatCard
             icon={TrendingUp}
             title="Tasa de Asistencia"
             value={
@@ -92,8 +88,191 @@ export function DashboardPage() {
             color="#16a34a"
           />
         </div>
+        <div className="animate-fade-in-up stagger-4">
+          <StatCard
+            icon={DollarSign}
+            title="Total Facturación"
+            value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
+            subtitle="Período actual"
+            color="#7c3aed"
+          />
+        </div>
+        <div className="animate-fade-in-up stagger-5">
+          <StatCard
+            icon={AlertCircle}
+            title="Solicitudes Pendientes"
+            value={pendingRequests}
+            subtitle="Solicitudes por responder"
+            color={pendingRequests > 0 ? '#d97706' : '#6b7280'}
+          />
+        </div>
+        <div className="animate-fade-in-up stagger-5">
+          <StatCard
+            icon={Upload}
+            title="Último Upload"
+            value={
+              lastUpload
+                ? `${MONTH_NAMES[lastUpload.month]} ${lastUpload.year}`
+                : 'Sin datos'
+            }
+            subtitle={lastUpload ? `${lastUpload.total_records} registros` : undefined}
+            color="#4DA8DA"
+          />
+        </div>
       </div>
 
+      {/* Charts Row 1: Donut + Horizontal Bar */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Donut — Attendance Distribution */}
+        <div className="animate-fade-in-up stagger-2">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                Distribución de Asistencia
+              </h3>
+            </div>
+            <div className="p-5">
+              {data?.attendance_distribution?.length ? (
+                <div className="flex items-center gap-4">
+                  <div className="w-1/2">
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={data.attendance_distribution}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={80}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          {data.attendance_distribution.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => [value, 'registros']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="w-1/2 space-y-2">
+                    {data.attendance_distribution.map((item) => (
+                      <div key={item.name} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                          <span className="text-gray-600">{item.name}</span>
+                        </div>
+                        <span className="font-semibold text-gray-800">{item.value}</span>
+                      </div>
+                    ))}
+                    <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-sm">
+                      <span className="text-gray-500">Total slots</span>
+                      <span className="font-bold text-gray-700">
+                        {data.attendance_distribution.reduce((acc, i) => acc + i.value, 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-sm py-8 text-center">Sin datos de asistencia</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Horizontal Bar — Top 10 Earners */}
+        <div className="animate-fade-in-up stagger-3">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                Top 10 Docentes por Facturación
+              </h3>
+            </div>
+            <div className="p-5">
+              {data?.top_earners?.length ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={data.top_earners} layout="vertical" margin={{ left: 10, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={120}
+                      tick={{ fontSize: 9 }}
+                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + '...' : v}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [
+                        `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2 })}`,
+                        'Facturación',
+                      ]}
+                    />
+                    <Bar dataKey="payment" fill="#003366" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-400 text-sm py-8 text-center">Sin datos de facturación</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row 2: Group dist + Semester dist */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Vertical Bar — Designaciones por Grupo */}
+        <div className="animate-fade-in-up stagger-4">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                Designaciones por Grupo
+              </h3>
+            </div>
+            <div className="p-5">
+              {data?.group_distribution?.length ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={data.group_distribution.slice(0, 10)}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="group" tick={{ fontSize: 9 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#0066CC" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-400 text-sm py-8 text-center">Sin datos de grupos</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Vertical Bar — Designaciones por Semestre */}
+        <div className="animate-fade-in-up stagger-5">
+          <div className="card-3d-static overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                Designaciones por Semestre
+              </h3>
+            </div>
+            <div className="p-5">
+              {data?.semester_distribution?.length ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={data.semester_distribution}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="semester" tick={{ fontSize: 9 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#4DA8DA" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-400 text-sm py-8 text-center">Sin datos de semestres</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Row: Recent Uploads + Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Uploads */}
         <div className="lg:col-span-2 animate-fade-in-up stagger-3">
@@ -121,7 +300,10 @@ export function DashboardPage() {
                     </thead>
                     <tbody>
                       {data.recent_uploads.slice(0, 5).map((upload) => (
-                        <tr key={upload.id} className="border-b border-gray-50 last:border-0 hover:bg-blue-50/40 transition-colors duration-150">
+                        <tr
+                          key={upload.id}
+                          className="border-b border-gray-50 last:border-0 hover:bg-blue-50/40 transition-colors duration-150"
+                        >
                           <td className="py-2.5 px-3 font-medium text-gray-700 max-w-[180px] truncate">
                             {upload.filename}
                           </td>
@@ -187,6 +369,24 @@ export function DashboardPage() {
                   >
                     <BookOpen size={16} />
                     Ver Asistencia
+                  </Button>
+                </Link>
+                <Link to="/requests" className="block">
+                  <Button
+                    variant="outline"
+                    className={`w-full justify-start gap-2 h-11 transition-all duration-200 ${
+                      pendingRequests > 0
+                        ? 'border-amber-400 text-amber-600 hover:bg-amber-50'
+                        : ''
+                    }`}
+                  >
+                    <ClipboardCheck size={16} />
+                    Solicitudes
+                    {pendingRequests > 0 && (
+                      <Badge className="ml-auto bg-amber-100 text-amber-700 border-amber-200 text-xs">
+                        {pendingRequests}
+                      </Badge>
+                    )}
                   </Button>
                 </Link>
               </div>
