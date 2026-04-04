@@ -8,12 +8,14 @@ export interface AuthUser {
   teacher_ci: string | null
   is_active: boolean
   last_login: string | null
+  must_change_password?: boolean
 }
 
 export interface LoginResponse {
   access_token: string
   token_type: string
   user: AuthUser
+  must_change_password?: boolean
 }
 
 export interface UserCreate {
@@ -327,6 +329,38 @@ export interface UploadBiometricPayload {
 export interface UploadDesignationsPayload {
   file: File
   onProgress?: (progress: number) => void
+}
+
+// ─── Portal Profile Update ────────────────────────────────────────────────────
+export interface ProfileUpdatePayload {
+  email?: string
+  phone?: string
+  bank?: string
+  account_number?: string
+}
+
+// ─── Portal Schedule ──────────────────────────────────────────────────────────
+export interface PortalScheduleSlot {
+  dia: string
+  hora_inicio: string
+  hora_fin: string
+  horas_academicas: number
+}
+
+export interface PortalDesignationSchedule {
+  subject: string
+  semester: string
+  group_code: string
+  weekly_hours: number | null
+  monthly_hours: number | null
+  schedule: PortalScheduleSlot[]
+}
+
+export interface PortalScheduleResponse {
+  teacher_name: string
+  designation_count: number
+  total_weekly_hours: number
+  designations: PortalDesignationSchedule[]
 }
 
 // ─── Teacher Designations with Schedule ──────────────────────────────────────

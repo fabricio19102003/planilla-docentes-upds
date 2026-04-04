@@ -18,6 +18,7 @@ import { ReportsPage } from './pages/ReportsPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
+import { ForceChangePasswordPage } from './pages/ForceChangePasswordPage'
 
 // Pages — Docente portal
 import { BillingPage } from './pages/BillingPage'
@@ -41,6 +42,7 @@ function AppRoutes() {
       <Routes>
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/change-password" element={<ForceChangePasswordPage />} />
 
         {/* Admin routes */}
         <Route

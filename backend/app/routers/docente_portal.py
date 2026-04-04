@@ -93,6 +93,36 @@ class ProfileResponse(BaseModel):
     designation_count: int = 0
 
 
+class ProfileUpdateRequest(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    bank: Optional[str] = None
+    account_number: Optional[str] = None
+
+
+class ScheduleSlotResponse(BaseModel):
+    dia: str
+    hora_inicio: str
+    hora_fin: str
+    horas_academicas: int
+
+
+class DesignationScheduleResponse(BaseModel):
+    subject: str
+    semester: str
+    group_code: str
+    weekly_hours: Optional[int] = None
+    monthly_hours: Optional[int] = None
+    schedule: list[ScheduleSlotResponse]
+
+
+class MyScheduleResponse(BaseModel):
+    teacher_name: str
+    designation_count: int
+    total_weekly_hours: int
+    designations: list[DesignationScheduleResponse]
+
+
 class NotificationResponse(BaseModel):
     id: int
     title: str
@@ -367,6 +397,85 @@ def get_docente_profile(
         bank=teacher.bank,
         account_number=teacher.account_number,
         designation_count=int(designation_count),
+    )
+
+
+@router.put("/profile")
+def update_profile(
+    payload: ProfileUpdateRequest,
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Update docente's personal information (email, phone, bank, account_number)."""
+    teacher = _get_teacher_or_raise(current_user, db)
+
+    if payload.email is not None:
+        teacher.email = payload.email
+        current_user.email = payload.email
+    if payload.phone is not None:
+        teacher.phone = payload.phone
+    if payload.bank is not None:
+        teacher.bank = payload.bank
+    if payload.account_number is not None:
+        teacher.account_number = payload.account_number
+
+    db.commit()
+    db.refresh(teacher)
+
+    return {
+        "success": True,
+        "message": "Perfil actualizado correctamente",
+    }
+
+
+@router.get("/schedule", response_model=MyScheduleResponse)
+def get_my_schedule(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> MyScheduleResponse:
+    """Get the authenticated docente's weekly schedule with all designations."""
+    teacher = _get_teacher_or_raise(current_user, db)
+
+    DAY_ORDER: dict[str, int] = {
+        "lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2,
+        "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5,
+    }
+
+    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+
+    result: list[DesignationScheduleResponse] = []
+    for d in designations:
+        slots = d.schedule_json or []
+        sorted_slots = sorted(
+            slots,
+            key=lambda s: (DAY_ORDER.get(s.get("dia", "").lower(), 99), s.get("hora_inicio", "")),
+        )
+        result.append(
+            DesignationScheduleResponse(
+                subject=d.subject,
+                semester=d.semester,
+                group_code=d.group_code,
+                weekly_hours=d.weekly_hours,
+                monthly_hours=d.monthly_hours,
+                schedule=[
+                    ScheduleSlotResponse(
+                        dia=s.get("dia", ""),
+                        hora_inicio=s.get("hora_inicio", ""),
+                        hora_fin=s.get("hora_fin", ""),
+                        horas_academicas=int(s.get("horas_academicas", 0)),
+                    )
+                    for s in sorted_slots
+                ],
+            )
+        )
+
+    total_weekly_hours = sum(d.weekly_hours or 0 for d in designations)
+
+    return MyScheduleResponse(
+        teacher_name=teacher.full_name,
+        designation_count=len(result),
+        total_weekly_hours=total_weekly_hours,
+        designations=result,
     )
 
 

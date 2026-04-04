@@ -8,6 +8,8 @@ import type {
   DetailRequestAction,
   UserCreate,
   UserUpdate,
+  ProfileUpdatePayload,
+  PortalScheduleResponse,
 } from '@/api/types'
 
 // ─── Users (admin) ────────────────────────────────────────────────────────────
@@ -150,6 +152,32 @@ export function useChangePassword() {
       new_password: string
     }) => {
       await api.put('/auth/change-password', { current_password, new_password })
+    },
+  })
+}
+
+// ─── Profile update ───────────────────────────────────────────────────────────
+
+export function useUpdateProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: ProfileUpdatePayload) => {
+      await api.put('/portal/profile', data)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal', 'profile'] })
+    },
+  })
+}
+
+// ─── My schedule ──────────────────────────────────────────────────────────────
+
+export function useMySchedule() {
+  return useQuery({
+    queryKey: ['portal', 'schedule'],
+    queryFn: async () => {
+      const res = await api.get<PortalScheduleResponse>('/portal/schedule')
+      return res.data
     },
   })
 }

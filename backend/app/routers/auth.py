@@ -39,6 +39,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
         access_token=token,
         token_type="bearer",
         user=UserResponse.model_validate(user),
+        must_change_password=user.must_change_password,
     )
 
 
@@ -62,6 +63,7 @@ def change_password(
         )
 
     updated = auth_service.reset_password(db=db, user_id=current_user.id, new_password=payload.new_password)
+    updated.must_change_password = False  # Clear forced change flag
     db.commit()
     db.refresh(updated)
 

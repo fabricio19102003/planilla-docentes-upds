@@ -1,31 +1,47 @@
-import { useState } from 'react'
-import { useMyProfile, useChangePassword } from '@/api/hooks/useAuth'
+import { useState, useEffect } from 'react'
+import { useMyProfile, useChangePassword, useUpdateProfile, useMySchedule } from '@/api/hooks/useAuth'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { User, Mail, Phone, BookOpen, Lock, CheckCircle, AlertCircle } from 'lucide-react'
+import {
+  User,
+  Mail,
+  Phone,
+  BookOpen,
+  Lock,
+  CheckCircle,
+  AlertCircle,
+  Pencil,
+  X,
+  Save,
+  Calendar,
+  CreditCard,
+  CheckCircle2,
+  XCircle,
+  Eye,
+  EyeOff,
+} from 'lucide-react'
 
-interface ProfileResponse {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface ProfileData {
   ci: string
   full_name: string
   email: string | null
   phone: string | null
   gender: string | null
+  external_permanent: string | null
   academic_level: string | null
   profession: string | null
   specialty: string | null
-  designations: Array<{
-    id: number
-    subject: string
-    semester: string
-    group_code: string
-    weekly_hours_calculated: number | null
-    semester_hours: number | null
-  }>
+  bank: string | null
+  account_number: string | null
+  designation_count: number
 }
+
+// ─── Shared display components ────────────────────────────────────────────────
 
 function InfoRow({ icon: Icon, label, value }: { icon: typeof User; label: string; value: string | null }) {
   return (
@@ -44,27 +60,370 @@ function InfoRow({ icon: Icon, label, value }: { icon: typeof User; label: strin
   )
 }
 
-function ChangePasswordSection() {
+// ─── Password strength bar ────────────────────────────────────────────────────
+
+function PasswordStrengthBar({ password }: { password: string }) {
+  const checks = [
+    password.length >= 8,
+    /[A-Z]/.test(password),
+    /[a-z]/.test(password),
+    /\d/.test(password),
+  ]
+  const strength = checks.filter(Boolean).length
+  const colors = ['bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500']
+  const labels = ['Débil', 'Regular', 'Buena', 'Fuerte']
+
+  if (!password) return null
+
+  return (
+    <div className="space-y-1.5 mt-1">
+      <div className="flex gap-1">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+              i < strength ? colors[strength - 1] : 'bg-gray-200'
+            }`}
+          />
+        ))}
+      </div>
+      <p
+        className={`text-xs font-medium ${
+          strength <= 1
+            ? 'text-red-500'
+            : strength === 2
+              ? 'text-orange-500'
+              : strength === 3
+                ? 'text-yellow-600'
+                : 'text-green-600'
+        }`}
+      >
+        {labels[strength - 1] ?? ''}
+      </p>
+    </div>
+  )
+}
+
+function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      {passes ? (
+        <CheckCircle2 size={13} className="text-green-500 flex-shrink-0" />
+      ) : (
+        <XCircle size={13} className="text-gray-300 flex-shrink-0" />
+      )}
+      <span className={`text-xs ${passes ? 'text-green-700' : 'text-gray-400'}`}>{label}</span>
+    </div>
+  )
+}
+
+// ─── Editable personal data card ──────────────────────────────────────────────
+
+function PersonalDataCard({ p }: { p: ProfileData }) {
+  const updateProfile = useUpdateProfile()
+  const [editMode, setEditMode] = useState(false)
+  const [editForm, setEditForm] = useState({
+    email: '',
+    phone: '',
+    bank: '',
+    account_number: '',
+  })
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setEditForm({
+      email: p.email ?? '',
+      phone: p.phone ?? '',
+      bank: p.bank ?? '',
+      account_number: p.account_number ?? '',
+    })
+  }, [p])
+
+  const handleSave = async () => {
+    setSaveError(null)
+    try {
+      await updateProfile.mutateAsync({
+        email: editForm.email || undefined,
+        phone: editForm.phone || undefined,
+        bank: editForm.bank || undefined,
+        account_number: editForm.account_number || undefined,
+      })
+      setSaveSuccess(true)
+      setEditMode(false)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setSaveError(axiosErr?.response?.data?.detail ?? 'Error al guardar los cambios')
+    }
+  }
+
+  const handleCancel = () => {
+    setEditForm({
+      email: p.email ?? '',
+      phone: p.phone ?? '',
+      bank: p.bank ?? '',
+      account_number: p.account_number ?? '',
+    })
+    setSaveError(null)
+    setEditMode(false)
+  }
+
+  return (
+    <div className="card-3d-static overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+        <User size={16} style={{ color: '#003366' }} />
+        <h3 className="text-base font-semibold flex-1" style={{ color: '#003366' }}>
+          Datos Personales
+        </h3>
+        {!editMode ? (
+          <button
+            onClick={() => setEditMode(true)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#003366] transition-colors px-2 py-1 rounded hover:bg-gray-100"
+          >
+            <Pencil size={12} />
+            Editar
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleCancel}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded hover:bg-gray-100"
+            >
+              <X size={12} />
+              Cancelar
+            </button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={updateProfile.isPending}
+              className="h-7 text-xs gap-1 text-white"
+              style={{ backgroundColor: '#003366' }}
+            >
+              <Save size={12} />
+              {updateProfile.isPending ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="p-5 space-y-1">
+        {/* Success toast */}
+        {saveSuccess && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 mb-3">
+            <CheckCircle size={14} className="text-green-600" />
+            <p className="text-green-700 text-sm font-medium">Perfil actualizado correctamente</p>
+          </div>
+        )}
+        {saveError && (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-3">
+            <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-red-600 text-sm">{saveError}</p>
+          </div>
+        )}
+
+        {/* Read-only fields */}
+        <InfoRow icon={User} label="Nombre Completo" value={p.full_name} />
+        <InfoRow icon={User} label="Cédula de Identidad" value={p.ci} />
+        <InfoRow icon={User} label="Género" value={p.gender} />
+        <InfoRow icon={BookOpen} label="Nivel Académico" value={p.academic_level} />
+        <InfoRow icon={BookOpen} label="Profesión" value={p.profession} />
+        <InfoRow icon={BookOpen} label="Especialidad" value={p.specialty} />
+
+        {/* Editable fields */}
+        {!editMode ? (
+          <>
+            <InfoRow icon={Mail} label="Email" value={p.email} />
+            <InfoRow icon={Phone} label="Teléfono" value={p.phone} />
+            <InfoRow icon={CreditCard} label="Banco" value={p.bank} />
+            <InfoRow icon={CreditCard} label="N° de Cuenta" value={p.account_number} />
+          </>
+        ) : (
+          <div className="pt-2 space-y-3 border-t border-dashed border-gray-200 mt-1">
+            <p className="text-xs text-gray-400 font-medium">Campos editables:</p>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">
+                <Mail size={11} className="inline mr-1" />
+                Email
+              </Label>
+              <Input
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="tu@email.com"
+                className="h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">
+                <Phone size={11} className="inline mr-1" />
+                Teléfono
+              </Label>
+              <Input
+                type="text"
+                value={editForm.phone}
+                onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="Ej: 70012345"
+                className="h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">
+                <CreditCard size={11} className="inline mr-1" />
+                Banco
+              </Label>
+              <Input
+                type="text"
+                value={editForm.bank}
+                onChange={(e) => setEditForm((f) => ({ ...f, bank: e.target.value }))}
+                placeholder="Ej: Banco Unión"
+                className="h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">
+                <CreditCard size={11} className="inline mr-1" />
+                Número de Cuenta
+              </Label>
+              <Input
+                type="text"
+                value={editForm.account_number}
+                onChange={(e) => setEditForm((f) => ({ ...f, account_number: e.target.value }))}
+                placeholder="Ej: 1234567890"
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Schedule card ────────────────────────────────────────────────────────────
+
+function ScheduleCard() {
+  const { data: schedule, isLoading, error } = useMySchedule()
+
+  if (isLoading) {
+    return (
+      <div className="card-3d-static overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <Calendar size={16} style={{ color: '#003366' }} />
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+            Mi Horario Semanal
+          </h3>
+        </div>
+        <div className="p-5 flex items-center justify-center py-10">
+          <div className="w-6 h-6 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !schedule) {
+    return (
+      <div className="card-3d-static overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <Calendar size={16} style={{ color: '#003366' }} />
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+            Mi Horario Semanal
+          </h3>
+        </div>
+        <div className="p-5">
+          <p className="text-sm text-gray-400 text-center py-4">
+            No se pudo cargar el horario
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card-3d-static overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+        <Calendar size={16} style={{ color: '#003366' }} />
+        <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+          Mi Horario Semanal
+        </h3>
+        <span className="text-xs text-gray-500 ml-auto">{schedule.total_weekly_hours}h/semana</span>
+      </div>
+
+      {schedule.designations.length === 0 ? (
+        <div className="p-5">
+          <p className="text-sm text-gray-400 text-center py-4">
+            No tenés materias asignadas actualmente
+          </p>
+        </div>
+      ) : (
+        <div className="p-5 space-y-4">
+          {schedule.designations.map((d) => (
+            <div key={`${d.subject}-${d.group_code}`} className="text-sm">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                <span className="font-medium text-gray-800">{d.subject}</span>
+                <Badge className="bg-gray-100 text-gray-600 border-gray-200 text-xs font-mono">
+                  {d.group_code}
+                </Badge>
+                <span className="text-xs text-gray-400">{d.semester}</span>
+                {d.weekly_hours != null && (
+                  <span className="text-xs text-gray-500 ml-auto">{d.weekly_hours}h/sem</span>
+                )}
+              </div>
+              {d.schedule.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 ml-2">
+                  {d.schedule.map((slot, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700"
+                    >
+                      <span className="font-medium capitalize">{slot.dia}</span>
+                      <span>
+                        {slot.hora_inicio} - {slot.hora_fin}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 ml-2 italic">Sin horario registrado</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Change password card ─────────────────────────────────────────────────────
+
+function ChangePasswordCard() {
   const changePwd = useChangePassword()
   const [form, setForm] = useState({ current: '', newPwd: '', confirm: '' })
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  const checks = {
+    length: form.newPwd.length >= 8,
+    upper: /[A-Z]/.test(form.newPwd),
+    lower: /[a-z]/.test(form.newPwd),
+    digit: /\d/.test(form.newPwd),
+  }
+  const allChecksPassed = Object.values(checks).every(Boolean)
+  const passwordsMatch = form.newPwd === form.confirm && form.confirm.length > 0
+  const canSubmit = form.current.length > 0 && allChecksPassed && passwordsMatch
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.current || !form.newPwd) {
-      setError('Completá todos los campos.')
-      return
-    }
-    if (form.newPwd !== form.confirm) {
-      setError('Las contraseñas nuevas no coinciden.')
-      return
-    }
-    if (form.newPwd.length < 4) {
-      setError('La contraseña nueva debe tener al menos 4 caracteres.')
-      return
-    }
+    if (!canSubmit) return
     setError(null)
+
     try {
       await changePwd.mutateAsync({
         current_password: form.current,
@@ -72,23 +431,30 @@ function ChangePasswordSection() {
       })
       setSuccess(true)
       setForm({ current: '', newPwd: '', confirm: '' })
-      setTimeout(() => setSuccess(false), 3000)
-    } catch {
-      setError('Contraseña actual incorrecta.')
+      setTimeout(() => setSuccess(false), 4000)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } }
+      const detail = axiosErr?.response?.data?.detail
+      if (typeof detail === 'string') {
+        setError(detail)
+      } else if (Array.isArray(detail)) {
+        const msgs = (detail as Array<{ msg: string }>).map((d) => d.msg).join(' | ')
+        setError(msgs)
+      } else {
+        setError('Contraseña actual incorrecta.')
+      }
     }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Lock size={16} style={{ color: '#003366' }} />
-          <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-            Cambiar Contraseña
-          </CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent>
+    <div className="card-3d-static overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+        <Lock size={16} style={{ color: '#003366' }} />
+        <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+          Cambiar Contraseña
+        </h3>
+      </div>
+      <div className="p-5">
         {success ? (
           <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
             <CheckCircle size={16} className="text-green-600" />
@@ -96,53 +462,110 @@ function ChangePasswordSection() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 max-w-sm">
+            {/* Current password */}
             <div className="space-y-1.5">
-              <Label>Contraseña actual *</Label>
-              <Input
-                type="password"
-                value={form.current}
-                onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
-                placeholder="••••••••"
-              />
+              <Label className="text-sm">Contraseña actual *</Label>
+              <div className="relative">
+                <Input
+                  type={showCurrent ? 'text' : 'password'}
+                  value={form.current}
+                  onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
+                  placeholder="••••••••"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrent((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
             </div>
+
+            {/* New password */}
             <div className="space-y-1.5">
-              <Label>Nueva contraseña *</Label>
-              <Input
-                type="password"
-                value={form.newPwd}
-                onChange={(e) => setForm((f) => ({ ...f, newPwd: e.target.value }))}
-                placeholder="••••••••"
-              />
+              <Label className="text-sm">Nueva contraseña *</Label>
+              <div className="relative">
+                <Input
+                  type={showNew ? 'text' : 'password'}
+                  value={form.newPwd}
+                  onChange={(e) => setForm((f) => ({ ...f, newPwd: e.target.value }))}
+                  placeholder="Mínimo 8 caracteres"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <PasswordStrengthBar password={form.newPwd} />
             </div>
+
+            {/* Confirm */}
             <div className="space-y-1.5">
-              <Label>Confirmar nueva contraseña *</Label>
-              <Input
-                type="password"
-                value={form.confirm}
-                onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
-                placeholder="••••••••"
-              />
+              <Label className="text-sm">Confirmar nueva contraseña *</Label>
+              <div className="relative">
+                <Input
+                  type={showConfirm ? 'text' : 'password'}
+                  value={form.confirm}
+                  onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
+                  placeholder="••••••••"
+                  className={`pr-10 ${form.confirm && !passwordsMatch ? 'border-red-300' : ''}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {form.confirm && !passwordsMatch && (
+                <p className="text-red-500 text-xs">Las contraseñas no coinciden</p>
+              )}
             </div>
+
+            {/* Validation checklist */}
+            {form.newPwd && (
+              <div className="rounded-lg bg-gray-50 p-3 space-y-1.5">
+                <p className="text-xs text-gray-400 font-medium mb-1">Requisitos:</p>
+                <ValidationItem passes={checks.length} label="Mínimo 8 caracteres" />
+                <ValidationItem passes={checks.upper} label="Al menos una mayúscula" />
+                <ValidationItem passes={checks.lower} label="Al menos una minúscula" />
+                <ValidationItem passes={checks.digit} label="Al menos un número" />
+              </div>
+            )}
+
             {error && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                 <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-red-600 text-sm">{error}</p>
               </div>
             )}
+
             <Button
               type="submit"
-              disabled={changePwd.isPending}
-              className="text-white"
+              disabled={!canSubmit || changePwd.isPending}
+              className="text-white disabled:opacity-40"
               style={{ backgroundColor: '#003366' }}
             >
               {changePwd.isPending ? 'Guardando...' : 'Cambiar Contraseña'}
             </Button>
           </form>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export function MyProfilePage() {
   const { user } = useAuth()
@@ -156,7 +579,7 @@ export function MyProfilePage() {
     )
   }
 
-  const p = profile as ProfileResponse | undefined
+  const p = profile as ProfileData | undefined
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -175,87 +598,27 @@ export function MyProfilePage() {
           <div>
             <h2 className="text-xl font-bold">{p?.full_name ?? user?.full_name}</h2>
             <p className="text-white/70 text-sm mt-0.5">CI: {p?.ci ?? user?.ci}</p>
-            <Badge className="mt-2 bg-white/20 text-white border-white/30 text-xs">
-              Docente
-            </Badge>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge className="bg-white/20 text-white border-white/30 text-xs">Docente</Badge>
+              {p?.designation_count != null && p.designation_count > 0 && (
+                <span className="text-white/60 text-xs">
+                  {p.designation_count}{' '}
+                  {p.designation_count === 1 ? 'materia asignada' : 'materias asignadas'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Personal data */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <User size={16} style={{ color: '#003366' }} />
-            <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-              Datos Personales
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <InfoRow icon={User} label="Nombre Completo" value={p?.full_name ?? null} />
-          <InfoRow icon={User} label="Cédula de Identidad" value={p?.ci ?? null} />
-          <InfoRow icon={Mail} label="Email" value={p?.email ?? null} />
-          <InfoRow icon={Phone} label="Teléfono" value={p?.phone ?? null} />
-          <InfoRow icon={BookOpen} label="Nivel Académico" value={p?.academic_level ?? null} />
-          <InfoRow icon={BookOpen} label="Profesión" value={p?.profession ?? null} />
-          <InfoRow icon={BookOpen} label="Especialidad" value={p?.specialty ?? null} />
-        </CardContent>
-      </Card>
+      {/* Personal data — editable */}
+      {p && <PersonalDataCard p={p} />}
 
-      {/* Designations */}
-      {p?.designations && p.designations.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <BookOpen size={16} style={{ color: '#003366' }} />
-              <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-                Materias Asignadas ({p.designations.length})
-              </CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundColor: '#003366' }}>
-                    {['Materia', 'Semestre', 'Grupo', 'Hs/Semana'].map((h) => (
-                      <th
-                        key={h}
-                        className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {p.designations.map((d, i) => (
-                    <tr
-                      key={d.id}
-                      className={`border-b last:border-0 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-800">{d.subject}</td>
-                      <td className="px-4 py-3 text-gray-600">{d.semester}</td>
-                      <td className="px-4 py-3">
-                        <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-mono">
-                          {d.group_code}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {d.weekly_hours_calculated ?? d.semester_hours ?? '—'}h
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Weekly schedule */}
+      <ScheduleCard />
 
       {/* Change Password */}
-      <ChangePasswordSection />
+      <ChangePasswordCard />
     </div>
   )
 }

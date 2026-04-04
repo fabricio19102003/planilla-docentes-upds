@@ -167,6 +167,7 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
                 role="docente",
                 teacher_ci=teacher.ci,
                 is_active=True,
+                must_change_password=True,
             )
             db.add(user)
             db.flush()

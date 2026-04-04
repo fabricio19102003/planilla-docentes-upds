@@ -9,6 +9,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isAdmin: boolean
   isDocente: boolean
+  mustChangePassword: boolean
   login: (ci: string, password: string) => Promise<void>
   logout: () => void
   isLoading: boolean
@@ -52,11 +53,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (ci: string, password: string) => {
     const res = await api.post<LoginResponse>('/auth/login', { ci, password })
-    const { access_token, user: loggedUser } = res.data
+    const { access_token, user: loggedUser, must_change_password } = res.data
 
     localStorage.setItem(TOKEN_KEY, access_token)
     setToken(access_token)
     setUser(loggedUser)
+
+    // Force password change if required
+    if (must_change_password) {
+      navigate('/change-password')
+      return
+    }
 
     // Redirect based on role
     if (loggedUser.role === 'admin') {
@@ -73,12 +80,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate('/login')
   }, [navigate])
 
+  const mustChangePassword = user?.must_change_password ?? false
+
   const value: AuthContextType = {
     user,
     token,
     isAuthenticated: Boolean(user),
     isAdmin: user?.role === 'admin',
     isDocente: user?.role === 'docente',
+    mustChangePassword,
     login,
     logout,
     isLoading,

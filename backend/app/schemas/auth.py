@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 # ------------------------------------------------------------------
@@ -22,6 +22,7 @@ class UserResponse(BaseModel):
     teacher_ci: Optional[str] = None
     is_active: bool
     last_login: Optional[datetime] = None
+    must_change_password: bool = False
 
 
 class UserCreate(BaseModel):
@@ -44,10 +45,36 @@ class UserUpdate(BaseModel):
 class PasswordReset(BaseModel):
     new_password: str
 
+    @field_validator('new_password')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
+        if not any(c.isupper() for c in v):
+            raise ValueError('La contraseña debe incluir al menos una mayúscula')
+        if not any(c.islower() for c in v):
+            raise ValueError('La contraseña debe incluir al menos una minúscula')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('La contraseña debe incluir al menos un número')
+        return v
+
 
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
+        if not any(c.isupper() for c in v):
+            raise ValueError('La contraseña debe incluir al menos una mayúscula')
+        if not any(c.islower() for c in v):
+            raise ValueError('La contraseña debe incluir al menos una minúscula')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('La contraseña debe incluir al menos un número')
+        return v
 
 
 # ------------------------------------------------------------------
@@ -64,6 +91,7 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    must_change_password: bool = False
 
 
 # ------------------------------------------------------------------
