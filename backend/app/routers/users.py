@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import PasswordReset, UserCreate, UserResponse, UserUpdate
 from app.services.auth_service import auth_service
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> UserResponse:
@@ -49,6 +51,15 @@ def create_user(
             role=payload.role,
             teacher_ci=payload.teacher_ci,
             created_by=current_user.id,
+        )
+        log_activity(
+            db,
+            "create_user",
+            "users",
+            f"Usuario creado: {payload.full_name} (CI: {payload.ci}, rol: {payload.role})",
+            user=current_user,
+            details={"created_ci": payload.ci, "created_name": payload.full_name, "role": payload.role},
+            request=request,
         )
         db.commit()
         db.refresh(user)
@@ -82,13 +93,23 @@ def get_user(
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     """Update user data (admin only)."""
     try:
         update_data = payload.model_dump(exclude_none=True)
         user = auth_service.update_user(db=db, user_id=user_id, **update_data)
+        log_activity(
+            db,
+            "update_user",
+            "users",
+            f"Usuario actualizado: {user.full_name} (ID: {user_id})",
+            user=current_user,
+            details={"target_user_id": user_id, "updated_fields": list(update_data.keys())},
+            request=request,
+        )
         db.commit()
         db.refresh(user)
         return UserResponse.model_validate(user)
@@ -107,6 +128,7 @@ def update_user(
 @router.delete("/{user_id}", response_model=UserResponse)
 def deactivate_user(
     user_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> UserResponse:
@@ -119,6 +141,15 @@ def deactivate_user(
 
     try:
         user = auth_service.deactivate_user(db=db, user_id=user_id)
+        log_activity(
+            db,
+            "deactivate_user",
+            "users",
+            f"Usuario desactivado: {user.full_name} (ID: {user_id})",
+            user=current_user,
+            details={"target_user_id": user_id, "target_name": user.full_name},
+            request=request,
+        )
         db.commit()
         db.refresh(user)
         return UserResponse.model_validate(user)
@@ -138,12 +169,22 @@ def deactivate_user(
 def reset_user_password(
     user_id: int,
     payload: PasswordReset,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     """Reset a user's password (admin only)."""
     try:
         user = auth_service.reset_password(db=db, user_id=user_id, new_password=payload.new_password)
+        log_activity(
+            db,
+            "reset_password",
+            "users",
+            f"Contraseña reseteada para: {user.full_name} (ID: {user_id})",
+            user=current_user,
+            details={"target_user_id": user_id, "target_name": user.full_name},
+            request=request,
+        )
         db.commit()
         db.refresh(user)
         return UserResponse.model_validate(user)

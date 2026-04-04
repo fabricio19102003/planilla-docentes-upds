@@ -4,8 +4,9 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,6 +15,7 @@ from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse, BiometricUploadResult
 from app.services.biometric_parser import BiometricParser
 from app.services.designation_loader import DesignationLoader
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -39,10 +41,11 @@ def _save_upload_file(upload: UploadFile) -> tuple[Path, str]:
 
 @router.post("/biometric", response_model=BiometricUploadResult, status_code=status.HTTP_201_CREATED)
 def upload_biometric(
+    request: Request,
     file: UploadFile = File(...),
     month: int = Form(..., ge=1, le=12),
     year: int = Form(..., ge=2000, le=2100),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> BiometricUploadResult:
     filename = file.filename or ""
@@ -71,6 +74,23 @@ def upload_biometric(
             if entries and entries[0].teacher_name
         }
         linked_teachers = loader.link_teachers_by_name(db, ci_name_map) if ci_name_map else 0
+
+        log_activity(
+            db,
+            "upload_biometric",
+            "upload",
+            f"Subida de datos biométricos: {upload.total_teachers} docentes, {upload.total_records} registros ({month:02d}/{year})",
+            user=current_user,
+            details={
+                "filename": stored_name,
+                "month": month,
+                "year": year,
+                "teachers_found": upload.total_teachers,
+                "records_count": upload.total_records,
+            },
+            request=request,
+        )
+
         db.commit()
         db.refresh(upload)
 

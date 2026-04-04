@@ -10,6 +10,7 @@ from app.models.detail_request import DetailRequest
 from app.models.report import Report
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
+from app.models.activity_log import ActivityLog
 
 __all__ = [
     "Teacher",
@@ -23,4 +24,5 @@ __all__ = [
     "Report",
     "BillingPublication",
     "Notification",
+    "ActivityLog",
 ]

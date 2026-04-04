@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.report import Report
 from app.models.user import User
 from app.services.report_generator import ReportGenerator
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 @router.post("/generate")
 def generate_report(
+    request: Request,
     report_type: str = Query(..., description="financial, attendance, or comparative"),
     month: int = Query(None),
     year: int = Query(None),
@@ -66,6 +68,16 @@ def generate_report(
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
+
+        log_activity(
+            db,
+            "generate_report",
+            "reports",
+            f"Reporte generado: {report.title}",
+            user=current_user,
+            details={"report_type": report_type, "report_id": report.id},
+            request=request,
+        )
 
         db.commit()
 

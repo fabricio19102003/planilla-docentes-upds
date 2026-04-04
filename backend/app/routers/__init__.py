@@ -8,6 +8,8 @@ from app.routers.users import router as users_router
 from app.routers.detail_requests import router as detail_requests_router
 from app.routers.docente_portal import router as docente_portal_router
 from app.routers.reports import router as reports_router
+from app.routers.billing_publication import router as billing_publication_router
+from app.routers.activity_log import router as activity_log_router
 
 __all__ = [
     "teachers_router",
@@ -20,4 +22,6 @@ __all__ = [
     "detail_requests_router",
     "docente_portal_router",
     "reports_router",
+    "billing_publication_router",
+    "activity_log_router",
 ]

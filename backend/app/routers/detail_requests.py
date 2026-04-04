@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,6 +11,7 @@ from app.models.detail_request import DetailRequest
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.auth import DetailRequestAction, DetailRequestCreate, DetailRequestResponse
+from app.services.activity_logger import log_activity
 from app.utils.auth import get_current_user, require_admin, require_docente
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,7 @@ def list_all_requests(
 def respond_to_request(
     request_id: int,
     payload: DetailRequestAction,
+    http_request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DetailRequestResponse:
@@ -150,6 +152,23 @@ def respond_to_request(
         req.admin_response = payload.admin_response
         req.responded_by = current_user.id
         req.responded_at = datetime.utcnow()
+
+        action_label = "aprobada" if payload.status == "approved" else "rechazada"
+        log_activity(
+            db,
+            "respond_request",
+            "requests",
+            f"Solicitud #{request_id} {action_label} (docente CI: {req.teacher_ci})",
+            user=current_user,
+            details={
+                "request_id": request_id,
+                "status": payload.status,
+                "teacher_ci": req.teacher_ci,
+                "request_type": req.request_type,
+            },
+            request=http_request,
+        )
+
         db.commit()
         db.refresh(req)
         return _enrich_response(req, db)

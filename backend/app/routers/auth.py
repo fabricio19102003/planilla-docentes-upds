@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import LoginRequest, LoginResponse, PasswordChange, UserResponse
 from app.services.auth_service import auth_service
+from app.services.activity_logger import log_activity
 from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -18,10 +19,19 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
     """Authenticate user and return JWT token."""
     user = auth_service.authenticate_user(db=db, ci=payload.ci, password=payload.password)
     if user is None:
+        log_activity(
+            db,
+            "login_failed",
+            "auth",
+            f"Intento de login fallido (CI: {payload.ci})",
+            status="error",
+            request=request,
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="CI o contraseña incorrectos",
@@ -30,6 +40,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
 
     # Update last login
     user.last_login = datetime.utcnow()
+
+    log_activity(db, "login", "auth", "Inicio de sesión exitoso", user=user, request=request)
+
     db.commit()
     db.refresh(user)
 
@@ -52,6 +65,7 @@ def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
 @router.put("/change-password", response_model=UserResponse)
 def change_password(
     payload: PasswordChange,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserResponse:
@@ -64,6 +78,9 @@ def change_password(
 
     updated = auth_service.reset_password(db=db, user_id=current_user.id, new_password=payload.new_password)
     updated.must_change_password = False  # Clear forced change flag
+
+    log_activity(db, "change_password", "auth", "Cambio de contraseña", user=current_user, request=request)
+
     db.commit()
     db.refresh(updated)
 

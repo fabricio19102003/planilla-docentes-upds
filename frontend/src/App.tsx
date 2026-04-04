@@ -15,6 +15,7 @@ import { TeacherDetailPage } from './pages/TeacherDetailPage'
 import { UsersPage } from './pages/UsersPage'
 import { AdminRequestsPage } from './pages/AdminRequestsPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { ActivityLogPage } from './pages/ActivityLogPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -64,6 +65,7 @@ function AppRoutes() {
           <Route path="users" element={<UsersPage />} />
           <Route path="requests" element={<AdminRequestsPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="activity" element={<ActivityLogPage />} />
         </Route>
 
         {/* Docente routes */}

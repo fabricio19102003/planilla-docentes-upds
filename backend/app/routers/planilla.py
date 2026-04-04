@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -25,7 +25,14 @@ from app.schemas.planilla import (
 )
 from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PlanillaGenerator
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
+
+MONTH_NAMES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,8 @@ def _output_dir() -> Path:
 @router.post("/planilla/generate", response_model=PlanillaGenerateResponse)
 def generate_planilla(
     payload: PlanillaGenerateRequest,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PlanillaGenerateResponse:
     try:
@@ -55,6 +63,22 @@ def generate_planilla(
             start_date=payload.start_date,
             end_date=payload.end_date,
         )
+        log_activity(
+            db,
+            "generate_planilla",
+            "planilla",
+            f"Planilla generada: {MONTH_NAMES.get(payload.month, str(payload.month))} {payload.year}",
+            user=current_user,
+            details={
+                "month": payload.month,
+                "year": payload.year,
+                "total_teachers": result.total_teachers,
+                "total_hours": result.total_hours,
+                "total_payment": float(result.total_payment),
+            },
+            request=request,
+        )
+
         db.commit()
 
         if result.planilla_output_id is None:

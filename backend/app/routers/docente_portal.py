@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -18,6 +18,7 @@ from app.models.notification import Notification
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.teacher import TeacherResponse
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_docente
 
 # Map Python weekday() index → Spanish lowercase day name
@@ -403,21 +404,37 @@ def get_docente_profile(
 @router.put("/profile")
 def update_profile(
     payload: ProfileUpdateRequest,
+    request: Request,
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ) -> dict:
     """Update docente's personal information (email, phone, bank, account_number)."""
     teacher = _get_teacher_or_raise(current_user, db)
 
+    updated_fields = []
     if payload.email is not None:
         teacher.email = payload.email
         current_user.email = payload.email
+        updated_fields.append("email")
     if payload.phone is not None:
         teacher.phone = payload.phone
+        updated_fields.append("phone")
     if payload.bank is not None:
         teacher.bank = payload.bank
+        updated_fields.append("bank")
     if payload.account_number is not None:
         teacher.account_number = payload.account_number
+        updated_fields.append("account_number")
+
+    log_activity(
+        db,
+        "update_profile",
+        "profile",
+        f"Perfil actualizado por docente: {teacher.full_name}",
+        user=current_user,
+        details={"updated_fields": updated_fields},
+        request=request,
+    )
 
     db.commit()
     db.refresh(teacher)
@@ -430,6 +447,7 @@ def update_profile(
 
 @router.get("/schedule/pdf")
 def export_schedule_pdf(
+    request: Request,
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ):
@@ -442,6 +460,17 @@ def export_schedule_pdf(
     designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
 
     pdf_path = generate_schedule_pdf(teacher, designations)
+
+    log_activity(
+        db,
+        "export_schedule",
+        "profile",
+        f"Horario exportado en PDF: {teacher.full_name}",
+        user=current_user,
+        details={"teacher_ci": teacher.ci, "designation_count": len(designations)},
+        request=request,
+    )
+    db.commit()
 
     from datetime import datetime as dt
 

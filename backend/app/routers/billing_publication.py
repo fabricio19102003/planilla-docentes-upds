@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.user import User
 from app.services.planilla_generator import PlanillaGenerator
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class PublicationResponse(BaseModel):
 @router.post("/publish", response_model=PublicationResponse)
 def publish_billing(
     payload: PublishRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PublicationResponse:
@@ -140,6 +142,21 @@ def publish_billing(
             )
             db.add(notif)
 
+        log_activity(
+            db,
+            "publish_billing",
+            "billing",
+            f"Facturación publicada: {month_name} {year} ({total_teachers} docentes, Bs {total_payment:,.2f})",
+            user=current_user,
+            details={
+                "month": month,
+                "year": year,
+                "total_teachers": total_teachers,
+                "total_payment": float(total_payment),
+            },
+            request=request,
+        )
+
         db.commit()
         db.refresh(publication)
 
@@ -176,7 +193,8 @@ def publish_billing(
 @router.post("/unpublish", response_model=PublicationResponse)
 def unpublish_billing(
     payload: UnpublishRequest,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PublicationResponse:
     """Unpublish billing for a given month/year to allow adjustments."""
@@ -198,6 +216,17 @@ def unpublish_billing(
 
         publication.status = "draft"
         publication.unpublished_at = datetime.now()
+
+        log_activity(
+            db,
+            "unpublish_billing",
+            "billing",
+            f"Facturación despublicada: {MONTH_NAMES.get(payload.month, str(payload.month))} {payload.year}",
+            user=current_user,
+            details={"month": payload.month, "year": payload.year},
+            request=request,
+        )
+
         db.commit()
         db.refresh(publication)
 

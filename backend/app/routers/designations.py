@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,6 +17,7 @@ from app.models.user import User
 from app.schemas.designation import DesignationUploadResponse
 from app.services.auth_service import AuthService
 from app.services.designation_loader import DesignationLoader
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -183,8 +184,9 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 
 @router.post("/designations", response_model=DesignationUploadResponse, status_code=status.HTTP_201_CREATED)
 def upload_designations(
+    request: Request,
     file: UploadFile = File(...),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationUploadResponse:
     filename = file.filename or ""
@@ -215,6 +217,21 @@ def upload_designations(
 
         # Auto-create docente user accounts for all loaded teachers
         users_created, users_skipped = _auto_create_docente_users(db)
+
+        log_activity(
+            db,
+            "upload_designations",
+            "upload",
+            f"Subida de designaciones: {result.designations_loaded} cargadas, {users_created} usuarios creados",
+            user=current_user,
+            details={
+                "filename": filename,
+                "designations_loaded": result.designations_loaded,
+                "teachers_created": result.teachers_created,
+                "users_created": users_created,
+            },
+            request=request,
+        )
 
         db.commit()
 

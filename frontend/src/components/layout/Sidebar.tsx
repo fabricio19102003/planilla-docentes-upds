@@ -15,6 +15,7 @@ import {
   FileText,
   Bell,
   Calendar,
+  Activity,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -38,6 +39,7 @@ const adminNavItems: NavItem[] = [
   { to: '/teachers', label: 'Docentes', icon: Users },
   { to: '/users', label: 'Gestión Usuarios', icon: Shield },
   { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
+  { to: '/activity', label: 'Registro de Actividad', icon: Activity },
 ]
 
 const docenteNavItems: NavItem[] = [

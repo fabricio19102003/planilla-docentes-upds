@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,14 @@ from app.schemas.attendance import (
     PaginatedAttendanceResponse,
 )
 from app.services.attendance_engine import AttendanceEngine
+from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
+
+MONTH_NAMES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +75,8 @@ def _to_observation_response(row) -> ObservationResponse:
 @router.post("/attendance/process", response_model=AttendanceProcessResponse)
 def process_attendance(
     payload: AttendanceProcessRequest,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> AttendanceProcessResponse:
     try:
@@ -92,6 +100,22 @@ def process_attendance(
             start_date=payload.start_date,
             end_date=payload.end_date,
         )
+        log_activity(
+            db,
+            "process_attendance",
+            "planilla",
+            f"Procesamiento de asistencia: {MONTH_NAMES.get(payload.month, str(payload.month))} {payload.year}",
+            user=current_user,
+            details={
+                "month": payload.month,
+                "year": payload.year,
+                "upload_id": payload.upload_id,
+                "total_slots": result.total_slots,
+                "attended": result.attended,
+            },
+            request=request,
+        )
+
         db.commit()
 
         observations_count = (
