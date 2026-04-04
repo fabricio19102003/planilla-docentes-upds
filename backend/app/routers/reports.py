@@ -34,6 +34,7 @@ def generate_report(
     """Generate a PDF report and save it."""
     try:
         gen = ReportGenerator()
+        user_name = current_user.full_name
 
         if report_type == 'financial':
             if not month or not year:
@@ -43,6 +44,7 @@ def generate_report(
                 teacher_ci=teacher_ci, semester=semester,
                 group_code=group_code, subject=subject,
                 generated_by=current_user.id,
+                generated_by_name=user_name,
             )
         elif report_type == 'attendance':
             if not month or not year:
@@ -52,6 +54,7 @@ def generate_report(
                 teacher_ci=teacher_ci, semester=semester,
                 group_code=group_code,
                 generated_by=current_user.id,
+                generated_by_name=user_name,
             )
         elif report_type == 'comparative':
             if not year:
@@ -59,6 +62,7 @@ def generate_report(
             report = gen.generate_comparative_report(
                 db, year=year, teacher_ci=teacher_ci,
                 generated_by=current_user.id,
+                generated_by_name=user_name,
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
