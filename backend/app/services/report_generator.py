@@ -97,33 +97,32 @@ def _add_footer(
     styles: Any,
     generated_by_name: str | None = None,
 ) -> None:
-    """Add audit footer: user name, date/time, system identifier."""
+    """Add single-line audit footer with all fields separated by pipes."""
     now = datetime.now()
-    lines: list[str] = []
+    parts: list[str] = []
 
     if generated_by_name:
-        lines.append(f"Generado por: {generated_by_name}")
-    lines.append(f"Fecha y hora: {now.strftime('%d/%m/%Y %H:%M:%S')}")
-    lines.append("Sistema: UPDS — Planilla Docentes")
-    lines.append(f"Documento generado automáticamente — Año académico {now.year}")
+        parts.append(f"Generado por: {generated_by_name}")
+    parts.append(f"Fecha: {now.strftime('%d/%m/%Y %H:%M:%S')}")
+    parts.append("UPDS — Planilla Docentes")
+
+    footer_text = "  |  ".join(parts)
 
     elements.append(Spacer(1, 24))
 
-    # Separator line
     sep_table = Table([[""]], colWidths=["100%"])
     sep_table.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.gray),
     ]))
     elements.append(sep_table)
-    elements.append(Spacer(1, 6))
+    elements.append(Spacer(1, 4))
 
     footer_style = ParagraphStyle(
         "Footer", parent=styles["Normal"],
-        fontSize=7, textColor=colors.gray, alignment=TA_LEFT,
+        fontSize=7, textColor=colors.gray, alignment=TA_CENTER,
         leading=10,
     )
-    for line in lines:
-        elements.append(Paragraph(line, footer_style))
+    elements.append(Paragraph(footer_text, footer_style))
 
 
 # ── Reusable table cell styles ───────────────────────────────────────────────
