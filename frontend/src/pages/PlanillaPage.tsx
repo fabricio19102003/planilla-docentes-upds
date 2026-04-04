@@ -258,6 +258,67 @@ export function PlanillaPage() {
         </div>
       )}
 
+      {/* Publication Status — at the top so admin doesn't need to scroll */}
+      <div className="card-3d-static overflow-hidden animate-fade-in-up">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              publication?.status === 'published' ? 'bg-green-100' : 'bg-gray-100'
+            }`}>
+              {publication?.status === 'published'
+                ? <Send size={16} className="text-green-600" />
+                : <EyeOff size={16} className="text-gray-400" />
+              }
+            </div>
+            <div>
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                Publicación de Facturación
+              </h3>
+              <p className="text-xs text-gray-500">
+                {MONTH_NAMES[month]} {year} — {
+                  publication?.status === 'published'
+                    ? `Publicado el ${new Date(publication.published_at!).toLocaleDateString('es-BO')}`
+                    : 'No publicado para docentes'
+                }
+              </p>
+            </div>
+          </div>
+
+          {publication?.status === 'published' ? (
+            <Button
+              variant="outline"
+              className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
+              onClick={() => unpublishBilling.mutate({ month, year })}
+              disabled={unpublishBilling.isPending}
+            >
+              <EyeOff size={14} />
+              {unpublishBilling.isPending ? 'Despublicando...' : 'Despublicar'}
+            </Button>
+          ) : (
+            <Button
+              className="gap-2 text-white"
+              style={{ backgroundColor: '#16a34a' }}
+              onClick={() => publishBilling.mutate({ month, year })}
+              disabled={publishBilling.isPending}
+            >
+              <Send size={14} />
+              {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
+            </Button>
+          )}
+        </div>
+
+        {publication?.status === 'published' && (
+          <div className="px-5 py-3 bg-green-50/50 text-sm text-green-700 flex items-center gap-2">
+            <span>✅ Los docentes pueden ver sus montos a facturar para {MONTH_NAMES[month]} {year}.</span>
+            {publication.total_teachers > 0 && (
+              <span className="text-green-600">
+                ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Planilla Detail Section — ALWAYS visible */}
       <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
         {/* Header */}
@@ -454,67 +515,6 @@ export function PlanillaPage() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Publication Status */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-              publication?.status === 'published' ? 'bg-green-100' : 'bg-gray-100'
-            }`}>
-              {publication?.status === 'published'
-                ? <Send size={16} className="text-green-600" />
-                : <EyeOff size={16} className="text-gray-400" />
-              }
-            </div>
-            <div>
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Publicación de Facturación
-              </h3>
-              <p className="text-xs text-gray-500">
-                {MONTH_NAMES[month]} {year} — {
-                  publication?.status === 'published'
-                    ? `Publicado el ${new Date(publication.published_at!).toLocaleDateString('es-BO')}`
-                    : 'No publicado para docentes'
-                }
-              </p>
-            </div>
-          </div>
-
-          {publication?.status === 'published' ? (
-            <Button
-              variant="outline"
-              className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
-              onClick={() => unpublishBilling.mutate({ month, year })}
-              disabled={unpublishBilling.isPending}
-            >
-              <EyeOff size={14} />
-              {unpublishBilling.isPending ? 'Despublicando...' : 'Despublicar'}
-            </Button>
-          ) : (
-            <Button
-              className="gap-2 text-white"
-              style={{ backgroundColor: '#16a34a' }}
-              onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending}
-            >
-              <Send size={14} />
-              {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
-            </Button>
-          )}
-        </div>
-
-        {publication?.status === 'published' && (
-          <div className="px-5 py-3 bg-green-50/50 text-sm text-green-700 flex items-center gap-2">
-            <span>✅ Los docentes pueden ver sus montos a facturar para {MONTH_NAMES[month]} {year}.</span>
-            {publication.total_teachers > 0 && (
-              <span className="text-green-600">
-                ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
       {/* History */}
