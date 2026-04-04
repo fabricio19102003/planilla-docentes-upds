@@ -59,6 +59,8 @@ class BillingHistoryItem(BaseModel):
     month_name: str
     total_hours: int
     total_payment: float
+    adjusted_payment: Optional[float] = None
+    designations: list[DesignationBilling] = []
 
 
 class ProfileResponse(BaseModel):
@@ -196,6 +198,8 @@ def get_billing_history(
                 month_name=billing.month_name,
                 total_hours=billing.total_hours,
                 total_payment=billing.total_payment,
+                adjusted_payment=billing.adjusted_payment,
+                designations=billing.designations,
             )
         )
 

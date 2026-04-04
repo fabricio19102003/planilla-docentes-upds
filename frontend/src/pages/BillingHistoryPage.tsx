@@ -48,12 +48,12 @@ function BillingRow({
           )}
         </td>
         <td className="px-4 py-3 text-gray-500 text-xs">
-          {billing.designations.length} materia{billing.designations.length !== 1 ? 's' : ''}
+          {(billing.designations?.length ?? 0)} materia{(billing.designations?.length ?? 0) !== 1 ? 's' : ''}
         </td>
       </tr>
 
       {/* Expanded detail rows */}
-      {isExpanded && billing.designations.map((d, i) => (
+      {isExpanded && (billing.designations ?? []).map((d, i) => (
         <tr
           key={i}
           className="bg-blue-50/50 border-b last:border-0"
