@@ -15,6 +15,7 @@ from app.routers import (
     users_router,
     detail_requests_router,
     docente_portal_router,
+    reports_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ app.include_router(biometric_router)
 app.include_router(designations_router)
 app.include_router(attendance_router)
 app.include_router(planilla_router)
+app.include_router(reports_router)
 
 
 @app.get("/health", tags=["system"])

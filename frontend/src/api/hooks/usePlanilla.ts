@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput } from '@/api/types'
+import type { GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput, TeacherDesignationsResponse } from '@/api/types'
 
 async function fetchPlanillaHistory() {
   const response = await api.get<PlanillaOutput[]>('/planilla/history')
@@ -46,6 +46,19 @@ export function usePlanillaDetail(month: number, year: number, enabled: boolean 
     queryKey: ['planilla-detail', month, year],
     queryFn: () => fetchPlanillaDetail(month, year),
     enabled,
+  })
+}
+
+async function fetchTeacherDesignations(teacherCi: string) {
+  const response = await api.get<TeacherDesignationsResponse>(`/teachers/${teacherCi}/designations`)
+  return response.data
+}
+
+export function useTeacherDesignations(teacherCi: string, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['teacher-designations', teacherCi],
+    queryFn: () => fetchTeacherDesignations(teacherCi),
+    enabled: enabled && !!teacherCi,
   })
 }
 

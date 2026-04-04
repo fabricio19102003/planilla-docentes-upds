@@ -323,6 +323,34 @@ export interface UploadDesignationsPayload {
   onProgress?: (progress: number) => void
 }
 
+// ─── Teacher Designations with Schedule ──────────────────────────────────────
+export interface TeacherDesignationSchedule {
+  dia: string
+  hora_inicio: string
+  hora_fin: string
+  horas_academicas: number
+}
+
+export interface TeacherDesignationDetail {
+  id: number
+  subject: string
+  semester: string
+  group_code: string
+  semester_hours: number | null
+  monthly_hours: number | null
+  weekly_hours: number | null
+  schedule: TeacherDesignationSchedule[]
+  schedule_raw: string | null
+}
+
+export interface TeacherDesignationsResponse {
+  teacher_ci: string
+  teacher_name: string
+  designation_count: number
+  total_weekly_hours: number
+  designations: TeacherDesignationDetail[]
+}
+
 // ─── Planilla Detail ──────────────────────────────────────────────────────────
 export interface PlanillaDetailRow {
   teacher_ci: string

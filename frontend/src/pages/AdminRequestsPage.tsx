@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAllRequests, useRespondRequest } from '@/api/hooks/useAuth'
-import { usePlanillaDetail } from '@/api/hooks/usePlanilla'
+import { usePlanillaDetail, useTeacherDesignations } from '@/api/hooks/usePlanilla'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -58,6 +58,12 @@ function RequestDetailDialog({
   const { data: planillaDetail } = usePlanillaDetail(
     request?.month ?? 0,
     request?.year ?? 0,
+    Boolean(request),
+  )
+
+  // Load teacher designations with schedule info
+  const { data: teacherSchedule } = useTeacherDesignations(
+    request?.teacher_ci ?? '',
     Boolean(request),
   )
 
@@ -159,6 +165,34 @@ function RequestDetailDialog({
               )}
             </div>
           )}
+
+          {/* Teacher Schedule */}
+          {teacherSchedule && teacherSchedule.designations.length > 0 && (
+            <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
+              </p>
+              <div className="space-y-2">
+                {teacherSchedule.designations.map(d => (
+                  <div key={d.id} className="text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-800">{d.subject}</span>
+                      <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                      <span className="text-xs text-gray-400">{d.semester}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 ml-2">
+                      {d.schedule.map((slot, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
+                          <span className="font-medium capitalize">{slot.dia}</span>
+                          <span>{slot.hora_inicio}-{slot.hora_fin}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -177,6 +211,12 @@ function RespondDialog({
   const respond = useRespondRequest()
   const [adminResponse, setAdminResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  // Load teacher designations with schedule info
+  const { data: teacherSchedule } = useTeacherDesignations(
+    request?.teacher_ci ?? '',
+    Boolean(request),
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -233,6 +273,34 @@ function RespondDialog({
               </div>
             )}
           </div>
+
+          {/* Teacher Schedule */}
+          {teacherSchedule && teacherSchedule.designations.length > 0 && (
+            <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
+              </p>
+              <div className="space-y-2">
+                {teacherSchedule.designations.map(d => (
+                  <div key={d.id} className="text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-800">{d.subject}</span>
+                      <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                      <span className="text-xs text-gray-400">{d.semester}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 ml-2">
+                      {d.schedule.map((slot, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
+                          <span className="font-medium capitalize">{slot.dia}</span>
+                          <span>{slot.hora_inicio}-{slot.hora_fin}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Respuesta al docente (opcional)</Label>

@@ -7,6 +7,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.planilla import PlanillaOutput
 from app.models.user import User
 from app.models.detail_request import DetailRequest
+from app.models.report import Report
 
 __all__ = [
     "Teacher",
@@ -17,4 +18,5 @@ __all__ = [
     "PlanillaOutput",
     "User",
     "DetailRequest",
+    "Report",
 ]

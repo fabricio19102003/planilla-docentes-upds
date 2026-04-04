@@ -182,6 +182,63 @@ def get_planilla_detail(
         ) from exc
 
 
+@router.get("/teachers/{teacher_ci}/designations")
+def get_teacher_designations(
+    teacher_ci: str,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all designations (with schedule details) for a given teacher."""
+    try:
+        teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
+        if teacher is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+
+        designations = db.query(Designation).filter(Designation.teacher_ci == teacher_ci).all()
+
+        DAY_ORDER = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+
+        result = []
+        for d in designations:
+            slots = d.schedule_json or []
+            sorted_slots = sorted(slots, key=lambda s: (DAY_ORDER.get(s.get("dia", "").lower(), 99), s.get("hora_inicio", "")))
+            result.append({
+                "id": d.id,
+                "subject": d.subject,
+                "semester": d.semester,
+                "group_code": d.group_code,
+                "semester_hours": d.semester_hours,
+                "monthly_hours": d.monthly_hours,
+                "weekly_hours": d.weekly_hours,
+                "schedule": [
+                    {
+                        "dia": slot.get("dia", ""),
+                        "hora_inicio": slot.get("hora_inicio", ""),
+                        "hora_fin": slot.get("hora_fin", ""),
+                        "horas_academicas": slot.get("horas_academicas", 0),
+                    }
+                    for slot in sorted_slots
+                ],
+                "schedule_raw": d.schedule_raw,
+            })
+
+        return {
+            "teacher_ci": teacher.ci,
+            "teacher_name": teacher.full_name,
+            "designation_count": len(result),
+            "total_weekly_hours": sum(d.get("weekly_hours") or 0 for d in result),
+            "designations": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to load teacher designations: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo obtener las designaciones del docente",
+        ) from exc
+
+
 @router.get("/planilla/history", response_model=list[PlanillaOutputResponse])
 def planilla_history(
     _: User = Depends(require_admin),

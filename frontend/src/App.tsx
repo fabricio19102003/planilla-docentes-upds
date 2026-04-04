@@ -14,6 +14,7 @@ import { TeachersPage } from './pages/TeachersPage'
 import { TeacherDetailPage } from './pages/TeacherDetailPage'
 import { UsersPage } from './pages/UsersPage'
 import { AdminRequestsPage } from './pages/AdminRequestsPage'
+import { ReportsPage } from './pages/ReportsPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -58,6 +59,7 @@ function AppRoutes() {
           <Route path="teachers/:ci" element={<TeacherDetailPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="requests" element={<AdminRequestsPage />} />
+          <Route path="reports" element={<ReportsPage />} />
         </Route>
 
         {/* Docente routes */}
