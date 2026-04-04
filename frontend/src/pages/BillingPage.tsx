@@ -19,12 +19,19 @@ export function BillingPage() {
   }
 
   if (error) {
+    const is400 = (error as { response?: { status?: number } })?.response?.status === 400
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
         <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
-        <p className="text-red-600 font-medium">No hay información de facturación disponible</p>
+        <p className="text-red-600 font-medium">
+          {is400
+            ? 'Tu cuenta no está vinculada a un docente'
+            : 'No hay información de facturación disponible'}
+        </p>
         <p className="text-red-400 text-sm mt-1">
-          Es posible que la planilla del mes actual aún no haya sido generada.
+          {is400
+            ? 'Contactá al administrador para que vincule tu cuenta con tu registro de docente.'
+            : 'Es posible que la planilla del mes actual aún no haya sido generada.'}
         </p>
       </div>
     )

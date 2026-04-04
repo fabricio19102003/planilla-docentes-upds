@@ -113,7 +113,8 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
 
 
 def _auto_create_docente_users(db: Session) -> tuple[int, int]:
-    """Create user accounts for all teachers that don't have one yet.
+    """Create user accounts for all teachers that don't have one yet,
+    and fix existing docente users that have ``teacher_ci=None``.
 
     Password: ``upds{current_year}`` (e.g. ``upds2026``).
     Returns ``(created, skipped)`` counts.
@@ -122,13 +123,28 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     current_year = datetime.now().year
     default_password = f"upds{current_year}"
 
-    # CIs that already have a user account
+    # ── Phase 1: Fix existing docente users with teacher_ci=None ─────
+    unlinked_users = (
+        db.query(User)
+        .filter(User.role == "docente", User.teacher_ci.is_(None))
+        .all()
+    )
+    linked_count = 0
+    for user in unlinked_users:
+        teacher = db.query(Teacher).filter(Teacher.ci == user.ci).first()
+        if teacher:
+            user.teacher_ci = teacher.ci
+            linked_count += 1
+    if linked_count:
+        db.flush()
+        logger.info("Linked %d existing docente users to their teacher records", linked_count)
+
+    # ── Phase 2: Create new users for teachers without accounts ──────
     existing_user_cis: set[str] = {
         row[0]
         for row in db.query(User.ci).all()
     }
 
-    # Teachers without user accounts — skip TEMP CIs
     teachers_without_user = (
         db.query(Teacher)
         .filter(~Teacher.ci.in_(existing_user_cis), ~Teacher.ci.startswith("TEMP-"))
@@ -152,7 +168,6 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
             db.flush()
             created += 1
         except Exception:
-            # Duplicate CI or other constraint violation — skip
             skipped += 1
             logger.warning("Could not create user for teacher CI=%s", teacher.ci)
 
