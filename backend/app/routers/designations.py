@@ -188,8 +188,15 @@ def upload_designations(
 ) -> DesignationUploadResponse:
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
+    logger.info(
+        "Designation upload received: filename=%r, extension=%r, content_type=%r",
+        filename, extension, file.content_type,
+    )
     if extension not in {".json", ".xlsx"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El archivo debe ser .json o .xlsx")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El archivo debe ser .json o .xlsx (recibido: '{filename}', extensión: '{extension}')",
+        )
 
     try:
         saved_path, stored_name = _save_upload_file(file)

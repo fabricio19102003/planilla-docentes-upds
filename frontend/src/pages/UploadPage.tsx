@@ -160,9 +160,13 @@ export function UploadPage() {
             {uploadBiometric.isError && (
               <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
                 <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-red-600">
-                  Error al subir el archivo. Verificá el formato e intentá de nuevo.
-                </p>
+                <div>
+                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {(uploadBiometric.error as any)?.response?.data?.detail
+                      ?? 'Verificá el formato e intentá de nuevo.'}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -218,9 +222,13 @@ export function UploadPage() {
             {uploadDesignations.isError && (
               <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
                 <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-red-600">
-                  Error al subir el archivo. Verificá el formato e intentá de nuevo.
-                </p>
+                <div>
+                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {(uploadDesignations.error as any)?.response?.data?.detail
+                      ?? 'Verificá el formato e intentá de nuevo.'}
+                  </p>
+                </div>
               </div>
             )}
 
