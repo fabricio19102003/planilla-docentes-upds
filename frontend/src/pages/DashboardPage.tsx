@@ -189,24 +189,35 @@ export function DashboardPage() {
             </div>
             <div className="p-5">
               {data?.top_earners?.length ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={data.top_earners} layout="vertical" margin={{ left: 10, right: 20 }}>
+                <ResponsiveContainer width="100%" height={Math.max(300, data.top_earners.length * 36)}>
+                  <BarChart data={data.top_earners} layout="vertical" margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 9 }}
+                      tickFormatter={(v: number) => `Bs ${(v / 1000).toFixed(0)}k`}
+                    />
                     <YAxis
                       type="category"
                       dataKey="name"
-                      width={120}
-                      tick={{ fontSize: 9 }}
-                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + '...' : v}
+                      width={160}
+                      tick={{ fontSize: 8 }}
+                      interval={0}
+                      tickFormatter={(v: string) => {
+                        // Show only last name + first initial to keep it short
+                        const parts = v.split(' ').filter(Boolean)
+                        if (parts.length <= 2) return v
+                        return parts[0] + ' ' + parts.slice(1).map(p => p[0] + '.').join('')
+                      }}
                     />
                     <Tooltip
                       formatter={(value: number) => [
                         `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2 })}`,
                         'Facturación',
                       ]}
+                      labelFormatter={(name: string) => name}
                     />
-                    <Bar dataKey="payment" fill="#003366" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="payment" fill="#003366" radius={[0, 4, 4, 0]} barSize={20} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
