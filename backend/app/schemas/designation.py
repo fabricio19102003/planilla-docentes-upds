@@ -34,4 +34,7 @@ class DesignationUploadResponse(BaseModel):
     teachers_reused: int
     designations_loaded: int
     skipped: int
+    users_created: int = 0
+    users_skipped: int = 0
+    default_password: str = ""
     warnings: list[str] = Field(default_factory=list)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
 import { useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/api/hooks/useBiometric'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
@@ -225,21 +225,44 @@ export function UploadPage() {
             )}
 
             {desResult && (
-              <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-green-700">¡Designaciones cargadas!</p>
-                  <p className="text-xs text-green-600 mt-0.5">
-                    {desResult.designations_loaded} designaciones · {desResult.teachers_created} docentes nuevos
-                    {desResult.teachers_reused > 0 && ` · ${desResult.teachers_reused} reutilizados`}
-                    {desResult.skipped > 0 && ` · ${desResult.skipped} omitidos`}
-                  </p>
-                  {desResult.warnings.length > 0 && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      {desResult.warnings.length} advertencia(s)
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-700">¡Designaciones cargadas!</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      {desResult.designations_loaded} designaciones · {desResult.teachers_created} docentes nuevos
+                      {desResult.teachers_reused > 0 && ` · ${desResult.teachers_reused} reutilizados`}
+                      {desResult.skipped > 0 && ` · ${desResult.skipped} omitidos`}
                     </p>
-                  )}
+                    {desResult.warnings.length > 0 && (
+                      <p className="text-xs text-yellow-600 mt-1">
+                        {desResult.warnings.length} advertencia(s)
+                      </p>
+                    )}
+                  </div>
                 </div>
+                {desResult.users_created > 0 && (
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <Users size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-blue-700">
+                        {desResult.users_created} usuarios docentes creados automáticamente
+                      </p>
+                      <p className="text-xs text-blue-600 mt-0.5">
+                        Contraseña por defecto: <span className="font-mono font-bold">{desResult.default_password}</span>
+                      </p>
+                      <p className="text-xs text-blue-500 mt-0.5">
+                        Los docentes deberán cambiar su contraseña al iniciar sesión por primera vez
+                      </p>
+                      {desResult.users_skipped > 0 && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {desResult.users_skipped} usuarios ya existían y fueron omitidos
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

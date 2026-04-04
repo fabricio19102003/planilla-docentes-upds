@@ -273,6 +273,9 @@ export interface DesignationUploadResponse {
   teachers_reused: number
   designations_loaded: number
   skipped: number
+  users_created: number
+  users_skipped: number
+  default_password: string
   warnings: string[]
 }
 

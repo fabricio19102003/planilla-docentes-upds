@@ -11,8 +11,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.designation import DesignationUploadResponse
+from app.services.auth_service import AuthService
 from app.services.designation_loader import DesignationLoader
 from app.utils.auth import require_admin
 
@@ -110,6 +112,59 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
     return json_path, warnings
 
 
+def _auto_create_docente_users(db: Session) -> tuple[int, int]:
+    """Create user accounts for all teachers that don't have one yet.
+
+    Password: ``upds{current_year}`` (e.g. ``upds2026``).
+    Returns ``(created, skipped)`` counts.
+    """
+    auth_service = AuthService()
+    current_year = datetime.now().year
+    default_password = f"upds{current_year}"
+
+    # CIs that already have a user account
+    existing_user_cis: set[str] = {
+        row[0]
+        for row in db.query(User.ci).all()
+    }
+
+    # Teachers without user accounts — skip TEMP CIs
+    teachers_without_user = (
+        db.query(Teacher)
+        .filter(~Teacher.ci.in_(existing_user_cis), ~Teacher.ci.startswith("TEMP-"))
+        .all()
+    )
+
+    created = 0
+    skipped = 0
+
+    for teacher in teachers_without_user:
+        try:
+            user = User(
+                ci=teacher.ci,
+                full_name=teacher.full_name,
+                password_hash=auth_service.hash_password(default_password),
+                role="docente",
+                teacher_ci=teacher.ci,
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
+            created += 1
+        except Exception:
+            # Duplicate CI or other constraint violation — skip
+            skipped += 1
+            logger.warning("Could not create user for teacher CI=%s", teacher.ci)
+
+    logger.info(
+        "Auto-created %d docente users (%d skipped), password: %s",
+        created,
+        skipped,
+        default_password,
+    )
+    return created, skipped
+
+
 @router.post("/designations", response_model=DesignationUploadResponse, status_code=status.HTTP_201_CREATED)
 def upload_designations(
     file: UploadFile = File(...),
@@ -135,6 +190,10 @@ def upload_designations(
             warnings.extend(parser_warnings)
             result = loader.load_from_json(db=db, json_path=str(normalized_json))
 
+        # Auto-create docente user accounts for all loaded teachers
+        users_created, users_skipped = _auto_create_docente_users(db)
+        default_password = f"upds{datetime.now().year}"
+
         db.commit()
 
         return DesignationUploadResponse(
@@ -142,6 +201,9 @@ def upload_designations(
             teachers_reused=result.teachers_reused,
             designations_loaded=result.designations_loaded,
             skipped=result.total_skipped,
+            users_created=users_created,
+            users_skipped=users_skipped,
+            default_password=default_password,
             warnings=warnings + result.warnings,
         )
     except HTTPException:
