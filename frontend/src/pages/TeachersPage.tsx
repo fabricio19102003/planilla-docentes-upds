@@ -392,7 +392,7 @@ export function TeachersPage() {
   return (
     <div className="space-y-6">
       {/* Search */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+      <div className="card-3d-static overflow-hidden">
         <div className="py-4 px-5">
           <div className="relative max-w-md">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -408,7 +408,7 @@ export function TeachersPage() {
       </div>
 
       {/* Table */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
             Listado de Docentes

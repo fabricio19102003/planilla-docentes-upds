@@ -127,7 +127,7 @@ export function PlanillaPage() {
   return (
     <div className="space-y-6">
       {/* Generator Card */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100">
           <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Generar Planilla de Pagos</h2>
           <p className="text-sm text-gray-500 mt-0.5">Seleccioná el período y generá la planilla de haberes docentes</p>
@@ -219,7 +219,7 @@ export function PlanillaPage() {
       {/* Result Card */}
       {lastResult && (
         <div
-          className="card-3d-static overflow-hidden border-l-4 animate-fade-in-up"
+          className="card-3d-static overflow-hidden border-l-4"
           style={{ borderLeftColor: '#16a34a' }}
         >
           <div className="py-5 px-5">
@@ -259,7 +259,7 @@ export function PlanillaPage() {
       )}
 
       {/* Publication Status — at the top so admin doesn't need to scroll */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
@@ -320,7 +320,7 @@ export function PlanillaPage() {
       </div>
 
       {/* Planilla Detail Section — ALWAYS visible */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+      <div className="card-3d-static overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-100">
           <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
@@ -518,7 +518,7 @@ export function PlanillaPage() {
       </div>
 
       {/* History */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
         </div>

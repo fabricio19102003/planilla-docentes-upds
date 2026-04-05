@@ -40,7 +40,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex flex-col lg:flex-row">
       {/* ── Left panel: Branding ─────────────────────────────────── */}
       <div
         className="hidden lg:flex lg:w-[55%] relative flex-col items-center justify-center p-12 overflow-hidden"
@@ -117,25 +117,36 @@ export function LoginPage() {
         </p>
       </div>
 
+      {/* ── Mobile header (lg:hidden) ────────────────────────────── */}
+      <div className="lg:hidden w-full">
+        <div
+          className="w-full py-8 px-6 text-center"
+          style={{ background: 'linear-gradient(160deg, #001a33 0%, #003366 50%, #0066CC 100%)' }}
+        >
+          <div className="font-black tracking-[0.15em] text-5xl leading-none select-none mb-2" style={{ textShadow: '0 2px 20px rgba(0,102,204,0.3)' }}>
+            <span style={{ color: '#4DA8DA' }}>U</span>
+            <span style={{ color: '#7CC0E8' }}>P</span>
+            <span style={{ color: '#4DA8DA' }}>D</span>
+            <span className="text-white">S</span>
+          </div>
+          <p className="text-white/40 text-xs tracking-[0.3em] uppercase font-medium">
+            Universidad Privada Domingo Savio
+          </p>
+          <div className="flex items-center gap-3 justify-center my-3">
+            <div className="flex-1 max-w-[60px] h-px bg-white/20" />
+            <span className="text-white/50 text-xs">•</span>
+            <div className="flex-1 max-w-[60px] h-px bg-white/20" />
+          </div>
+          <h1 className="text-white text-xl font-bold tracking-wide">SIPAD</h1>
+          <p className="text-white/40 text-xs mt-1">Sistema Integrado de Pago Docente</p>
+        </div>
+      </div>
+
       {/* ── Right panel: Login form ──────────────────────────────── */}
       <div
         className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12"
         style={{ backgroundColor: '#f8fafc' }}
       >
-        {/* Mobile-only logo */}
-        <div className="lg:hidden text-center mb-10">
-          <div className="font-black tracking-[0.15em] text-5xl leading-none select-none mb-2">
-            <span style={{ color: '#4DA8DA' }}>U</span>
-            <span style={{ color: '#0066CC' }}>P</span>
-            <span style={{ color: '#4DA8DA' }}>D</span>
-            <span style={{ color: '#003366' }}>S</span>
-          </div>
-          <p className="text-gray-400 text-xs tracking-[0.3em] uppercase font-medium">
-            Universidad Privada Domingo Savio
-          </p>
-          <p className="text-gray-500 text-sm font-semibold mt-3">SIPAD</p>
-        </div>
-
         <div className="w-full max-w-sm">
           {/* Welcome text */}
           <div className="mb-8">

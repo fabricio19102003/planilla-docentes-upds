@@ -50,14 +50,14 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="gradient-navy rounded-xl p-6 text-white animate-fade-in">
+      <div className="gradient-navy rounded-xl p-6 text-white">
         <h2 className="text-2xl font-bold">Bienvenido al Panel de Administración</h2>
         <p className="text-white/70 mt-1">SIPAD — Sistema Integrado de Pago Docente</p>
       </div>
 
       {/* Stats Grid — 6 cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div className="animate-fade-in-up stagger-1">
+        <div>
           <StatCard
             icon={Users}
             title="Total Docentes"
@@ -66,7 +66,7 @@ export function DashboardPage() {
             color="#003366"
           />
         </div>
-        <div className="animate-fade-in-up stagger-2">
+        <div>
           <StatCard
             icon={BookOpen}
             title="Designaciones Activas"
@@ -75,7 +75,7 @@ export function DashboardPage() {
             color="#0066CC"
           />
         </div>
-        <div className="animate-fade-in-up stagger-3">
+        <div>
           <StatCard
             icon={TrendingUp}
             title="Tasa de Asistencia"
@@ -88,7 +88,7 @@ export function DashboardPage() {
             color="#16a34a"
           />
         </div>
-        <div className="animate-fade-in-up stagger-4">
+        <div>
           <StatCard
             icon={DollarSign}
             title="Total Facturación"
@@ -97,7 +97,7 @@ export function DashboardPage() {
             color="#7c3aed"
           />
         </div>
-        <div className="animate-fade-in-up stagger-5">
+        <div>
           <StatCard
             icon={AlertCircle}
             title="Solicitudes Pendientes"
@@ -106,7 +106,7 @@ export function DashboardPage() {
             color={pendingRequests > 0 ? '#d97706' : '#6b7280'}
           />
         </div>
-        <div className="animate-fade-in-up stagger-5">
+        <div>
           <StatCard
             icon={Upload}
             title="Último Upload"
@@ -124,7 +124,7 @@ export function DashboardPage() {
       {/* Charts Row 1: Donut + Horizontal Bar */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Donut — Attendance Distribution */}
-        <div className="animate-fade-in-up stagger-2">
+        <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
@@ -180,7 +180,7 @@ export function DashboardPage() {
         </div>
 
         {/* Horizontal Bar — Top 10 Earners */}
-        <div className="animate-fade-in-up stagger-3">
+        <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
@@ -231,7 +231,7 @@ export function DashboardPage() {
       {/* Charts Row 2: Group dist + Semester dist */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Vertical Bar — Designaciones por Grupo */}
-        <div className="animate-fade-in-up stagger-4">
+        <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
@@ -257,7 +257,7 @@ export function DashboardPage() {
         </div>
 
         {/* Vertical Bar — Designaciones por Semestre */}
-        <div className="animate-fade-in-up stagger-5">
+        <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
@@ -286,7 +286,7 @@ export function DashboardPage() {
       {/* Bottom Row: Recent Uploads + Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Uploads */}
-        <div className="lg:col-span-2 animate-fade-in-up stagger-3">
+        <div className="lg:col-span-2">
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
@@ -346,7 +346,7 @@ export function DashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="animate-fade-in-up stagger-4">
+        <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-base font-semibold" style={{ color: '#003366' }}>

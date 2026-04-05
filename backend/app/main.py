@@ -46,6 +46,38 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to create default admin on startup: %s", exc)
 
+    # Fix any unlinked docente users on startup
+    try:
+        from app.models.user import User as UserModel
+        from app.models.teacher import Teacher as TeacherModel
+
+        db = SessionLocal()
+        try:
+            unlinked = db.query(UserModel).filter(
+                UserModel.role == "docente",
+                UserModel.teacher_ci.is_(None),
+            ).all()
+
+            if unlinked:
+                linked = 0
+                for user in unlinked:
+                    teacher = db.query(TeacherModel).filter(TeacherModel.ci == user.ci).first()
+                    if not teacher:
+                        # Try by name as fallback
+                        teacher = db.query(TeacherModel).filter(
+                            TeacherModel.full_name.ilike(f"%{user.full_name}%")
+                        ).first()
+                    if teacher:
+                        user.teacher_ci = teacher.ci
+                        linked += 1
+                if linked:
+                    db.commit()
+                    logger.info("Startup: linked %d docente users to teachers", linked)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Failed to link users on startup: %s", exc)
+
     yield
     # Cleanup on shutdown (none needed for now)
 

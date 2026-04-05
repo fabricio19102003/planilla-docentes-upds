@@ -377,22 +377,22 @@ export function UsersPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="animate-fade-in-up stagger-1">
+        <div>
           <StatCard icon={Users} title="Total" value={users?.length ?? 0} subtitle="Usuarios registrados" color="#003366" />
         </div>
-        <div className="animate-fade-in-up stagger-2">
+        <div>
           <StatCard icon={Shield} title="Administradores" value={users?.filter(u => u.role === 'admin').length ?? 0} subtitle="Rol administrativo" color="#1d4ed8" />
         </div>
-        <div className="animate-fade-in-up stagger-3">
+        <div>
           <StatCard icon={GraduationCap} title="Docentes" value={users?.filter(u => u.role === 'docente').length ?? 0} subtitle="Rol docente" color="#15803d" />
         </div>
-        <div className="animate-fade-in-up stagger-4">
+        <div>
           <StatCard icon={UserCheck} title="Activos" value={users?.filter(u => u.is_active).length ?? 0} subtitle="Usuarios activos" color="#0066CC" />
         </div>
       </div>
 
       {/* Table */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-5">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Usuarios</h3>
         </div>

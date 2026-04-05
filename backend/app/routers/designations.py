@@ -125,6 +125,7 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     Returns ``(created, skipped)`` counts.
     """
     auth_service = AuthService()
+    current_year = datetime.now().year  # noqa: F841  kept for future use
 
     # ── Phase 1: Fix existing docente users with teacher_ci=None ─────
     unlinked_users = (
@@ -134,18 +135,33 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     )
     linked_count = 0
     for user in unlinked_users:
+        # Try exact CI match first
         teacher = db.query(Teacher).filter(Teacher.ci == user.ci).first()
         if teacher:
             user.teacher_ci = teacher.ci
             linked_count += 1
+            continue
+
+        # Try matching by name (user.full_name may match a teacher.full_name)
+        teacher = db.query(Teacher).filter(
+            Teacher.full_name.ilike(f"%{user.full_name}%")
+        ).first()
+        if teacher:
+            user.teacher_ci = teacher.ci
+            linked_count += 1
+            continue
+
     if linked_count:
         db.flush()
         logger.info("Linked %d existing docente users to their teacher records", linked_count)
 
     # ── Phase 2: Create new users for teachers without accounts ──────
-    existing_user_cis: set[str] = {
-        row[0]
-        for row in db.query(User.ci).all()
+    existing_user_cis: set[str] = {row[0] for row in db.query(User.ci).all()}
+
+    # Also check by name to avoid creating duplicates for teachers whose CI changed
+    existing_user_names: set[str] = {
+        row[0].strip().upper()
+        for row in db.query(User.full_name).filter(User.role == "docente").all()
     }
 
     teachers_without_user = (
@@ -158,6 +174,11 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     skipped = 0
 
     for teacher in teachers_without_user:
+        # Skip if a user with the same name already exists (prevents duplicates)
+        if teacher.full_name.strip().upper() in existing_user_names:
+            skipped += 1
+            continue
+
         try:
             # Each teacher gets a unique random password — never reused across accounts
             password = secrets.token_urlsafe(8)
@@ -173,6 +194,7 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
             db.add(user)
             db.flush()
             created += 1
+            existing_user_names.add(teacher.full_name.strip().upper())
         except Exception:
             skipped += 1
             logger.warning("Could not create user for teacher CI=%s", teacher.ci)

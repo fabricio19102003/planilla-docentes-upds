@@ -210,7 +210,7 @@ export function ActivityLogPage() {
     : displayItems
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
+    <div className="space-y-6">
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Registro de Actividad</h1>

@@ -100,7 +100,7 @@ export function ObservationsPage() {
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+      <div className="card-3d-static overflow-hidden">
         <div className="py-4 px-5">
           <div className="flex flex-wrap items-end gap-4">
             <div>
@@ -132,7 +132,7 @@ export function ObservationsPage() {
       </div>
 
       {/* Observations Table with Tabs */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
             Observaciones — {MONTH_NAMES[month]} {year}

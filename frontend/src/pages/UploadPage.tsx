@@ -102,7 +102,7 @@ export function UploadPage() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biometric Upload */}
-        <div className="card-3d overflow-hidden animate-fade-in-up stagger-1">
+        <div className="card-3d overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Reporte Biométrico</h3>
             <p className="text-sm text-gray-500 mt-0.5">Subí el archivo .xls exportado del sistema biométrico</p>
@@ -190,7 +190,7 @@ export function UploadPage() {
         </div>
 
         {/* Designations Upload */}
-        <div className="card-3d overflow-hidden animate-fade-in-up stagger-2">
+        <div className="card-3d overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Designaciones Docentes</h3>
             <p className="text-sm text-gray-500 mt-0.5">Subí el archivo de designaciones docentes (JSON o Excel)</p>
@@ -275,7 +275,7 @@ export function UploadPage() {
       </div>
 
       {/* Upload History */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-3">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Subidas</h3>
         </div>

@@ -310,7 +310,7 @@ export function ReportsPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="gradient-navy rounded-xl p-6 text-white animate-fade-in">
+      <div className="gradient-navy rounded-xl p-6 text-white">
         <div className="flex items-center gap-3">
           <FileText size={28} className="text-white/90" />
           <div>
@@ -321,7 +321,7 @@ export function ReportsPage() {
       </div>
 
       {/* Report Type Selector */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Tipo de Reporte</h3>
           <p className="text-sm text-gray-500 mt-0.5">Seleccioná el tipo de análisis que necesitás</p>
@@ -366,7 +366,7 @@ export function ReportsPage() {
       </div>
 
       {/* Filters */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
           <Filter size={16} style={{ color: '#0066CC' }} />
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Filtros</h3>
@@ -507,7 +507,7 @@ export function ReportsPage() {
       {/* Success result */}
       {lastGenerated && (
         <div
-          className="card-3d-static overflow-hidden border-l-4 animate-fade-in-up"
+          className="card-3d-static overflow-hidden border-l-4"
           style={{ borderLeftColor: '#16a34a' }}
         >
           <div className="px-6 py-5">
@@ -537,7 +537,7 @@ export function ReportsPage() {
 
       {/* Preview Section */}
       {previewEnabled && (
-        <div className="card-3d-static overflow-hidden animate-fade-in-up">
+        <div className="card-3d-static overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#0066CC' }}>
               <Eye size={16} className="text-white" />
@@ -572,7 +572,7 @@ export function ReportsPage() {
       )}
 
       {/* History */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center gradient-stat-navy">
             <History size={16} className="text-white" />

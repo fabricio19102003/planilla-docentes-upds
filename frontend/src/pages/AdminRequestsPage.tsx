@@ -382,7 +382,7 @@ export function AdminRequestsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between animate-fade-in-up stagger-1">
+      <div className="flex items-start justify-between">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
             Solicitudes de Docentes
@@ -396,7 +396,7 @@ export function AdminRequestsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap animate-fade-in-up stagger-1">
+      <div className="flex items-center gap-2 flex-wrap">
         <Filter size={15} className="text-gray-400" />
         {filterButtons.map((btn) => (
           <button
@@ -420,7 +420,7 @@ export function AdminRequestsPage() {
       </div>
 
       {/* Table */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-2">
+      <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
             {filtered?.length ?? 0} solicitud{filtered?.length !== 1 ? 'es' : ''}
