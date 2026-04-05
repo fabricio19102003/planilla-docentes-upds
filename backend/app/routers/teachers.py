@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/teachers", tags=["teachers"])
 def list_teachers(
     search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=50, ge=1, le=200),
+    per_page: int = Query(default=50, ge=1, le=500),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PaginatedTeachersResponse:
@@ -419,34 +419,38 @@ def _upsert_teachers(db: Session, teachers_data: list[dict]) -> tuple[int, int, 
         db.flush()
 
     # Try to link TEMP teachers by name to real CIs from the list
+    import unicodedata
+
+    def _normalize_for_match(s: str) -> str:
+        """Strip accents, uppercase, collapse whitespace for fuzzy matching."""
+        s = unicodedata.normalize("NFD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")  # strip accents
+        return " ".join(s.strip().upper().split())
+
+    temp_teachers = db.query(Teacher).filter(Teacher.ci.startswith("TEMP-")).all()
+    temp_name_map: dict[str, Teacher] = {
+        _normalize_for_match(t.full_name): t for t in temp_teachers
+    }
+
     for data in teachers_data:
         ci = data.get("ci")
         name = data.get("full_name")
         if not ci or not name:
             continue
 
-        temp_teacher = db.query(Teacher).filter(
-            Teacher.ci.startswith("TEMP-"),
-            Teacher.full_name == name,
-        ).first()
+        norm_name = _normalize_for_match(name)
+        temp_teacher = temp_name_map.get(norm_name)
 
         if temp_teacher:
             old_ci = temp_teacher.ci
-            # Migrate all FK references to the real CI
-            for table_col in [
-                ("designations", "teacher_ci"),
-                ("attendance_records", "teacher_ci"),
-                ("biometric_records", "teacher_ci"),
-                ("detail_requests", "teacher_ci"),
-                ("users", "teacher_ci"),
-            ]:
-                table, col = table_col
+            for table in ["designations", "attendance_records", "biometric_records", "detail_requests", "users"]:
                 db.execute(
-                    text(f"UPDATE {table} SET {col} = :new WHERE {col} = :old"),
+                    text(f"UPDATE {table} SET teacher_ci = :new WHERE teacher_ci = :old"),
                     {"new": ci, "old": old_ci},
                 )
             db.delete(temp_teacher)
             db.flush()
+            del temp_name_map[norm_name]
             warnings.append(f"TEMP docente '{name}' vinculado a CI real {ci}")
 
     return created, updated, skipped, warnings
