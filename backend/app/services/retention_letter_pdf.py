@@ -71,12 +71,12 @@ def generate_retention_letter(
     )
     elements = []
 
-    # Logo (small, centered)
+    # Logo — large, top-left
     if ISOLOGO_PATH.exists():
-        logo = Image(str(ISOLOGO_PATH), width=1.5 * cm, height=1.5 * cm)
-        logo.hAlign = 'CENTER'
+        logo = Image(str(ISOLOGO_PATH), width=4 * cm, height=4 * cm)
+        logo.hAlign = 'LEFT'
         elements.append(logo)
-        elements.append(Spacer(1, 8 * mm))
+        elements.append(Spacer(1, 6 * mm))
 
     # Date — right aligned
     dia = str(now.day)

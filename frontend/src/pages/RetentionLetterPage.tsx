@@ -158,8 +158,9 @@ export function RetentionLetterPage() {
     periodo: `I/${currentYear}`,
   })
 
-  const materias: string[] =
-    schedule?.designations?.map((d: { subject: string }) => d.subject) ?? []
+  const materias: string[] = [
+    ...new Set(schedule?.designations?.map((d: { subject: string }) => d.subject) ?? []),
+  ].sort()
 
   const isFormValid =
     form.titulo.trim() !== '' &&

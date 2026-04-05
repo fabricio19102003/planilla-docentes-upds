@@ -469,7 +469,7 @@ def generate_retention_letter_endpoint(
 
     # Get all subjects from designations
     designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
-    materias = [d.subject for d in designations]
+    materias = sorted(set(d.subject for d in designations))
 
     pdf_path = generate_retention_letter(
         teacher_name=teacher.full_name,
