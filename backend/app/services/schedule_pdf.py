@@ -297,7 +297,7 @@ def generate_schedule_pdf(teacher, designations) -> str:
         fontSize=7, textColor=colors.gray, alignment=TA_CENTER,
     )
     elements.append(Paragraph(
-        f'Generado el {datetime.now().strftime("%d/%m/%Y %H:%M")}  |  UPDS — Sistema de Planilla Docentes',
+        f'Generado el {datetime.now().strftime("%d/%m/%Y %H:%M")}  |  SIPAD — Sistema Integrado de Pago Docente',
         footer_style,
     ))
 

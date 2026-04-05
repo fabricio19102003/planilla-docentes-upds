@@ -1,1 +1,1 @@
-# Planilla Docentes UPDS - FastAPI Backend
+# SIPAD - Sistema Integrado de Pago Docente

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
+import { SidebarProvider } from './context/SidebarContext'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Layout } from './components/layout/Layout'
 
@@ -41,50 +42,52 @@ const queryClient = new QueryClient({
 function AppRoutes() {
   return (
     <AuthProvider>
-      <Routes>
-        {/* Public */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/change-password" element={<ForceChangePasswordPage />} />
+      <SidebarProvider>
+        <Routes>
+          {/* Public */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/change-password" element={<ForceChangePasswordPage />} />
 
-        {/* Admin routes */}
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <Layout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<DashboardPage />} />
-          <Route path="upload" element={<UploadPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
-          <Route path="observations" element={<ObservationsPage />} />
-          <Route path="planilla" element={<PlanillaPage />} />
-          <Route path="teachers" element={<TeachersPage />} />
-          <Route path="teachers/:ci" element={<TeacherDetailPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="requests" element={<AdminRequestsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="activity" element={<ActivityLogPage />} />
-        </Route>
+          {/* Admin routes */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route path="upload" element={<UploadPage />} />
+            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="observations" element={<ObservationsPage />} />
+            <Route path="planilla" element={<PlanillaPage />} />
+            <Route path="teachers" element={<TeachersPage />} />
+            <Route path="teachers/:ci" element={<TeacherDetailPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="requests" element={<AdminRequestsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="activity" element={<ActivityLogPage />} />
+          </Route>
 
-        {/* Docente routes */}
-        <Route
-          path="/portal"
-          element={
-            <ProtectedRoute requiredRole="docente">
-              <Layout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<BillingPage />} />
-          <Route path="history" element={<BillingHistoryPage />} />
-          <Route path="requests" element={<MyRequestsPage />} />
-          <Route path="profile" element={<MyProfilePage />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="schedule" element={<SchedulePage />} />
-        </Route>
-      </Routes>
+          {/* Docente routes */}
+          <Route
+            path="/portal"
+            element={
+              <ProtectedRoute requiredRole="docente">
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<BillingPage />} />
+            <Route path="history" element={<BillingHistoryPage />} />
+            <Route path="requests" element={<MyRequestsPage />} />
+            <Route path="profile" element={<MyProfilePage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="schedule" element={<SchedulePage />} />
+          </Route>
+        </Routes>
+      </SidebarProvider>
     </AuthProvider>
   )
 }

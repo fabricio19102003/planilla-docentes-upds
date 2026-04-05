@@ -104,7 +104,7 @@ def _add_footer(
     if generated_by_name:
         parts.append(f"Generado por: {generated_by_name}")
     parts.append(f"Fecha: {now.strftime('%d/%m/%Y %H:%M:%S')}")
-    parts.append("UPDS — Planilla Docentes")
+    parts.append("SIPAD — Sistema Integrado de Pago Docente")
 
     footer_text = "  |  ".join(parts)
 

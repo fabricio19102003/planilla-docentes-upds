@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
 
     # App metadata
-    APP_TITLE: str = "Planilla Docentes UPDS API"
+    APP_TITLE: str = "SIPAD — Sistema Integrado de Pago Docente"
     APP_DESCRIPTION: str = "Sistema de gestión de planilla docente para UPDS Medicina"
     APP_VERSION: str = "1.0.0"
 

@@ -52,7 +52,7 @@ export function DashboardPage() {
       {/* Welcome Banner */}
       <div className="gradient-navy rounded-xl p-6 text-white animate-fade-in">
         <h2 className="text-2xl font-bold">Bienvenido al Panel de Administración</h2>
-        <p className="text-white/70 mt-1">UPDS — Sistema de Planilla Docentes</p>
+        <p className="text-white/70 mt-1">SIPAD — Sistema Integrado de Pago Docente</p>
       </div>
 
       {/* Stats Grid — 6 cards */}

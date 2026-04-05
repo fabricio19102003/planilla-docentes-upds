@@ -95,7 +95,7 @@ export function LoginPage() {
         {/* Title */}
         <div className="text-center mb-8">
           <h1 className="text-white text-xl font-semibold tracking-wide">
-            Sistema de Planillas
+            SIPAD
           </h1>
           <p className="text-white/40 text-sm mt-1">
             Ingresá con tu cuenta institucional
@@ -186,7 +186,7 @@ export function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-white/25 text-xs mt-8">
-          Sistema de Planillas Docentes v1.0
+          SIPAD — Sistema Integrado de Pago Docente
         </p>
       </div>
     </div>

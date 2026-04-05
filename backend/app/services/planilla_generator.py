@@ -719,7 +719,7 @@ class PlanillaGenerator:
         # ── Row 1: Title ───────────────────────────────────────────────
         ws.merge_cells(f"A{ROW_TITLE}:{last_col_letter}{ROW_TITLE}")
         title_cell = ws.cell(row=ROW_TITLE, column=1)
-        title_cell.value = f"PLANILLA DOCENTES MEDICINA — {month_name} {year}"
+        title_cell.value = f"SIPAD — PLANILLA DOCENTE MEDICINA — {month_name} {year}"
         title_cell.font = Font(name="Calibri", size=14, bold=True, color=COLOR_WHITE)
         title_cell.fill = PatternFill("solid", fgColor=COLOR_HEADER_BG)
         title_cell.alignment = Alignment(horizontal="center", vertical="center")
