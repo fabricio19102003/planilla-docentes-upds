@@ -123,11 +123,13 @@ COL_HRS_TEORIA = 52      # AZ
 COL_HRS_PRACT_INT = 53   # BA
 COL_HRS_PRACT_EXT = 54   # BB
 COL_TOTAL_HRS_CHECK = 55 # BC
-COL_PAGO_CALCULADO = 56  # BD
-COL_PAGO_AJUSTADO = 57   # BE
-COL_OBSERVACIONES = 58   # BF
+COL_PAGO_CALCULADO = 56  # BD  (bruto)
+COL_RETENCION_AMT = 57   # BE  (-13% RC-IVA si aplica)
+COL_PAGO_NETO = 58       # BF  (final_payment = calculado - retención)
+COL_PAGO_AJUSTADO = 59   # BG
+COL_OBSERVACIONES = 60   # BH
 
-TOTAL_COLS = 58  # BF
+TOTAL_COLS = 60  # BH
 
 # Row layout in the worksheet
 ROW_TITLE = 1
@@ -212,6 +214,12 @@ class PlanillaRow:
     # Payment
     rate_per_hour: float = RATE_PER_HOUR
     calculated_payment: float = 0.0
+
+    # RC-IVA 13% retention
+    has_retention: bool = False           # True if teacher has invoice_retention = "RETENCION"
+    retention_rate: float = 0.0           # 0.13 if has_retention, else 0.0
+    retention_amount: float = 0.0         # calculated_payment * retention_rate
+    final_payment: float = 0.0           # calculated_payment - retention_amount
 
     # Observations
     observations: list[str] = field(default_factory=list)
@@ -572,6 +580,12 @@ class PlanillaGenerator:
         payable_hours = max(0, base_monthly_hours - absent_hours)
         calculated_payment = payable_hours * RATE_PER_HOUR
 
+        # RC-IVA 13% retention
+        has_retention = (teacher.invoice_retention or "").strip().upper() == "RETENCION"
+        retention_rate = 0.13 if has_retention else 0.0
+        retention_amount = round(calculated_payment * retention_rate, 2)
+        final_payment = round(calculated_payment - retention_amount, 2)
+
         # Build observation summary
         obs_parts: list[str] = []
         if not has_biometric:
@@ -583,6 +597,8 @@ class PlanillaGenerator:
                 obs_parts.append(f"{absent_count} ausencia{'s' if absent_count > 1 else ''}")
             if absent_hours > 0:
                 obs_parts.append(f"{absent_hours}h descontadas")
+        if has_retention:
+            obs_parts.append("Retención RC-IVA 13%")
 
         return PlanillaRow(
             teacher_ci=teacher.ci,
@@ -615,6 +631,10 @@ class PlanillaGenerator:
             total_practice_external_hours=attended_hours,     # COL_HRS_PRACT_EXT = attended (info)
             rate_per_hour=RATE_PER_HOUR,
             calculated_payment=calculated_payment,
+            has_retention=has_retention,
+            retention_rate=retention_rate,
+            retention_amount=retention_amount,
+            final_payment=final_payment,
             observations=obs_parts if obs_parts else [],
             late_count=late_count,
             absent_count=absent_count,
@@ -772,7 +792,7 @@ class PlanillaGenerator:
         cell.value = f"ASISTENCIA {month_name} {year}"
         self._style_section_header(cell)
 
-        # RESUMEN Y PAGOS (cols AV–BF = 48-58)
+        # RESUMEN Y PAGOS (cols AV–BH = 48-60)
         ws.merge_cells(
             start_row=row, start_column=COL_TOTAL_HORAS,
             end_row=row, end_column=COL_OBSERVACIONES
@@ -832,7 +852,9 @@ class PlanillaGenerator:
             COL_HRS_PRACT_INT: "Hrs\nDescontadas",    # absent_hours (deducted)
             COL_HRS_PRACT_EXT: "Hrs\nAsistidas",      # attended hours (informational)
             COL_TOTAL_HRS_CHECK: "Total\nPagable",    # payable_hours (verification)
-            COL_PAGO_CALCULADO: "Total Pago\nCalculado",
+            COL_PAGO_CALCULADO: "Total Bruto\n(Bs)",
+            COL_RETENCION_AMT: "Retención\nRC-IVA",   # 13% if has_retention
+            COL_PAGO_NETO: "Pago Neto\n(Bs)",         # final_payment
             COL_PAGO_AJUSTADO: "Pago\nAjustado",
             COL_OBSERVACIONES: "Observaciones",
         }
@@ -907,6 +929,8 @@ class PlanillaGenerator:
             COL_HRS_PRACT_EXT: 9,
             COL_TOTAL_HRS_CHECK: 8,
             COL_PAGO_CALCULADO: 12,
+            COL_RETENCION_AMT: 11,
+            COL_PAGO_NETO: 12,
             COL_PAGO_AJUSTADO: 12,
             COL_OBSERVACIONES: 30,
         }
@@ -1056,6 +1080,25 @@ class PlanillaGenerator:
         write_summary(COL_TOTAL_HRS_CHECK, data.payable_hours)
         write_summary(COL_PAGO_CALCULADO, data.calculated_payment, is_currency=True)
 
+        # Retención RC-IVA
+        ret_cell = ws.cell(row=row_num, column=COL_RETENCION_AMT)
+        ret_cell.value = data.retention_amount if data.has_retention else None
+        ret_cell.font = Font(name="Calibri", size=9, color="C00000" if data.has_retention else "000000")
+        ret_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ret_cell.fill = PatternFill("solid", fgColor="FFF0F0" if data.has_retention else "EBF3FB")
+        ret_cell.border = THIN_BORDER
+        if data.has_retention:
+            ret_cell.number_format = '#,##0.00 "Bs"'
+
+        # Pago Neto
+        net_cell = ws.cell(row=row_num, column=COL_PAGO_NETO)
+        net_cell.value = data.final_payment
+        net_cell.font = Font(name="Calibri", size=9, bold=True, color="1F4E79")
+        net_cell.alignment = Alignment(horizontal="center", vertical="center")
+        net_cell.fill = PatternFill("solid", fgColor="DEEAF1")
+        net_cell.border = THIN_BORDER
+        net_cell.number_format = '#,##0.00 "Bs"'
+
         # Pago Ajustado
         adj_cell = ws.cell(row=row_num, column=COL_PAGO_AJUSTADO)
         adj_cell.value = override if override is not None else None
@@ -1097,6 +1140,8 @@ class PlanillaGenerator:
         total_theory = sum(r.base_monthly_hours for r in rows)              # total assigned hours
         total_pract_int = sum(r.absent_hours for r in rows)                 # total deducted hours
         total_pract_ext = sum(r.total_practice_external_hours for r in rows)  # total attended (info)
+        total_bruto = sum(r.calculated_payment for r in rows)               # total gross before retention
+        total_retention = sum(r.retention_amount for r in rows)             # total RC-IVA deducted
         total_payment = self._calculate_total_payment(rows, payment_overrides)
         total_teachers = len({r.teacher_ci for r in rows})
 
@@ -1146,7 +1191,9 @@ class PlanillaGenerator:
         write_total(COL_HRS_PRACT_INT, total_pract_int)
         write_total(COL_HRS_PRACT_EXT, total_pract_ext)
         write_total(COL_TOTAL_HRS_CHECK, total_hours)
-        write_total(COL_PAGO_CALCULADO, total_payment, is_currency=True)
+        write_total(COL_PAGO_CALCULADO, total_bruto, is_currency=True)
+        write_total(COL_RETENCION_AMT, total_retention if total_retention > 0 else None, is_currency=True)
+        write_total(COL_PAGO_NETO, total_payment, is_currency=True)
         write_total(COL_PAGO_AJUSTADO, None)
         write_total(COL_OBSERVACIONES, None)
 
@@ -1474,7 +1521,7 @@ class PlanillaGenerator:
             elif f"{row.teacher_ci}:{row.designation_id}" in payment_overrides:
                 total_payment += payment_overrides[f"{row.teacher_ci}:{row.designation_id}"]
             else:
-                total_payment += row.calculated_payment
+                total_payment += row.final_payment
 
         return total_payment
 

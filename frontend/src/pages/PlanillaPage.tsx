@@ -467,28 +467,65 @@ export function PlanillaPage() {
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2 justify-end">
-                                <p
-                                  className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
-                                  style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
-                                >
-                                  Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                </p>
-                                {paymentOverrides[teacher.teacher_ci] != null && (
-                                  <p className="text-lg font-bold text-green-700">
-                                    Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                  </p>
+                              <div className="flex flex-col items-end gap-0.5">
+                                {teacher.has_retention ? (
+                                  <>
+                                    <p className="text-xs text-gray-400 line-through">
+                                      Bruto: Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    </p>
+                                    <p className="text-xs text-red-500">
+                                      Retención 13%: -Bs {(teacher.retention_amount ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <p
+                                        className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
+                                        style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
+                                      >
+                                        Neto: Bs {(teacher.final_payment ?? teacher.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                      </p>
+                                      {paymentOverrides[teacher.teacher_ci] != null && (
+                                        <p className="text-lg font-bold text-green-700">
+                                          Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                        </p>
+                                      )}
+                                      <button
+                                        onClick={() => {
+                                          setEditingOverride(teacher.teacher_ci)
+                                          setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? (teacher.final_payment ?? teacher.total_payment)))
+                                        }}
+                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
+                                        title="Ajustar monto"
+                                      >
+                                        <Pencil size={13} />
+                                      </button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="flex items-center gap-2 justify-end">
+                                    <p
+                                      className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
+                                      style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
+                                    >
+                                      Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    </p>
+                                    {paymentOverrides[teacher.teacher_ci] != null && (
+                                      <p className="text-lg font-bold text-green-700">
+                                        Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                      </p>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        setEditingOverride(teacher.teacher_ci)
+                                        setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_payment))
+                                      }}
+                                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
+                                      title="Ajustar monto"
+                                    >
+                                      <Pencil size={13} />
+                                    </button>
+                                  </div>
                                 )}
-                                <button
-                                  onClick={() => {
-                                    setEditingOverride(teacher.teacher_ci)
-                                    setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_payment))
-                                  }}
-                                  className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
-                                  title="Ajustar monto"
-                                >
-                                  <Pencil size={13} />
-                                </button>
+
                                 {paymentOverrides[teacher.teacher_ci] != null && (
                                   <button
                                     onClick={() => {

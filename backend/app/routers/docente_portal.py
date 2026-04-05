@@ -64,6 +64,9 @@ class BillingResponse(BaseModel):
     rate_per_hour: float
     total_payment: float
     adjusted_payment: Optional[float] = None
+    has_retention: bool = False
+    retention_amount: float = 0.0
+    final_payment: float = 0.0
     designations: list[DesignationBilling]
 
 
@@ -283,6 +286,16 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
 
     total_payment = round(total_hours * rate, 2)
 
+    # RC-IVA 13% retention
+    teacher_obj = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
+    has_retention = (
+        (teacher_obj.invoice_retention or "").strip().upper() == "RETENCION"
+        if teacher_obj else False
+    )
+    retention_rate = 0.13 if has_retention else 0.0
+    retention_amount = round(total_payment * retention_rate, 2)
+    final_payment = round(total_payment - retention_amount, 2)
+
     return BillingResponse(
         month=month,
         year=year,
@@ -291,6 +304,9 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
         rate_per_hour=rate,
         total_payment=total_payment,
         adjusted_payment=None,
+        has_retention=has_retention,
+        retention_amount=retention_amount,
+        final_payment=final_payment,
         designations=designations,
     )
 
@@ -346,14 +362,21 @@ def get_current_billing(
                 )
                 for d in teacher_data.get("designations", [])
             ]
+            snap_total = teacher_data["total_payment"]
+            snap_has_retention = teacher_data.get("has_retention", False)
+            snap_retention_amount = teacher_data.get("retention_amount", 0.0)
+            snap_final_payment = teacher_data.get("final_payment", snap_total)
             return BillingResponse(
                 month=now.month,
                 year=now.year,
                 month_name=MONTH_NAMES.get(now.month, str(now.month)),
                 total_hours=teacher_data["total_hours"],
                 rate_per_hour=snapshot.get("rate_per_hour", 70.0),
-                total_payment=teacher_data["total_payment"],
+                total_payment=snap_total,
                 adjusted_payment=None,
+                has_retention=snap_has_retention,
+                retention_amount=snap_retention_amount,
+                final_payment=snap_final_payment,
                 designations=designations,
             )
 
@@ -402,13 +425,15 @@ def get_billing_history(
                     )
                     for d in teacher_data.get("designations", [])
                 ]
+                snap_total = teacher_data["total_payment"]
+                snap_final = teacher_data.get("final_payment", snap_total)
                 history.append(
                     BillingHistoryItem(
                         month=pub.month,
                         year=pub.year,
                         month_name=MONTH_NAMES.get(pub.month, str(pub.month)),
                         total_hours=teacher_data["total_hours"],
-                        total_payment=teacher_data["total_payment"],
+                        total_payment=snap_final,
                         adjusted_payment=None,
                         designations=designations,
                     )

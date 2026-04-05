@@ -173,6 +173,9 @@ def get_planilla_detail(
                 "payable_hours": row.payable_hours,
                 "rate_per_hour": row.rate_per_hour,
                 "calculated_payment": row.calculated_payment,
+                "has_retention": row.has_retention,
+                "retention_amount": row.retention_amount,
+                "final_payment": row.final_payment,
                 "has_biometric": row.has_biometric,
                 "late_count": row.late_count,
                 "absent_count": row.absent_count,
@@ -181,23 +184,28 @@ def get_planilla_detail(
 
         # Group by teacher for totals
         teacher_totals: dict = {}
-        for d in detail:
-            ci = d["teacher_ci"]
+        for row in rows:
+            ci = row.teacher_ci
             if ci not in teacher_totals:
                 teacher_totals[ci] = {
                     "teacher_ci": ci,
-                    "teacher_name": d["teacher_name"],
+                    "teacher_name": row.teacher_name,
                     "total_base_hours": 0,
                     "total_absent_hours": 0,
                     "total_payable_hours": 0,
                     "total_payment": 0.0,
                     "designation_count": 0,
-                    "has_biometric": d["has_biometric"],
+                    "has_biometric": row.has_biometric,
+                    "has_retention": row.has_retention,
+                    "retention_amount": 0.0,
+                    "final_payment": 0.0,
                 }
-            teacher_totals[ci]["total_base_hours"] += d["base_monthly_hours"]
-            teacher_totals[ci]["total_absent_hours"] += d["absent_hours"]
-            teacher_totals[ci]["total_payable_hours"] += d["payable_hours"]
-            teacher_totals[ci]["total_payment"] += d["calculated_payment"]
+            teacher_totals[ci]["total_base_hours"] += row.base_monthly_hours
+            teacher_totals[ci]["total_absent_hours"] += row.absent_hours
+            teacher_totals[ci]["total_payable_hours"] += row.payable_hours
+            teacher_totals[ci]["total_payment"] += row.calculated_payment
+            teacher_totals[ci]["retention_amount"] += row.retention_amount
+            teacher_totals[ci]["final_payment"] += row.final_payment
             teacher_totals[ci]["designation_count"] += 1
 
         # Check if there is a stored planilla with potential admin overrides
@@ -208,7 +216,7 @@ def get_planilla_detail(
             .first()
         )
 
-        computed_total = sum(d["calculated_payment"] for d in detail)
+        computed_total = sum(r.final_payment for r in rows)
 
         # Use stored planilla total ONLY for full-month requests (no date filter).
         # Partial date ranges produce a subset of data that won't match the stored total.
@@ -385,7 +393,7 @@ def dashboard_summary(
                     if r.teacher_ci not in teacher_payments:
                         teacher_payments[r.teacher_ci] = {"name": r.teacher_name, "hours": 0, "payment": 0.0}
                     teacher_payments[r.teacher_ci]["hours"] += r.payable_hours
-                    teacher_payments[r.teacher_ci]["payment"] += r.calculated_payment
+                    teacher_payments[r.teacher_ci]["payment"] += r.final_payment
                 total_monthly_payment = sum(v["payment"] for v in teacher_payments.values())
                 top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
 

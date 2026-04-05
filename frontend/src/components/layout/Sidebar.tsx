@@ -18,6 +18,7 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
+  FileSignature,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -39,6 +40,7 @@ const adminNavItems: NavItem[] = [
   { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
   { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
   { to: '/reports', label: 'Reportes', icon: FileText },
+  { to: '/contracts', label: 'Contratos', icon: FileSignature },
   { to: '/teachers', label: 'Docentes', icon: Users },
   { to: '/users', label: 'Gestión Usuarios', icon: Shield },
   { to: '/requests', label: 'Solicitudes', icon: MessageSquare },

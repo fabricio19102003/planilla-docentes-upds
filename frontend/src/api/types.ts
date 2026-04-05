@@ -50,6 +50,9 @@ export interface BillingInfo {
   rate_per_hour: number
   total_payment: number
   adjusted_payment: number | null
+  has_retention?: boolean
+  retention_amount?: number
+  final_payment?: number
   designations: BillingDesignation[]
 }
 
@@ -412,6 +415,9 @@ export interface PlanillaDetailRow {
   payable_hours: number
   rate_per_hour: number
   calculated_payment: number
+  has_retention?: boolean
+  retention_amount?: number
+  final_payment?: number
   has_biometric: boolean
   late_count: number
   absent_count: number
@@ -427,6 +433,9 @@ export interface PlanillaTeacherTotal {
   total_payment: number
   designation_count: number
   has_biometric: boolean
+  has_retention?: boolean
+  retention_amount?: number
+  final_payment?: number
 }
 
 export interface PlanillaDetailResponse {

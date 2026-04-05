@@ -86,17 +86,24 @@ def publish_billing(
         try:
             rows, _detail_rows, _warnings = generator._build_planilla_data(db, month=month, year=year)
             total_teachers = len({r.teacher_ci for r in rows})
-            total_payment = sum(r.calculated_payment for r in rows)
+            total_payment = sum(r.final_payment for r in rows)
 
             # Build per-teacher snapshot so the portal can read immutable data later
-            teacher_map: dict = defaultdict(lambda: {
-                "designations": [], "total_hours": 0, "total_payment": 0.0,
-            })
+            teacher_map: dict[str, dict] = {}
             for row in rows:
+                if row.teacher_ci not in teacher_map:
+                    teacher_map[row.teacher_ci] = {
+                        "teacher_ci": row.teacher_ci,
+                        "teacher_name": row.teacher_name,
+                        "has_biometric": row.has_biometric,
+                        "has_retention": row.has_retention,
+                        "designations": [],
+                        "total_hours": 0,
+                        "total_payment": 0.0,
+                        "retention_amount": 0.0,
+                        "final_payment": 0.0,
+                    }
                 t = teacher_map[row.teacher_ci]
-                t["teacher_ci"] = row.teacher_ci
-                t["teacher_name"] = row.teacher_name
-                t["has_biometric"] = row.has_biometric
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -104,10 +111,14 @@ def publish_billing(
                     "base_hours": row.base_monthly_hours,
                     "absent_hours": row.absent_hours,
                     "payable_hours": row.payable_hours,
-                    "payment": row.calculated_payment,
+                    "payment": row.final_payment,
+                    "calculated_payment": row.calculated_payment,
+                    "retention_amount": row.retention_amount,
                 })
                 t["total_hours"] += row.payable_hours
-                t["total_payment"] += row.calculated_payment
+                t["total_payment"] += row.final_payment
+                t["retention_amount"] += row.retention_amount
+                t["final_payment"] = float(t["total_payment"])
 
             billing_snapshot = {
                 "teacher_details": list(teacher_map.values()),
