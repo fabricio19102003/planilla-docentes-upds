@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
+from reportlab.lib.units import inch, mm, cm
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
@@ -90,6 +90,45 @@ def _add_header(elements: list, styles: Any, title: str, subtitle: str = "") -> 
     ]))
     elements.append(divider_table)
     elements.append(Spacer(1, 12))
+
+
+def _add_branded_header(elements: list, styles: Any, title: str, subtitle: str = "") -> None:
+    """Branded header with UPDS isologo + navy title bar."""
+    if ISOLOGO_PATH.exists():
+        logo = Image(str(ISOLOGO_PATH), width=2 * cm, height=2 * cm)
+        logo.hAlign = "LEFT"
+        elements.append(logo)
+        elements.append(Spacer(1, 3 * mm))
+
+    # Navy title bar
+    title_style = ParagraphStyle(
+        "TitleBar", parent=styles["Normal"],
+        fontSize=14, textColor=colors.white,
+        fontName="Helvetica-Bold", leading=18,
+        alignment=TA_LEFT,
+    )
+    title_table = Table(
+        [[Paragraph(title, title_style)]],
+        colWidths=["100%"],
+    )
+    title_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    elements.append(title_table)
+    elements.append(Spacer(1, 3 * mm))
+
+    if subtitle:
+        sub_style = ParagraphStyle(
+            "SubLine", parent=styles["Normal"],
+            fontSize=9, textColor=BLUE, spaceAfter=8,
+        )
+        elements.append(Paragraph(subtitle, sub_style))
+
+    elements.append(Spacer(1, 4))
 
 
 def _add_footer(
@@ -223,7 +262,7 @@ class ReportGenerator:
         elements: list = []
         cs = self.cs
 
-        _add_header(elements, self.styles, title, subtitle)
+        _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
         total_payment = sum(r.calculated_payment for r in rows)
@@ -345,14 +384,14 @@ class ReportGenerator:
         filepath = _output_dir() / filename
 
         doc = SimpleDocTemplate(
-            str(filepath), pagesize=landscape(A4),
-            leftMargin=12 * mm, rightMargin=12 * mm,
-            topMargin=12 * mm, bottomMargin=18 * mm,
+            str(filepath), pagesize=A4,
+            leftMargin=15 * mm, rightMargin=15 * mm,
+            topMargin=15 * mm, bottomMargin=20 * mm,
         )
         elements: list = []
         cs = self.cs
 
-        _add_header(elements, self.styles, title, subtitle)
+        _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
         attended = sum(1 for r in records if r.status == "ATTENDED")
@@ -408,8 +447,8 @@ class ReportGenerator:
                 _cell(str(r.academic_hours) if r.academic_hours else "0", cs["cell_center"]),
             ])
 
-        # Landscape A4 has ~277mm usable width; with 12mm margins = ~253mm
-        col_widths = [55, 130, 130, 40, 60, 48, 48, 30]
+        # Portrait A4 ~170mm usable width; 8 cols fitting ~482 points total
+        col_widths = [42, 90, 80, 35, 50, 38, 38, 30]
         detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
 
         detail_style_list: list = [
@@ -501,7 +540,7 @@ class ReportGenerator:
         elements: list = []
         cs = self.cs
 
-        _add_header(elements, self.styles, title, subtitle)
+        _add_branded_header(elements, self.styles, title, subtitle)
 
         comp_header = [_cell(h, cs["header"]) for h in ["Mes", "Docentes", "Hrs Asignadas", "Hrs Ausencia", "Hrs a Pagar", "Total (Bs)"]]
         comp_data: list = [comp_header]

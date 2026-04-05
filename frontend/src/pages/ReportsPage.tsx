@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   FileText,
   Download,
@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Clock,
   History,
+  X,
 } from 'lucide-react'
 import {
   useReportPreview,
@@ -260,27 +261,55 @@ export function ReportsPage() {
   const [reportType, setReportType] = useState<ReportType>('financial')
   const [month, setMonth] = useState<number>(currentMonth)
   const [year, setYear] = useState<number>(currentYear)
-  const [teacherCi, setTeacherCi] = useState<string>('')
   const [semester, setSemester] = useState<string>('')
   const [groupCode, setGroupCode] = useState<string>('')
   const [subject, setSubject] = useState<string>('')
   const [previewEnabled, setPreviewEnabled] = useState(false)
   const [lastGenerated, setLastGenerated] = useState<ReportInfo | null>(null)
 
+  // Teacher search state
+  const [teacherSearch, setTeacherSearch] = useState('')
+  const [showTeacherDropdown, setShowTeacherDropdown] = useState(false)
+  const [filters, setFilters] = useState<ReportFilters>({
+    report_type: reportType,
+    month: currentMonth,
+    year: currentYear,
+  })
+
   // Teachers for dropdown
   const { data: teachersData } = useTeachers({ perPage: 200 })
   const teachers = teachersData?.items ?? []
 
-  // Build filter object
-  const filters: ReportFilters = {
-    report_type: reportType,
-    month: reportType !== 'comparative' ? month : undefined,
-    year,
-    teacher_ci: teacherCi || undefined,
-    semester: semester || undefined,
-    group_code: groupCode || undefined,
-    subject: subject || undefined,
-  }
+  // Filter teachers by search term
+  const filteredTeachers = teachers.filter(t => {
+    if (!teacherSearch) return true
+    const term = teacherSearch.toLowerCase()
+    return t.full_name.toLowerCase().includes(term) || t.ci.includes(term)
+  })
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.teacher-search-container')) {
+        setShowTeacherDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Keep filters in sync with month/year/semester/groupCode/subject/reportType
+  useEffect(() => {
+    setFilters(f => ({
+      ...f,
+      report_type: reportType,
+      month: reportType !== 'comparative' ? month : undefined,
+      year,
+      semester: semester || undefined,
+      group_code: groupCode || undefined,
+      subject: subject || undefined,
+    }))
+  }, [reportType, month, year, semester, groupCode, subject])
 
   const { data: previewData, isLoading: previewLoading, isError: previewError } = useReportPreview(filters, previewEnabled)
   const generateReport = useGenerateReport()
@@ -302,6 +331,7 @@ export function ReportsPage() {
   const handleTypeChange = (type: ReportType) => {
     setReportType(type)
     setPreviewEnabled(false)
+    setFilters(f => ({ ...f, report_type: type }))
   }
 
   const needsMonth = reportType !== 'comparative'
@@ -406,21 +436,57 @@ export function ReportsPage() {
               />
             </div>
 
-            {/* Teacher */}
-            <div>
+            {/* Teacher — searchable */}
+            <div className="teacher-search-container relative">
               <label className="text-sm font-medium text-gray-700 block mb-1">
                 <Users size={13} className="inline mr-1" />Docente (opcional)
               </label>
-              <select
-                value={teacherCi}
-                onChange={(e) => { setTeacherCi(e.target.value); setPreviewEnabled(false) }}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              >
-                <option value="">Todos los docentes</option>
-                {teachers.map(t => (
-                  <option key={t.ci} value={t.ci}>{t.full_name} ({t.ci})</option>
-                ))}
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={teacherSearch}
+                  onChange={(e) => {
+                    setTeacherSearch(e.target.value)
+                    setShowTeacherDropdown(true)
+                    setPreviewEnabled(false)
+                    if (!e.target.value) setFilters(f => ({ ...f, teacher_ci: undefined }))
+                  }}
+                  onFocus={() => setShowTeacherDropdown(true)}
+                  placeholder="Buscar por nombre o CI..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent bg-white"
+                />
+                {filters.teacher_ci && (
+                  <button
+                    onClick={() => {
+                      setTeacherSearch('')
+                      setFilters(f => ({ ...f, teacher_ci: undefined }))
+                      setPreviewEnabled(false)
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              {showTeacherDropdown && teacherSearch && filteredTeachers.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredTeachers.slice(0, 20).map(t => (
+                    <button
+                      key={t.ci}
+                      onClick={() => {
+                        setFilters(f => ({ ...f, teacher_ci: t.ci }))
+                        setTeacherSearch(t.full_name)
+                        setShowTeacherDropdown(false)
+                        setPreviewEnabled(false)
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between"
+                    >
+                      <span className="font-medium text-gray-800">{t.full_name}</span>
+                      <span className="text-xs text-gray-400">{t.ci}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Semester — financial & attendance only */}
@@ -464,6 +530,7 @@ export function ReportsPage() {
                 />
               </div>
             )}
+
           </div>
 
           {/* Actions */}

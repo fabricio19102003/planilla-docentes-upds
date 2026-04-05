@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search, Send, EyeOff } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search, Send, EyeOff, Pencil, Check, X } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
 import { DataTable } from '@/components/shared/DataTable'
@@ -89,6 +89,11 @@ export function PlanillaPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
 
+  // Payment override state
+  const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
+  const [editingOverride, setEditingOverride] = useState<string | null>(null)
+  const [overrideValue, setOverrideValue] = useState('')
+
   useEffect(() => {
     if (month === 3 && year === 2026) {
       setStartDate('2026-03-02')
@@ -114,7 +119,7 @@ export function PlanillaPage() {
       {
         month,
         year,
-        payment_overrides: {},
+        payment_overrides: paymentOverrides,
         start_date: startDate || undefined,
         end_date: endDate || undefined,
       },
@@ -178,6 +183,17 @@ export function PlanillaPage() {
               )}
             </Button>
           </div>
+
+          {Object.keys(paymentOverrides).length > 0 && (
+            <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+              <p className="font-medium text-yellow-800">
+                {Object.keys(paymentOverrides).length} ajuste(s) de monto pendiente(s)
+              </p>
+              <p className="text-yellow-600 text-xs mt-1">
+                Estos ajustes se aplicarán al generar la planilla
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
             <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
@@ -418,10 +434,79 @@ export function PlanillaPage() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-lg font-bold" style={{ color: '#003366' }}>
-                              Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                            </p>
-                            <p className="text-xs text-gray-500">
+                            {editingOverride === teacher.teacher_ci ? (
+                              <div className="flex items-center gap-2 justify-end">
+                                <span className="text-xs text-gray-500">Bs</span>
+                                <input
+                                  type="number"
+                                  value={overrideValue}
+                                  onChange={e => setOverrideValue(e.target.value)}
+                                  className="w-24 border border-[#0066CC] rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#0066CC]"
+                                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (overrideValue) {
+                                      setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
+                                    }
+                                    setEditingOverride(null)
+                                    setOverrideValue('')
+                                  }}
+                                  className="text-green-600 hover:text-green-800"
+                                  title="Confirmar ajuste"
+                                >
+                                  <Check size={14} />
+                                </button>
+                                <button
+                                  onClick={() => { setEditingOverride(null); setOverrideValue('') }}
+                                  className="text-gray-400 hover:text-gray-600"
+                                  title="Cancelar"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 justify-end">
+                                <p
+                                  className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
+                                  style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
+                                >
+                                  Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                </p>
+                                {paymentOverrides[teacher.teacher_ci] != null && (
+                                  <p className="text-lg font-bold text-green-700">
+                                    Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                  </p>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setEditingOverride(teacher.teacher_ci)
+                                    setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_payment))
+                                  }}
+                                  className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
+                                  title="Ajustar monto"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                {paymentOverrides[teacher.teacher_ci] != null && (
+                                  <button
+                                    onClick={() => {
+                                      setPaymentOverrides(prev => {
+                                        const next = { ...prev }
+                                        delete next[teacher.teacher_ci]
+                                        return next
+                                      })
+                                    }}
+                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
+                                    title="Quitar ajuste"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
                               {teacher.total_payable_hours}h de {teacher.total_base_hours}h
                               {!teacher.has_biometric && (
                                 <span className="ml-1 text-yellow-600 font-medium">· Sin Bio</span>
