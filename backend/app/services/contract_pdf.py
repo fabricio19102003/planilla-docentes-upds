@@ -2,13 +2,14 @@
 Service: Contract PDF Generator
 
 Generates formal employment contract PDFs for teachers using ReportLab.
-The contract follows the UPDS standard template with 17 clauses (full legal text).
+The contract follows the EXACT UPDS template text (plantilla_contrato_docente.txt).
 
 Output: backend/data/contracts/Contrato_{TeacherName}_{date}.pdf
 """
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,7 +20,7 @@ from reportlab.lib.units import mm, cm
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, KeepTogether,
+    KeepTogether,
 )
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
@@ -30,13 +31,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ASSETS_DIR = Path(__file__).resolve().parents[2] / "data" / "assets"
-ISOLOGO_PATH = ASSETS_DIR / "isologo_upds.png"
-
 MONTH_NAMES = {
-    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
-    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
 }
 
 
@@ -77,14 +75,17 @@ def _make_styles() -> dict:
         fontSize=10, fontName="Times-Bold",
         spaceBefore=6, spaceAfter=3,
         keepWithNext=1,
+        alignment=TA_JUSTIFY,
     )
     title_main = ParagraphStyle(
         "CTM", parent=bold_center,
-        fontSize=12, leading=16, spaceAfter=4,
+        fontSize=11, leading=15, spaceAfter=4,
     )
-    subtitle = ParagraphStyle(
-        "CS", parent=center,
-        fontSize=10, leading=13,
+    # Bullet list item — indented
+    bullet = ParagraphStyle(
+        "CBL", parent=normal,
+        alignment=TA_JUSTIFY,
+        leftIndent=14, leading=14,
     )
 
     return {
@@ -97,7 +98,7 @@ def _make_styles() -> dict:
         "bold_justify": bold_justify,
         "clause_title": clause_title,
         "title_main": title_main,
-        "subtitle": subtitle,
+        "bullet": bullet,
     }
 
 
@@ -127,7 +128,7 @@ def generate_contract_pdf(
     Args:
         teacher: Teacher ORM instance
         designations: List of Designation ORM instances for this teacher
-        department: Department of Bolivia (e.g. "Pando", "La Paz")
+        department: Department of Bolivia for the CI (e.g. "Pando", "La Paz")
         duration_text: Contract duration in text (e.g. "4 meses y 13 días")
         start_date: Contract start date in Spanish text (e.g. "05 de marzo de 2026")
         end_date: Contract end date in Spanish text (e.g. "18 de julio de 2026")
@@ -157,376 +158,604 @@ def generate_contract_pdf(
     elements: list = []
 
     # ── Generation date ────────────────────────────────────────────────
-    gen_day = str(now.day)
+    gen_day = str(now.day).zfill(2)
     gen_month = MONTH_NAMES.get(now.month, str(now.month))
     gen_year = str(now.year)
     generation_date = f"{gen_day} de {gen_month} de {gen_year}"
 
-    # ── HEADER ─────────────────────────────────────────────────────────
+    # ── TITLE ──────────────────────────────────────────────────────────
     elements.append(Paragraph(
-        "UNIVERSIDAD PRIVADA DOMINGO SAVIO",
-        styles["bold_center"],
-    ))
-    elements.append(Spacer(1, 2 * mm))
-    elements.append(Paragraph(
-        f"CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+        "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
         styles["title_main"],
     ))
-    elements.append(Spacer(1, 1 * mm))
-    elements.append(Paragraph(
-        f"(Docente por hora — {department})",
-        styles["subtitle"],
-    ))
-    elements.append(Spacer(1, 8 * mm))
+    elements.append(Spacer(1, 6 * mm))
 
-    # ── PARTIES ────────────────────────────────────────────────────────
+    # ── INTRO PARAGRAPH ────────────────────────────────────────────────
     elements.append(Paragraph(
-        f"En la ciudad de Cobija, Departamento de {department}, a {generation_date}, entre:",
+        "Conste por el presente documento, un CONTRATO PRIVADO DE PRESTACIÓN DE SERVICIOS "
+        "PROFESIONALES, que con el solo reconocimiento de firmas tendrá la fuerza probatoria "
+        "de un documento público como lo establece el artículo 1297 del Código Civil; y que "
+        "estará sujeto al tenor de los artículos 450, 454, 519, 523, 732 y siguientes del "
+        "Código Civil y a las siguientes cláusulas y condiciones siguientes:",
         styles["justify"],
     ))
     elements.append(Spacer(1, 4 * mm))
 
+    # ── PRIMERA: (DE LAS PARTES) ───────────────────────────────────────
     elements.append(Paragraph(
-        "<b>PRIMERA PARTE (CONTRATANTE):</b>",
-        styles["bold"],
+        "<b>PRIMERA: (DE LAS PARTES). –</b><br/>"
+        "Concurren a la celebración del presente contrato, las siguientes partes:",
+        styles["justify"],
     ))
+    elements.append(Spacer(1, 2 * mm))
+
+    # Numbered list for PRIMERA
+    items_primera = [
+        (
+            "Por una parte, UNIPANDO S.R.L, registrada bajo la Matrícula de Comercio "
+            "Nº 00207595, otorgada por el Registro de Comercio concesionario FUNDEMPRESA, "
+            "con NIT 456850023, con Registro Obligatorio de Empleadores R.O.E. Nº456850023-1 "
+            "domiciliada en la Avenida 16 de julio N° 128 Barrio Central de esta Ciudad de "
+            "Cobija, representada legalmente en este acto por el señor Luis Michel Bravo Alencar "
+            "con CI. N.º 1750986 Pando Boliviano, mayor de edad, hábil por ley, domiciliado en "
+            "esta Ciudad Cobija, en virtud al Poder Especial, amplio y suficiente según consta en "
+            "el Testimonio N. º1818/2024, de fecha 4 de septiembre de 2024, otorgado ante la "
+            "Notaría de Fe Pública N.º 10, a cargo del Notario Jaime David Canedo Encinas, quien "
+            'en adelante y para los efectos del presente contrato se denominará "COMITENTE".'
+        ),
+        (
+            f'Por otra, el señor(a) <b>{teacher.full_name}</b> hábil por ley, con C.I. '
+            f'<b>{teacher.ci} {department}</b>, con domicilio en la Ciudad de Cobija, a quien '
+            'se denominará en adelante para fines de este contrato como CONTRATISTA.'
+        ),
+        (
+            'EL COMITENTE y EL CONTRATISTA podrán denominarse en conjunto "LAS PARTES".'
+        ),
+    ]
+    for idx, text in enumerate(items_primera, start=1):
+        elements.append(Paragraph(
+            f"{idx}. {text}",
+            styles["bullet"],
+        ))
+        elements.append(Spacer(1, 2 * mm))
+    elements.append(Spacer(1, 3 * mm))
+
+    # ── SEGUNDA: (OBJETO) ──────────────────────────────────────────────
     elements.append(Paragraph(
-        "La <b>UNIVERSIDAD PRIVADA DOMINGO SAVIO — UNIPANDO S.R.L.</b>, representada legalmente "
-        "por el Lic. Luis Michel Bravo Alencar, en calidad de Rector, con domicilio en la "
-        f"ciudad de Cobija, Departamento de {department}, a quien en adelante se denominará "
-        "<b>«LA UNIVERSIDAD»</b>.",
+        "<b>SEGUNDA: (OBJETO).-</b><br/>"
+        "El presente contrato tiene por objeto que el CONTRATISTA elabore y ejecute para el "
+        "COMITENTE, un Proyecto Formativo de Aula orientado para cada una de las siguientes "
+        "materias:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 3 * mm))
+
+    # ── Subjects table — deduplicated by subject, hours summed ─────────
+    subject_map: dict = defaultdict(lambda: {"semester": "", "total_hours": 0})
+    for d in designations:
+        key = d.subject
+        subject_map[key]["semester"] = d.semester
+        subject_map[key]["total_hours"] += (d.semester_hours or 0)
+
+    subjects_list = sorted(subject_map.items())
+    table_data = [["Nº", "Materia", "Semestre", "Total Horas"]]
+    for idx, (subject, info) in enumerate(subjects_list, start=1):
+        table_data.append([
+            str(idx),
+            subject,
+            info["semester"],
+            str(info["total_hours"]),
+        ])
+
+    # Page width minus margins: A4 = 21cm, left=3cm, right=2.5cm → usable = 15.5cm
+    usable_width = A4[0] - 3.0 * cm - 2.5 * cm
+    col_widths = [
+        1.0 * cm,
+        usable_width - 1.0 * cm - 3.0 * cm - 2.5 * cm,
+        3.0 * cm,
+        2.5 * cm,
+    ]
+
+    subjects_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    subjects_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (1, 1), (1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#F2F2F2")),
+    ]))
+    elements.append(subjects_table)
+    elements.append(Spacer(1, 3 * mm))
+
+    elements.append(Paragraph(
+        "Su ejecución, desarrollo y aplicación será realizado mediante el uso de Plataformas "
+        "Virtuales, dirigido a estudiantes de la UNIVERSIDAD bajo el Modelo Educativo por "
+        "Competencias, de acuerdo al número de Criterios establecidos en el Programa Analítico "
+        "de la materia y Orientaciones Académicas que se entenderá son los términos de referencia "
+        "sobre los que debe trabajar el CONTRATISTA para la elaboración del Proyecto Formativo de "
+        "Aula y cumplimiento de este contrato.",
         styles["justify"],
     ))
     elements.append(Spacer(1, 4 * mm))
 
+    # ── TERCERA: (ALCANCE) ─────────────────────────────────────────────
     elements.append(Paragraph(
-        "<b>SEGUNDA PARTE (DOCENTE):</b>",
-        styles["bold"],
+        "<b>TERCERA: (ALCANCE DE LA PRESTACIÓN DE SERVICIOS).-</b><br/>"
+        "Para cada materia EL CONTRATISTA, atendiendo a las Orientaciones Académicas que "
+        "constituyen los términos de referencia de este contrato, deberá prestar los siguientes "
+        "servicios en Coordinación con el jefe de Carreras y/o Asesoría Pedagógica:",
+        styles["justify"],
     ))
+    elements.append(Spacer(1, 2 * mm))
+
+    tercera_items = [
+        "Elaboración del Proyecto Formativo, cargado a la Plataforma Moodle-UPDS.net u otra que "
+        "indique oportunamente el COMITENTE.",
+        "Elaboración de la planificación de la evaluación según requerimientos específicos "
+        "señalados en las Orientaciones Académicas.",
+        "Ejecución y desarrollo de las actividades sincrónicas y asincrónicas, de acuerdo con la "
+        "Planificación de Evaluación, todo en interacción con los estudiantes registrados en la "
+        "materia, mediante el uso de Plataformas.",
+        "Presentación de informes mensuales y a la conclusión del proyecto, debe presentar la "
+        "siguiente documentación: Informe de la Asignatura, guardado de calificaciones, "
+        "centralizador impreso de calificaciones, mismo que debe presentar en formato físico al "
+        "Departamento de Registro.",
+        "Aquellas evidencias que no puedan ser verificadas en plataforma, se enviarán a un link "
+        "de Jefaturas de Carrera.",
+    ]
+    for item in tercera_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 3 * mm))
+
+    # ── CUARTA: (CONTENIDO MÍNIMO) ─────────────────────────────────────
     elements.append(Paragraph(
-        f"El/La profesional <b>{teacher.full_name}</b>, con C.I. N° <b>{teacher.ci}</b>, "
-        "con domicilio en la ciudad de Cobija, quien en adelante se denominará "
-        "<b>«EL/LA DOCENTE»</b>.",
+        "<b>CUARTA: (CONTENIDO MÍNIMO DEL PROYECTO).-</b><br/>"
+        "El Proyecto de cada materia deberá contener en forma enunciativa más no limitativa "
+        "lo siguiente:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    cuarta_items = [
+        "Fase de Direccionamiento",
+        "Fase de Planeación",
+        "Fase de Ejecución",
+        "Fase de Comunicación",
+    ]
+    for item in cuarta_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 3 * mm))
+
+    # ── QUINTA: (OBLIGACIONES DEL CONTRATISTA) ─────────────────────────
+    elements.append(Paragraph(
+        "<b>QUINTA: (OBLIGACIONES DEL CONTRATISTA y PRODUCTOS REQUERIDOS).-</b><br/>"
+        "Para cada materia se deberá desarrollar el proyecto mediante la Plataforma Virtual "
+        "desde el espacio físico – geográfico determinado por el CONTRATISTA, conforme a lo "
+        "siguiente:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "<b>Primer:</b> Ejecutará el Proyecto Formativo de Aula Virtual con una carga horaria "
+        "mensual designada previamente elaborado por éste, que deberá ser cargado al entorno "
+        "virtual hasta el quinto día de iniciado el contrato, sujeto al Programa Analítico y a "
+        "las Orientaciones Académicas, entendidos éstos como los términos de referencia otorgados "
+        "por la UNIVERSIDAD Preparará cada sesión con materiales técnicos y didácticos adecuados, "
+        "aportados por él, haciéndoles conocer a los estudiantes la información básica para la "
+        "coordinación e interacción con éstos.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "<b>Segundo:</b> De acuerdo con el calendario de actividades, evaluará continuamente a "
+        "los estudiantes, empleando metodología que produzca claramente información probatoria de "
+        "la evaluación de cada estudiante y ajustándose plenamente a los criterios de verificación "
+        "de la materia que gestiona y que le ha proporcionado EL COMITENTE. Los resultados de las "
+        "evaluaciones serán oportunamente puestos en conocimiento de los estudiantes y de la "
+        "UNIVERSIDAD. El plazo para la entrega de las evaluaciones es de 72 horas luego de "
+        "aplicadas las mismas.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "<b>Tercer:</b> Se obliga a presentar un informe final académico, que incluye la "
+        "presentación de informe de la asignatura, guardado de calificaciones e impresión del "
+        "centralizador de calificaciones que debe presentar en formato físico al Departamento "
+        "de Registro.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "El informe final quedará evidenciado en la plataforma virtual.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Igualmente se obliga a participar de cualquier reunión virtual o presencial convocada "
+        "por EL COMITENTE, en el día y la hora que éste lo determine con la finalidad de ajustar "
+        "el Proyecto Formativo de Aula Virtual.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Así mismo, se obliga a abstenerse de realizar actos, por sí o por terceras personas, "
+        "que perjudiquen el desarrollo de las actividades en las PLATAFORMAS VIRTUALES.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Se obliga también a mantener la confidencialidad aún después de concluido el contrato "
+        "sobre la información interna proporcionada por la Universidad; quedando terminantemente "
+        "prohibido para EL CONTRATISTA realizar cualquier tipo de reproducción, publicación o "
+        "divulgación por cualquier medio verbal, escrito o medios de comunicación privados o "
+        "públicos. La omisión de esta obligación involucra la resolución del contrato, en "
+        "aplicación del artículo 569 del Código Civil.",
         styles["justify"],
     ))
     elements.append(Spacer(1, 4 * mm))
 
+    # ── SEXTA: (OBLIGACIONES DEL COMITENTE) ───────────────────────────
     elements.append(Paragraph(
-        "Ambas partes suscriben el presente contrato de prestación de servicios profesionales "
-        "de acuerdo a las siguientes cláusulas:",
+        "<b>SEXTA: (OBLIGACIONES DEL COMITENTE).-</b><br/>"
+        "EL COMITENTE se obliga a:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    sexta_items = [
+        "Cumplir con todas y cada una de las cláusulas mencionadas en el presente Contrato.",
+        "Comunicar clara y oportunamente, en forma escrita al CONTRATISTA, las acciones que "
+        "deben realizar con la finalidad de ajustar los resultados esperados del cumplimiento "
+        "de este contrato. Comunicaciones escritas que podrán realizarse por correo electrónico "
+        "oficial u otro que indique la Universidad.",
+        "Efectuar el pago del precio del contrato, una vez el CONTRATISTA, entregue los "
+        "productos, documentos e informes que acrediten el cumplimiento de los términos de "
+        "referencia del presente contrato.",
+    ]
+    for item in sexta_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "EL COMITENTE, podrá mediante un aviso formal modificar las características de la "
+        "prestación de servicios establecidos en la cláusula tercera, en cualquier momento de "
+        "la vigencia del presente contrato, siempre tomando en cuenta el perfil profesional "
+        "del CONTRATISTA.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "El presente contrato o sus partes integrantes también podrán ser modificadas y será "
+        "factible realizar adiciones o complementaciones, siempre que exista entre las partes "
+        "mutua voluntad y los acuerdos estén contenidos en adendas escritas.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── SÉPTIMA: (PERFIL DEL CONTRATISTA) ─────────────────────────────
+    elements.append(Paragraph(
+        "<b>SÉPTIMA: (PERFIL DEL CONTRATISTA).-</b><br/>"
+        "El CONTRATISTA, mediante esta cláusula declara:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    septima_items = [
+        "Ser profesional de formación universitaria con mayor o igual grado académico "
+        "equivalente a la carrera para la cual elaborará y ejecutará el Proyecto Formativo.",
+        "Contar con Diplomado en Educación Superior y dos años de experiencia en el ejercicio "
+        "en el área de su profesión. En el caso de no contar con el Diplomado en Educación "
+        "Superior, deberá demostrar como mínimo cinco años de experiencia en el ejercicio de "
+        "su profesión.",
+        "Contar con conocimientos sólidos de la materia para la cual elaborará y ejecutará el "
+        "Proyecto Formativo.",
+        "Contar con conocimientos de planificación, metodología y evaluación pedagógica de "
+        "procesos formativos de Educación Superior y por Competencias.",
+        "Poseer habilidades comunicativas, actitudes éticas y profesionales para la prestación "
+        "del servicio en Plataforma Virtual que se requiere.",
+        "Tener conocimiento y manejo de entornos virtuales, como el uso de plataformas virtuales "
+        "sincrónicas y asincrónicas.",
+    ]
+    for item in septima_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── OCTAVA: (DURACIÓN, PRECIO, FORMA DE PAGO E IMPUESTOS) ─────────
+    elements.append(Paragraph(
+        "<b>OCTAVA: (DURACIÓN, PRECIO, FORMA DE PAGO E IMPUESTOS).-</b>",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        f"<b>8.1</b> Las partes de mutuo acuerdo establecen que el presente contrato tendrá "
+        f"una duración de <b>{duration_text}</b> computables desde el <b>{start_date} al "
+        f"{end_date}</b>, plazo durante el cual deberá ejecutar todos los proyectos conforme "
+        "a lo estipulado en el presente contrato, en horarios administrados por el CONTRATISTA. "
+        "Concluido el plazo, no opera la tácita reconducción del presente contrato.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        f"<b>8.2</b> El precio a ser cancelado de forma parcial conforme a las horas de trabajo "
+        f"ejecutadas en cada mes, tomando en cuenta que el valor de la hora del servicio es de "
+        f"<b>Bs. {hourly_rate} ({hourly_rate_literal})</b>.<br/>"
+        "La forma de pago es la siguiente:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    octava_82_items = [
+        "El CONTRATISTA debe presentar el último día hábil del mes un informe del trabajo "
+        "ejecutado, indicando la cantidad de horas empleadas para cada proyecto a efectos de "
+        "cálculo de su pago.",
+        "Una vez aceptado el informe por el COMITENTE, el CONTRATISTA deberá presentar la "
+        "correspondiente factura por sus servicios.",
+        "El COMITENTE realizará el pago a favor del CONTRATISTA a los 30 días de presentada "
+        "la correspondiente factura.",
+    ]
+    for item in octava_82_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "<b>8.3</b> Queda establecido que el monto consignado incluye todos los elementos, "
+        "sin excepción alguna, que sean necesarios para la realización y cumplimiento del "
+        "servicio y es de exclusiva responsabilidad del CONTRATISTA, prestar el servicio por "
+        "el monto establecido como costo del servicio, ya que no se reconocerán ni procederán "
+        "pagos por servicios que hiciesen exceder dicho monto.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Se aclara que correrá por cuenta del CONTRATISTA el pago de todos los impuestos "
+        "vigentes en el país a la fecha de firma del presente contrato. En caso de que "
+        "posteriormente, el Estado Plurinacional de Bolivia, implantará impuestos adicionales, "
+        "disminuyera o incrementara los vigentes, mediante disposición legal expresa, el "
+        "CONTRATISTA deberá acogerse a su cumplimiento desde la fecha de vigencia de dicha "
+        "normativa.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "El COMITENTE podrá solicitar los respaldos de formularios, depósitos y constancias del "
+        "cumplimiento de pago de Impuestos del CONTRATISTA para respaldar el debido cumplimiento "
+        "de respaldo de las facturas emitidas.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Por otra parte el CONTRATISTA se compromete a mantener indemne al COMITENTE de cualquier "
+        "tipo de reclamo que le pudieran notificar y en caso de ser obligado por autoridad "
+        "competente a realizar alguna retención o pago por cuenta de él se compromete a devolver "
+        "al COMITENTE la suma de dinero reclamada más los gastos o costos administrados en que "
+        "haya incurrido este último para el cumplimiento de la orden de pago o retención, siendo "
+        "esta una suma de dinero exigible, sujeta al pago de intereses y mantenimiento de valor "
+        "a la fecha de cumplimiento de pago.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── NOVENA: (GARANTÍA DE CALIDAD) ─────────────────────────────────
+    elements.append(Paragraph(
+        "<b>NOVENA: (GARANTÍA DE CALIDAD, DE CUMPLIMIENTO DE CONTRATO Y SANCIONES POR "
+        "INCUMPLIMIENTO).-</b><br/>"
+        "El CONTRATISTA garantiza que reúnen las cualidades prometidas y necesarias para brindar "
+        "un servicio de calidad y para el buen cumplimiento del presente contrato. En caso de que "
+        "no las reúna y/o no puedan cumplir con la carga horaria de las aulas virtuales se "
+        "compromete a dotar por su propia cuenta y costo los recursos necesarios para su "
+        "cumplimiento.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "A ese efecto, EL COMITENTE, podrá observar la calidad de los servicios en cualquier "
+        "momento de la vigencia del contrato y exigir el cambio y modificación de los mismos; "
+        "otorgándole un plazo prudencial, vencido ese plazo si no se efectuara el cambio, "
+        "modificación o si no subsanara el incumplimiento, el COMITENTE podrá imponer multas "
+        "por incumplimiento de contrato equivalente al 0,5% del valor del contrato por cada "
+        "incumplimiento. Esta penalidad se aplicará salvo casos de fuerza mayor, caso fortuito "
+        "u otras causas debidamente comprobadas por el COMITENTE debiendo ser comunicadas de "
+        "manera inmediata al COMITENTE. Las multas serán cobradas por el COMITENTE mediante "
+        "descuentos establecidos en la liquidación de pagos.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA: (CAUSALES DE RESOLUCIÓN) ──────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA: (CAUSALES DE RESOLUCIÓN DEL CONTRATO).-</b><br/>"
+        "Si el CONTRATISTA incumpliere cualquiera de las obligaciones asumidas en este contrato, "
+        "EL COMITENTE a su elección podrá resolver y / o rescindir el contrato de pleno derecho, "
+        "sin necesidad de intervención de ninguna naturaleza excepto la invocación de las "
+        "cláusulas del presente contrato, en estos casos, el CONTRATISTA estará obligado al pago "
+        "de todos los gastos, expensas, penas convencionales fijadas en este instrumento y demás "
+        "costos ocasionados al COMITENTE por el incumplimiento de la obligación, incluyendo los "
+        "relacionados y / o emergentes de la cobranza judicial y / o extrajudicial, honorarios, "
+        "derechos, costas y otros, sin excepción. Aplicándose por tanto los Artículos 569, 746 y "
+        "747 todos del Código Civil.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "Adicionalmente las causales de resolución del contrato, a decisión unilateral de la "
+        "parte perjudicada por el incumplimiento de este contrato constituyen:",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    decima_items = [
+        "La transferencia, subrogación o cesión de las obligaciones derivadas de este contrato "
+        "a favor de terceros, debido a que el cumplimiento de las obligaciones por parte de EL "
+        "CONTRATISTA, son personalísimos.",
+        "Por muerte, o por privación de libertad, Incapacidad total o parcial y permanente, "
+        "del CONTRATISTA.",
+        "Por asistir al cumplimiento de sus servicios en estado de ebriedad o bajo efectos de "
+        "estupefacientes o cualquier sustancia controlada por la ley 1008 y/o su tenencia.",
+        "Cuando el monto de la multa por incumplimiento en la prestación del servicio alcance "
+        "el diez por ciento (10%) del monto total del contrato, la decisión del COMITENTE será "
+        "optativa y en caso de que la multa llegue al veinte por ciento (20%) del monto total "
+        "del contrato será de forma obligatoria.",
+        "Por negligencia reiterada de 3 veces en el cumplimiento de los términos de referencia, "
+        "u otras especificaciones, o instrucciones escritas por parte del COMITENTE.",
+        "Transgresión por parte de EL CONTRATISTA a las normas de ética o comisión de conducta "
+        "indebida, o por cometer conductas tipificadas como delitos penales dentro o fuera de "
+        "las instalaciones de LA UNIVERSIDAD, en cuyo efecto opera resolución de pleno derecho "
+        "(según el art. 569 del código civil) sin mediar previo aviso, ni necesidad de "
+        "intervención judicial, con efectos de responsabilidad civil por el perjuicio ocasionado "
+        "por dicha conducta anti ética y atrasos notorios en la ejecución de las obligaciones "
+        "contractuales, quedando a salvo el derecho de pedir el resarcimiento del daño "
+        "ocasionado, mediante lo determinado en lo previsto para Resolución de Conflictos.",
+    ]
+    for item in decima_items:
+        elements.append(Paragraph(f"• {item}", styles["bullet"]))
+        elements.append(Spacer(1, 1 * mm))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA PRIMERA: (NATURALEZA) ───────────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA PRIMERA: (NATURALEZA DE LA RELACION CONTRACTUAL).-</b><br/>"
+        "El presente contrato de servicios profesionales, se rige por los artículos 732 y "
+        "siguientes del Código Civil, siendo su naturaleza jurídica estrictamente civil, no es "
+        "un contrato de Trabajo Laboral, consiguientemente no corresponde ningún pago adicional "
+        "por internet, electricidad y otros como beneficios sociales, etc., por cuanto EL "
+        "CONTRATISTA, presta sus servicios en forma independiente, bajo su propia dirección, "
+        "administrando sus propios recursos, entre ellos además su tiempo en su jornada diaria.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA SEGUNDA: (PROHIBICIÓN) ─────────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA SEGUNDA: (PROHIBICIÓN).-</b><br/>"
+        "El CONTRATISTA, no podrá ceder o subrogar la prestación del servicio bajo ninguna "
+        "modalidad en favor de terceros, sin previa autorización expresa y escrita del "
+        "COMITENTE, lo contrario a esa situación dará lugar a la resolución del contrato.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA TERCERA: (SUPERVISIÓN) ─────────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA TERCERA: (SUPERVISIÓN Y EVALUACIONES).-</b><br/>"
+        "El CONTRATISTA autoriza al COMITENTE a supervisiones y evaluaciones periódicas en "
+        "cualquier momento de la vigencia de este contrato, debiendo absolver en forma escrita "
+        "cualesquier duda u observación que EL COMITENTE lo requiera sobre el servicio contratado.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA CUARTA: (SOLUCIÓN DE CONTROVERSIAS) ────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA CUARTA: (SOLUCION DE CONTROVERSIAS).-</b><br/>"
+        "Las partes acuerdan que toda controversia o divergencia que pueda surgir con relación "
+        "a la interpretación, aplicación, cumplimiento y ejecución del presente contrato, que "
+        "no sea resuelta de mutuo acuerdo entre las partes dentro de los CINCO (05) días de "
+        "haber sido notificado el conflicto a la otra parte, ésta será resuelta ante los "
+        "tribunales de justicia de la ciudad de Cobija. La relación contractual entre las partes "
+        "relativa al servicio se regirá de acuerdo a la legislación vigente en Estado "
+        "Plurinacional de Bolivia.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA QUINTA: (CONFIDENCIALIDAD) ─────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA QUINTA: (CONFIDENCIALIDAD).-</b> El CONTRATISTA acuerda que toda la "
+        "información, documentos y datos a los que puedan acceder que sean confidenciales del "
+        "COMITENTE serán mantenidas de manera confidencial y no serán entregados o revelados "
+        "por éste a ningún tercero, salvo que cuente con el permiso escrito de la contraparte "
+        "o el requerimiento de información emane de una orden judicial. Por otra parte, el "
+        "CONTRATISTA se compromete a no utilizarla para realizar actos que puedan constituirse "
+        "como competencia directa, indirecta y desvió de clientela, durante la ejecución del "
+        "presente contrato y una vez finalizado o resuelto por incumplimiento de contrato de "
+        "manera indefinida.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA SEXTA: (ACUERDO TOTAL) ─────────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA SEXTA: (ACUERDO TOTAL).-</b><br/>"
+        "LAS PARTES declaramos y exponemos de forma inequívoca e irrevocable que todos los "
+        "compromisos establecidos en este instrumento constituyen un acuerdo de carácter global "
+        "y de buena fe, solamente modificable en el futuro mediante otras adendas escritas y en "
+        "razón a la voluntad uniforme de éstas.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 2 * mm))
+
+    elements.append(Paragraph(
+        "LAS PARTES declaramos también que este acuerdo total y definitivo asumirá, sustituirá "
+        "o reemplazará cualquier otra comunicación, compromiso, pacto, obligación y derechos "
+        "dispuestos de forma escrita o verbal con anterioridad por las PARTES, en cualquier "
+        "escrito privado o público, ya sea de manera general y / o especial cuyo ámbito sea el "
+        "del objeto de este contrato.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # ── DÉCIMA SÉPTIMA: (CONFORMIDAD) ─────────────────────────────────
+    elements.append(Paragraph(
+        "<b>DÉCIMA SÉPTIMA: (CONFORMIDAD).-</b><br/>"
+        "Ambas PARTES como señal de conformidad y sin que medie ningún vicio del consentimiento, "
+        "firmamos el presente contrato en doble ejemplar de un solo tenor y para un solo efecto.",
         styles["justify"],
     ))
     elements.append(Spacer(1, 6 * mm))
 
-    # ── CLAUSE I — Antecedentes ────────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA PRIMERA. — ANTECEDENTES", styles["clause_title"]),
-        Paragraph(
-            "La Universidad Privada Domingo Savio — UNIPANDO S.R.L., es una institución de "
-            "educación superior privada, autorizada y reconocida por el Estado Plurinacional de "
-            "Bolivia mediante resolución correspondiente del Ministerio de Educación. En el "
-            "ejercicio de sus funciones académicas y como parte de su Plan Académico Institucional, "
-            "requiere contar con docentes idóneos para desarrollar actividades de enseñanza en sus "
-            "distintas carreras y programas académicos.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE II — Objeto ─────────────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA SEGUNDA. — OBJETO DEL CONTRATO", styles["clause_title"]),
-        Paragraph(
-            f"El presente contrato tiene por objeto la prestación de servicios profesionales "
-            f"docentes por parte de <b>{teacher.full_name}</b>, quien se compromete a ejercer "
-            f"actividades de docencia en las asignaturas detalladas en la <b>Cláusula Tercera</b> "
-            f"del presente instrumento, dentro del régimen académico de La Universidad.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE III — Materias ──────────────────────────────────────────
-    elements.append(Paragraph("CLÁUSULA TERCERA. — ASIGNATURAS A CARGO", styles["clause_title"]))
+    # ── DATE ───────────────────────────────────────────────────────────
     elements.append(Paragraph(
-        f"El/La Docente se compromete a dictar las siguientes asignaturas durante la vigencia "
-        f"del presente contrato:",
-        styles["justify"],
+        f"Cobija, {generation_date}.",
+        styles["normal"],
     ))
-    elements.append(Spacer(1, 3 * mm))
 
-    # Subjects table
-    table_data = [["N°", "Asignatura", "Semestre", "Hrs/Semana"]]
-    for idx, d in enumerate(designations, start=1):
-        weekly = d.weekly_hours or (d.monthly_hours // 4 if d.monthly_hours else 0)
-        table_data.append([
-            str(idx),
-            d.subject,
-            d.semester,
-            f"{weekly}h",
-        ])
+    # ── SIGNATURES — labels only, no names ─────────────────────────────
+    elements.append(Spacer(1, 25 * mm))
 
-    subjects_table = Table(
-        table_data,
-        colWidths=[1.0 * cm, 9.5 * cm, 3.5 * cm, 2.0 * cm],
-        repeatRows=1,
-    )
-    subjects_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1F4E79")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("ALIGN", (1, 1), (1, -1), "LEFT"),
-        ("ALIGN", (2, 1), (2, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, HexColor("#EBF3FB")]),
-        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#B8B8B8")),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(subjects_table)
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE IV — Vigencia ───────────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA CUARTA. — VIGENCIA", styles["clause_title"]),
-        Paragraph(
-            f"El presente contrato tendrá una vigencia de <b>{duration_text}</b>, "
-            f"computados a partir del <b>{start_date}</b> al <b>{end_date}</b> de {gen_year}, "
-            "pudiendo ser renovado por mutuo acuerdo de las partes mediante la suscripción de "
-            "un nuevo contrato o adenda correspondiente.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE V — Honorarios ──────────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA QUINTA. — HONORARIOS PROFESIONALES", styles["clause_title"]),
-        Paragraph(
-            f"La Universidad reconocerá al/a la Docente honorarios profesionales de "
-            f"<b>Bs. {hourly_rate}/- ({hourly_rate_literal})</b> por cada hora académica "
-            "efectivamente dictada, de acuerdo al registro de asistencia y las horas consignadas "
-            "en la planilla mensual de haberes. El pago se realizará mensualmente, previa "
-            "presentación de la factura correspondiente o mediante retención RC-IVA, según "
-            "corresponda a la situación impositiva del/de la Docente.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE VI — Obligaciones del Docente ──────────────────────────
-    elements.append(Paragraph("CLÁUSULA SEXTA. — OBLIGACIONES DEL DOCENTE", styles["clause_title"]))
-    obligations = [
-        "Cumplir con el horario de clases establecido por La Universidad y asistir puntualmente a todas las sesiones programadas.",
-        "Presentar el silabo o programa analítico de cada asignatura a su cargo, dentro de los plazos establecidos por el Vicerrectorado Académico.",
-        "Evaluar a los estudiantes conforme al reglamento académico vigente y registrar las calificaciones en el sistema institucional dentro de los plazos establecidos.",
-        "Guardar confidencialidad sobre la información académica y administrativa de La Universidad y de los estudiantes.",
-        "Participar en las reuniones de colegiatura, actividades de capacitación y eventos institucionales convocados por La Universidad.",
-        "Registrar su asistencia mediante el sistema biométrico institucional u otro medio oficial establecido por La Universidad.",
-        "Comunicar con anticipación mínima de 24 horas cualquier inasistencia justificada, a fin de que La Universidad pueda adoptar las medidas pertinentes.",
-        "No ceder, transferir ni subcontratar a terceros las obligaciones asumidas en el presente contrato.",
-        "Respetar el Reglamento Interno de La Universidad, el Código de Ética Institucional y demás normativas vigentes.",
-        "Entregar a La Universidad, al término del contrato, toda la documentación, materiales y recursos institucionales que hubiera recibido en custodia.",
-    ]
-    for i, ob in enumerate(obligations, start=1):
-        elements.append(Paragraph(f"{i}. {ob}", styles["justify"]))
-        elements.append(Spacer(1, 1 * mm))
-    elements.append(Spacer(1, 3 * mm))
-
-    # ── CLAUSE VII — Obligaciones de la Universidad ────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA SÉPTIMA. — OBLIGACIONES DE LA UNIVERSIDAD", styles["clause_title"]),
-    ]))
-    uni_obligations = [
-        "Pagar oportunamente los honorarios profesionales pactados, en los plazos y condiciones establecidos en el presente contrato.",
-        "Proporcionar al/a la Docente los recursos y medios necesarios (aulas, equipos, materiales didácticos) para el adecuado desarrollo de las actividades académicas.",
-        "Informar al/a la Docente sobre las normativas, reglamentos y directrices académicas institucionales vigentes.",
-        "Respetar la autonomía pedagógica del/de la Docente en el desarrollo de los contenidos de las asignaturas a su cargo, dentro del marco del silabo aprobado.",
-    ]
-    for i, ob in enumerate(uni_obligations, start=1):
-        elements.append(Paragraph(f"{i}. {ob}", styles["justify"]))
-        elements.append(Spacer(1, 1 * mm))
-    elements.append(Spacer(1, 3 * mm))
-
-    # ── CLAUSE VIII — Naturaleza del contrato ─────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA OCTAVA. — NATURALEZA JURÍDICA DEL CONTRATO", styles["clause_title"]),
-        Paragraph(
-            "Las partes expresamente declaran y reconocen que el presente contrato es de "
-            "<b>prestación de servicios profesionales</b> de carácter civil, por lo que no crea "
-            "relación laboral alguna entre El/La Docente y La Universidad. En consecuencia, no "
-            "generará derecho a beneficios sociales, aportes a la seguridad social de largo plazo, "
-            "ni ninguna otra prestación propia de los contratos de trabajo regulados por la "
-            "legislación laboral boliviana.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE IX — Propiedad intelectual ─────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA NOVENA. — PROPIEDAD INTELECTUAL", styles["clause_title"]),
-        Paragraph(
-            "Los materiales didácticos, sílabos, apuntes, presentaciones y cualquier otro "
-            "material elaborado específicamente para el desarrollo de las asignaturas objeto "
-            "del presente contrato, podrán ser utilizados por La Universidad con fines "
-            "académicos institucionales. El/La Docente conservará sus derechos morales de "
-            "autoría sobre los mismos, conforme a la legislación boliviana sobre derechos de autor.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE X — Confidencialidad ───────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA. — CONFIDENCIALIDAD", styles["clause_title"]),
-        Paragraph(
-            "El/La Docente se compromete a guardar estricta confidencialidad sobre toda "
-            "información privilegiada, estratégica o sensible que llegue a su conocimiento "
-            "con motivo de la ejecución del presente contrato, tanto durante la vigencia del "
-            "mismo como con posterioridad a su conclusión. Esta obligación incluye, de manera "
-            "enunciativa mas no limitativa, información financiera, datos de estudiantes, "
-            "proyectos institucionales y procedimientos internos.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XI — Causales de resolución ────────────────────────────
-    elements.append(Paragraph("CLÁUSULA DÉCIMA PRIMERA. — CAUSALES DE RESOLUCIÓN", styles["clause_title"]))
-    elements.append(Paragraph(
-        "El presente contrato podrá resolverse por las siguientes causas:",
-        styles["justify"],
-    ))
-    resolutions = [
-        "Por acuerdo mutuo de las partes, mediante comunicación escrita con un mínimo de quince (15) días calendario de anticipación.",
-        "Por incumplimiento grave o reiterado de las obligaciones asumidas por cualquiera de las partes.",
-        "Por causas de fuerza mayor o caso fortuito debidamente comprobadas.",
-        "Por vencimiento del plazo pactado, sin necesidad de aviso previo.",
-        "Por fallecimiento o incapacidad física o mental permanente del/de la Docente.",
-        "Por supresión o cierre de las asignaturas o programas académicos objeto del contrato, por decisión institucional debidamente justificada.",
-    ]
-    for i, r in enumerate(resolutions, start=1):
-        elements.append(Paragraph(f"{i}. {r}", styles["justify"]))
-        elements.append(Spacer(1, 1 * mm))
-    elements.append(Spacer(1, 3 * mm))
-
-    # ── CLAUSE XII — Penalidades ───────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA SEGUNDA. — PENALIDADES", styles["clause_title"]),
-        Paragraph(
-            "En caso de incumplimiento imputable al/a la Docente, La Universidad podrá "
-            "descontar de los honorarios pendientes de pago el monto equivalente a las "
-            "horas no dictadas, sin perjuicio de las demás acciones legales que correspondan. "
-            "Las inasistencias debidamente justificadas y comunicadas en los plazos previstos "
-            "en la Cláusula Sexta no darán lugar a penalidad alguna.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XIII — Aspectos tributarios ────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA TERCERA. — ASPECTOS TRIBUTARIOS", styles["clause_title"]),
-        Paragraph(
-            "Los honorarios pactados en el presente contrato están sujetos al régimen "
-            "tributario vigente. El/La Docente deberá emitir la factura correspondiente por "
-            "los servicios prestados, o en su caso, solicitar por escrito la retención del "
-            "impuesto RC-IVA del trece por ciento (13%) sobre sus honorarios, conforme a "
-            "la normativa del Servicio de Impuestos Nacionales (SIN). La Universidad actuará "
-            "como agente de retención en los casos en que corresponda.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XIV — Modificaciones ───────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA CUARTA. — MODIFICACIONES", styles["clause_title"]),
-        Paragraph(
-            "Cualquier modificación al presente contrato deberá efectuarse por escrito "
-            "mediante adenda suscrita por ambas partes con las mismas formalidades del "
-            "contrato original. Las modificaciones verbales o por cualquier otro medio "
-            "informal no tendrán validez jurídica.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XV — Domicilio ──────────────────────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA QUINTA. — DOMICILIO", styles["clause_title"]),
-        Paragraph(
-            f"Para todos los efectos del presente contrato, las partes fijan su domicilio "
-            f"en la ciudad de Cobija, Departamento de {department}, Estado Plurinacional "
-            "de Bolivia. Cualquier notificación, comunicación o requerimiento deberá "
-            "efectuarse en los domicilios señalados.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XVI — Solución de controversias ────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA SEXTA. — SOLUCIÓN DE CONTROVERSIAS", styles["clause_title"]),
-        Paragraph(
-            "Cualquier controversia, disputa o diferencia que surja entre las partes "
-            "con relación al presente contrato, su interpretación, cumplimiento o "
-            "resolución, será resuelta en primera instancia mediante el diálogo y la "
-            "negociación directa entre las partes. En caso de no llegarse a un acuerdo, "
-            "las partes se someten a la jurisdicción y competencia de los Tribunales de "
-            f"Justicia Ordinaria de la ciudad de Cobija, Departamento de {department}, "
-            "renunciando expresamente a cualquier otro fuero que pudiera corresponderles.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 4 * mm))
-
-    # ── CLAUSE XVII — Disposiciones finales ───────────────────────────
-    elements.append(KeepTogether([
-        Paragraph("CLÁUSULA DÉCIMA SÉPTIMA. — DISPOSICIONES FINALES", styles["clause_title"]),
-        Paragraph(
-            "El presente contrato se suscribe en dos (2) ejemplares originales de igual "
-            "valor legal, quedando uno en poder de cada parte contratante. En señal de "
-            "conformidad y plena aceptación con todas y cada una de las cláusulas del "
-            "presente instrumento, las partes firman el presente contrato en la ciudad "
-            f"de Cobija, Departamento de {department}, a {generation_date}.",
-            styles["justify"],
-        ),
-    ]))
-    elements.append(Spacer(1, 16 * mm))
-
-    # ── SIGNATURES ─────────────────────────────────────────────────────
     sig_data = [
         [
             Paragraph("___________________________", styles["center"]),
+            Paragraph("", styles["center"]),
             Paragraph("___________________________", styles["center"]),
         ],
         [
-            Paragraph("<b>Lic. Luis Michel Bravo Alencar</b>", styles["bold_center"]),
-            Paragraph(f"<b>{teacher.full_name}</b>", styles["bold_center"]),
-        ],
-        [
-            Paragraph("Rector — UPDS UNIPANDO S.R.L.", styles["center"]),
-            Paragraph(f"C.I. N° {teacher.ci}", styles["center"]),
-        ],
-        [
-            Paragraph("C.I. _____________________", styles["center"]),
-            Paragraph("El/La Docente", styles["center"]),
+            Paragraph("<b>EL COMITENTE</b>", styles["bold_center"]),
+            Paragraph("", styles["center"]),
+            Paragraph("<b>EL CONTRATISTA</b>", styles["bold_center"]),
         ],
     ]
 
-    sig_table = Table(sig_data, colWidths=[8.0 * cm, 8.0 * cm])
+    sig_table = Table(sig_data, colWidths=[6.5 * cm, 3.0 * cm, 6.5 * cm])
     sig_table.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
     elements.append(sig_table)
 
