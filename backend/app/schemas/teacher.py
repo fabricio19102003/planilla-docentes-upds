@@ -20,6 +20,7 @@ class TeacherBase(BaseModel):
     specialty: Optional[str] = None
     bank: Optional[str] = None
     account_number: Optional[str] = None
+    nit: Optional[str] = None
     sap_code: Optional[str] = None
     invoice_retention: Optional[str] = None
 
@@ -40,6 +41,7 @@ class TeacherUpdate(BaseModel):
     specialty: Optional[str] = None
     bank: Optional[str] = None
     account_number: Optional[str] = None
+    nit: Optional[str] = None
     sap_code: Optional[str] = None
     invoice_retention: Optional[str] = None
 

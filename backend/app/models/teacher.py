@@ -20,6 +20,7 @@ class Teacher(Base):
     specialty: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     bank: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     account_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    nit: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     sap_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     invoice_retention: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)

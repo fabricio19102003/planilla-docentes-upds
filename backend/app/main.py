@@ -54,6 +54,12 @@ async def lifespan(app: FastAPI):
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN billing_snapshot JSONB"))
                     logger.info("Added column billing_publications.billing_snapshot")
 
+            # teachers.nit
+            teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
+            if "nit" not in teacher_cols:
+                conn.execute(text("ALTER TABLE teachers ADD COLUMN nit VARCHAR(50)"))
+                logger.info("Added column teachers.nit")
+
             conn.commit()
     except Exception as exc:
         logger.warning("Column migration check failed (may be first run): %s", exc)

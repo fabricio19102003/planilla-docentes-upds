@@ -5,6 +5,7 @@ import type {
   BiometricUpload,
   BiometricUploadResult,
   DesignationUploadResponse,
+  TeacherUploadResponse,
   UploadBiometricPayload,
   UploadDesignationsPayload,
 } from '@/api/types'
@@ -81,6 +82,31 @@ export function useUploadDesignations() {
 
   return useMutation({
     mutationFn: uploadDesignations,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['teachers'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
+    },
+  })
+}
+
+async function uploadTeacherList(file: File): Promise<TeacherUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await api.post<TeacherUploadResponse>('/teachers/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+
+  return response.data
+}
+
+export function useUploadTeacherList() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: uploadTeacherList,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teachers'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })

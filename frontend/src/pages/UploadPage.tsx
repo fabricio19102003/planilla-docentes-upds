@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
-import { useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/api/hooks/useBiometric'
+import { useUploadBiometric, useUploadDesignations, useUploadHistory, useUploadTeacherList } from '@/api/hooks/useBiometric'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { BiometricUploadResult, DesignationUploadResponse, BiometricUpload } from '@/api/types'
+import type { BiometricUploadResult, DesignationUploadResponse, TeacherUploadResponse, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 const MONTH_NAMES: Record<number, string> = {
@@ -66,8 +66,13 @@ export function UploadPage() {
   const [desFile, setDesFile] = useState<File | null>(null)
   const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
 
+  // Teacher list state
+  const [teacherFile, setTeacherFile] = useState<File | null>(null)
+  const [teacherResult, setTeacherResult] = useState<TeacherUploadResponse | null>(null)
+
   const uploadBiometric = useUploadBiometric()
   const uploadDesignations = useUploadDesignations()
+  const uploadTeacherList = useUploadTeacherList()
   const { data: history, isLoading: historyLoading } = useUploadHistory()
 
   const handleBioSubmit = () => {
@@ -98,9 +103,20 @@ export function UploadPage() {
     )
   }
 
+  const handleTeacherSubmit = () => {
+    if (!teacherFile) return
+    setTeacherResult(null)
+    uploadTeacherList.mutate(teacherFile, {
+      onSuccess: (data) => {
+        setTeacherResult(data)
+        setTeacherFile(null)
+      },
+    })
+  }
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Biometric Upload */}
         <div className="card-3d overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
@@ -265,6 +281,85 @@ export function UploadPage() {
                           {desResult.users_skipped} usuario(s) no se pudieron crear (posible CI duplicado)
                         </p>
                       )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Teacher List Upload */}
+        <div className="card-3d overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Docentes</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Subí la lista de docentes en formato Excel o JSON</p>
+          </div>
+          <div className="p-5 space-y-4">
+            <FileUploader
+              accept=".json,.xlsx,.xls"
+              label="Seleccioná la lista de docentes"
+              description="Archivo Excel (.xlsx) o JSON con los docentes del semestre"
+              onFileSelect={(f) => setTeacherFile(f)}
+            />
+
+            <Button
+              onClick={handleTeacherSubmit}
+              disabled={!teacherFile || uploadTeacherList.isPending}
+              className="w-full h-10"
+              style={{ backgroundColor: '#003366' }}
+            >
+              {uploadTeacherList.isPending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                  Procesando...
+                </>
+              ) : (
+                'Subir Lista de Docentes'
+              )}
+            </Button>
+
+            {uploadTeacherList.isError && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {(uploadTeacherList.error as any)?.response?.data?.detail
+                      ?? 'Verificá el formato e intentá de nuevo.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {teacherResult && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-700">¡Lista cargada exitosamente!</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      {teacherResult.created} nuevos
+                      {teacherResult.updated > 0 && ` · ${teacherResult.updated} actualizados`}
+                      {teacherResult.skipped > 0 && ` · ${teacherResult.skipped} omitidos`}
+                      {' '}· {teacherResult.total_processed} total
+                    </p>
+                    {teacherResult.warnings.length > 0 && (
+                      <p className="text-xs text-yellow-600 mt-1">
+                        {teacherResult.warnings.length} advertencia(s)
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {teacherResult.warnings.length > 0 && (
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <Users size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-blue-700">Docentes vinculados</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {teacherResult.warnings.map((w, i) => (
+                          <li key={i} className="text-xs text-blue-600">{w}</li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
                 )}

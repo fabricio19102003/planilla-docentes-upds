@@ -120,10 +120,19 @@ export interface Teacher {
   specialty: string | null
   bank: string | null
   account_number: string | null
+  nit: string | null
   sap_code: string | null
   invoice_retention: string | null
   created_at: string
   updated_at: string | null
+}
+
+export interface TeacherUploadResponse {
+  created: number
+  updated: number
+  skipped: number
+  total_processed: number
+  warnings: string[]
 }
 
 export interface TeacherAttendanceSummary {
