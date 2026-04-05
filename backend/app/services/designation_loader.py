@@ -466,6 +466,19 @@ class DesignationLoader:
                     db.query(Designation).filter(
                         Designation.teacher_ci == old_ci
                     ).update({"teacher_ci": matched_ci}, synchronize_session=False)
+                    # Also migrate users and detail_requests so login CI stays consistent
+                    db.execute(
+                        text("UPDATE users SET teacher_ci = :new WHERE teacher_ci = :old"),
+                        {"new": matched_ci, "old": old_ci},
+                    )
+                    db.execute(
+                        text("UPDATE users SET ci = :new WHERE ci = :old AND role = 'docente'"),
+                        {"new": matched_ci, "old": old_ci},
+                    )
+                    db.execute(
+                        text("UPDATE detail_requests SET teacher_ci = :new WHERE teacher_ci = :old"),
+                        {"new": matched_ci, "old": old_ci},
+                    )
 
                     # Now safe to delete the TEMP teacher (no more FK refs)
                     db.delete(teacher)
@@ -642,5 +655,18 @@ class DesignationLoader:
         db.query(BiometricRecord).filter(
             BiometricRecord.teacher_ci == temp_teacher.ci
         ).update({"teacher_ci": real_teacher.ci}, synchronize_session=False)
+        # Also migrate users and detail_requests so login CI stays consistent
+        db.execute(
+            text("UPDATE users SET teacher_ci = :new WHERE teacher_ci = :old"),
+            {"new": real_teacher.ci, "old": temp_teacher.ci},
+        )
+        db.execute(
+            text("UPDATE users SET ci = :new WHERE ci = :old AND role = 'docente'"),
+            {"new": real_teacher.ci, "old": temp_teacher.ci},
+        )
+        db.execute(
+            text("UPDATE detail_requests SET teacher_ci = :new WHERE teacher_ci = :old"),
+            {"new": real_teacher.ci, "old": temp_teacher.ci},
+        )
 
         db.delete(temp_teacher)

@@ -113,6 +113,13 @@ def generate_single_contract(
     _validate_department(payload.department)
     teacher, designations = _get_teacher_designations(teacher_ci, db)
 
+    # TEMP teachers don't have a real CI — contracts cannot be issued for them
+    if teacher.ci.startswith("TEMP-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede generar contrato para un docente sin CI real (TEMP). Vinculá el docente a su CI real primero.",
+        )
+
     try:
         pdf_path = generate_contract_pdf(
             teacher=teacher,
@@ -167,18 +174,22 @@ def generate_batch_contracts(
 
     _validate_department(payload.department)
 
-    # Determine which teachers to process
+    # Determine which teachers to process — always exclude TEMP teachers (no real CI)
     if payload.teacher_cis:
         teachers = (
             db.query(Teacher)
-            .filter(Teacher.ci.in_(payload.teacher_cis))
+            .filter(
+                Teacher.ci.in_(payload.teacher_cis),
+                ~Teacher.ci.startswith("TEMP-"),
+            )
             .all()
         )
     else:
-        # All teachers that have at least one designation
+        # All teachers with at least one designation, excluding TEMP placeholders
         teachers = (
             db.query(Teacher)
             .join(Designation, Teacher.ci == Designation.teacher_ci)
+            .filter(~Teacher.ci.startswith("TEMP-"))
             .distinct()
             .all()
         )

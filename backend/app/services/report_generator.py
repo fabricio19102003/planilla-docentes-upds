@@ -265,17 +265,22 @@ class ReportGenerator:
         _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
-        total_payment = sum(r.calculated_payment for r in rows)
+        total_gross = sum(r.calculated_payment for r in rows)
+        total_retention = sum(r.retention_amount for r in rows)
+        total_payment = sum(r.final_payment for r in rows)   # net — after retention
         total_base = sum(r.base_monthly_hours for r in rows)
         total_absent = sum(r.absent_hours for r in rows)
         total_payable = sum(r.payable_hours for r in rows)
         unique_teachers = len(set(r.teacher_ci for r in rows))
 
         summary_data = [
-            [_cell(h, cs["header"]) for h in ["Docentes", "Designaciones", "Hrs Asignadas", "Hrs Ausencia", "Hrs a Pagar", "Total (Bs)"]],
-            [_cell(v, cs["cell_center"]) for v in [str(unique_teachers), str(len(rows)), f"{total_base}h", f"{total_absent}h", f"{total_payable}h", f"{total_payment:,.2f}"]],
+            [_cell(h, cs["header"]) for h in ["Docentes", "Designaciones", "Hrs Asignadas", "Hrs Ausencia", "Hrs a Pagar", "Bruto (Bs)", "Ret. 13% (Bs)", "Neto (Bs)"]],
+            [_cell(v, cs["cell_center"]) for v in [
+                str(unique_teachers), str(len(rows)), f"{total_base}h", f"{total_absent}h", f"{total_payable}h",
+                f"{total_gross:,.2f}", f"{total_retention:,.2f}", f"{total_payment:,.2f}",
+            ]],
         ]
-        summary_table = Table(summary_data, colWidths=[70, 80, 80, 80, 80, 85])
+        summary_table = Table(summary_data, colWidths=[55, 65, 65, 65, 65, 72, 72, 72])
         summary_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
@@ -288,9 +293,9 @@ class ReportGenerator:
         elements.append(Spacer(1, 16))
 
         # ── Detail table (Paragraph cells = auto-wrap) ───────────────────
-        detail_header = [_cell(h, cs["header"]) for h in ["Docente", "Materia", "Grupo", "Hrs Base", "Ausencias", "Hrs Pagar", "Monto (Bs)"]]
+        detail_header = [_cell(h, cs["header"]) for h in ["Docente", "Materia", "Grupo", "Hrs Base", "Ausencias", "Hrs Pagar", "Bruto (Bs)", "Ret. 13%", "Neto (Bs)"]]
         detail_data: list = [detail_header]
-        for r in sorted(rows, key=lambda x: (-x.calculated_payment, x.teacher_name)):
+        for r in sorted(rows, key=lambda x: (-x.final_payment, x.teacher_name)):
             detail_data.append([
                 _cell(r.teacher_name, cs["cell"]),
                 _cell(r.subject, cs["cell"]),
@@ -298,10 +303,12 @@ class ReportGenerator:
                 _cell(str(r.base_monthly_hours), cs["cell_center"]),
                 _cell(str(r.absent_hours) if r.absent_hours > 0 else "0", cs["cell_center"]),
                 _cell(str(r.payable_hours), cs["cell_center"]),
-                _cell(f"{r.calculated_payment:,.2f}", cs["cell_bold_right"]),
+                _cell(f"{r.calculated_payment:,.2f}", cs["cell_right"]),
+                _cell(f"{r.retention_amount:,.2f}" if r.retention_amount > 0 else "—", cs["cell_center"]),
+                _cell(f"{r.final_payment:,.2f}", cs["cell_bold_right"]),
             ])
 
-        col_widths = [120, 115, 38, 42, 48, 48, 65]
+        col_widths = [100, 95, 33, 38, 44, 44, 60, 48, 60]
         detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
         detail_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
@@ -516,7 +523,7 @@ class ReportGenerator:
                 "base_hours": sum(r.base_monthly_hours for r in rows),
                 "absent_hours": sum(r.absent_hours for r in rows),
                 "payable_hours": sum(r.payable_hours for r in rows),
-                "total_payment": sum(r.calculated_payment for r in rows),
+                "total_payment": sum(r.final_payment for r in rows),  # net — after retention
             })
 
         filter_parts = [f"Año {year}"]

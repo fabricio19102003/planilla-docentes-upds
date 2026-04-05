@@ -224,8 +224,8 @@ class TestConstants:
     def test_day_col_start_is_col_17(self):
         assert DAY_COL_START == 17
 
-    def test_total_cols_is_58(self):
-        assert TOTAL_COLS == 58
+    def test_total_cols_is_60(self):
+        assert TOTAL_COLS == 60
 
     def test_data_row_starts_at_7(self):
         assert DATA_ROW_START == 7

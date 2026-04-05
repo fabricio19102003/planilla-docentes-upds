@@ -157,7 +157,9 @@ def preview_report(
                 "total_base_hours": sum(r.base_monthly_hours for r in rows),
                 "total_absent_hours": sum(r.absent_hours for r in rows),
                 "total_payable_hours": sum(r.payable_hours for r in rows),
-                "total_payment": sum(r.calculated_payment for r in rows),
+                "total_gross_payment": sum(r.calculated_payment for r in rows),
+                "total_retention": sum(r.retention_amount for r in rows),
+                "total_payment": sum(r.final_payment for r in rows),  # net — after retention
                 "rows": [
                     {
                         "teacher_ci": r.teacher_ci,
@@ -168,9 +170,11 @@ def preview_report(
                         "base_monthly_hours": r.base_monthly_hours,
                         "absent_hours": r.absent_hours,
                         "payable_hours": r.payable_hours,
-                        "calculated_payment": r.calculated_payment,
+                        "calculated_payment": r.calculated_payment,  # gross
+                        "retention_amount": r.retention_amount,
+                        "final_payment": r.final_payment,            # net
                     }
-                    for r in sorted(rows, key=lambda x: (-x.calculated_payment, x.teacher_name))
+                    for r in sorted(rows, key=lambda x: (-x.final_payment, x.teacher_name))
                 ],
             }
 
@@ -247,7 +251,7 @@ def preview_report(
                     'base_hours': sum(r.base_monthly_hours for r in rows),
                     'absent_hours': sum(r.absent_hours for r in rows),
                     'payable_hours': sum(r.payable_hours for r in rows),
-                    'total_payment': sum(r.calculated_payment for r in rows),
+                    'total_payment': sum(r.final_payment for r in rows),  # net — after retention
                 })
 
             return {

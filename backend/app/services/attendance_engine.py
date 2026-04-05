@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, time, timedelta
 from typing import Optional
@@ -43,7 +44,10 @@ logger = logging.getLogger(__name__)
 
 TOLERANCE_MINUTES = 5
 
-# Maps Python's weekday() (0=Monday … 5=Saturday, 6=Sunday) to Spanish day names
+# Maps Python's weekday() (0=Monday … 5=Saturday, 6=Sunday) to Spanish day names.
+# Values are stored WITHOUT accents so they match the normalized form produced by
+# _normalize_day().  schedule_json may store accented variants ("miércoles", "sábado")
+# which are normalized before comparison.
 WEEKDAY_MAP: dict[int, str] = {
     0: "lunes",
     1: "martes",
@@ -53,6 +57,17 @@ WEEKDAY_MAP: dict[int, str] = {
     5: "sabado",
     6: "domingo",
 }
+
+
+def _normalize_day(day: str) -> str:
+    """Strip accents and lowercase for reliable day name matching.
+
+    Handles schedule_json entries like "Miércoles", "miércoles", "miercoles",
+    "Sábado", "sabado", etc. — all normalize to the same ASCII lowercase form.
+    """
+    s = unicodedata.normalize("NFD", day)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.strip().lower()
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +237,7 @@ class AttendanceEngine:
             for ci, designations in desig_index.items():
                 for desig in designations:
                     schedule: list[dict] = desig.schedule_json or []
-                    if any(slot.get("dia") == weekday_name for slot in schedule):
+                    if any(_normalize_day(slot.get("dia", "")) == weekday_name for slot in schedule):
                         teachers_today.add(ci)
                         break  # one match per teacher is enough
 
@@ -307,7 +322,7 @@ class AttendanceEngine:
         for desig in designations:
             schedule: list[dict] = desig.schedule_json or []
             for slot in schedule:
-                if slot.get("dia") == weekday_name:
+                if _normalize_day(slot.get("dia", "")) == weekday_name:
                     day_slots.append((desig, slot))
 
         if not day_slots:

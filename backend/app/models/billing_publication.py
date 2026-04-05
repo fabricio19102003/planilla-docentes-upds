@@ -18,6 +18,7 @@ class BillingPublication(Base):
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="published", nullable=False)  # 'published' | 'draft'
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # increments on each re-publish
 
     # Snapshot of billing data at publication time
     total_teachers: Mapped[int] = mapped_column(Integer, default=0)

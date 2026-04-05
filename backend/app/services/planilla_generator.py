@@ -652,28 +652,34 @@ class PlanillaGenerator:
         Matching priority:
           1. day-of-week + hora_inicio (most specific — avoids cross-day false match)
           2. hora_inicio only (fallback when schedule_json lacks "dia" field)
+
+        Day matching uses _normalize_day() to handle accented variants ("miércoles" /
+        "sábado") stored in schedule_json alongside the unaccented WEEKDAY_MAP values.
         """
+        import unicodedata as _ud
+
+        def _norm(day: str) -> str:
+            """Strip accents and lowercase — same logic as attendance_engine._normalize_day."""
+            s = _ud.normalize("NFD", day)
+            s = "".join(c for c in s if _ud.category(c) != "Mn")
+            return s.strip().lower()
+
         schedule: list[dict] = desig.schedule_json or []
         rec_start_str = rec.scheduled_start.strftime("%H:%M")
 
-        # Map Python weekday (0=Mon…6=Sun) → Spanish lowercase day name
+        # Map Python weekday (0=Mon…6=Sun) → normalized (unaccented) Spanish day name
         _WEEKDAY_MAP: dict[int, str] = {
-            0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
-            4: "viernes", 5: "sábado", 6: "domingo",
-        }
-        # Also handle common variants without accent
-        _WEEKDAY_ALT: dict[int, str] = {
-            2: "miercoles", 5: "sabado",
+            0: "lunes", 1: "martes", 2: "miercoles", 3: "jueves",
+            4: "viernes", 5: "sabado", 6: "domingo",
         }
         target_weekday = rec.date.weekday()
-        target_day = _WEEKDAY_MAP.get(target_weekday, "")
-        target_day_alt = _WEEKDAY_ALT.get(target_weekday, target_day)
+        target_day_norm = _WEEKDAY_MAP.get(target_weekday, "")
 
         # Pass 1: match by weekday + hora_inicio (most accurate)
         for slot in schedule:
             if slot.get("hora_inicio", "") == rec_start_str:
-                slot_dia = slot.get("dia", "").lower()
-                if slot_dia in (target_day, target_day_alt):
+                slot_dia_norm = _norm(slot.get("dia", ""))
+                if slot_dia_norm == target_day_norm:
                     return int(slot.get("horas_academicas", 0))
 
         # Pass 2: fallback — match by hora_inicio only (slot may lack "dia")
@@ -685,7 +691,7 @@ class PlanillaGenerator:
             "Could not find schedule slot for absent record (designation=%d, start=%s, day=%s)",
             desig.id,
             rec_start_str,
-            target_day,
+            target_day_norm,
         )
         return 0
 

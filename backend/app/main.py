@@ -48,12 +48,15 @@ async def lifespan(app: FastAPI):
                 conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
                 logger.info("Added column users.must_change_password")
 
-            # billing_publications.billing_snapshot
+            # billing_publications.billing_snapshot + version
             if inspector.has_table("billing_publications"):
                 bp_cols = {c["name"] for c in inspector.get_columns("billing_publications")}
                 if "billing_snapshot" not in bp_cols:
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN billing_snapshot JSONB"))
                     logger.info("Added column billing_publications.billing_snapshot")
+                if "version" not in bp_cols:
+                    conn.execute(text("ALTER TABLE billing_publications ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
+                    logger.info("Added column billing_publications.version")
 
             # teachers.nit
             teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}

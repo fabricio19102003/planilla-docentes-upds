@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
+from app.models.planilla import PlanillaOutput
 from app.models.user import User
 from app.services.planilla_generator import PlanillaGenerator
 from app.services.activity_logger import log_activity
@@ -80,13 +81,21 @@ def publish_billing(
         if year < 2000 or year > 2100:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Año inválido")
 
-        # Get snapshot from planilla generator
+        # Get snapshot from planilla generator.
+        # Prefer the stored PlanillaOutput (generated with admin overrides) over live recalculation.
         generator = PlanillaGenerator()
         billing_snapshot = None
         try:
+            # Check for an existing generated planilla (which includes admin overrides)
+            stored_planilla = (
+                db.query(PlanillaOutput)
+                .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+                .order_by(PlanillaOutput.generated_at.desc())
+                .first()
+            )
+
             rows, _detail_rows, _warnings = generator._build_planilla_data(db, month=month, year=year)
             total_teachers = len({r.teacher_ci for r in rows})
-            total_payment = sum(r.final_payment for r in rows)
 
             # Build per-teacher snapshot so the portal can read immutable data later
             teacher_map: dict[str, dict] = {}
@@ -120,12 +129,33 @@ def publish_billing(
                 t["retention_amount"] += row.retention_amount
                 t["final_payment"] = float(t["total_payment"])
 
+            if stored_planilla:
+                # Use the stored total — this reflects admin overrides applied at generation time
+                total_payment = float(stored_planilla.total_payment)
+                snapshot_source = "planilla_output"
+                planilla_id = stored_planilla.id
+                logger.info(
+                    "Publish: using stored PlanillaOutput id=%d for %d/%d (total=%.2f)",
+                    stored_planilla.id, month, year, total_payment,
+                )
+            else:
+                # No stored planilla — calculate fresh from live data (no overrides applied)
+                total_payment = sum(r.final_payment for r in rows)
+                snapshot_source = "live_calculation"
+                planilla_id = None
+                logger.warning(
+                    "Publish: no stored PlanillaOutput for %d/%d — using live calculation",
+                    month, year,
+                )
+
             billing_snapshot = {
                 "teacher_details": list(teacher_map.values()),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
                 "rate_per_hour": 70.0,
                 "generated_at": datetime.now().isoformat(),
+                "source": snapshot_source,
+                "planilla_id": planilla_id,
             }
         except Exception as exc:
             logger.exception("Failed to build planilla snapshot for %d/%d: %s", month, year, exc)
@@ -147,6 +177,7 @@ def publish_billing(
                 month=month,
                 year=year,
                 status="published",
+                version=1,
                 total_teachers=total_teachers,
                 total_payment=total_payment,
                 published_by=current_user.id,
@@ -158,6 +189,7 @@ def publish_billing(
             db.add(publication)
         else:
             publication.status = "published"
+            publication.version = (publication.version or 1) + 1  # increment on each re-publish
             publication.total_teachers = total_teachers
             publication.total_payment = total_payment
             publication.published_by = current_user.id

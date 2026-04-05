@@ -8,6 +8,9 @@ from app.database import Base
 
 
 class Designation(Base):
+    # NOTE: Designations are currently not scoped by academic period/term.
+    # When multiple semesters need to coexist, add a `period` or `term` field
+    # and filter all queries by active period.
     __tablename__ = "designations"
 
     __table_args__ = (

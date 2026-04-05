@@ -448,6 +448,11 @@ def _upsert_teachers(db: Session, teachers_data: list[dict]) -> tuple[int, int, 
                     text(f"UPDATE {table} SET teacher_ci = :new WHERE teacher_ci = :old"),
                     {"new": ci, "old": old_ci},
                 )
+            # Also update the user's login CI so they can authenticate with their real CI
+            db.execute(
+                text("UPDATE users SET ci = :new WHERE ci = :old AND role = 'docente'"),
+                {"new": ci, "old": old_ci},
+            )
             db.delete(temp_teacher)
             db.flush()
             del temp_name_map[norm_name]
