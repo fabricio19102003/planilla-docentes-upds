@@ -728,14 +728,14 @@ def generate_contract_pdf(
     ))
     elements.append(Spacer(1, 6 * mm))
 
-    # ── DATE ───────────────────────────────────────────────────────────
+    # ── DATE — right-aligned ─────────────────────────────────────────
     elements.append(Paragraph(
         f"Cobija, {generation_date}.",
-        styles["normal"],
+        styles["right"],
     ))
 
     # ── SIGNATURES — labels only, no names ─────────────────────────────
-    elements.append(Spacer(1, 25 * mm))
+    elements.append(Spacer(1, 35 * mm))
 
     sig_data = [
         [
