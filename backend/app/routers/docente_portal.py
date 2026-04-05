@@ -101,6 +101,14 @@ class ProfileUpdateRequest(BaseModel):
     account_number: Optional[str] = None
 
 
+class RetentionLetterRequest(BaseModel):
+    titulo: str        # "Dr.", "Lic.", "Ing.", etc.
+    matricula: str     # Professional license number
+    mes_cobro: int     # Month (1-12)
+    anio_cobro: int    # Year
+    periodo: str       # e.g. "I/2026"
+
+
 class ScheduleSlotResponse(BaseModel):
     dia: str
     hora_inicio: str
@@ -443,6 +451,54 @@ def update_profile(
         "success": True,
         "message": "Perfil actualizado correctamente",
     }
+
+
+@router.post("/retention-letter")
+def generate_retention_letter_endpoint(
+    request: Request,
+    payload: RetentionLetterRequest,
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+):
+    """Generate a retention letter PDF for the authenticated docente."""
+    from fastapi.responses import FileResponse
+
+    from app.services.retention_letter_pdf import generate_retention_letter
+
+    teacher = _get_teacher_or_raise(current_user, db)
+
+    # Get all subjects from designations
+    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+    materias = [d.subject for d in designations]
+
+    pdf_path = generate_retention_letter(
+        teacher_name=teacher.full_name,
+        teacher_ci=teacher.ci,
+        titulo=payload.titulo,
+        matricula=payload.matricula,
+        materias=materias,
+        mes_cobro=payload.mes_cobro,
+        anio_cobro=payload.anio_cobro,
+        periodo=payload.periodo,
+    )
+
+    log_activity(
+        db,
+        "generate_retention_letter",
+        "profile",
+        f"Carta de retención generada: {MONTH_NAMES.get(payload.mes_cobro)} {payload.anio_cobro}",
+        user=current_user,
+        details={"mes": payload.mes_cobro, "anio": payload.anio_cobro, "periodo": payload.periodo},
+        request=request,
+    )
+    db.commit()
+
+    safe_name = teacher.full_name.replace(' ', '_')
+    return FileResponse(
+        path=pdf_path,
+        filename=f"Carta_Retencion_{safe_name}_{payload.mes_cobro}_{payload.anio_cobro}.pdf",
+        media_type="application/pdf",
+    )
 
 
 @router.get("/schedule/pdf")

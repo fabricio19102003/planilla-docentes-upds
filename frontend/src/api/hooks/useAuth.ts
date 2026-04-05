@@ -197,3 +197,29 @@ export async function downloadSchedulePDF(teacherName?: string): Promise<void> {
   link.remove()
   window.URL.revokeObjectURL(url)
 }
+
+// ─── Retention Letter ──────────────────────────────────────────────────────────
+
+export interface RetentionLetterPayload {
+  titulo: string
+  matricula: string
+  mes_cobro: number
+  anio_cobro: number
+  periodo: string
+}
+
+export async function downloadRetentionLetter(
+  payload: RetentionLetterPayload,
+  teacherName?: string,
+): Promise<void> {
+  const response = await api.post('/portal/retention-letter', payload, { responseType: 'blob' })
+  const url = window.URL.createObjectURL(new Blob([response.data as BlobPart]))
+  const link = document.createElement('a')
+  link.href = url
+  const safeName = (teacherName ?? 'docente').replace(/\s+/g, '_')
+  link.download = `Carta_Retencion_${safeName}_${payload.mes_cobro}_${payload.anio_cobro}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}

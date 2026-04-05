@@ -29,6 +29,7 @@ import { MyRequestsPage } from './pages/MyRequestsPage'
 import { MyProfilePage } from './pages/MyProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { SchedulePage } from './pages/SchedulePage'
+import { RetentionLetterPage } from './pages/RetentionLetterPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +86,7 @@ function AppRoutes() {
             <Route path="profile" element={<MyProfilePage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="retention-letter" element={<RetentionLetterPage />} />
           </Route>
         </Routes>
       </SidebarProvider>
