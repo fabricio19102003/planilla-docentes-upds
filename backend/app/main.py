@@ -58,6 +58,13 @@ async def lifespan(app: FastAPI):
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
                     logger.info("Added column billing_publications.version")
 
+            # planilla_outputs.payment_overrides_json
+            if inspector.has_table("planilla_outputs"):
+                po_cols = {c["name"] for c in inspector.get_columns("planilla_outputs")}
+                if "payment_overrides_json" not in po_cols:
+                    conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN payment_overrides_json JSONB"))
+                    logger.info("Added column planilla_outputs.payment_overrides_json")
+
             # teachers.nit
             teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
             if "nit" not in teacher_cols:

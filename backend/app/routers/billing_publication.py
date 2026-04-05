@@ -94,10 +94,15 @@ def publish_billing(
                 .first()
             )
 
+            # Retrieve stored overrides if a planilla was generated with admin adjustments
+            stored_overrides: dict[str, float] = {}
+            if stored_planilla and stored_planilla.payment_overrides_json:
+                stored_overrides = stored_planilla.payment_overrides_json
+
             rows, _detail_rows, _warnings = generator._build_planilla_data(db, month=month, year=year)
             total_teachers = len({r.teacher_ci for r in rows})
 
-            # Build per-teacher snapshot so the portal can read immutable data later
+            # Build per-teacher snapshot, applying stored overrides to match the generated planilla
             teacher_map: dict[str, dict] = {}
             for row in rows:
                 if row.teacher_ci not in teacher_map:
@@ -113,6 +118,22 @@ def publish_billing(
                         "final_payment": 0.0,
                     }
                 t = teacher_map[row.teacher_ci]
+
+                # Check if admin overrode this specific row or this teacher
+                row_key = f"{row.teacher_ci}:{row.designation_id}"
+                row_override = stored_overrides.get(row_key)
+                teacher_override = stored_overrides.get(row.teacher_ci)
+
+                if row_override is not None:
+                    effective_payment = float(row_override)
+                elif teacher_override is not None:
+                    # Distribute teacher-level override proportionally
+                    teacher_rows = [r for r in rows if r.teacher_ci == row.teacher_ci]
+                    total_hrs = sum(r.payable_hours for r in teacher_rows) or 1
+                    effective_payment = float(teacher_override) * (row.payable_hours / total_hrs)
+                else:
+                    effective_payment = row.final_payment
+
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -120,26 +141,24 @@ def publish_billing(
                     "base_hours": row.base_monthly_hours,
                     "absent_hours": row.absent_hours,
                     "payable_hours": row.payable_hours,
-                    "payment": row.final_payment,
+                    "payment": round(effective_payment, 2),
                     "calculated_payment": row.calculated_payment,
                     "retention_amount": row.retention_amount,
                 })
                 t["total_hours"] += row.payable_hours
-                t["total_payment"] += row.final_payment
+                t["total_payment"] += effective_payment
                 t["retention_amount"] += row.retention_amount
-                t["final_payment"] = float(t["total_payment"])
+                t["final_payment"] = round(float(t["total_payment"]), 2)
 
             if stored_planilla:
-                # Use the stored total — this reflects admin overrides applied at generation time
                 total_payment = float(stored_planilla.total_payment)
                 snapshot_source = "planilla_output"
                 planilla_id = stored_planilla.id
                 logger.info(
-                    "Publish: using stored PlanillaOutput id=%d for %d/%d (total=%.2f)",
-                    stored_planilla.id, month, year, total_payment,
+                    "Publish: using stored PlanillaOutput id=%d for %d/%d (total=%.2f, overrides=%d)",
+                    stored_planilla.id, month, year, total_payment, len(stored_overrides),
                 )
             else:
-                # No stored planilla — calculate fresh from live data (no overrides applied)
                 total_payment = sum(r.final_payment for r in rows)
                 snapshot_source = "live_calculation"
                 planilla_id = None

@@ -353,6 +353,7 @@ class PlanillaGenerator:
             total_teachers=unique_teachers,
             total_hours=total_hours,
             total_payment=total_payment,
+            payment_overrides=payment_overrides,
         )
 
         return PlanillaResult(
@@ -1355,10 +1356,12 @@ class PlanillaGenerator:
         total_teachers: int,
         total_hours: int,
         total_payment: float,
+        payment_overrides: Optional[dict[str, float]] = None,
     ) -> Optional[PlanillaOutput]:
         """
         Create or update a PlanillaOutput record in the DB.
         Uses upsert logic: if one already exists for month/year, update it.
+        Stores payment_overrides as JSON so publish can reconstruct adjusted amounts.
         """
         try:
             existing = (
@@ -1370,11 +1373,14 @@ class PlanillaGenerator:
                 .first()
             )
 
+            overrides_data = payment_overrides if payment_overrides else None
+
             if existing:
                 existing.file_path = file_path
                 existing.total_teachers = total_teachers
                 existing.total_hours = total_hours
                 existing.total_payment = Decimal(str(total_payment))
+                existing.payment_overrides_json = overrides_data
                 existing.generated_at = datetime.now()
                 existing.status = "generated"
                 db.flush()
@@ -1388,6 +1394,7 @@ class PlanillaGenerator:
                     total_teachers=total_teachers,
                     total_hours=total_hours,
                     total_payment=Decimal(str(total_payment)),
+                    payment_overrides_json=overrides_data,
                     status="generated",
                 )
                 db.add(output)
