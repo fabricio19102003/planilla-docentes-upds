@@ -404,9 +404,9 @@ def get_billing_history(
                 ]
                 history.append(
                     BillingHistoryItem(
-                        month=period.month,
-                        year=period.year,
-                        month_name=MONTH_NAMES.get(period.month, str(period.month)),
+                        month=pub.month,
+                        year=pub.year,
+                        month_name=MONTH_NAMES.get(pub.month, str(pub.month)),
                         total_hours=teacher_data["total_hours"],
                         total_payment=teacher_data["total_payment"],
                         adjusted_payment=None,
@@ -416,7 +416,7 @@ def get_billing_history(
                 continue
 
         # Fallback: recalculate (backwards-compat for publications without snapshot)
-        billing = _build_billing(teacher.ci, period.month, period.year, db)
+        billing = _build_billing(teacher.ci, pub.month, pub.year, db)
         history.append(
             BillingHistoryItem(
                 month=billing.month,
