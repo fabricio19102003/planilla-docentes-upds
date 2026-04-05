@@ -68,14 +68,14 @@ def generate_retention_letter(
         logo = Image(str(ISOLOGO_PATH), width=3.5 * cm, height=3.5 * cm)
         logo.hAlign = 'LEFT'
         elements.append(logo)
-        elements.append(Spacer(1, 2 * mm))
+        elements.append(Spacer(1, 3 * mm))
 
-    # ── Date — right aligned, close to top ────────────────────────────
+    # ── Date — right aligned ──────────────────────────────────────────
     dia = str(now.day)
     mes_name = MONTH_NAMES.get(now.month, str(now.month))
     anio = str(now.year)
     elements.append(Paragraph(f"Cobija, {dia} de {mes_name} de {anio}", normal_right))
-    elements.append(Spacer(1, 8 * mm))
+    elements.append(Spacer(1, 10 * mm))
 
     # ── Addressee ─────────────────────────────────────────────────────
     elements.append(Paragraph("Lic. Luis Michel Bravo Alencar", normal))
@@ -84,18 +84,18 @@ def generate_retention_letter(
         bold_style,
     ))
     elements.append(Paragraph("PRESENTE.-", bold_style))
-    elements.append(Spacer(1, 8 * mm))
+    elements.append(Spacer(1, 10 * mm))
 
     # ── Reference ─────────────────────────────────────────────────────
     elements.append(Paragraph(
         "<u><b>Ref.- SOLICITUD DE RETENCIÓN DE IMPUESTO RC-IVA 13%</b></u>",
         ref_style,
     ))
-    elements.append(Spacer(1, 6 * mm))
+    elements.append(Spacer(1, 8 * mm))
 
     # ── Greeting ──────────────────────────────────────────────────────
     elements.append(Paragraph("De mi consideración:", normal))
-    elements.append(Spacer(1, 4 * mm))
+    elements.append(Spacer(1, 5 * mm))
 
     # ── Body ──────────────────────────────────────────────────────────
     mes_cobro_name = MONTH_NAMES.get(mes_cobro, str(mes_cobro))
@@ -106,7 +106,7 @@ def generate_retention_letter(
         f"{mes_cobro_name} {anio_cobro}."
     )
     elements.append(Paragraph(body_text, normal_justify))
-    elements.append(Spacer(1, 6 * mm))
+    elements.append(Spacer(1, 8 * mm))
 
     # ── Teacher data ──────────────────────────────────────────────────
     elements.append(Paragraph(f"{titulo}  {teacher_name}", normal))
@@ -115,7 +115,7 @@ def generate_retention_letter(
 
     materias_text = ", ".join(materias) if materias else "—"
     elements.append(Paragraph(f"Materia(s): {materias_text}", normal))
-    elements.append(Spacer(1, 6 * mm))
+    elements.append(Spacer(1, 8 * mm))
 
     # ── Farewell ──────────────────────────────────────────────────────
     farewell = (
@@ -123,11 +123,11 @@ def generate_retention_letter(
         "a Ud. con las consideraciones más distinguidas."
     )
     elements.append(Paragraph(farewell, normal_justify))
-    elements.append(Spacer(1, 12 * mm))
+    elements.append(Spacer(1, 15 * mm))
 
     # ── Atte. ─────────────────────────────────────────────────────────
     elements.append(Paragraph("Atte.", normal))
-    elements.append(Spacer(1, 18 * mm))
+    elements.append(Spacer(1, 20 * mm))
 
     # ── Signature ─────────────────────────────────────────────────────
     elements.append(Paragraph("___________________________", normal_center))
