@@ -8,7 +8,7 @@ export function Layout() {
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
-      <div className={`flex-1 transition-all duration-300 ${collapsed ? 'ml-[68px]' : 'ml-64'}`}>
+      <div className={`flex-1 ${collapsed ? 'ml-[68px]' : 'ml-64'}`} style={{ transition: 'margin-left 200ms ease-in-out' }}>
         <Header />
         <main className="p-6">
           <Outlet />

@@ -97,8 +97,8 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen flex flex-col z-50 gradient-navy transition-all duration-300 overflow-hidden ${collapsed ? 'w-[68px]' : 'w-64'}`}
-      style={{ boxShadow: '4px 0 24px rgba(0,0,0,0.15)' }}
+      className={`fixed left-0 top-0 h-screen flex flex-col z-50 gradient-navy overflow-hidden ${collapsed ? 'w-[68px]' : 'w-64'}`}
+      style={{ boxShadow: '4px 0 24px rgba(0,0,0,0.15)', transition: 'width 200ms ease-in-out' }}
     >
       {/* Logo Section */}
       <div className="px-3 py-5 border-b border-white/10 flex items-center justify-center" style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.05)' }}>
