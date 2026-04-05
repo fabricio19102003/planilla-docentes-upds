@@ -11,7 +11,7 @@ import {
   Image as ImageIcon,
   Filter,
 } from 'lucide-react'
-import html2canvas from 'html2canvas'
+import { toPng } from 'html-to-image'
 import type { PortalScheduleResponse, PortalDesignationSchedule } from '@/api/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -406,29 +406,13 @@ export function SchedulePage() {
     if (!contentRef.current) return
     setIsExportingImg(true)
     try {
-      const canvas = await html2canvas(contentRef.current, {
-        scale: 2,
+      const dataUrl = await toPng(contentRef.current, {
+        pixelRatio: 2,
         backgroundColor: '#ffffff',
-        useCORS: true,
-        onclone: (clonedDoc) => {
-          // html2canvas doesn't support oklch() colors (Tailwind 4 default).
-          // Convert all oklch colors to rgb by reading computed styles.
-          const allElements = clonedDoc.querySelectorAll('*')
-          allElements.forEach((el) => {
-            const computed = window.getComputedStyle(el)
-            const htmlEl = el as HTMLElement
-            const bg = computed.backgroundColor
-            const color = computed.color
-            const borderColor = computed.borderColor
-            if (bg) htmlEl.style.backgroundColor = bg
-            if (color) htmlEl.style.color = color
-            if (borderColor) htmlEl.style.borderColor = borderColor
-          })
-        },
       })
       const link = document.createElement('a')
       link.download = `horario_${schedule?.teacher_name?.replace(/\s+/g, '_') ?? 'docente'}.png`
-      link.href = canvas.toDataURL('image/png')
+      link.href = dataUrl
       link.click()
     } catch (e) {
       console.error('Error exporting image:', e)

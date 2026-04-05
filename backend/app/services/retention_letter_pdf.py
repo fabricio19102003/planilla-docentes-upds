@@ -4,7 +4,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, cm
@@ -32,80 +31,73 @@ def _output_dir() -> Path:
 def generate_retention_letter(
     teacher_name: str,
     teacher_ci: str,
-    titulo: str,          # "Dr.", "Lic.", "Ing.", etc.
-    matricula: str,       # Professional license number
-    materias: list[str],  # List of subject names
-    mes_cobro: int,       # Month number (1-12)
-    anio_cobro: int,      # Year
-    periodo: str,         # e.g. "I/2026"
+    titulo: str,
+    matricula: str,
+    materias: list[str],
+    mes_cobro: int,
+    anio_cobro: int,
+    periodo: str,
 ) -> str:
-    """Generate the retention letter PDF and return the file path."""
+    """Generate the retention letter PDF — all content on a single page."""
     now = datetime.now()
-
     styles = getSampleStyleSheet()
 
-    # Custom styles
-    normal = ParagraphStyle(
-        'LetterNormal', parent=styles['Normal'],
-        fontSize=11, leading=15, fontName='Times-Roman',
-    )
-    normal_right = ParagraphStyle('LetterRight', parent=normal, alignment=TA_RIGHT)
-    normal_justify = ParagraphStyle('LetterJustify', parent=normal, alignment=TA_JUSTIFY)
-    normal_center = ParagraphStyle('LetterCenter', parent=normal, alignment=TA_CENTER)
-    bold = ParagraphStyle('LetterBold', parent=normal, fontName='Times-Bold')
-    bold_upper = ParagraphStyle('LetterBoldUpper', parent=bold)
-    ref_style = ParagraphStyle(
-        'LetterRef', parent=normal,
-        alignment=TA_RIGHT, fontName='Times-Bold',
-    )
+    # ── Styles ────────────────────────────────────────────────────────
+    normal = ParagraphStyle('LN', parent=styles['Normal'], fontSize=11, leading=14, fontName='Times-Roman')
+    normal_right = ParagraphStyle('LNR', parent=normal, alignment=TA_RIGHT)
+    normal_justify = ParagraphStyle('LNJ', parent=normal, alignment=TA_JUSTIFY)
+    normal_center = ParagraphStyle('LNC', parent=normal, alignment=TA_CENTER)
+    bold_style = ParagraphStyle('LB', parent=normal, fontName='Times-Bold')
+    ref_style = ParagraphStyle('LRef', parent=normal, alignment=TA_RIGHT, fontName='Times-Bold')
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
     safe_name = teacher_name.replace(' ', '_')
     filename = f"carta_retencion_{safe_name}_{timestamp}.pdf"
     filepath = _output_dir() / filename
 
+    # Tight margins to fit everything on one page
     doc = SimpleDocTemplate(
         str(filepath), pagesize=A4,
-        leftMargin=3 * cm, rightMargin=3 * cm,
-        topMargin=2.5 * cm, bottomMargin=2.5 * cm,
+        leftMargin=2.5 * cm, rightMargin=2.5 * cm,
+        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
     )
-    elements = []
+    elements: list = []
 
-    # Logo — large, top-left
+    # ── Logo — top left, large ────────────────────────────────────────
     if ISOLOGO_PATH.exists():
-        logo = Image(str(ISOLOGO_PATH), width=4 * cm, height=4 * cm)
+        logo = Image(str(ISOLOGO_PATH), width=3.5 * cm, height=3.5 * cm)
         logo.hAlign = 'LEFT'
         elements.append(logo)
-        elements.append(Spacer(1, 6 * mm))
+        elements.append(Spacer(1, 2 * mm))
 
-    # Date — right aligned
+    # ── Date — right aligned, close to top ────────────────────────────
     dia = str(now.day)
     mes_name = MONTH_NAMES.get(now.month, str(now.month))
     anio = str(now.year)
     elements.append(Paragraph(f"Cobija, {dia} de {mes_name} de {anio}", normal_right))
-    elements.append(Spacer(1, 15 * mm))
+    elements.append(Spacer(1, 8 * mm))
 
-    # Addressee
+    # ── Addressee ─────────────────────────────────────────────────────
     elements.append(Paragraph("Lic. Luis Michel Bravo Alencar", normal))
     elements.append(Paragraph(
         "<b>RECTOR DE LA UNIVERSIDAD PRIVADA DOMINGO SAVIO – UNIPANDO S.R.L.</b>",
-        bold_upper,
+        bold_style,
     ))
-    elements.append(Paragraph("PRESENTE.-", bold_upper))
-    elements.append(Spacer(1, 12 * mm))
+    elements.append(Paragraph("PRESENTE.-", bold_style))
+    elements.append(Spacer(1, 8 * mm))
 
-    # Reference — right, bold, underlined
+    # ── Reference ─────────────────────────────────────────────────────
     elements.append(Paragraph(
         "<u><b>Ref.- SOLICITUD DE RETENCIÓN DE IMPUESTO RC-IVA 13%</b></u>",
         ref_style,
     ))
-    elements.append(Spacer(1, 10 * mm))
+    elements.append(Spacer(1, 6 * mm))
 
-    # Greeting
+    # ── Greeting ──────────────────────────────────────────────────────
     elements.append(Paragraph("De mi consideración:", normal))
-    elements.append(Spacer(1, 5 * mm))
+    elements.append(Spacer(1, 4 * mm))
 
-    # Body — justified
+    # ── Body ──────────────────────────────────────────────────────────
     mes_cobro_name = MONTH_NAMES.get(mes_cobro, str(mes_cobro))
     body_text = (
         f"Por medio de la presente me dirijo a su autoridad con la finalidad de solicitarle "
@@ -114,31 +106,30 @@ def generate_retention_letter(
         f"{mes_cobro_name} {anio_cobro}."
     )
     elements.append(Paragraph(body_text, normal_justify))
-    elements.append(Spacer(1, 8 * mm))
+    elements.append(Spacer(1, 6 * mm))
 
-    # Teacher data
+    # ── Teacher data ──────────────────────────────────────────────────
     elements.append(Paragraph(f"{titulo}  {teacher_name}", normal))
     elements.append(Paragraph(f"Matrícula Profesional: {matricula}", normal))
     elements.append(Paragraph(f"Cédula de identidad: {teacher_ci}", normal))
 
-    # Materias — list all
     materias_text = ", ".join(materias) if materias else "—"
     elements.append(Paragraph(f"Materia(s): {materias_text}", normal))
-    elements.append(Spacer(1, 10 * mm))
+    elements.append(Spacer(1, 6 * mm))
 
-    # Farewell — justified
+    # ── Farewell ──────────────────────────────────────────────────────
     farewell = (
         "Sin otro particular no dudando de su colaboración, aprovecho la oportunidad para saludar "
         "a Ud. con las consideraciones más distinguidas."
     )
     elements.append(Paragraph(farewell, normal_justify))
-    elements.append(Spacer(1, 20 * mm))
+    elements.append(Spacer(1, 12 * mm))
 
-    # Atte.
+    # ── Atte. ─────────────────────────────────────────────────────────
     elements.append(Paragraph("Atte.", normal))
-    elements.append(Spacer(1, 25 * mm))
+    elements.append(Spacer(1, 18 * mm))
 
-    # Signature — centered
+    # ── Signature ─────────────────────────────────────────────────────
     elements.append(Paragraph("___________________________", normal_center))
     elements.append(Paragraph(f"{titulo} {teacher_name}", normal_center))
     elements.append(Paragraph(f"C.I. {teacher_ci}", normal_center))
