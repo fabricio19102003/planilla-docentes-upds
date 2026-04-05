@@ -23,7 +23,6 @@ import {
   type ReportInfo,
 } from '@/api/hooks/useReports'
 import { useTeachers } from '@/api/hooks/useTeachers'
-import { StatCard } from '@/components/shared/StatCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 

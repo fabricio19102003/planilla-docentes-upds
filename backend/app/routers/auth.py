@@ -21,7 +21,22 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
     """Authenticate user and return JWT token."""
-    user = auth_service.authenticate_user(db=db, ci=payload.ci, password=payload.password)
+    try:
+        user = auth_service.authenticate_user(db=db, ci=payload.ci, password=payload.password)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
+            # Disabled account — log before re-raising
+            log_activity(
+                db,
+                "login_disabled",
+                "auth",
+                f"Intento de login con cuenta deshabilitada (CI: {payload.ci})",
+                status="denied",
+                request=request,
+            )
+            db.commit()
+        raise
+
     if user is None:
         log_activity(
             db,

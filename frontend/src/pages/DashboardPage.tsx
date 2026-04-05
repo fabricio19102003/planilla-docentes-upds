@@ -150,7 +150,7 @@ export function DashboardPage() {
                             <Cell key={i} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value: number) => [value, 'registros']} />
+                        <Tooltip formatter={(value) => [Number(value), 'registros']} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -211,11 +211,10 @@ export function DashboardPage() {
                       }}
                     />
                     <Tooltip
-                      formatter={(value: number) => [
-                        `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2 })}`,
+                      formatter={(value) => [
+                        `Bs ${Number(value).toLocaleString('es-BO', { minimumFractionDigits: 2 })}`,
                         'Facturación',
                       ]}
-                      labelFormatter={(name: string) => name}
                     />
                     <Bar dataKey="payment" fill="#003366" radius={[0, 4, 4, 0]} barSize={20} />
                   </BarChart>

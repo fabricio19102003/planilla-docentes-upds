@@ -152,6 +152,7 @@ class AuthService:
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
         user.password_hash = self.hash_password(new_password)
+        user.must_change_password = True  # Force change on next login
         db.flush()
         return user
 

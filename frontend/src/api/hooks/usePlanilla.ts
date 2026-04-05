@@ -36,15 +36,26 @@ export async function downloadPlanilla(planillaId: number, filename?: string) {
   window.URL.revokeObjectURL(url)
 }
 
-async function fetchPlanillaDetail(month: number, year: number) {
-  const response = await api.get<PlanillaDetailResponse>(`/planilla/${month}/${year}/detail`)
+async function fetchPlanillaDetail(month: number, year: number, startDate?: string, endDate?: string) {
+  const params = new URLSearchParams()
+  if (startDate) params.set('start_date', startDate)
+  if (endDate) params.set('end_date', endDate)
+  const qs = params.toString()
+  const url = `/planilla/${month}/${year}/detail${qs ? '?' + qs : ''}`
+  const response = await api.get<PlanillaDetailResponse>(url)
   return response.data
 }
 
-export function usePlanillaDetail(month: number, year: number, enabled: boolean = true) {
+export function usePlanillaDetail(
+  month: number,
+  year: number,
+  enabled: boolean = true,
+  startDate?: string,
+  endDate?: string,
+) {
   return useQuery({
-    queryKey: ['planilla-detail', month, year],
-    queryFn: () => fetchPlanillaDetail(month, year),
+    queryKey: ['planilla-detail', month, year, startDate, endDate],
+    queryFn: () => fetchPlanillaDetail(month, year, startDate, endDate),
     enabled,
   })
 }

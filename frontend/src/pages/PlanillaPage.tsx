@@ -103,7 +103,7 @@ export function PlanillaPage() {
 
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
-  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail)
+  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined)
   const { data: publication } = usePublicationStatus(month, year)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()

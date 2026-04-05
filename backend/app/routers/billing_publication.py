@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
@@ -81,14 +82,46 @@ def publish_billing(
 
         # Get snapshot from planilla generator
         generator = PlanillaGenerator()
+        billing_snapshot = None
         try:
             rows, _detail_rows, _warnings = generator._build_planilla_data(db, month=month, year=year)
             total_teachers = len({r.teacher_ci for r in rows})
             total_payment = sum(r.calculated_payment for r in rows)
+
+            # Build per-teacher snapshot so the portal can read immutable data later
+            teacher_map: dict = defaultdict(lambda: {
+                "designations": [], "total_hours": 0, "total_payment": 0.0,
+            })
+            for row in rows:
+                t = teacher_map[row.teacher_ci]
+                t["teacher_ci"] = row.teacher_ci
+                t["teacher_name"] = row.teacher_name
+                t["has_biometric"] = row.has_biometric
+                t["designations"].append({
+                    "subject": row.subject,
+                    "group": row.group_code,
+                    "semester": row.semester,
+                    "base_hours": row.base_monthly_hours,
+                    "absent_hours": row.absent_hours,
+                    "payable_hours": row.payable_hours,
+                    "payment": row.calculated_payment,
+                })
+                t["total_hours"] += row.payable_hours
+                t["total_payment"] += row.calculated_payment
+
+            billing_snapshot = {
+                "teacher_details": list(teacher_map.values()),
+                "total_payment": float(total_payment),
+                "total_teachers": total_teachers,
+                "rate_per_hour": 70.0,
+                "generated_at": datetime.now().isoformat(),
+            }
         except Exception as exc:
-            logger.warning("Could not build planilla snapshot for %d/%d: %s", month, year, exc)
-            total_teachers = 0
-            total_payment = 0.0
+            logger.exception("Failed to build planilla snapshot for %d/%d: %s", month, year, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No se pudo generar la facturación. Verificá que existan designaciones y datos de asistencia para este período.",
+            ) from exc
 
         # Create or update BillingPublication
         now = datetime.now()
@@ -109,6 +142,7 @@ def publish_billing(
                 published_at=now,
                 unpublished_at=None,
                 notes=payload.notes,
+                billing_snapshot=billing_snapshot,
             )
             db.add(publication)
         else:
@@ -118,10 +152,19 @@ def publish_billing(
             publication.published_by = current_user.id
             publication.published_at = now
             publication.unpublished_at = None
+            publication.billing_snapshot = billing_snapshot
             if payload.notes is not None:
                 publication.notes = payload.notes
 
         db.flush()  # Get ID if new
+
+        # Remove old notifications for this period to prevent spam on re-publish
+        db.query(Notification).filter(
+            Notification.notification_type == "billing_published",
+            Notification.reference_month == month,
+            Notification.reference_year == year,
+        ).delete()
+        db.flush()
 
         # Create notifications for ALL docente users
         docente_users = db.query(User).filter(User.role == "docente", User.is_active == True).all()

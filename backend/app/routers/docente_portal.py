@@ -328,6 +328,36 @@ def get_current_billing(
             detail="La facturación de este mes aún no ha sido publicada",
         )
 
+    # Read from snapshot if available — prevents retroactive recalculation
+    snapshot = publication.billing_snapshot
+    if snapshot:
+        teacher_data = next(
+            (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher.ci),
+            None,
+        )
+        if teacher_data:
+            designations = [
+                DesignationBilling(
+                    subject=d["subject"],
+                    group=d["group"],
+                    hours=d["payable_hours"],
+                    semester=d["semester"],
+                    payment=d["payment"],
+                )
+                for d in teacher_data.get("designations", [])
+            ]
+            return BillingResponse(
+                month=now.month,
+                year=now.year,
+                month_name=MONTH_NAMES.get(now.month, str(now.month)),
+                total_hours=teacher_data["total_hours"],
+                rate_per_hour=snapshot.get("rate_per_hour", 70.0),
+                total_payment=teacher_data["total_payment"],
+                adjusted_payment=None,
+                designations=designations,
+            )
+
+    # Fallback: recalculate (backwards-compat for publications without snapshot)
     return _build_billing(teacher.ci, now.month, now.year, db)
 
 
@@ -342,28 +372,50 @@ def get_billing_history(
     """
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Get distinct month/year combinations that have ANY attendance data
-    # (Model C: we show all periods with records, not just ATTENDED/LATE)
-    periods = (
-        db.query(AttendanceRecord.month, AttendanceRecord.year)
-        .filter(AttendanceRecord.teacher_ci == teacher.ci)
-        .distinct()
-        .order_by(AttendanceRecord.year.desc(), AttendanceRecord.month.desc())
-        .all()
-    )
-
-    # Only return periods that have a published BillingPublication
-    published_periods = (
-        db.query(BillingPublication.month, BillingPublication.year)
+    # Discover periods directly from published BillingPublications (not attendance).
+    # This ensures docentes without biometric data still see their published months.
+    published_publications = (
+        db.query(BillingPublication)
         .filter(BillingPublication.status == "published")
+        .order_by(BillingPublication.year.desc(), BillingPublication.month.desc())
         .all()
     )
-    published_set = {(p.month, p.year) for p in published_periods}
 
     history: list[BillingHistoryItem] = []
-    for period in periods:
-        if (period.month, period.year) not in published_set:
-            continue
+    for pub in published_publications:
+
+        # Read from snapshot if available — prevents retroactive recalculation
+        snapshot = pub.billing_snapshot
+        if snapshot:
+            teacher_data = next(
+                (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher.ci),
+                None,
+            )
+            if teacher_data:
+                designations = [
+                    DesignationBilling(
+                        subject=d["subject"],
+                        group=d["group"],
+                        hours=d["payable_hours"],
+                        semester=d["semester"],
+                        payment=d["payment"],
+                    )
+                    for d in teacher_data.get("designations", [])
+                ]
+                history.append(
+                    BillingHistoryItem(
+                        month=period.month,
+                        year=period.year,
+                        month_name=MONTH_NAMES.get(period.month, str(period.month)),
+                        total_hours=teacher_data["total_hours"],
+                        total_payment=teacher_data["total_payment"],
+                        adjusted_payment=None,
+                        designations=designations,
+                    )
+                )
+                continue
+
+        # Fallback: recalculate (backwards-compat for publications without snapshot)
         billing = _build_billing(teacher.ci, period.month, period.year, db)
         history.append(
             BillingHistoryItem(

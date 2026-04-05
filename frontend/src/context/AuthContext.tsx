@@ -41,6 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((res) => {
         setToken(savedToken)
         setUser(res.data)
+        // Force password change on session restore too
+        if (res.data.must_change_password) {
+          navigate('/change-password')
+        }
       })
       .catch(() => {
         // Token invalid or expired

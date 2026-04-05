@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import SessionLocal, create_tables
+from app.database import SessionLocal, create_tables, engine
 from app.routers import (
     teachers_router,
     biometric_router,
@@ -34,6 +34,30 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to create tables on startup: %s", exc)
 
+    # Ensure new columns exist on existing databases (create_all doesn't add columns)
+    try:
+        from sqlalchemy import text, inspect as sa_inspect
+
+        with engine.connect() as conn:
+            inspector = sa_inspect(engine)
+
+            # users.must_change_password
+            user_cols = {c["name"] for c in inspector.get_columns("users")}
+            if "must_change_password" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added column users.must_change_password")
+
+            # billing_publications.billing_snapshot
+            if inspector.has_table("billing_publications"):
+                bp_cols = {c["name"] for c in inspector.get_columns("billing_publications")}
+                if "billing_snapshot" not in bp_cols:
+                    conn.execute(text("ALTER TABLE billing_publications ADD COLUMN billing_snapshot JSONB"))
+                    logger.info("Added column billing_publications.billing_snapshot")
+
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Column migration check failed (may be first run): %s", exc)
+
     # Create default admin user if none exists
     try:
         from app.services.auth_service import auth_service
@@ -61,12 +85,8 @@ async def lifespan(app: FastAPI):
             if unlinked:
                 linked = 0
                 for user in unlinked:
+                    # Only exact CI match — name matching is too dangerous for payroll data
                     teacher = db.query(TeacherModel).filter(TeacherModel.ci == user.ci).first()
-                    if not teacher:
-                        # Try by name as fallback
-                        teacher = db.query(TeacherModel).filter(
-                            TeacherModel.full_name.ilike(f"%{user.full_name}%")
-                        ).first()
                     if teacher:
                         user.teacher_ci = teacher.ci
                         linked += 1

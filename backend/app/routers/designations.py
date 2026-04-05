@@ -135,21 +135,11 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     )
     linked_count = 0
     for user in unlinked_users:
-        # Try exact CI match first
+        # Only exact CI match — name matching is too dangerous for payroll data
         teacher = db.query(Teacher).filter(Teacher.ci == user.ci).first()
         if teacher:
             user.teacher_ci = teacher.ci
             linked_count += 1
-            continue
-
-        # Try matching by name (user.full_name may match a teacher.full_name)
-        teacher = db.query(Teacher).filter(
-            Teacher.full_name.ilike(f"%{user.full_name}%")
-        ).first()
-        if teacher:
-            user.teacher_ci = teacher.ci
-            linked_count += 1
-            continue
 
     if linked_count:
         db.flush()

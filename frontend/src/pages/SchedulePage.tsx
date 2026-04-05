@@ -3,7 +3,6 @@ import { useMySchedule, downloadSchedulePDF } from '@/api/hooks/useAuth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Calendar,
   BookOpen,
   Users,
   Clock,
@@ -108,7 +107,6 @@ function buildFlatSlots(
 function StatsBar({ schedule, allSlots }: { schedule: PortalScheduleResponse; allSlots: FlatSlot[] }) {
   const uniqueSubjects = new Set(allSlots.map((s) => s.subject)).size
   const uniqueGroups = new Set(allSlots.map((s) => s.group_code)).size
-  const totalHours = allSlots.reduce((acc, s) => acc + (s.horas_academicas || 0), 0)
 
   return (
     <div className="grid grid-cols-3 gap-3">

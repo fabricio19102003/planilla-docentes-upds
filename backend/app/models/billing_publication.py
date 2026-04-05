@@ -1,7 +1,8 @@
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Boolean, Text, func, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from app.database import Base
 
@@ -21,6 +22,11 @@ class BillingPublication(Base):
     # Snapshot of billing data at publication time
     total_teachers: Mapped[int] = mapped_column(Integer, default=0)
     total_payment: Mapped[float] = mapped_column(nullable=False, default=0.0)
+
+    # Full billing snapshot stored at publish time — prevents retroactive recalculation
+    # Structure: {"teacher_details": [...], "total_payment": float, "total_teachers": int,
+    #             "rate_per_hour": float, "generated_at": str}
+    billing_snapshot: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
 
     # Audit
     published_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
