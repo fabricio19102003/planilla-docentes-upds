@@ -37,6 +37,7 @@ const REPORT_TYPES = {
   financial: { label: 'Financiero', icon: DollarSign, color: '#003366', bgClass: 'bg-blue-950/10 border-[#003366]' },
   attendance: { label: 'Asistencia', icon: ClipboardCheck, color: '#0066CC', bgClass: 'bg-blue-600/10 border-[#0066CC]' },
   comparative: { label: 'Comparativo', icon: BarChart3, color: '#4DA8DA', bgClass: 'bg-sky-400/10 border-[#4DA8DA]' },
+  roster: { label: 'Plantel Docente', icon: Users, color: '#16a34a', bgClass: 'bg-green-600/10 border-green-600' },
 } as const
 
 type ReportType = keyof typeof REPORT_TYPES
@@ -252,6 +253,66 @@ function ComparativePreview({ data }: { data: any }) {
   )
 }
 
+// ── Roster Preview ───────────────────────────────────────────────────────────
+
+function RosterPreview({ data }: { data: any }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Docentes', value: data.total_teachers, color: '#003366' },
+          { label: 'Con NIT', value: data.with_nit, color: '#0066CC' },
+          { label: 'Con Retención', value: data.with_retention, color: '#d97706' },
+          { label: 'Vista previa (máx. 50)', value: data.rows.length, color: '#16a34a' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-blue-50/60 rounded-lg p-3 text-center">
+            <p className="text-xl font-bold" style={{ color }}>{value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0">
+            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
+              {['Nº', 'Nombre Completo', 'C.I.', 'Teléfono', 'Email', 'NIT/Ret.', 'Materias'].map(h => (
+                <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row: any, i: number) => (
+              <tr key={row.ci} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
+                <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.full_name}</td>
+                <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.ci}</td>
+                <td className="px-3 py-2 text-gray-600">{row.phone ?? '—'}</td>
+                <td className="px-3 py-2 text-gray-600 max-w-[180px] truncate">{row.email ?? '—'}</td>
+                <td className="px-3 py-2 text-center">
+                  {row.invoice_retention?.toUpperCase() === 'RETENCION' ? (
+                    <span className="inline-block px-1.5 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-700">RET</span>
+                  ) : row.nit ? (
+                    <span className="text-xs text-gray-600">{row.nit}</span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center text-gray-700 font-medium">{row.designation_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {data.total_teachers > 50 && (
+        <p className="text-xs text-gray-400 text-center">
+          Mostrando 50 de {data.total_teachers} docentes — generá el PDF para ver todos
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export function ReportsPage() {
@@ -300,14 +361,15 @@ export function ReportsPage() {
 
   // Keep filters in sync with month/year/semester/groupCode/subject/reportType
   useEffect(() => {
+    const isRoster = reportType === 'roster'
     setFilters(f => ({
       ...f,
       report_type: reportType,
-      month: reportType !== 'comparative' ? month : undefined,
-      year,
-      semester: semester || undefined,
-      group_code: groupCode || undefined,
-      subject: subject || undefined,
+      month: !isRoster && reportType !== 'comparative' ? month : undefined,
+      year: !isRoster ? year : undefined,
+      semester: !isRoster ? (semester || undefined) : undefined,
+      group_code: !isRoster ? (groupCode || undefined) : undefined,
+      subject: !isRoster ? (subject || undefined) : undefined,
     }))
   }, [reportType, month, year, semester, groupCode, subject])
 
@@ -334,7 +396,7 @@ export function ReportsPage() {
     setFilters(f => ({ ...f, report_type: type }))
   }
 
-  const needsMonth = reportType !== 'comparative'
+  const needsMonth = reportType !== 'comparative' && reportType !== 'roster'
 
   return (
     <div className="space-y-6">
@@ -356,7 +418,7 @@ export function ReportsPage() {
           <p className="text-sm text-gray-500 mt-0.5">Seleccioná el tipo de análisis que necesitás</p>
         </div>
         <div className="px-6 py-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {(Object.entries(REPORT_TYPES) as [ReportType, typeof REPORT_TYPES[ReportType]][]).map(([type, cfg]) => {
               const Icon = cfg.icon
               const isActive = reportType === type
@@ -385,6 +447,7 @@ export function ReportsPage() {
                       {type === 'financial' && 'Pagos por docente/designación'}
                       {type === 'attendance' && 'Registros de asistencia detallados'}
                       {type === 'comparative' && 'Evolución mensual del año'}
+                      {type === 'roster' && 'Lista completa del plantel docente'}
                     </p>
                   </div>
                 </button>
@@ -401,6 +464,11 @@ export function ReportsPage() {
           <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Filtros</h3>
         </div>
         <div className="px-6 py-5">
+          {reportType === 'roster' ? (
+            <p className="text-sm text-gray-500 mb-4">
+              El reporte de Plantel Docente incluye todos los docentes registrados. No requiere filtros adicionales.
+            </p>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 
             {/* Month — not for comparative */}
@@ -532,6 +600,7 @@ export function ReportsPage() {
             )}
 
           </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-100">
@@ -631,6 +700,7 @@ export function ReportsPage() {
                 {previewData.report_type === 'financial' && <FinancialPreview data={previewData} />}
                 {previewData.report_type === 'attendance' && <AttendancePreview data={previewData} />}
                 {previewData.report_type === 'comparative' && <ComparativePreview data={previewData} />}
+                {previewData.report_type === 'roster' && <RosterPreview data={previewData} />}
               </>
             )}
           </div>

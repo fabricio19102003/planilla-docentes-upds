@@ -94,3 +94,16 @@ export function useDeleteTeacher() {
     },
   })
 }
+
+export function useBulkDeleteTeachers() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (teacherCis: string[]) => {
+      const res = await api.post<{ deleted: number; errors: string[] }>('/teachers/bulk-delete', { teacher_cis: teacherCis })
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['teachers'] })
+    },
+  })
+}

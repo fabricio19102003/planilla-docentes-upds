@@ -9,9 +9,9 @@ import {
   GraduationCap,
   CreditCard,
   Loader2,
+  Trash2,
 } from 'lucide-react'
-import { useTeachers, useCreateTeacher } from '@/api/hooks/useTeachers'
-import { DataTable } from '@/components/shared/DataTable'
+import { useTeachers, useCreateTeacher, useBulkDeleteTeachers } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/select'
 
 import type { Teacher } from '@/api/types'
-import type { Column } from '@/components/shared/DataTable'
 
 // ─── Create Teacher Dialog ────────────────────────────────────────────────────
 function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -329,7 +328,10 @@ export function TeachersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedCIs, setSelectedCIs] = useState<Set<string>>(new Set())
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bulkDelete = useBulkDeleteTeachers()
 
   const { data, isLoading } = useTeachers({
     search: debouncedSearch || undefined,
@@ -348,46 +350,9 @@ export function TeachersPage() {
     }, 300)
   }
 
-  const columns: Column<Teacher>[] = [
-    {
-      key: 'full_name',
-      header: 'Nombre Completo',
-      render: (item) => (
-        <span className="font-medium text-gray-800">{item.full_name}</span>
-      ),
-    },
-    { key: 'ci', header: 'C.I.' },
-    {
-      key: 'email',
-      header: 'Correo',
-      render: (item) => item.email ?? '—',
-    },
-    {
-      key: 'profession',
-      header: 'Profesión',
-      render: (item) => item.profession ?? '—',
-    },
-    {
-      key: 'external_permanent',
-      header: 'Tipo',
-      render: (item) => {
-        if (!item.external_permanent) return '—'
-        return item.external_permanent === 'EXTERNO' ? 'Externo' : 'Permanente'
-      },
-    },
-    {
-      key: 'actions',
-      header: 'Detalle',
-      render: (item) => (
-        <button
-          onClick={() => navigate(`/teachers/${item.ci}`)}
-          className="text-[#0066CC] hover:underline text-sm font-medium"
-        >
-          Ver más →
-        </button>
-      ),
-    },
-  ]
+  const allOnPageSelected =
+    (data?.items?.length ?? 0) > 0 &&
+    (data?.items ?? []).every((t) => selectedCIs.has(t.ci))
 
   return (
     <div className="space-y-6">
@@ -429,6 +394,34 @@ export function TeachersPage() {
             </Button>
           </div>
         </div>
+
+        {/* Bulk actions bar */}
+        {selectedCIs.size > 0 && (
+          <div className="mx-5 mt-4 flex items-center justify-between px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+            <span className="text-sm text-red-700 font-medium">
+              {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''} seleccionado{selectedCIs.size !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedCIs(new Set())}
+                className="text-gray-600"
+              >
+                Deseleccionar
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white gap-1"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 size={14} />
+                Eliminar seleccionados
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="p-5">
           {isLoading ? (
             <LoadingPage />
@@ -442,19 +435,154 @@ export function TeachersPage() {
               </p>
             </div>
           ) : (
-            <DataTable
-              columns={columns}
-              data={data.items}
-              page={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-              emptyMessage="No se encontraron docentes"
-            />
+            <>
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
+                      <th className="px-3 py-2.5 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allOnPageSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCIs(new Set(data?.items?.map((t) => t.ci) ?? []))
+                            } else {
+                              setSelectedCIs(new Set())
+                            }
+                          }}
+                          className="rounded border-white/50 cursor-pointer"
+                        />
+                      </th>
+                      {['Nombre Completo', 'C.I.', 'Correo', 'Profesión', 'Tipo', 'Detalle'].map((h) => (
+                        <th
+                          key={h}
+                          className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.items.map((teacher: Teacher, i: number) => (
+                      <tr
+                        key={teacher.ci}
+                        className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${
+                          selectedCIs.has(teacher.ci)
+                            ? 'bg-red-50'
+                            : i % 2 === 1
+                              ? 'bg-gray-50'
+                              : 'bg-white'
+                        }`}
+                      >
+                        <td className="px-3 py-2.5 w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedCIs.has(teacher.ci)}
+                            onChange={(e) => {
+                              const next = new Set(selectedCIs)
+                              if (e.target.checked) next.add(teacher.ci)
+                              else next.delete(teacher.ci)
+                              setSelectedCIs(next)
+                            }}
+                            className="rounded cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-gray-800">{teacher.full_name}</td>
+                        <td className="px-3 py-2.5 text-gray-600">{teacher.ci}</td>
+                        <td className="px-3 py-2.5 text-gray-600">{teacher.email ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-gray-600">{teacher.profession ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-gray-600">
+                          {!teacher.external_permanent
+                            ? '—'
+                            : teacher.external_permanent === 'EXTERNO'
+                              ? 'Externo'
+                              : 'Permanente'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <button
+                            onClick={() => navigate(`/teachers/${teacher.ci}`)}
+                            className="text-[#0066CC] hover:underline text-sm font-medium"
+                          >
+                            Ver más →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-sm text-gray-500">
+                    Página {page} de {totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
       <CreateTeacherDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800">
+                  Eliminar {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Esta acción eliminará también sus designaciones, asistencia y cuentas de usuario
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+                Cancelar
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700 text-white"
+                disabled={bulkDelete.isPending}
+                onClick={async () => {
+                  await bulkDelete.mutateAsync([...selectedCIs])
+                  setSelectedCIs(new Set())
+                  setShowDeleteConfirm(false)
+                }}
+              >
+                {bulkDelete.isPending ? 'Eliminando...' : 'Confirmar eliminación'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

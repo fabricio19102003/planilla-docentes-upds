@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -526,6 +527,57 @@ def upload_teacher_list(
         raise HTTPException(400, detail="No se pudo procesar la lista de docentes") from exc
     finally:
         file.file.close()
+
+
+class BulkDeleteRequest(PydanticBaseModel):
+    teacher_cis: list[str]
+
+
+@router.post("/bulk-delete", status_code=status.HTTP_200_OK)
+def bulk_delete_teachers(
+    request: Request,
+    payload: BulkDeleteRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete multiple teachers and their associated data."""
+    if not payload.teacher_cis:
+        raise HTTPException(400, detail="No se seleccionaron docentes")
+
+    deleted = 0
+    errors = []
+
+    for ci in payload.teacher_cis:
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+        if teacher:
+            name = teacher.full_name
+            try:
+                # Delete associated user accounts
+                db.execute(text("DELETE FROM users WHERE teacher_ci = :ci AND role = 'docente'"), {"ci": ci})
+                db.delete(teacher)
+                db.flush()
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{name}: {str(e)}")
+        else:
+            errors.append(f"CI {ci}: no encontrado")
+
+    log_activity(
+        db,
+        "bulk_delete_teachers",
+        "teachers",
+        f"{deleted} docente(s) eliminado(s)",
+        user=current_user,
+        details={"deleted": deleted, "requested": len(payload.teacher_cis), "errors": errors},
+        request=request,
+    )
+
+    db.commit()
+
+    return {
+        "deleted": deleted,
+        "errors": errors,
+    }
 
 
 @router.delete("/{ci}", status_code=status.HTTP_204_NO_CONTENT)

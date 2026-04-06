@@ -66,6 +66,12 @@ def generate_report(
                 generated_by=current_user.id,
                 generated_by_name=user_name,
             )
+        elif report_type == 'roster':
+            report = gen.generate_roster_report(
+                db,
+                generated_by=current_user.id,
+                generated_by_name=user_name,
+            )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
 
@@ -259,6 +265,41 @@ def preview_report(
                 "year": year,
                 "months": monthly_data,
                 "grand_total": sum(m['total_payment'] for m in monthly_data),
+            }
+
+        elif report_type == 'roster':
+            from app.models.teacher import Teacher
+            from app.models.designation import Designation
+            from collections import Counter
+
+            teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
+            desig_counts: Counter[str] = Counter()
+            all_desigs = db.query(Designation).all()
+            for d in all_desigs:
+                desig_counts[d.teacher_ci] += 1
+
+            with_retention = sum(1 for t in teachers if (t.invoice_retention or "").upper() == "RETENCION")
+            with_nit = sum(1 for t in teachers if t.nit)
+
+            return {
+                "report_type": "roster",
+                "total_teachers": len(teachers),
+                "with_nit": with_nit,
+                "with_retention": with_retention,
+                "rows": [
+                    {
+                        "ci": t.ci,
+                        "full_name": t.full_name,
+                        "phone": t.phone,
+                        "email": t.email,
+                        "bank": t.bank,
+                        "account_number": t.account_number,
+                        "nit": t.nit,
+                        "invoice_retention": t.invoice_retention,
+                        "designation_count": desig_counts.get(t.ci, 0),
+                    }
+                    for t in teachers[:50]
+                ],
             }
 
         else:

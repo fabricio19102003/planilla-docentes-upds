@@ -597,3 +597,113 @@ class ReportGenerator:
         db.flush()
         logger.info("Generated comparative report: %s (%d months)", filename, len(monthly_data))
         return report
+
+    # ── Roster Report ────────────────────────────────────────────────────────
+    def generate_roster_report(
+        self,
+        db: Session,
+        generated_by: int | None = None,
+        generated_by_name: str | None = None,
+    ) -> Report:
+        """Generate a teacher roster report PDF with all registered teachers."""
+        teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
+
+        # Count designations per teacher
+        from collections import Counter
+        desig_counts: Counter[str] = Counter()
+        desig_hours: Counter[str] = Counter()
+        all_desigs = db.query(Designation).all()
+        for d in all_desigs:
+            desig_counts[d.teacher_ci] += 1
+            desig_hours[d.teacher_ci] += (d.monthly_hours or 0)
+
+        title = "Plantel Docente"
+        subtitle = f"Total: {len(teachers)} docentes — Gestión {datetime.now().year}"
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"plantel_docente_{timestamp}.pdf"
+        filepath = _output_dir() / filename
+
+        doc = SimpleDocTemplate(
+            str(filepath), pagesize=A4,
+            leftMargin=12 * mm, rightMargin=12 * mm,
+            topMargin=15 * mm, bottomMargin=18 * mm,
+        )
+        elements: list = []
+        cs = self.cs
+
+        _add_branded_header(elements, self.styles, title, subtitle)
+
+        # Summary stats
+        with_retention = sum(1 for t in teachers if (t.invoice_retention or "").upper() == "RETENCION")
+        with_nit = sum(1 for t in teachers if t.nit)
+
+        summary_data = [
+            [_cell(h, cs["header"]) for h in ["Total Docentes", "Con NIT", "Con Retención", "Materias", "Hrs Mensuales"]],
+            [_cell(v, cs["cell_center"]) for v in [
+                str(len(teachers)),
+                str(with_nit),
+                str(with_retention),
+                str(sum(desig_counts.values())),
+                f"{sum(desig_hours.values())}h",
+            ]],
+        ]
+        summary_table = Table(summary_data, colWidths=[85, 70, 80, 70, 80])
+        summary_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 12))
+
+        # Detail table
+        detail_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "C.I.", "Teléfono", "Email", "Banco", "Cuenta", "NIT/Ret."]]
+        detail_data: list = [detail_header]
+
+        for idx, t in enumerate(teachers, start=1):
+            nit_ret = "RET" if (t.invoice_retention or "").upper() == "RETENCION" else (t.nit or "—")
+            detail_data.append([
+                _cell(str(idx), cs["cell_center"]),
+                _cell(t.full_name, cs["cell"]),
+                _cell(t.ci, cs["cell_center"]),
+                _cell(t.phone or "—", cs["cell_center"]),
+                _cell(t.email or "—", cs["cell"]),
+                _cell(t.bank or "—", cs["cell"]),
+                _cell(t.account_number or "—", cs["cell"]),
+                _cell(nit_ret, cs["cell_center"]),
+            ])
+
+        col_widths = [22, 110, 48, 55, 85, 50, 65, 45]
+        detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
+        detail_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
+        ]))
+        elements.append(detail_table)
+
+        _add_footer(elements, self.styles, generated_by_name)
+        doc.build(elements)
+
+        report = Report(
+            report_type="roster",
+            title=title,
+            description=subtitle,
+            filters={},
+            file_path=str(filepath),
+            file_size=filepath.stat().st_size,
+            generated_by=generated_by,
+            status="generated",
+        )
+        db.add(report)
+        db.flush()
+
+        logger.info("Generated roster report: %s (%d teachers)", filename, len(teachers))
+        return report
