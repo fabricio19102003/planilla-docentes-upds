@@ -88,12 +88,17 @@ def get_real_db_session():
 
 def step1_clear_data():
     with step("Step 1: Clear existing data (fresh start)"):
-        from app.database import engine
+        from app.database import create_tables, engine
+        from app.main import _run_column_migrations
         from app.models.attendance import AttendanceRecord
         from app.models.biometric import BiometricRecord, BiometricUpload
         from app.models.designation import Designation
         from app.models.planilla import PlanillaOutput
         from app.models.teacher import Teacher
+
+        # Ensure schema is up-to-date (new columns added since last run)
+        create_tables()
+        _run_column_migrations()
 
         db = get_real_db_session()
         try:

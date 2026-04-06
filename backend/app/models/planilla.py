@@ -1,7 +1,7 @@
-from sqlalchemy import Integer, DateTime, String, Numeric, UniqueConstraint, func
+from sqlalchemy import Integer, DateTime, String, Numeric, UniqueConstraint, Date, func
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime
+from datetime import datetime, date as date_type
 from typing import Optional, Any
 from decimal import Decimal
 
@@ -24,6 +24,8 @@ class PlanillaOutput(Base):
     total_hours: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_payment: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     payment_overrides_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    start_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
+    end_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="generated", nullable=False)
 
     def __repr__(self) -> str:

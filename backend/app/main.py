@@ -24,18 +24,13 @@ from app.routers import (
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Application lifespan: runs on startup and shutdown.
-    On startup: create all DB tables and seed default admin if needed.
-    """
-    try:
-        create_tables()
-    except Exception as exc:
-        logger.exception("Failed to create tables on startup: %s", exc)
+def _run_column_migrations() -> None:
+    """Ensure all new columns exist on an existing database.
 
-    # Ensure new columns exist on existing databases (create_all doesn't add columns)
+    ``create_all()`` does not ALTER existing tables, so every time a new
+    ``mapped_column`` is added to a model we need a manual migration here.
+    This function is idempotent and safe to call multiple times.
+    """
     try:
         from sqlalchemy import text, inspect as sa_inspect
 
@@ -58,12 +53,18 @@ async def lifespan(app: FastAPI):
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
                     logger.info("Added column billing_publications.version")
 
-            # planilla_outputs.payment_overrides_json
+            # planilla_outputs.payment_overrides_json + start_date/end_date
             if inspector.has_table("planilla_outputs"):
                 po_cols = {c["name"] for c in inspector.get_columns("planilla_outputs")}
                 if "payment_overrides_json" not in po_cols:
                     conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN payment_overrides_json JSONB"))
                     logger.info("Added column planilla_outputs.payment_overrides_json")
+                if "start_date" not in po_cols:
+                    conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN start_date DATE"))
+                    logger.info("Added column planilla_outputs.start_date")
+                if "end_date" not in po_cols:
+                    conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN end_date DATE"))
+                    logger.info("Added column planilla_outputs.end_date")
 
             # teachers.nit
             teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
@@ -74,6 +75,21 @@ async def lifespan(app: FastAPI):
             conn.commit()
     except Exception as exc:
         logger.warning("Column migration check failed (may be first run): %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan: runs on startup and shutdown.
+    On startup: create all DB tables and seed default admin if needed.
+    """
+    try:
+        create_tables()
+    except Exception as exc:
+        logger.exception("Failed to create tables on startup: %s", exc)
+
+    # Ensure new columns exist on existing databases (create_all doesn't add columns)
+    _run_column_migrations()
 
     # Create default admin user if none exists
     try:

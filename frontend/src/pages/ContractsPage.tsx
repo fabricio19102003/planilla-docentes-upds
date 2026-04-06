@@ -54,7 +54,8 @@ export function ContractsPage() {
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
 
   const { data: teachersData } = useTeachers({ page: 1, perPage: 500 })
-  const teachers = teachersData?.items ?? []
+  // Exclude placeholder TEMP teachers — they have no real CI and should not get contracts
+  const teachers = (teachersData?.items ?? []).filter((t) => !t.ci.startsWith('TEMP-'))
   const generateBatch = useGenerateBatchContracts()
 
   const filteredTeachers = teachers.filter((t) => {

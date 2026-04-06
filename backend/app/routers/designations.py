@@ -5,6 +5,7 @@ import json
 import logging
 import secrets
 import shutil
+import string
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,23 @@ def _uploads_dir() -> Path:
     path = Path(__file__).resolve().parents[2] / "data" / "uploads"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _generate_compliant_password() -> str:
+    """Generate a random 12-char password that always meets the strength policy.
+
+    Guarantees at least one uppercase letter, one lowercase letter, and one digit
+    (avoids the weakness of secrets.token_urlsafe which may lack any of these).
+    """
+    chars = string.ascii_letters + string.digits
+    while True:
+        pwd = "".join(secrets.choice(chars) for _ in range(12))
+        if (
+            any(c.isupper() for c in pwd)
+            and any(c.islower() for c in pwd)
+            and any(c.isdigit() for c in pwd)
+        ):
+            return pwd
 
 
 def _save_upload_file(upload: UploadFile) -> tuple[Path, str]:
@@ -171,7 +189,7 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 
         try:
             # Each teacher gets a unique random password — never reused across accounts
-            password = secrets.token_urlsafe(8)
+            password = _generate_compliant_password()
             user = User(
                 ci=teacher.ci,
                 full_name=teacher.full_name,

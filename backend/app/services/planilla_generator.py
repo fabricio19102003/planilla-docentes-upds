@@ -354,6 +354,8 @@ class PlanillaGenerator:
             total_hours=total_hours,
             total_payment=total_payment,
             payment_overrides=payment_overrides,
+            start_date=start_date,
+            end_date=end_date,
         )
 
         return PlanillaResult(
@@ -1357,6 +1359,8 @@ class PlanillaGenerator:
         total_hours: int,
         total_payment: float,
         payment_overrides: Optional[dict[str, float]] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> Optional[PlanillaOutput]:
         """
         Create or update a PlanillaOutput record in the DB.
@@ -1381,6 +1385,8 @@ class PlanillaGenerator:
                 existing.total_hours = total_hours
                 existing.total_payment = Decimal(str(total_payment))
                 existing.payment_overrides_json = overrides_data
+                existing.start_date = start_date
+                existing.end_date = end_date
                 existing.generated_at = datetime.now()
                 existing.status = "generated"
                 db.flush()
@@ -1395,6 +1401,8 @@ class PlanillaGenerator:
                     total_hours=total_hours,
                     total_payment=Decimal(str(total_payment)),
                     payment_overrides_json=overrides_data,
+                    start_date=start_date,
+                    end_date=end_date,
                     status="generated",
                 )
                 db.add(output)

@@ -99,10 +99,35 @@ def publish_billing(
             if stored_planilla and stored_planilla.payment_overrides_json:
                 stored_overrides = stored_planilla.payment_overrides_json
 
-            rows, _detail_rows, _warnings = generator._build_planilla_data(db, month=month, year=year)
+            # Use stored start/end dates when a generated planilla exists
+            sd = stored_planilla.start_date if stored_planilla else None
+            ed = stored_planilla.end_date if stored_planilla else None
+            rows, _detail_rows, _warnings = generator._build_planilla_data(
+                db, month=month, year=year, start_date=sd, end_date=ed
+            )
             total_teachers = len({r.teacher_ci for r in rows})
 
-            # Build per-teacher snapshot, applying stored overrides to match the generated planilla
+            # Resolve overrides using the generator's canonical logic
+            # (handles teacher-level override minus row-level overrides correctly)
+            resolved_payments: dict[str, float] = {}  # "teacher_ci:designation_id" → effective_payment
+            if stored_overrides:
+                for row in rows:
+                    row_key = f"{row.teacher_ci}:{row.designation_id}"
+                    override = generator._resolve_override(row.teacher_ci, row.designation_id, stored_overrides)
+                    if override is not None:
+                        # Simple row-level or plain teacher-level — use as-is only if no
+                        # teacher-level allocation is needed (allocations take precedence)
+                        teacher_rows = [r for r in rows if r.teacher_ci == row.teacher_ci]
+                        allocations = generator._get_teacher_override_allocations(teacher_rows, stored_overrides)
+                        if allocations is not None and row.designation_id in allocations:
+                            resolved_payments[row_key] = float(allocations[row.designation_id])
+                        elif allocations is None:
+                            # No teacher-level override: check row-level directly
+                            row_level = stored_overrides.get(row_key)
+                            if row_level is not None:
+                                resolved_payments[row_key] = float(row_level)
+
+            # Build per-teacher snapshot
             teacher_map: dict[str, dict] = {}
             for row in rows:
                 if row.teacher_ci not in teacher_map:
@@ -119,20 +144,8 @@ def publish_billing(
                     }
                 t = teacher_map[row.teacher_ci]
 
-                # Check if admin overrode this specific row or this teacher
                 row_key = f"{row.teacher_ci}:{row.designation_id}"
-                row_override = stored_overrides.get(row_key)
-                teacher_override = stored_overrides.get(row.teacher_ci)
-
-                if row_override is not None:
-                    effective_payment = float(row_override)
-                elif teacher_override is not None:
-                    # Distribute teacher-level override proportionally
-                    teacher_rows = [r for r in rows if r.teacher_ci == row.teacher_ci]
-                    total_hrs = sum(r.payable_hours for r in teacher_rows) or 1
-                    effective_payment = float(teacher_override) * (row.payable_hours / total_hrs)
-                else:
-                    effective_payment = row.final_payment
+                effective_payment = resolved_payments.get(row_key, row.final_payment)
 
                 t["designations"].append({
                     "subject": row.subject,
@@ -143,11 +156,12 @@ def publish_billing(
                     "payable_hours": row.payable_hours,
                     "payment": round(effective_payment, 2),
                     "calculated_payment": row.calculated_payment,
-                    "retention_amount": row.retention_amount,
+                    "retention_amount": row.retention_amount if row_key not in resolved_payments else 0.0,
                 })
                 t["total_hours"] += row.payable_hours
                 t["total_payment"] += effective_payment
-                t["retention_amount"] += row.retention_amount
+                if row_key not in resolved_payments:
+                    t["retention_amount"] += row.retention_amount
                 t["final_payment"] = round(float(t["total_payment"]), 2)
 
             if stored_planilla:
