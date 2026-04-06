@@ -11,7 +11,7 @@ from app.services.auth_service import auth_service
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # Endpoints that are allowed even when must_change_password=True
-_ALLOWED_WHEN_MUST_CHANGE = {"/api/auth/change-password", "/api/auth/login"}
+_ALLOWED_WHEN_MUST_CHANGE = {"/api/auth/change-password", "/api/auth/login", "/api/auth/me"}
 
 
 def _check_must_change_password(user: User, request: Request) -> None:
@@ -28,11 +28,14 @@ def _check_must_change_password(user: User, request: Request) -> None:
 
 
 def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """Decode JWT and return current user. Raises 401 if invalid or inactive."""
-    return auth_service.get_current_user(token=token, db=db)
+    """Decode JWT and return current user. Raises 401 if invalid/inactive, 403 if must_change_password."""
+    user = auth_service.get_current_user(token=token, db=db)
+    _check_must_change_password(user, request)
+    return user
 
 
 def require_admin(
