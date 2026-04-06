@@ -138,6 +138,7 @@ def publish_billing(
                         "has_retention": row.has_retention,
                         "designations": [],
                         "total_hours": 0,
+                        "gross_payment": 0.0,
                         "total_payment": 0.0,
                         "retention_amount": 0.0,
                         "final_payment": 0.0,
@@ -147,6 +148,7 @@ def publish_billing(
                 row_key = f"{row.teacher_ci}:{row.designation_id}"
                 effective_payment = resolved_payments.get(row_key, row.final_payment)
 
+                row_retention = row.retention_amount if row_key not in resolved_payments else 0.0
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -154,14 +156,14 @@ def publish_billing(
                     "base_hours": row.base_monthly_hours,
                     "absent_hours": row.absent_hours,
                     "payable_hours": row.payable_hours,
-                    "payment": round(effective_payment, 2),
-                    "calculated_payment": row.calculated_payment,
-                    "retention_amount": row.retention_amount if row_key not in resolved_payments else 0.0,
+                    "gross_payment": round(row.calculated_payment, 2),   # Bruto (before retention)
+                    "retention_amount": round(row_retention, 2),
+                    "payment": round(effective_payment, 2),               # Neto (after retention + overrides)
                 })
                 t["total_hours"] += row.payable_hours
+                t["gross_payment"] = round(t.get("gross_payment", 0.0) + row.calculated_payment, 2)
+                t["retention_amount"] = round(t.get("retention_amount", 0.0) + row_retention, 2)
                 t["total_payment"] += effective_payment
-                if row_key not in resolved_payments:
-                    t["retention_amount"] += row.retention_amount
                 t["final_payment"] = round(float(t["total_payment"]), 2)
 
             if stored_planilla:

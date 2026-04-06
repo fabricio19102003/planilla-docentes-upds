@@ -9,6 +9,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.planilla import PlanillaOutput
 from app.models.report import Report
 from app.models.user import User
 from app.services.report_generator import ReportGenerator
@@ -156,6 +157,18 @@ def preview_report(
             if subject:
                 rows = [r for r in rows if subject.lower() in r.subject.lower()]
 
+            # Prefer stored PlanillaOutput total (reflects admin overrides) when no row filter
+            if not teacher_ci and not semester and not group_code and not subject:
+                stored = (
+                    db.query(PlanillaOutput)
+                    .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+                    .order_by(PlanillaOutput.generated_at.desc())
+                    .first()
+                )
+                total_payment = float(stored.total_payment) if stored else sum(r.final_payment for r in rows)
+            else:
+                total_payment = sum(r.final_payment for r in rows)
+
             return {
                 "report_type": "financial",
                 "total_teachers": len(set(r.teacher_ci for r in rows)),
@@ -165,7 +178,7 @@ def preview_report(
                 "total_payable_hours": sum(r.payable_hours for r in rows),
                 "total_gross_payment": sum(r.calculated_payment for r in rows),
                 "total_retention": sum(r.retention_amount for r in rows),
-                "total_payment": sum(r.final_payment for r in rows),  # net — after retention
+                "total_payment": total_payment,  # net — after retention (stored when available)
                 "rows": [
                     {
                         "teacher_ci": r.teacher_ci,
@@ -250,6 +263,19 @@ def preview_report(
                 rows = planilla_rows
                 if teacher_ci:
                     rows = [r for r in rows if r.teacher_ci == teacher_ci]
+
+                # Prefer stored PlanillaOutput total when no teacher filter
+                if not teacher_ci:
+                    stored_m = (
+                        db.query(PlanillaOutput)
+                        .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
+                        .order_by(PlanillaOutput.generated_at.desc())
+                        .first()
+                    )
+                    month_total = float(stored_m.total_payment) if stored_m else sum(r.final_payment for r in rows)
+                else:
+                    month_total = sum(r.final_payment for r in rows)  # net — after retention
+
                 monthly_data.append({
                     'month': m,
                     'month_name': MN.get(m, str(m)),
@@ -257,7 +283,7 @@ def preview_report(
                     'base_hours': sum(r.base_monthly_hours for r in rows),
                     'absent_hours': sum(r.absent_hours for r in rows),
                     'payable_hours': sum(r.payable_hours for r in rows),
-                    'total_payment': sum(r.final_payment for r in rows),  # net — after retention
+                    'total_payment': month_total,
                 })
 
             return {

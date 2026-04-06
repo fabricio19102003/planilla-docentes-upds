@@ -73,29 +73,41 @@ function ReportTypeBadge({ type }: { type: string }) {
 function FinancialPreview({ data }: { data: any }) {
   return (
     <div className="space-y-4">
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* Summary stats — 8 cards: base 6 + Bruto + Ret. + Neto */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
           { label: 'Docentes', value: data.total_teachers },
           { label: 'Designaciones', value: data.total_designations },
           { label: 'Hrs Asignadas', value: `${data.total_base_hours}h` },
           { label: 'Hrs Ausencia', value: `${data.total_absent_hours}h` },
           { label: 'Hrs a Pagar', value: `${data.total_payable_hours}h` },
-          { label: 'Total (Bs)', value: data.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 }) },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-blue-50/60 rounded-lg p-3 text-center">
+          {
+            label: 'Total Bruto (Bs)',
+            value: (data.total_gross_payment ?? data.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 }),
+          },
+          {
+            label: 'Ret. 13% (Bs)',
+            value: (data.total_retention ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 }),
+          },
+          {
+            label: 'Total Neto (Bs)',
+            value: data.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 }),
+            highlight: true,
+          },
+        ].map(({ label, value, highlight }) => (
+          <div key={label} className={`rounded-lg p-3 text-center ${highlight ? 'bg-blue-50/50 ring-1 ring-[#003366]/30' : 'bg-blue-50/60'}`}>
             <p className="text-lg font-bold" style={{ color: '#003366' }}>{value}</p>
             <p className="text-xs text-gray-500 mt-0.5">{label}</p>
           </div>
         ))}
       </div>
 
-      {/* Detail table */}
+      {/* Detail table — Bruto / Ret. 13% / Neto columns */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0">
             <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs Pagar', 'Monto (Bs)'].map(h => (
+              {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs Pagar', 'Bruto (Bs)', 'Ret. 13%', 'Neto (Bs)'].map(h => (
                 <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -115,8 +127,19 @@ function FinancialPreview({ data }: { data: any }) {
                     : <span className="text-green-600">0h</span>}
                 </td>
                 <td className="px-3 py-2 text-gray-800 font-semibold text-center">{row.payable_hours}h</td>
-                <td className="px-3 py-2 font-bold text-right pr-4" style={{ color: '#003366' }}>
-                  {row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                {/* Bruto */}
+                <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
+                  {row.calculated_payment?.toFixed(2) ?? '—'}
+                </td>
+                {/* Retención 13% */}
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  {(row.retention_amount ?? 0) > 0
+                    ? <span className="text-amber-600">-{row.retention_amount.toFixed(2)}</span>
+                    : <span className="text-gray-400">—</span>}
+                </td>
+                {/* Neto */}
+                <td className="px-3 py-2 font-bold text-right pr-4 whitespace-nowrap" style={{ color: '#003366' }}>
+                  {(row.final_payment ?? row.calculated_payment)?.toFixed(2) ?? '—'}
                 </td>
               </tr>
             ))}

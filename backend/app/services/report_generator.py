@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.models.attendance import AttendanceRecord
 from app.models.designation import Designation
+from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
 from app.models.report import Report
 
@@ -267,7 +268,17 @@ class ReportGenerator:
         # ── Summary ──────────────────────────────────────────────────────
         total_gross = sum(r.calculated_payment for r in rows)
         total_retention = sum(r.retention_amount for r in rows)
-        total_payment = sum(r.final_payment for r in rows)   # net — after retention
+        # Prefer stored PlanillaOutput total (reflects admin overrides) over live sum
+        stored_planilla = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+        if stored_planilla and not teacher_ci and not semester and not group_code and not subject:
+            total_payment = float(stored_planilla.total_payment)
+        else:
+            total_payment = sum(r.final_payment for r in rows)   # net — after retention
         total_base = sum(r.base_monthly_hours for r in rows)
         total_absent = sum(r.absent_hours for r in rows)
         total_payable = sum(r.payable_hours for r in rows)
@@ -516,6 +527,18 @@ class ReportGenerator:
             if teacher_ci:
                 rows = [r for r in rows if r.teacher_ci == teacher_ci]
 
+            # Prefer stored PlanillaOutput total (reflects admin overrides) when no filter
+            stored_m = (
+                db.query(PlanillaOutput)
+                .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
+                .order_by(PlanillaOutput.generated_at.desc())
+                .first()
+            )
+            if stored_m and not teacher_ci:
+                month_total = float(stored_m.total_payment)
+            else:
+                month_total = sum(r.final_payment for r in rows)  # net — after retention
+
             monthly_data.append({
                 "month": m,
                 "month_name": MONTH_NAMES.get(m, str(m)),
@@ -523,7 +546,7 @@ class ReportGenerator:
                 "base_hours": sum(r.base_monthly_hours for r in rows),
                 "absent_hours": sum(r.absent_hours for r in rows),
                 "payable_hours": sum(r.payable_hours for r in rows),
-                "total_payment": sum(r.final_payment for r in rows),  # net — after retention
+                "total_payment": month_total,
             })
 
         filter_parts = [f"Año {year}"]

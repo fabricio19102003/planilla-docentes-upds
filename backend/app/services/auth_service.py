@@ -166,17 +166,20 @@ class AuthService:
     # Default admin bootstrap
     # ------------------------------------------------------------------
 
-    def create_default_admin(self, db: Session) -> None:
+    def create_default_admin(self, db: Session) -> Optional[User]:
         """
         Create default admin user if no admin exists.
 
         Requires the ADMIN_DEFAULT_PASSWORD environment variable to be set.
         If the variable is absent, bootstrap is skipped and a warning is logged
         so the deployment is not silently left with a hardcoded credential.
+
+        Password must meet strength requirements: 8+ chars, upper, lower, digit.
+        Sets must_change_password=True to force a password change on first login.
         """
         admin_exists = db.query(User).filter(User.role == "admin").first()
         if admin_exists:
-            return
+            return None
 
         admin_password = os.environ.get("ADMIN_DEFAULT_PASSWORD")
         if not admin_password:
@@ -184,19 +187,35 @@ class AuthService:
                 "No ADMIN_DEFAULT_PASSWORD env var set — skipping default admin creation. "
                 "Set ADMIN_DEFAULT_PASSWORD to bootstrap the first admin account."
             )
-            return
+            return None
+
+        # Validate password strength
+        if (
+            len(admin_password) < 8
+            or not any(c.isupper() for c in admin_password)
+            or not any(c.islower() for c in admin_password)
+            or not any(c.isdigit() for c in admin_password)
+        ):
+            logger.warning(
+                "ADMIN_DEFAULT_PASSWORD does not meet strength requirements "
+                "(8+ chars, at least one uppercase, one lowercase, one digit) — skipping admin creation."
+            )
+            return None
 
         logger.info("No admin user found — creating default admin (CI: admin)")
         admin = User(
             ci="admin",
-            full_name="Administrador",
+            full_name="Administrador SIPAD",
             password_hash=self.hash_password(admin_password),
             role="admin",
             is_active=True,
+            must_change_password=True,  # Force change on first login
         )
         db.add(admin)
+        db.flush()
         db.commit()
-        logger.info("Default admin created successfully")
+        logger.info("Default admin created successfully (must change password on first login)")
+        return admin
 
 
 auth_service = AuthService()

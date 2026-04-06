@@ -19,17 +19,12 @@ from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.teacher import TeacherResponse
 from app.services.activity_logger import log_activity
+from app.services.attendance_engine import WEEKDAY_MAP as _ENGINE_WEEKDAY_MAP, _normalize_day
 from app.utils.auth import require_docente
 
-# Map Python weekday() index → Spanish lowercase day name
-_WEEKDAY_MAP: dict[int, str] = {
-    0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
-    4: "viernes", 5: "sábado", 6: "domingo",
-}
-# Accent-free alternates for robust matching
-_WEEKDAY_ALT: dict[int, str] = {
-    2: "miercoles", 5: "sabado",
-}
+# Map Python weekday() index → normalized (accent-free) Spanish lowercase day name.
+# Re-use the engine's canonical map so both use the same values.
+_WEEKDAY_MAP: dict[int, str] = _ENGINE_WEEKDAY_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +168,13 @@ def _get_slot_hours_for_absent(schedule: list[dict], rec: AttendanceRecord) -> i
 
     rec_start_str = rec.scheduled_start.strftime("%H:%M")
     target_weekday = rec.date.weekday()
-    target_day = _WEEKDAY_MAP.get(target_weekday, "")
-    target_day_alt = _WEEKDAY_ALT.get(target_weekday, target_day)
+    # Use the engine's normalized (accent-free) day name for robust comparison
+    target_day_norm = _normalize_day(_WEEKDAY_MAP.get(target_weekday, ""))
 
-    # Pass 1: weekday + hora_inicio
+    # Pass 1: weekday + hora_inicio (using shared _normalize_day for accent tolerance)
     for slot in schedule:
-        slot_dia = slot.get("dia", "").lower()
-        if slot.get("hora_inicio", "") == rec_start_str and slot_dia in (target_day, target_day_alt):
+        slot_dia_norm = _normalize_day(slot.get("dia", ""))
+        if slot.get("hora_inicio", "") == rec_start_str and slot_dia_norm == target_day_norm:
             return int(slot.get("horas_academicas", 0))
 
     # Pass 2: hora_inicio only (slot may lack "dia" field)
@@ -362,21 +357,22 @@ def get_current_billing(
                 )
                 for d in teacher_data.get("designations", [])
             ]
-            snap_total = teacher_data["total_payment"]
+            # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
+            snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
             snap_has_retention = teacher_data.get("has_retention", False)
             snap_retention_amount = teacher_data.get("retention_amount", 0.0)
-            snap_final_payment = teacher_data.get("final_payment", snap_total)
+            snap_final_payment = teacher_data.get("final_payment", teacher_data["total_payment"])
             return BillingResponse(
                 month=now.month,
                 year=now.year,
                 month_name=MONTH_NAMES.get(now.month, str(now.month)),
                 total_hours=teacher_data["total_hours"],
                 rate_per_hour=snapshot.get("rate_per_hour", 70.0),
-                total_payment=snap_total,
+                total_payment=snap_gross,          # Bruto (for display)
                 adjusted_payment=None,
                 has_retention=snap_has_retention,
                 retention_amount=snap_retention_amount,
-                final_payment=snap_final_payment,
+                final_payment=snap_final_payment,  # Neto
                 designations=designations,
             )
 
@@ -425,16 +421,17 @@ def get_billing_history(
                     )
                     for d in teacher_data.get("designations", [])
                 ]
-                snap_total = teacher_data["total_payment"]
-                snap_final = teacher_data.get("final_payment", snap_total)
+                # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
+                snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
+                snap_final = teacher_data.get("final_payment", teacher_data["total_payment"])
                 history.append(
                     BillingHistoryItem(
                         month=pub.month,
                         year=pub.year,
                         month_name=MONTH_NAMES.get(pub.month, str(pub.month)),
                         total_hours=teacher_data["total_hours"],
-                        total_payment=snap_final,
-                        adjusted_payment=None,
+                        total_payment=snap_gross,   # Bruto
+                        adjusted_payment=snap_final if snap_gross != snap_final else None,
                         designations=designations,
                     )
                 )

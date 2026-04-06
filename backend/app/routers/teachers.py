@@ -552,8 +552,11 @@ def bulk_delete_teachers(
         if teacher:
             name = teacher.full_name
             try:
-                # Delete associated user accounts
-                db.execute(text("DELETE FROM users WHERE teacher_ci = :ci AND role = 'docente'"), {"ci": ci})
+                # Delete associated user accounts: match by teacher_ci link OR by ci (same identity)
+                db.execute(
+                    text("DELETE FROM users WHERE (teacher_ci = :ci OR ci = :ci) AND role = 'docente'"),
+                    {"ci": ci},
+                )
                 db.delete(teacher)
                 db.flush()
                 deleted += 1
