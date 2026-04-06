@@ -16,8 +16,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Force UTF-8 output on Windows to avoid cp1252 issues with Unicode chars
-if sys.platform == "win32":
+# Force UTF-8 output on Windows to avoid cp1252 issues with Unicode chars.
+# Skip when running under pytest (capture=default) to avoid breaking pytest's I/O wrappers.
+if sys.platform == "win32" and "pytest" not in sys.modules:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
