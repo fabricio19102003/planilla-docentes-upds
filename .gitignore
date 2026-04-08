@@ -49,5 +49,21 @@ horarios_medicina_estructurado.json
 # Uploads directory
 backend/data/uploads/
 
+# Generated data (PDFs, backups)
+backend/data/reports/
+backend/data/contracts/
+backend/data/schedules/
+backend/data/retention_letters/
+backend/data/backups/
+
+# Keep assets (logos)
+!backend/data/assets/
+
+# Frontend build
+frontend/dist/
+
 # Analysis scripts (temporary)
 analysis_*.py
+
+# Windows artifacts
+nul
