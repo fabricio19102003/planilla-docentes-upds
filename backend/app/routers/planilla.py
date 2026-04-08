@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -108,6 +108,65 @@ def generate_planilla(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo generar la planilla",
         ) from exc
+
+
+@router.post("/planilla/{planilla_id}/approve")
+def approve_planilla(
+    request: Request,
+    planilla_id: int,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Approve a generated planilla for publication."""
+    planilla = db.query(PlanillaOutput).filter(PlanillaOutput.id == planilla_id).first()
+    if not planilla:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planilla no encontrada")
+    if planilla.status == "approved":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La planilla ya está aprobada")
+
+    planilla.status = "approved"
+
+    log_activity(
+        db,
+        "approve_planilla",
+        "planilla",
+        f"Planilla aprobada: {MONTH_NAMES.get(planilla.month)} {planilla.year}",
+        user=current_user,
+        details={"planilla_id": planilla.id, "month": planilla.month, "year": planilla.year},
+        request=request,
+    )
+
+    db.commit()
+    return {"success": True, "status": "approved", "planilla_id": planilla.id}
+
+
+@router.post("/planilla/{planilla_id}/reject")
+def reject_planilla(
+    request: Request,
+    planilla_id: int,
+    notes: str = Query(default="", description="Reason for rejection"),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Reject a planilla. Admin must regenerate."""
+    planilla = db.query(PlanillaOutput).filter(PlanillaOutput.id == planilla_id).first()
+    if not planilla:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planilla no encontrada")
+
+    planilla.status = "rejected"
+
+    log_activity(
+        db,
+        "reject_planilla",
+        "planilla",
+        f"Planilla rechazada: {MONTH_NAMES.get(planilla.month)} {planilla.year} — {notes}",
+        user=current_user,
+        details={"planilla_id": planilla.id, "notes": notes},
+        request=request,
+    )
+
+    db.commit()
+    return {"success": True, "status": "rejected", "planilla_id": planilla.id}
 
 
 @router.get("/planilla/{planilla_id}/download")

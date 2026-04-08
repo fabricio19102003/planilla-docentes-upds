@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar } from 'lucide-react'
-import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail } from '@/api/hooks/usePlanilla'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar } from 'lucide-react'
+import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
@@ -59,8 +59,11 @@ export function PlanillaPage() {
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
   const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined)
   const { data: publication } = usePublicationStatus(month, year)
+  const { data: planillaStatus } = usePlanillaStatus(month, year)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
+  const approvePlanilla = useApprovePlanilla()
+  const rejectPlanilla = useRejectPlanilla()
 
   const handleGenerate = () => {
     setLastResult(null)
@@ -223,6 +226,69 @@ export function PlanillaPage() {
         </div>
       )}
 
+      {/* Approval Status — show when there is a planilla for this period */}
+      {planillaStatus && (
+        <div className="card-3d-static overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                planillaStatus.status === 'approved' ? 'bg-green-100' :
+                planillaStatus.status === 'rejected' ? 'bg-red-100' : 'bg-yellow-100'
+              }`}>
+                {planillaStatus.status === 'approved'
+                  ? <CheckCircle size={16} className="text-green-600" />
+                  : planillaStatus.status === 'rejected'
+                    ? <XCircle size={16} className="text-red-600" />
+                    : <Clock size={16} className="text-yellow-600" />
+                }
+              </div>
+              <div>
+                <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+                  Estado de la Planilla
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {planillaStatus.status === 'approved'
+                    ? 'Aprobada — lista para publicar'
+                    : planillaStatus.status === 'rejected'
+                      ? 'Rechazada — requiere regeneración'
+                      : 'Pendiente de aprobación'}
+                </p>
+              </div>
+            </div>
+
+            {planillaStatus.status === 'generated' && (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                  onClick={() => approvePlanilla.mutate(planillaStatus.id)}
+                  disabled={approvePlanilla.isPending}
+                >
+                  <Check size={14} /> Aprobar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
+                  onClick={() => rejectPlanilla.mutate(planillaStatus.id)}
+                  disabled={rejectPlanilla.isPending}
+                >
+                  <X size={14} /> Rechazar
+                </Button>
+              </div>
+            )}
+
+            {planillaStatus.status === 'approved' && (
+              <span className="text-sm text-green-700 font-medium">✅ Lista para publicar</span>
+            )}
+
+            {planillaStatus.status === 'rejected' && (
+              <span className="text-sm text-red-600 font-medium">❌ Regenerá la planilla</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Publication Status — at the top so admin doesn't need to scroll */}
       <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -262,9 +328,10 @@ export function PlanillaPage() {
           ) : (
             <Button
               className="gap-2 text-white"
-              style={{ backgroundColor: '#16a34a' }}
+              style={{ backgroundColor: planillaStatus?.status === 'approved' ? '#16a34a' : '#9ca3af' }}
               onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending}
+              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved'}
+              title={planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
             >
               <Send size={14} />
               {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
@@ -280,6 +347,20 @@ export function PlanillaPage() {
                 ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
               </span>
             )}
+          </div>
+        )}
+
+        {!planillaStatus && publication?.status !== 'published' && (
+          <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
+            Generá y aprobá la planilla antes de publicar.
+          </div>
+        )}
+
+        {planillaStatus && planillaStatus.status !== 'approved' && publication?.status !== 'published' && (
+          <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
+            {planillaStatus.status === 'rejected'
+              ? 'La planilla fue rechazada. Regenerá con los ajustes necesarios.'
+              : 'Aprobá la planilla antes de publicar para docentes.'}
           </div>
         )}
       </div>
@@ -658,12 +739,18 @@ export function PlanillaPage() {
                       <td className="px-4 py-3">
                         <Badge
                           className={
-                            item.status?.toLowerCase() === 'generated'
+                            item.status?.toLowerCase() === 'approved'
                               ? 'bg-green-100 text-green-700 text-xs'
-                              : 'bg-blue-100 text-blue-700 text-xs'
+                              : item.status?.toLowerCase() === 'rejected'
+                                ? 'bg-red-100 text-red-700 text-xs'
+                                : 'bg-yellow-100 text-yellow-700 text-xs'
                           }
                         >
-                          {item.status?.toLowerCase() === 'generated' ? 'Generada' : item.status}
+                          {item.status?.toLowerCase() === 'approved'
+                            ? 'Aprobada'
+                            : item.status?.toLowerCase() === 'rejected'
+                              ? 'Rechazada'
+                              : 'Pend. Aprobación'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">

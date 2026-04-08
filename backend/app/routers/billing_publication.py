@@ -94,6 +94,13 @@ def publish_billing(
                 .first()
             )
 
+            if stored_planilla:
+                if stored_planilla.status != "approved":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"La planilla debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
+                    )
+
             # Retrieve stored overrides if a planilla was generated with admin adjustments
             stored_overrides: dict[str, float] = {}
             if stored_planilla and stored_planilla.payment_overrides_json:

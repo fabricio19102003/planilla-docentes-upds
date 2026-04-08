@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileSignature,
+  Database,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -45,6 +46,7 @@ const adminNavItems: NavItem[] = [
   { to: '/users', label: 'Gestión Usuarios', icon: Shield },
   { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
   { to: '/activity', label: 'Registro de Actividad', icon: Activity },
+  { to: '/backup', label: 'Respaldos', icon: Database },
 ]
 
 const docenteNavItems: NavItem[] = [

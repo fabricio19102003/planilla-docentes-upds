@@ -3,6 +3,47 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput, TeacherDesignationsResponse } from '@/api/types'
 
+export function useApprovePlanilla() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (planillaId: number) => {
+      const res = await api.post(`/planilla/${planillaId}/approve`)
+      return res.data as { success: boolean; status: string; planilla_id: number }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['planilla'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-history'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-status'] })
+    },
+  })
+}
+
+export function useRejectPlanilla() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (planillaId: number) => {
+      const res = await api.post(`/planilla/${planillaId}/reject`)
+      return res.data as { success: boolean; status: string; planilla_id: number }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['planilla'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-history'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-status'] })
+    },
+  })
+}
+
+export function usePlanillaStatus(month: number, year: number) {
+  return useQuery({
+    queryKey: ['planilla-status', month, year],
+    queryFn: async () => {
+      const res = await api.get<PlanillaOutput[]>('/planilla/history')
+      const match = res.data.find((p) => p.month === month && p.year === year)
+      return match ?? null
+    },
+  })
+}
+
 async function fetchPlanillaHistory() {
   const response = await api.get<PlanillaOutput[]>('/planilla/history')
 

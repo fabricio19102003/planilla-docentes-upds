@@ -18,6 +18,7 @@ import { AdminRequestsPage } from './pages/AdminRequestsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { ActivityLogPage } from './pages/ActivityLogPage'
 import { ContractsPage } from './pages/ContractsPage'
+import { BackupPage } from './pages/BackupPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -71,6 +72,7 @@ function AppRoutes() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="contracts" element={<ContractsPage />} />
             <Route path="activity" element={<ActivityLogPage />} />
+            <Route path="backup" element={<BackupPage />} />
           </Route>
 
           {/* Docente routes */}

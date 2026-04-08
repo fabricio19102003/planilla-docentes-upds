@@ -19,6 +19,7 @@ from app.routers import (
     billing_publication_router,
     activity_log_router,
     contracts_router,
+    admin_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,7 @@ app.include_router(reports_router)
 app.include_router(billing_publication_router)
 app.include_router(activity_log_router)
 app.include_router(contracts_router)
+app.include_router(admin_router)
 
 
 @app.get("/health", tags=["system"])
