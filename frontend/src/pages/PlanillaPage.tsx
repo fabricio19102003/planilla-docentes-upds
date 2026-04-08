@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search, Send, EyeOff, Pencil, Check, X } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
-import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { PlanillaGenerateResponse, PlanillaOutput } from '@/api/types'
-import type { Column } from '@/components/shared/DataTable'
+import type { PlanillaGenerateResponse } from '@/api/types'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -21,60 +19,11 @@ function formatDate(dateStr: string): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
-const historyColumns: Column<PlanillaOutput>[] = [
-  {
-    key: 'month',
-    header: 'Período',
-    render: (item) => `${MONTH_NAMES[item.month]} ${item.year}`,
-  },
-  {
-    key: 'generated_at',
-    header: 'Generado el',
-    render: (item) => formatDate(item.generated_at),
-  },
-  { key: 'total_teachers', header: 'Docentes' },
-  {
-    key: 'total_hours',
-    header: 'Horas Totales',
-    render: (item) => `${item.total_hours}h`,
-  },
-  {
-    key: 'total_payment',
-    header: 'Monto Total',
-    render: (item) => `Bs ${parseFloat(item.total_payment).toFixed(2)}`,
-  },
-  {
-    key: 'status',
-    header: 'Estado',
-    render: (item) => (
-      <Badge
-        className={
-          item.status?.toLowerCase() === 'generated'
-            ? 'bg-green-100 text-green-700'
-            : 'bg-blue-100 text-blue-700'
-        }
-      >
-        {item.status?.toLowerCase() === 'generated' ? 'Generada' : item.status}
-      </Badge>
-    ),
-  },
-  {
-    key: 'id',
-    header: 'Descargar',
-    render: (item) =>
-      item.file_path ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`) }}
-          className="inline-flex items-center gap-1 text-[#0066CC] hover:underline text-sm font-medium"
-        >
-          <Download size={14} />
-          Excel
-        </button>
-      ) : (
-        <span className="text-gray-400 text-sm">No disponible</span>
-      ),
-  },
-]
+function formatShortDate(dateStr: string | null): string {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
 
 export function PlanillaPage() {
   const currentYear = new Date().getFullYear()
@@ -641,18 +590,103 @@ export function PlanillaPage() {
 
       {/* History */}
       <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
+            <History size={16} className="text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
+            <p className="text-xs text-gray-500">
+              {history ? `${history.length} planilla(s) generada(s)` : 'Cargando...'}
+            </p>
+          </div>
         </div>
-        <div className="p-5">
+        <div className="p-0">
           {historyLoading ? (
-            <LoadingPage />
+            <div className="p-5">
+              <LoadingPage />
+            </div>
+          ) : !history || history.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              No hay planillas generadas aún
+            </div>
           ) : (
-            <DataTable
-              columns={historyColumns}
-              data={history ?? []}
-              emptyMessage="No hay planillas generadas aún"
-            />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
+                    {['Período', 'Corte', 'Generada el', 'Docentes', 'Horas', 'Total (Bs)', 'Estado', 'Descarga'].map(h => (
+                      <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((item, i) => (
+                    <tr
+                      key={item.id}
+                      className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
+                      onClick={() => {
+                        setMonth(item.month)
+                        setYear(item.year)
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Calendar size={14} className="text-[#0066CC] flex-shrink-0" />
+                          <span className="font-semibold text-gray-800">{MONTH_NAMES[item.month]} {item.year}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                        {item.start_date && item.end_date
+                          ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
+                          : <span className="text-gray-300">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(item.generated_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-gray-700 font-medium">
+                          <Users size={13} className="text-gray-400" />
+                          {item.total_teachers}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
+                      <td className="px-4 py-3">
+                        <span className="font-bold" style={{ color: '#003366' }}>
+                          {parseFloat(item.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          className={
+                            item.status?.toLowerCase() === 'generated'
+                              ? 'bg-green-100 text-green-700 text-xs'
+                              : 'bg-blue-100 text-blue-700 text-xs'
+                          }
+                        >
+                          {item.status?.toLowerCase() === 'generated' ? 'Generada' : item.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {item.file_path ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
+                          >
+                            <Download size={12} />
+                            Excel
+                          </button>
+                        ) : (
+                          <span className="text-gray-300 text-xs">No disponible</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

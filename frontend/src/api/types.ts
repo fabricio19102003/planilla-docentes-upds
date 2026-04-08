@@ -262,6 +262,8 @@ export interface PlanillaOutput {
   total_hours: number
   total_payment: string
   status: string
+  start_date: string | null
+  end_date: string | null
 }
 
 export interface PlanillaGenerateResponse {
@@ -340,6 +342,7 @@ export interface UploadBiometricPayload {
 
 export interface UploadDesignationsPayload {
   file: File
+  academic_period?: string
   onProgress?: (progress: number) => void
 }
 

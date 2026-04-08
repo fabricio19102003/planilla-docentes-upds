@@ -139,6 +139,7 @@ class DesignationLoader:
         self,
         db: Session,
         json_path: str,
+        academic_period: str = "I/2026",
     ) -> DesignationLoadResult:
         """
         Load designations from a JSON file.
@@ -261,6 +262,7 @@ class DesignationLoader:
                     Designation.subject == subject,
                     Designation.semester == semester,
                     Designation.group_code == group_code,
+                    Designation.academic_period == academic_period,
                 )
                 .first()
             )
@@ -271,6 +273,7 @@ class DesignationLoader:
                     subject=subject,
                     semester=semester,
                     group_code=group_code,
+                    academic_period=academic_period,
                     schedule_json=schedule_json,
                     semester_hours=semester_hours,
                     monthly_hours=monthly_hours,
@@ -346,6 +349,7 @@ class DesignationLoader:
         self,
         db: Session,
         excel_path: str,
+        academic_period: str = "I/2026",
     ) -> DesignationLoadResult:
         """
         Alternative entry point: parse the Excel directly.
@@ -359,7 +363,7 @@ class DesignationLoader:
         logger.info(
             "load_from_excel called — delegating to load_from_json (%s)", json_path
         )
-        return self.load_from_json(db=db, json_path=str(json_path))
+        return self.load_from_json(db=db, json_path=str(json_path), academic_period=academic_period)
 
     def link_teachers_by_name(
         self,

@@ -42,7 +42,10 @@ async function uploadDesignations(payload: UploadDesignationsPayload) {
   const formData = new FormData()
   formData.append('file', payload.file)
 
-  const response = await api.post<DesignationUploadResponse>('/uploads/designations', formData, {
+  const period = payload.academic_period ?? 'I/2026'
+  const url = `/uploads/designations?academic_period=${encodeURIComponent(period)}`
+
+  const response = await api.post<DesignationUploadResponse>(url, formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },

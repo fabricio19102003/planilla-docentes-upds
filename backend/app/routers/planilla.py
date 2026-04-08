@@ -23,6 +23,7 @@ from app.schemas.planilla import (
     PlanillaGenerateResponse,
     PlanillaOutputResponse,
 )
+from app.config import settings
 from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PlanillaGenerator
 from app.services.activity_logger import log_activity
@@ -258,7 +259,14 @@ def get_teacher_designations(
         if teacher is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
 
-        designations = db.query(Designation).filter(Designation.teacher_ci == teacher_ci).all()
+        designations = (
+            db.query(Designation)
+            .filter(
+                Designation.teacher_ci == teacher_ci,
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            )
+            .all()
+        )
 
         DAY_ORDER = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
 
@@ -332,7 +340,12 @@ def dashboard_summary(
             .all()
         )
         teacher_count = db.query(func.count(Teacher.ci)).scalar() or 0
-        designation_count = db.query(func.count(Designation.id)).scalar() or 0
+        designation_count = (
+            db.query(func.count(Designation.id))
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .scalar()
+            or 0
+        )
 
         latest_period = (
             db.query(AttendanceRecord.month, AttendanceRecord.year)
@@ -415,6 +428,7 @@ def dashboard_summary(
         # ── Group distribution (for pie/bar chart) ───────
         group_dist_query = (
             db.query(Designation.group_code, func.count(Designation.id))
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
             .group_by(Designation.group_code)
             .order_by(func.count(Designation.id).desc())
             .all()
@@ -424,6 +438,7 @@ def dashboard_summary(
         # ── Semester distribution ────────────────────────
         semester_dist_query = (
             db.query(Designation.semester, func.count(Designation.id))
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
             .group_by(Designation.semester)
             .order_by(func.count(Designation.id).desc())
             .all()

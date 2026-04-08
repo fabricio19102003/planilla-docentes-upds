@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.designation import Designation
 from app.models.teacher import Teacher
@@ -90,7 +91,14 @@ def _get_teacher_designations(teacher_ci: str, db: Session) -> tuple[Teacher, li
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Docente con CI {teacher_ci} no encontrado",
         )
-    designations = db.query(Designation).filter(Designation.teacher_ci == teacher_ci).all()
+    designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher_ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .all()
+    )
     return teacher, designations
 
 
@@ -185,11 +193,14 @@ def generate_batch_contracts(
             .all()
         )
     else:
-        # All teachers with at least one designation, excluding TEMP placeholders
+        # All teachers with at least one designation in the active period, excluding TEMP
         teachers = (
             db.query(Teacher)
             .join(Designation, Teacher.ci == Designation.teacher_ci)
-            .filter(~Teacher.ci.startswith("TEMP-"))
+            .filter(
+                ~Teacher.ci.startswith("TEMP-"),
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            )
             .distinct()
             .all()
         )
@@ -204,7 +215,14 @@ def generate_batch_contracts(
     errors: list[str] = []
 
     for teacher in teachers:
-        designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+        designations = (
+            db.query(Designation)
+            .filter(
+                Designation.teacher_ci == teacher.ci,
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            )
+            .all()
+        )
         if not designations:
             continue
         try:

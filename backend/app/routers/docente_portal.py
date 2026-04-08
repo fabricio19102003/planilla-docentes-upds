@@ -218,8 +218,15 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
 
     rate = settings.HOURLY_RATE
 
-    # Get all designations for this teacher
-    all_designations = db.query(Designation).filter(Designation.teacher_ci == teacher_ci).all()
+    # Get all designations for this teacher (scoped to active academic period)
+    all_designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher_ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .all()
+    )
 
     # Check if teacher has biometric data scoped to THIS specific period
     has_biometric = (
@@ -462,9 +469,15 @@ def get_docente_profile(
     """Get authenticated docente's own teacher profile with designation count."""
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Load designations count
+    # Load designations count (scoped to active academic period)
     designation_count = (
-        db.query(func.count(Designation.id)).filter(Designation.teacher_ci == teacher.ci).scalar() or 0
+        db.query(func.count(Designation.id))
+        .filter(
+            Designation.teacher_ci == teacher.ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .scalar()
+        or 0
     )
 
     return ProfileResponse(
@@ -541,8 +554,15 @@ def generate_retention_letter_endpoint(
 
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Get all subjects from designations
-    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+    # Get all subjects from designations (scoped to active academic period)
+    designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher.ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .all()
+    )
     materias = sorted(set(d.subject for d in designations))
 
     pdf_path = generate_retention_letter(
@@ -587,7 +607,14 @@ def export_schedule_pdf(
     from app.services.schedule_pdf import generate_schedule_pdf
 
     teacher = _get_teacher_or_raise(current_user, db)
-    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+    designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher.ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .all()
+    )
 
     pdf_path = generate_schedule_pdf(teacher, designations)
 
@@ -626,7 +653,14 @@ def get_my_schedule(
         "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5,
     }
 
-    designations = db.query(Designation).filter(Designation.teacher_ci == teacher.ci).all()
+    designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher.ci,
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        )
+        .all()
+    )
 
     result: list[DesignationScheduleResponse] = []
     for d in designations:

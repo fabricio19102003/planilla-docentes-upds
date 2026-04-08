@@ -72,6 +72,30 @@ def _run_column_migrations() -> None:
                 conn.execute(text("ALTER TABLE teachers ADD COLUMN nit VARCHAR(50)"))
                 logger.info("Added column teachers.nit")
 
+            # designations.academic_period
+            if inspector.has_table("designations"):
+                desig_cols = {c["name"] for c in inspector.get_columns("designations")}
+                if "academic_period" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT 'I/2026'"
+                    ))
+                    logger.info("Added column designations.academic_period")
+
+                    # Drop old unique constraint (didn't include period) and create new one
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE designations DROP CONSTRAINT IF EXISTS "
+                            "uq_designation_teacher_subject_semester_group"
+                        ))
+                        conn.execute(text(
+                            "ALTER TABLE designations ADD CONSTRAINT "
+                            "uq_designation_teacher_subject_semester_group_period "
+                            "UNIQUE (teacher_ci, subject, semester, group_code, academic_period)"
+                        ))
+                        logger.info("Updated designations unique constraint to include academic_period")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not update designations constraint: %s", constraint_exc)
+
             conn.commit()
     except Exception as exc:
         logger.warning("Column migration check failed (may be first run): %s", exc)

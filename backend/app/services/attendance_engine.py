@@ -35,6 +35,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
 from app.utils.helpers import parse_time_str, time_to_minutes
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -188,8 +189,12 @@ class AttendanceEngine:
             upload_id,
         )
 
-        # ── Step 2: Load all designations ──────────────────────────────
-        all_designations: list[Designation] = db.query(Designation).all()
+        # ── Step 2: Load all designations (scoped to active academic period) ──
+        all_designations: list[Designation] = (
+            db.query(Designation)
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .all()
+        )
 
         # Index: teacher_ci → list[Designation]
         desig_index: dict[str, list[Designation]] = {}

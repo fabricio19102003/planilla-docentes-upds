@@ -7,6 +7,8 @@ import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import type { BiometricUploadResult, DesignationUploadResponse, TeacherUploadResponse, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
@@ -65,6 +67,7 @@ export function UploadPage() {
   // Designations state
   const [desFile, setDesFile] = useState<File | null>(null)
   const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
+  const [academicPeriod, setAcademicPeriod] = useState('I/2026')
 
   // Teacher list state
   const [teacherFile, setTeacherFile] = useState<File | null>(null)
@@ -93,7 +96,7 @@ export function UploadPage() {
     if (!desFile) return
     setDesResult(null)
     uploadDesignations.mutate(
-      { file: desFile },
+      { file: desFile, academic_period: academicPeriod },
       {
         onSuccess: (data) => {
           setDesResult(data)
@@ -218,6 +221,17 @@ export function UploadPage() {
               description="Archivo JSON o Excel con las designaciones del semestre"
               onFileSelect={(f) => setDesFile(f)}
             />
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Período Académico</Label>
+              <Input
+                value={academicPeriod}
+                onChange={e => setAcademicPeriod(e.target.value)}
+                placeholder="Ej: I/2026, II/2025"
+                className="text-sm"
+              />
+              <p className="text-xs text-gray-400">Identificador del semestre para esta carga de designaciones</p>
+            </div>
 
             <Button
               onClick={handleDesSubmit}

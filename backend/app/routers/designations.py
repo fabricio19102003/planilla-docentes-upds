@@ -9,7 +9,7 @@ import string
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -216,14 +216,15 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 def upload_designations(
     request: Request,
     file: UploadFile = File(...),
+    academic_period: str = Query(default="I/2026", description="Período académico, ej: I/2026, II/2025"),
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationUploadResponse:
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
     logger.info(
-        "Designation upload received: filename=%r, extension=%r, content_type=%r",
-        filename, extension, file.content_type,
+        "Designation upload received: filename=%r, extension=%r, content_type=%r, period=%r",
+        filename, extension, file.content_type, academic_period,
     )
     if extension not in {".json", ".xlsx"}:
         raise HTTPException(
@@ -233,17 +234,17 @@ def upload_designations(
 
     try:
         saved_path, stored_name = _save_upload_file(file)
-        logger.info("Processing designation upload %s", stored_name)
+        logger.info("Processing designation upload %s (period=%s)", stored_name, academic_period)
 
         loader = DesignationLoader()
         warnings: list[str] = []
 
         if extension == ".json":
-            result = loader.load_from_json(db=db, json_path=str(saved_path))
+            result = loader.load_from_json(db=db, json_path=str(saved_path), academic_period=academic_period)
         else:
             normalized_json, parser_warnings = _normalize_designations_excel(saved_path)
             warnings.extend(parser_warnings)
-            result = loader.load_from_json(db=db, json_path=str(normalized_json))
+            result = loader.load_from_json(db=db, json_path=str(normalized_json), academic_period=academic_period)
 
         # Auto-create docente user accounts for all loaded teachers
         users_created, users_skipped = _auto_create_docente_users(db)

@@ -19,6 +19,8 @@ class PlanillaOutputResponse(BaseModel):
     total_hours: int
     total_payment: Decimal
     status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -8,9 +8,6 @@ from app.database import Base
 
 
 class Designation(Base):
-    # NOTE: Designations are currently not scoped by academic period/term.
-    # When multiple semesters need to coexist, add a `period` or `term` field
-    # and filter all queries by active period.
     __tablename__ = "designations"
 
     __table_args__ = (
@@ -19,7 +16,8 @@ class Designation(Base):
             "subject",
             "semester",
             "group_code",
-            name="uq_designation_teacher_subject_semester_group",
+            "academic_period",
+            name="uq_designation_teacher_subject_semester_group_period",
         ),
     )
 
@@ -30,6 +28,7 @@ class Designation(Base):
     subject: Mapped[str] = mapped_column(String(200), nullable=False)
     semester: Mapped[str] = mapped_column(String(50), nullable=False)
     group_code: Mapped[str] = mapped_column(String(20), nullable=False)  # Normalized: M-1, T-2, N-3, G.E.
+    academic_period: Mapped[str] = mapped_column(String(20), nullable=False, default="I/2026", index=True)
     schedule_json: Mapped[Any] = mapped_column(JSON, nullable=False)  # array of schedule slots
     semester_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     monthly_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

@@ -64,6 +64,7 @@ from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -396,8 +397,12 @@ class PlanillaGenerator:
         """
         warnings: list[str] = []
 
-        # ── Step 1: Load ALL designations ──────────────────────────────
-        all_designations: list[Designation] = db.query(Designation).all()
+        # ── Step 1: Load ALL designations (scoped to active academic period) ──
+        all_designations: list[Designation] = (
+            db.query(Designation)
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .all()
+        )
 
         if not all_designations:
             warnings.append("No hay designaciones en la base de datos")
