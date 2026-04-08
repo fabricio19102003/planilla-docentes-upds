@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
 import { useUploadBiometric, useUploadDesignations, useUploadHistory, useUploadTeacherList } from '@/api/hooks/useBiometric'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { api } from '@/api/client'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -67,7 +68,14 @@ export function UploadPage() {
   // Designations state
   const [desFile, setDesFile] = useState<File | null>(null)
   const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
-  const [academicPeriod, setAcademicPeriod] = useState('I/2026')
+  // Start empty — filled by server config. Falls back to 'I/2026' if the request fails.
+  const [academicPeriod, setAcademicPeriod] = useState('')
+
+  useEffect(() => {
+    api.get<{ academic_period: string }>('/config/active-period')
+      .then(res => setAcademicPeriod(res.data.academic_period))
+      .catch(() => setAcademicPeriod('I/2026'))
+  }, [])
 
   // Teacher list state
   const [teacherFile, setTeacherFile] = useState<File | null>(null)

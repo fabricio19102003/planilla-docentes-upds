@@ -78,7 +78,7 @@ def _run_column_migrations() -> None:
                 desig_cols = {c["name"] for c in inspector.get_columns("designations")}
                 if "academic_period" not in desig_cols:
                     conn.execute(text(
-                        "ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT 'I/2026'"
+                        f"ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT '{settings.ACTIVE_ACADEMIC_PERIOD}'"
                     ))
                     logger.info("Added column designations.academic_period")
 

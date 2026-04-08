@@ -46,6 +46,12 @@ def _output_dir() -> Path:
     return path
 
 
+@router.get("/config/active-period")
+def get_active_period(_: User = Depends(require_admin)):
+    """Return the active academic period configured on the server."""
+    return {"academic_period": settings.ACTIVE_ACADEMIC_PERIOD}
+
+
 @router.post("/planilla/generate", response_model=PlanillaGenerateResponse)
 def generate_planilla(
     payload: PlanillaGenerateRequest,
@@ -121,8 +127,11 @@ def approve_planilla(
     planilla = db.query(PlanillaOutput).filter(PlanillaOutput.id == planilla_id).first()
     if not planilla:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planilla no encontrada")
-    if planilla.status == "approved":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La planilla ya está aprobada")
+    if planilla.status != "generated":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Solo se puede aprobar una planilla en estado 'generada' (estado actual: {planilla.status})",
+        )
 
     planilla.status = "approved"
 
@@ -152,6 +161,11 @@ def reject_planilla(
     planilla = db.query(PlanillaOutput).filter(PlanillaOutput.id == planilla_id).first()
     if not planilla:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planilla no encontrada")
+    if planilla.status not in ("generated", "approved"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Solo se puede rechazar una planilla en estado 'generada' o 'aprobada' (estado actual: {planilla.status})",
+        )
 
     planilla.status = "rejected"
 

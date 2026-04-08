@@ -20,6 +20,7 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.attendance import AttendanceRecord
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
@@ -631,11 +632,13 @@ class ReportGenerator:
         """Generate a teacher roster report PDF with all registered teachers."""
         teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
 
-        # Count designations per teacher
+        # Count designations per teacher — scoped to the active academic period
         from collections import Counter
         desig_counts: Counter[str] = Counter()
         desig_hours: Counter[str] = Counter()
-        all_desigs = db.query(Designation).all()
+        all_desigs = db.query(Designation).filter(
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+        ).all()
         for d in all_desigs:
             desig_counts[d.teacher_ci] += 1
             desig_hours[d.teacher_ci] += (d.monthly_hours or 0)

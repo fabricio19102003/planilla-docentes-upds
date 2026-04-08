@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -216,7 +217,7 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 def upload_designations(
     request: Request,
     file: UploadFile = File(...),
-    academic_period: str = Query(default="I/2026", description="Período académico, ej: I/2026, II/2025"),
+    academic_period: str = Query(default=settings.ACTIVE_ACADEMIC_PERIOD, description="Período académico, ej: I/2026, II/2025"),
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationUploadResponse:

@@ -31,6 +31,7 @@ from typing import Any
 from sqlalchemy import and_, exists, select, text
 from sqlalchemy.orm import Session, aliased
 
+from app.config import settings
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
@@ -139,7 +140,7 @@ class DesignationLoader:
         self,
         db: Session,
         json_path: str,
-        academic_period: str = "I/2026",
+        academic_period: str | None = None,
     ) -> DesignationLoadResult:
         """
         Load designations from a JSON file.
@@ -161,6 +162,9 @@ class DesignationLoader:
            e. Create a Designation row with schedule_json.
         4. Commit the session and return load statistics.
         """
+        if academic_period is None:
+            academic_period = settings.ACTIVE_ACADEMIC_PERIOD
+
         result = DesignationLoadResult()
         path = Path(json_path)
 
@@ -349,7 +353,7 @@ class DesignationLoader:
         self,
         db: Session,
         excel_path: str,
-        academic_period: str = "I/2026",
+        academic_period: str | None = None,
     ) -> DesignationLoadResult:
         """
         Alternative entry point: parse the Excel directly.

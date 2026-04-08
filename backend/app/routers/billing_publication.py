@@ -81,34 +81,38 @@ def publish_billing(
         if year < 2000 or year > 2100:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Año inválido")
 
-        # Get snapshot from planilla generator.
-        # Prefer the stored PlanillaOutput (generated with admin overrides) over live recalculation.
+        # Require an existing, approved PlanillaOutput — publication must NEVER bypass the
+        # approval workflow by falling back to live calculation.
+        stored_planilla = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+
+        if not stored_planilla:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No existe una planilla generada para este período. Genere una planilla primero.",
+            )
+
+        if stored_planilla.status != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La planilla debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
+            )
+
         generator = PlanillaGenerator()
         billing_snapshot = None
         try:
-            # Check for an existing generated planilla (which includes admin overrides)
-            stored_planilla = (
-                db.query(PlanillaOutput)
-                .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-                .order_by(PlanillaOutput.generated_at.desc())
-                .first()
-            )
-
-            if stored_planilla:
-                if stored_planilla.status != "approved":
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"La planilla debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
-                    )
-
             # Retrieve stored overrides if a planilla was generated with admin adjustments
             stored_overrides: dict[str, float] = {}
-            if stored_planilla and stored_planilla.payment_overrides_json:
+            if stored_planilla.payment_overrides_json:
                 stored_overrides = stored_planilla.payment_overrides_json
 
-            # Use stored start/end dates when a generated planilla exists
-            sd = stored_planilla.start_date if stored_planilla else None
-            ed = stored_planilla.end_date if stored_planilla else None
+            # Use stored start/end dates from the approved planilla
+            sd = stored_planilla.start_date
+            ed = stored_planilla.end_date
             rows, _detail_rows, _warnings = generator._build_planilla_data(
                 db, month=month, year=year, start_date=sd, end_date=ed
             )
@@ -173,22 +177,12 @@ def publish_billing(
                 t["total_payment"] += effective_payment
                 t["final_payment"] = round(float(t["total_payment"]), 2)
 
-            if stored_planilla:
-                total_payment = float(stored_planilla.total_payment)
-                snapshot_source = "planilla_output"
-                planilla_id = stored_planilla.id
-                logger.info(
-                    "Publish: using stored PlanillaOutput id=%d for %d/%d (total=%.2f, overrides=%d)",
-                    stored_planilla.id, month, year, total_payment, len(stored_overrides),
-                )
-            else:
-                total_payment = sum(r.final_payment for r in rows)
-                snapshot_source = "live_calculation"
-                planilla_id = None
-                logger.warning(
-                    "Publish: no stored PlanillaOutput for %d/%d — using live calculation",
-                    month, year,
-                )
+            total_payment = float(stored_planilla.total_payment)
+            planilla_id = stored_planilla.id
+            logger.info(
+                "Publish: using approved PlanillaOutput id=%d for %d/%d (total=%.2f, overrides=%d)",
+                stored_planilla.id, month, year, total_payment, len(stored_overrides),
+            )
 
             billing_snapshot = {
                 "teacher_details": list(teacher_map.values()),
@@ -196,9 +190,11 @@ def publish_billing(
                 "total_teachers": total_teachers,
                 "rate_per_hour": 70.0,
                 "generated_at": datetime.now().isoformat(),
-                "source": snapshot_source,
+                "source": "planilla_output",
                 "planilla_id": planilla_id,
             }
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("Failed to build planilla snapshot for %d/%d: %s", month, year, exc)
             raise HTTPException(

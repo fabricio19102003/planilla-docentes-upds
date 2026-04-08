@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.planilla import PlanillaOutput
 from app.models.report import Report
@@ -300,7 +301,9 @@ def preview_report(
 
             teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
             desig_counts: Counter[str] = Counter()
-            all_desigs = db.query(Designation).all()
+            all_desigs = db.query(Designation).filter(
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+            ).all()
             for d in all_desigs:
                 desig_counts[d.teacher_ci] += 1
 
