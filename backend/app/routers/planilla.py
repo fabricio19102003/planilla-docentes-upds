@@ -400,6 +400,48 @@ def planilla_history(
         ) from exc
 
 
+@router.get("/search")
+def global_search(
+    q: str = Query(..., min_length=2, description="Search term"),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Search across teachers, subjects, and groups."""
+    term = f"%{q}%"
+
+    teachers = db.query(Teacher).filter(
+        (Teacher.full_name.ilike(term)) | (Teacher.ci.ilike(term))
+    ).limit(5).all()
+
+    desigs = db.query(Designation).filter(
+        Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        (Designation.subject.ilike(term)) | (Designation.group_code.ilike(term))
+    ).limit(10).all()
+
+    seen_subjects: set[str] = set()
+    subjects = []
+    for d in desigs:
+        if d.subject not in seen_subjects:
+            seen_subjects.add(d.subject)
+            subjects.append({"subject": d.subject, "semester": d.semester})
+
+    seen_groups: set[str] = set()
+    groups = []
+    for d in desigs:
+        if d.group_code not in seen_groups:
+            seen_groups.add(d.group_code)
+            groups.append({"group_code": d.group_code})
+
+    return {
+        "teachers": [
+            {"ci": t.ci, "full_name": t.full_name, "email": t.email}
+            for t in teachers
+        ],
+        "subjects": subjects[:5],
+        "groups": groups[:5],
+    }
+
+
 @router.get("/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary(
     _: User = Depends(require_admin),

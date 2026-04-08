@@ -622,6 +622,399 @@ class ReportGenerator:
         logger.info("Generated comparative report: %s (%d months)", filename, len(monthly_data))
         return report
 
+    # ── Incidence Report ─────────────────────────────────────────────────────
+    def generate_incidence_report(
+        self,
+        db: Session,
+        month: int,
+        year: int,
+        generated_by: int | None = None,
+        generated_by_name: str | None = None,
+    ) -> Report:
+        """Generate an incidence report PDF showing attendance problems."""
+        from app.models.biometric import BiometricRecord, BiometricUpload
+        from collections import defaultdict
+
+        records = db.query(AttendanceRecord).filter(
+            AttendanceRecord.month == month,
+            AttendanceRecord.year == year,
+        ).all()
+
+        bio_cis = {
+            r[0] for r in db.query(BiometricRecord.teacher_ci)
+            .join(BiometricUpload)
+            .filter(BiometricUpload.month == month, BiometricUpload.year == year)
+            .distinct().all()
+        }
+
+        all_teacher_cis = {
+            r[0] for r in db.query(Designation.teacher_ci)
+            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .distinct().all()
+        }
+
+        teachers_without_bio = all_teacher_cis - bio_cis
+        teacher_names = {
+            t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis)).all()
+        }
+
+        teacher_stats: dict = defaultdict(lambda: {"absences": 0, "lates": 0, "late_minutes_total": 0, "total_slots": 0})
+        for r in records:
+            ts = teacher_stats[r.teacher_ci]
+            ts["total_slots"] += 1
+            if r.status == "ABSENT":
+                ts["absences"] += 1
+            elif r.status == "LATE":
+                ts["lates"] += 1
+                ts["late_minutes_total"] += r.late_minutes
+
+        top_absentees = sorted(
+            [{"ci": ci, "name": teacher_names.get(ci, ci), **stats}
+             for ci, stats in teacher_stats.items() if stats["absences"] > 0],
+            key=lambda x: -x["absences"]
+        )[:20]
+
+        top_lates = sorted(
+            [{"ci": ci, "name": teacher_names.get(ci, ci), **stats}
+             for ci, stats in teacher_stats.items() if stats["lates"] > 0],
+            key=lambda x: -x["lates"]
+        )[:20]
+
+        without_bio_list = [
+            {"ci": ci, "name": teacher_names.get(ci, ci)}
+            for ci in sorted(teachers_without_bio)
+            if ci in teacher_names
+        ]
+
+        total_absences = sum(1 for r in records if r.status == "ABSENT")
+        total_lates = sum(1 for r in records if r.status == "LATE")
+
+        month_name = MONTH_NAMES.get(month, str(month))
+        title = "Reporte de Incidencias"
+        subtitle = f"{month_name} {year}"
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"reporte_incidencias_{timestamp}.pdf"
+        filepath = _output_dir() / filename
+
+        doc = SimpleDocTemplate(
+            str(filepath), pagesize=A4,
+            leftMargin=15 * mm, rightMargin=15 * mm,
+            topMargin=15 * mm, bottomMargin=20 * mm,
+        )
+        elements: list = []
+        cs = self.cs
+
+        _add_branded_header(elements, self.styles, title, subtitle)
+
+        RED = colors.HexColor("#dc2626")
+        ORANGE = colors.HexColor("#d97706")
+        RED_LIGHT = colors.HexColor("#FEE2E2")
+        ORANGE_LIGHT = colors.HexColor("#FEF3C7")
+
+        # ── Summary ──────────────────────────────────────────────────────
+        summary_data = [
+            [_cell(h, cs["header"]) for h in ["Total Registros", "Ausencias", "Tardanzas", "Sin Biométrico"]],
+            [_cell(v, cs["cell_center"]) for v in [
+                str(len(records)), str(total_absences), str(total_lates), str(len(without_bio_list)),
+            ]],
+        ]
+        summary_table = Table(summary_data, colWidths=[110, 110, 110, 115])
+        summary_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 16))
+
+        # ── Top absentees table ───────────────────────────────────────────
+        section_style = ParagraphStyle(
+            "SectionTitle", parent=self.styles["Normal"],
+            fontSize=9, fontName="Helvetica-Bold", textColor=NAVY, spaceAfter=4,
+        )
+        elements.append(Paragraph("Docentes con más ausencias", section_style))
+
+        if top_absentees:
+            abs_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Ausencias", "Total Clases", "% Ausencia"]]
+            abs_data: list = [abs_header]
+            for idx, row in enumerate(top_absentees, start=1):
+                pct = row["absences"] / row["total_slots"] * 100 if row["total_slots"] > 0 else 0
+                abs_data.append([
+                    _cell(str(idx), cs["cell_center"]),
+                    _cell(row["name"], cs["cell"]),
+                    _cell(str(row["absences"]), cs["cell_center"]),
+                    _cell(str(row["total_slots"]), cs["cell_center"]),
+                    _cell(f"{pct:.1f}%", cs["cell_center"]),
+                ])
+            abs_table = Table(abs_data, colWidths=[25, 230, 70, 80, 70], repeatRows=1)
+            abs_style_list: list = [
+                ("BACKGROUND", (0, 0), (-1, 0), RED),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, RED_LIGHT]),
+            ]
+            abs_table.setStyle(TableStyle(abs_style_list))
+            elements.append(abs_table)
+        else:
+            elements.append(Paragraph("Sin ausencias registradas en el período.", cs["cell"]))
+        elements.append(Spacer(1, 12))
+
+        # ── Top lates table ───────────────────────────────────────────────
+        elements.append(Paragraph("Docentes con más tardanzas", section_style))
+
+        if top_lates:
+            late_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Tardanzas", "Min. Promedio"]]
+            late_data: list = [late_header]
+            for idx, row in enumerate(top_lates, start=1):
+                avg_min = row["late_minutes_total"] // row["lates"] if row["lates"] > 0 else 0
+                late_data.append([
+                    _cell(str(idx), cs["cell_center"]),
+                    _cell(row["name"], cs["cell"]),
+                    _cell(str(row["lates"]), cs["cell_center"]),
+                    _cell(str(avg_min), cs["cell_center"]),
+                ])
+            late_table = Table(late_data, colWidths=[25, 280, 70, 100], repeatRows=1)
+            late_style_list: list = [
+                ("BACKGROUND", (0, 0), (-1, 0), ORANGE),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ORANGE_LIGHT]),
+            ]
+            late_table.setStyle(TableStyle(late_style_list))
+            elements.append(late_table)
+        else:
+            elements.append(Paragraph("Sin tardanzas registradas en el período.", cs["cell"]))
+        elements.append(Spacer(1, 12))
+
+        # ── Without biometric table ───────────────────────────────────────
+        elements.append(Paragraph("Docentes sin biométrico", section_style))
+
+        if without_bio_list:
+            bio_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "CI"]]
+            bio_data: list = [bio_header]
+            for idx, row in enumerate(without_bio_list, start=1):
+                bio_data.append([
+                    _cell(str(idx), cs["cell_center"]),
+                    _cell(row["name"], cs["cell"]),
+                    _cell(row["ci"], cs["cell_center"]),
+                ])
+            bio_table = Table(bio_data, colWidths=[25, 330, 120], repeatRows=1)
+            bio_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
+            ]))
+            elements.append(bio_table)
+        else:
+            elements.append(Paragraph("Todos los docentes tienen registro biométrico.", cs["cell"]))
+
+        _add_footer(elements, self.styles, generated_by_name)
+        doc.build(elements)
+
+        report = Report(
+            report_type="incidence", title=title, description=subtitle,
+            filters={"month": month, "year": year},
+            file_path=str(filepath), file_size=filepath.stat().st_size,
+            generated_by=generated_by, status="generated",
+        )
+        db.add(report)
+        db.flush()
+        logger.info("Generated incidence report: %s", filename)
+        return report
+
+    # ── Reconciliation Report ─────────────────────────────────────────────────
+    def generate_reconciliation_report(
+        self,
+        db: Session,
+        month: int,
+        year: int,
+        generated_by: int | None = None,
+        generated_by_name: str | None = None,
+    ) -> Report:
+        """Generate a reconciliation report comparing designation vs attendance."""
+        from collections import defaultdict
+
+        att_records = db.query(AttendanceRecord).filter(
+            AttendanceRecord.month == month, AttendanceRecord.year == year,
+        ).all()
+
+        designations = db.query(Designation).filter(
+            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+        ).all()
+
+        teacher_cis = set(d.teacher_ci for d in designations)
+        teacher_names = {t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(teacher_cis)).all()}
+
+        att_by_teacher: dict = defaultdict(list)
+        for r in att_records:
+            att_by_teacher[r.teacher_ci].append(r)
+
+        desig_by_teacher: dict = defaultdict(list)
+        for d in designations:
+            desig_by_teacher[d.teacher_ci].append(d)
+
+        discrepancies = []
+        for ci in sorted(teacher_cis):
+            if ci.startswith("TEMP-"):
+                continue
+            name = teacher_names.get(ci, ci)
+            teacher_att = att_by_teacher.get(ci, [])
+            teacher_desigs = desig_by_teacher.get(ci, [])
+            expected_monthly_hours = sum(d.monthly_hours or 0 for d in teacher_desigs)
+
+            if not teacher_att:
+                discrepancies.append({
+                    "teacher_name": name,
+                    "type": "Sin registro",
+                    "description": "Sin registros de asistencia",
+                    "expected_hours": expected_monthly_hours,
+                    "actual_hours": 0,
+                    "severity": "high",
+                })
+                continue
+
+            absences = sum(1 for r in teacher_att if r.status == "ABSENT")
+            total = len(teacher_att)
+            absence_rate = absences / total if total > 0 else 0
+            attended_hours = sum(r.academic_hours for r in teacher_att if r.status in ("ATTENDED", "LATE"))
+
+            already_added = False
+            if absence_rate > 0.3:
+                discrepancies.append({
+                    "teacher_name": name,
+                    "type": "Alta ausencia",
+                    "description": f"Tasa de ausencia: {absence_rate*100:.0f}% ({absences}/{total} clases)",
+                    "expected_hours": expected_monthly_hours,
+                    "actual_hours": attended_hours,
+                    "severity": "high" if absence_rate > 0.5 else "medium",
+                })
+                already_added = True
+
+            if expected_monthly_hours > 0 and attended_hours < expected_monthly_hours * 0.5:
+                if not already_added:
+                    discrepancies.append({
+                        "teacher_name": name,
+                        "type": "Horas inconsistentes",
+                        "description": f"Horas asistidas ({attended_hours}h) < 50% de esperadas ({expected_monthly_hours}h)",
+                        "expected_hours": expected_monthly_hours,
+                        "actual_hours": attended_hours,
+                        "severity": "medium",
+                    })
+
+        month_name = MONTH_NAMES.get(month, str(month))
+        title = "Reporte de Conciliación"
+        subtitle = f"{month_name} {year}"
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"reporte_conciliacion_{timestamp}.pdf"
+        filepath = _output_dir() / filename
+
+        doc = SimpleDocTemplate(
+            str(filepath), pagesize=A4,
+            leftMargin=15 * mm, rightMargin=15 * mm,
+            topMargin=15 * mm, bottomMargin=20 * mm,
+        )
+        elements: list = []
+        cs = self.cs
+
+        _add_branded_header(elements, self.styles, title, subtitle)
+
+        RED = colors.HexColor("#dc2626")
+        ORANGE = colors.HexColor("#d97706")
+        PURPLE = colors.HexColor("#7c3aed")
+
+        # ── Summary ───────────────────────────────────────────────────────
+        high_count = sum(1 for d in discrepancies if d["severity"] == "high")
+        medium_count = sum(1 for d in discrepancies if d["severity"] == "medium")
+
+        summary_data = [
+            [_cell(h, cs["header"]) for h in ["Total Docentes", "Discrepancias", "Severidad Alta", "Severidad Media"]],
+            [_cell(v, cs["cell_center"]) for v in [
+                str(len(teacher_cis)), str(len(discrepancies)), str(high_count), str(medium_count),
+            ]],
+        ]
+        summary_table = Table(summary_data, colWidths=[110, 110, 110, 115])
+        summary_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
+            ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 16))
+
+        # ── Discrepancy table ─────────────────────────────────────────────
+        if discrepancies:
+            disc_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Tipo", "Descripción", "Hrs Esperadas", "Hrs Reales", "Severidad"]]
+            disc_data: list = [disc_header]
+
+            for idx, row in enumerate(discrepancies, start=1):
+                sev = row["severity"]
+                if sev == "high":
+                    sev_style = ParagraphStyle("SevHigh", parent=cs["cell_center"], textColor=RED, fontName="Helvetica-Bold")
+                    sev_label = "Alta"
+                else:
+                    sev_style = ParagraphStyle("SevMed", parent=cs["cell_center"], textColor=ORANGE, fontName="Helvetica-Bold")
+                    sev_label = "Media"
+
+                disc_data.append([
+                    _cell(str(idx), cs["cell_center"]),
+                    _cell(row["teacher_name"], cs["cell"]),
+                    _cell(row["type"], cs["cell"]),
+                    _cell(row["description"], cs["cell"]),
+                    _cell(f"{row['expected_hours']}h", cs["cell_center"]),
+                    _cell(f"{row['actual_hours']}h", cs["cell_center"]),
+                    _cell(sev_label, sev_style),
+                ])
+
+            disc_style_list: list = [
+                ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+            # Row coloring by severity
+            for i, row in enumerate(discrepancies, start=1):
+                if row["severity"] == "high":
+                    disc_style_list.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FEE2E2")))
+                else:
+                    disc_style_list.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FEF3C7")))
+
+            disc_table = Table(disc_data, colWidths=[22, 110, 65, 155, 55, 50, 50], repeatRows=1)
+            disc_table.setStyle(TableStyle(disc_style_list))
+            elements.append(disc_table)
+        else:
+            ok_style = ParagraphStyle("OkMsg", parent=self.styles["Normal"], fontSize=9, textColor=colors.HexColor("#16a34a"))
+            elements.append(Paragraph("¡Sin discrepancias! Todos los docentes tienen registros de asistencia consistentes.", ok_style))
+
+        _add_footer(elements, self.styles, generated_by_name)
+        doc.build(elements)
+
+        report = Report(
+            report_type="reconciliation", title=title, description=subtitle,
+            filters={"month": month, "year": year},
+            file_path=str(filepath), file_size=filepath.stat().st_size,
+            generated_by=generated_by, status="generated",
+        )
+        db.add(report)
+        db.flush()
+        logger.info("Generated reconciliation report: %s (%d discrepancies)", filename, len(discrepancies))
+        return report
+
     # ── Roster Report ────────────────────────────────────────────────────────
     def generate_roster_report(
         self,

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, ChevronDown, Bell } from 'lucide-react'
+import { LogOut, ChevronDown, Bell, Search, Users, BookOpen, Layers } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useUnreadCount } from '@/api/hooks/useNotifications'
+import { api } from '@/api/client'
 
 const routeTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -29,6 +30,12 @@ function getTitleFromPath(pathname: string): string {
   return match ? routeTitles[match] : 'UPDS Planilla'
 }
 
+interface SearchResults {
+  teachers: { ci: string; full_name: string; email: string | null }[]
+  subjects: { subject: string; semester: string }[]
+  groups: { group_code: string }[]
+}
+
 export function Header() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
@@ -37,6 +44,38 @@ export function Header() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const title = getTitleFromPath(pathname)
   const { data: unreadCount = 0 } = useUnreadCount(isDocente)
+
+  // Global search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
+  const [showSearch, setShowSearch] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  // Debounced search
+  useEffect(() => {
+    if (searchQuery.length < 2) { setSearchResults(null); return }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get<SearchResults>(`/search?q=${encodeURIComponent(searchQuery)}`)
+        setSearchResults(res.data)
+        setShowSearch(true)
+      } catch {
+        setSearchResults(null)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Click outside to close search
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSearch(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -60,9 +99,80 @@ export function Header() {
 
   return (
     <header className="relative bg-white shadow-md h-16 flex items-center justify-between px-6 sticky top-0 z-40">
-      <h1 className="text-xl font-semibold" style={{ color: '#003366' }}>
+      <h1 className="text-xl font-semibold flex-shrink-0" style={{ color: '#003366' }}>
         {title}
       </h1>
+
+      {/* Global search — admin only */}
+      {isAdmin && (
+        <div ref={searchRef} className="relative flex-1 max-w-md mx-4">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onFocus={() => searchResults && setShowSearch(true)}
+              placeholder="Buscar docente, materia o grupo..."
+              className="w-full pl-10 pr-4 py-2 bg-gray-100 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:bg-white transition-colors"
+            />
+          </div>
+
+          {showSearch && searchResults && (
+            <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+              {/* Teachers */}
+              {searchResults.teachers?.length > 0 && (
+                <div>
+                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase bg-gray-50">Docentes</p>
+                  {searchResults.teachers.map((t) => (
+                    <button
+                      key={t.ci}
+                      onClick={() => { navigate(`/teachers/${t.ci}`); setShowSearch(false); setSearchQuery('') }}
+                      className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm"
+                    >
+                      <Users size={14} className="text-gray-400 flex-shrink-0" />
+                      <span className="font-medium text-gray-800 truncate">{t.full_name}</span>
+                      <span className="text-xs text-gray-400 ml-auto flex-shrink-0">CI: {t.ci}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Subjects */}
+              {searchResults.subjects?.length > 0 && (
+                <div>
+                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase bg-gray-50">Materias</p>
+                  {searchResults.subjects.map((s) => (
+                    <div key={s.subject} className="px-3 py-2 text-sm flex items-center gap-2">
+                      <BookOpen size={14} className="text-gray-400 flex-shrink-0" />
+                      <span className="text-gray-700 truncate">{s.subject}</span>
+                      <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{s.semester}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Groups */}
+              {searchResults.groups?.length > 0 && (
+                <div>
+                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase bg-gray-50">Grupos</p>
+                  {searchResults.groups.map((g) => (
+                    <div key={g.group_code} className="px-3 py-2 text-sm flex items-center gap-2">
+                      <Layers size={14} className="text-gray-400 flex-shrink-0" />
+                      <span className="text-gray-700">{g.group_code}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!searchResults.teachers?.length && !searchResults.subjects?.length && !searchResults.groups?.length && (
+                <p className="px-3 py-4 text-sm text-gray-400 text-center">Sin resultados para &ldquo;{searchQuery}&rdquo;</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Notification bell — docentes only */}
       <div className="flex items-center gap-2">

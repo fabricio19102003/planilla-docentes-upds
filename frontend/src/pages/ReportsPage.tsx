@@ -14,6 +14,8 @@ import {
   Clock,
   History,
   X,
+  AlertTriangle,
+  ArrowLeftRight,
 } from 'lucide-react'
 import {
   useReportPreview,
@@ -38,6 +40,8 @@ const REPORT_TYPES = {
   attendance: { label: 'Asistencia', icon: ClipboardCheck, color: '#0066CC', bgClass: 'bg-blue-600/10 border-[#0066CC]' },
   comparative: { label: 'Comparativo', icon: BarChart3, color: '#4DA8DA', bgClass: 'bg-sky-400/10 border-[#4DA8DA]' },
   roster: { label: 'Plantel Docente', icon: Users, color: '#16a34a', bgClass: 'bg-green-600/10 border-green-600' },
+  incidence: { label: 'Incidencias', icon: AlertTriangle, color: '#dc2626', bgClass: 'bg-red-600/10 border-red-600' },
+  reconciliation: { label: 'Conciliación', icon: ArrowLeftRight, color: '#7c3aed', bgClass: 'bg-purple-600/10 border-purple-600' },
 } as const
 
 type ReportType = keyof typeof REPORT_TYPES
@@ -336,6 +340,194 @@ function RosterPreview({ data }: { data: any }) {
   )
 }
 
+// ── Incidence Preview ────────────────────────────────────────────────────────
+
+function IncidencePreview({ data }: { data: any }) {
+  return (
+    <div className="space-y-5">
+      {/* 4 stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Registros', value: data.total_records, color: '#003366' },
+          { label: 'Ausencias', value: data.total_absences, color: '#dc2626' },
+          { label: 'Tardanzas', value: data.total_lates, color: '#d97706' },
+          { label: 'Sin Biométrico', value: data.teachers_without_biometric, color: '#7c3aed' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="rounded-lg p-3 text-center" style={{ backgroundColor: `${color}0d`, border: `1px solid ${color}30` }}>
+            <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Top absentees */}
+      <div>
+        <h4 className="text-sm font-semibold text-red-700 mb-2">Docentes con más ausencias</h4>
+        {data.top_absentees?.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-red-100 max-h-60 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0">
+                <tr className="bg-red-600">
+                  {['Nº', 'Docente', 'Ausencias', 'Total Clases', '% Ausencia'].map(h => (
+                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.top_absentees.map((row: any, i: number) => {
+                  const pct = row.total_slots > 0 ? (row.absences / row.total_slots * 100).toFixed(1) : '0'
+                  return (
+                    <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-red-50/70 transition-colors ${i % 2 === 1 ? 'bg-red-50/30' : 'bg-white'}`}>
+                      <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
+                      <td className="px-3 py-2 text-center font-bold text-red-600">{row.absences}</td>
+                      <td className="px-3 py-2 text-center text-gray-600">{row.total_slots}</td>
+                      <td className="px-3 py-2 text-center text-red-700 font-medium">{pct}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">Sin ausencias registradas en el período.</p>
+        )}
+      </div>
+
+      {/* Top lates */}
+      <div>
+        <h4 className="text-sm font-semibold text-amber-700 mb-2">Docentes con más tardanzas</h4>
+        {data.top_lates?.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-amber-100 max-h-60 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0">
+                <tr className="bg-amber-500">
+                  {['Nº', 'Docente', 'Tardanzas', 'Min. Promedio'].map(h => (
+                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.top_lates.map((row: any, i: number) => {
+                  const avgMin = row.lates > 0 ? Math.floor(row.late_minutes_total / row.lates) : 0
+                  return (
+                    <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-amber-50/70 transition-colors ${i % 2 === 1 ? 'bg-amber-50/30' : 'bg-white'}`}>
+                      <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
+                      <td className="px-3 py-2 text-center font-bold text-amber-600">{row.lates}</td>
+                      <td className="px-3 py-2 text-center text-gray-600">{avgMin} min</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">Sin tardanzas registradas en el período.</p>
+        )}
+      </div>
+
+      {/* Without biometric */}
+      <div>
+        <h4 className="text-sm font-semibold text-purple-700 mb-2">Docentes sin biométrico</h4>
+        {data.without_biometric?.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-purple-100 max-h-60 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0">
+                <tr style={{ backgroundColor: '#7c3aed' }}>
+                  {['Nº', 'Docente', 'CI'].map(h => (
+                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.without_biometric.map((row: any, i: number) => (
+                  <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-purple-50/70 transition-colors ${i % 2 === 1 ? 'bg-purple-50/20' : 'bg-white'}`}>
+                    <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-800 max-w-[220px] truncate">{row.teacher_name}</td>
+                    <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.teacher_ci}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-green-600 font-medium">Todos los docentes tienen registro biométrico.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Reconciliation Preview ───────────────────────────────────────────────────
+
+function ReconciliationPreview({ data }: { data: any }) {
+  const SEVERITY_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
+    high: { bg: 'bg-red-50/40', text: 'text-red-600', badge: 'bg-red-100 text-red-700' },
+    medium: { bg: 'bg-amber-50/40', text: 'text-amber-600', badge: 'bg-amber-100 text-amber-700' },
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Docentes', value: data.total_teachers, color: '#7c3aed' },
+          { label: 'Discrepancias', value: data.total_discrepancies, color: '#003366' },
+          { label: 'Severidad Alta', value: data.high_severity, color: '#dc2626' },
+          { label: 'Severidad Media', value: data.medium_severity, color: '#d97706' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="rounded-lg p-3 text-center" style={{ backgroundColor: `${color}0d`, border: `1px solid ${color}30` }}>
+            <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Discrepancy table */}
+      {data.discrepancies?.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-purple-100 max-h-80 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0">
+              <tr style={{ backgroundColor: '#7c3aed' }}>
+                {['Nº', 'Docente', 'Tipo', 'Descripción', 'Hrs Esperadas', 'Hrs Reales', 'Severidad'].map(h => (
+                  <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.discrepancies.map((row: any, i: number) => {
+                const sev = SEVERITY_COLORS[row.severity] ?? SEVERITY_COLORS.medium
+                return (
+                  <tr key={i} className={`border-b last:border-0 hover:bg-purple-50/50 transition-colors ${sev.bg}`}>
+                    <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.teacher_name}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.type}</td>
+                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate">{row.description}</td>
+                    <td className="px-3 py-2 text-center text-gray-700">{row.expected_hours}h</td>
+                    <td className="px-3 py-2 text-center font-medium" style={{ color: row.actual_hours < row.expected_hours * 0.5 ? '#dc2626' : '#374151' }}>
+                      {row.actual_hours}h
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sev.badge}`}>
+                        {row.severity === 'high' ? 'Alta' : 'Media'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="p-4 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 font-medium text-center">
+          ¡Sin discrepancias! Todos los docentes tienen registros de asistencia consistentes con sus designaciones.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export function ReportsPage() {
@@ -385,14 +577,15 @@ export function ReportsPage() {
   // Keep filters in sync with month/year/semester/groupCode/subject/reportType
   useEffect(() => {
     const isRoster = reportType === 'roster'
+    const isSimple = reportType === 'incidence' || reportType === 'reconciliation'
     setFilters(f => ({
       ...f,
       report_type: reportType,
-      month: !isRoster && reportType !== 'comparative' ? month : undefined,
-      year: !isRoster ? year : undefined,
-      semester: !isRoster ? (semester || undefined) : undefined,
-      group_code: !isRoster ? (groupCode || undefined) : undefined,
-      subject: !isRoster ? (subject || undefined) : undefined,
+      month: (!isRoster && reportType !== 'comparative') || isSimple ? month : undefined,
+      year: (!isRoster || isSimple) ? year : undefined,
+      semester: (!isRoster && !isSimple) ? (semester || undefined) : undefined,
+      group_code: (!isRoster && !isSimple) ? (groupCode || undefined) : undefined,
+      subject: (!isRoster && !isSimple) ? (subject || undefined) : undefined,
     }))
   }, [reportType, month, year, semester, groupCode, subject])
 
@@ -420,6 +613,7 @@ export function ReportsPage() {
   }
 
   const needsMonth = reportType !== 'comparative' && reportType !== 'roster'
+  const isSimpleReport = reportType === 'incidence' || reportType === 'reconciliation'
 
   return (
     <div className="space-y-6">
@@ -471,6 +665,8 @@ export function ReportsPage() {
                       {type === 'attendance' && 'Registros de asistencia detallados'}
                       {type === 'comparative' && 'Evolución mensual del año'}
                       {type === 'roster' && 'Lista completa del plantel docente'}
+                      {type === 'incidence' && 'Ausencias, tardanzas y sin biométrico'}
+                      {type === 'reconciliation' && 'Designación vs asistencia real'}
                     </p>
                   </div>
                 </button>
@@ -491,6 +687,38 @@ export function ReportsPage() {
             <p className="text-sm text-gray-500 mb-4">
               El reporte de Plantel Docente incluye todos los docentes registrados. No requiere filtros adicionales.
             </p>
+          ) : isSimpleReport ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Month */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                <Calendar size={13} className="inline mr-1" />Mes
+              </label>
+              <select
+                value={month}
+                onChange={(e) => { setMonth(Number(e.target.value)); setPreviewEnabled(false) }}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+              >
+                {Object.entries(MONTH_NAMES).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            {/* Year */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                <Calendar size={13} className="inline mr-1" />Año
+              </label>
+              <input
+                type="number"
+                value={year}
+                onChange={(e) => { setYear(Number(e.target.value)); setPreviewEnabled(false) }}
+                min={2020}
+                max={2030}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+              />
+            </div>
+          </div>
           ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 
@@ -724,6 +952,8 @@ export function ReportsPage() {
                 {previewData.report_type === 'attendance' && <AttendancePreview data={previewData} />}
                 {previewData.report_type === 'comparative' && <ComparativePreview data={previewData} />}
                 {previewData.report_type === 'roster' && <RosterPreview data={previewData} />}
+                {previewData.report_type === 'incidence' && <IncidencePreview data={previewData} />}
+                {previewData.report_type === 'reconciliation' && <ReconciliationPreview data={previewData} />}
               </>
             )}
           </div>

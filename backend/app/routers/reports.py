@@ -74,6 +74,22 @@ def generate_report(
                 generated_by=current_user.id,
                 generated_by_name=user_name,
             )
+        elif report_type == 'incidence':
+            if not month or not year:
+                raise HTTPException(status_code=400, detail="month and year are required for incidence reports")
+            report = gen.generate_incidence_report(
+                db, month=month, year=year,
+                generated_by=current_user.id,
+                generated_by_name=user_name,
+            )
+        elif report_type == 'reconciliation':
+            if not month or not year:
+                raise HTTPException(status_code=400, detail="month and year are required for reconciliation reports")
+            report = gen.generate_reconciliation_report(
+                db, month=month, year=year,
+                generated_by=current_user.id,
+                generated_by_name=user_name,
+            )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")
 
@@ -329,6 +345,173 @@ def preview_report(
                     }
                     for t in teachers[:50]
                 ],
+            }
+
+        elif report_type == 'incidence':
+            from app.models.biometric import BiometricRecord, BiometricUpload
+            from app.models.teacher import Teacher
+            from collections import defaultdict
+
+            if not month or not year:
+                raise HTTPException(400, detail="month and year required for incidence reports")
+
+            records = db.query(AttendanceRecord).filter(
+                AttendanceRecord.month == month,
+                AttendanceRecord.year == year,
+            ).all()
+
+            bio_cis = {
+                r[0] for r in db.query(BiometricRecord.teacher_ci)
+                .join(BiometricUpload)
+                .filter(BiometricUpload.month == month, BiometricUpload.year == year)
+                .distinct().all()
+            }
+
+            all_teacher_cis = {
+                r[0] for r in db.query(Designation.teacher_ci)
+                .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+                .distinct().all()
+            }
+
+            teachers_without_bio = all_teacher_cis - bio_cis
+            teacher_names = {
+                t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis)).all()
+            }
+
+            teacher_stats: dict = defaultdict(lambda: {"absences": 0, "lates": 0, "late_minutes_total": 0, "total_slots": 0, "attended": 0})
+            for r in records:
+                ts = teacher_stats[r.teacher_ci]
+                ts["total_slots"] += 1
+                if r.status == "ABSENT":
+                    ts["absences"] += 1
+                elif r.status == "LATE":
+                    ts["lates"] += 1
+                    ts["late_minutes_total"] += r.late_minutes
+                elif r.status == "ATTENDED":
+                    ts["attended"] += 1
+
+            top_absentees = sorted(
+                [{"teacher_ci": ci, "teacher_name": teacher_names.get(ci, ci), **stats}
+                 for ci, stats in teacher_stats.items() if stats["absences"] > 0],
+                key=lambda x: -x["absences"]
+            )[:20]
+
+            top_lates = sorted(
+                [{"teacher_ci": ci, "teacher_name": teacher_names.get(ci, ci), **stats}
+                 for ci, stats in teacher_stats.items() if stats["lates"] > 0],
+                key=lambda x: -x["lates"]
+            )[:20]
+
+            without_bio_list = [
+                {"teacher_ci": ci, "teacher_name": teacher_names.get(ci, ci)}
+                for ci in sorted(teachers_without_bio)
+                if ci in teacher_names
+            ]
+
+            total_absences = sum(1 for r in records if r.status == "ABSENT")
+            total_lates = sum(1 for r in records if r.status == "LATE")
+
+            return {
+                "report_type": "incidence",
+                "month": month,
+                "year": year,
+                "total_records": len(records),
+                "total_absences": total_absences,
+                "total_lates": total_lates,
+                "teachers_without_biometric": len(without_bio_list),
+                "top_absentees": top_absentees,
+                "top_lates": top_lates,
+                "without_biometric": without_bio_list,
+            }
+
+        elif report_type == 'reconciliation':
+            from app.models.biometric import BiometricRecord, BiometricUpload
+            from app.models.teacher import Teacher
+            from collections import defaultdict
+
+            if not month or not year:
+                raise HTTPException(400, detail="month and year required for reconciliation reports")
+
+            att_records = db.query(AttendanceRecord).filter(
+                AttendanceRecord.month == month, AttendanceRecord.year == year,
+            ).all()
+
+            designations = db.query(Designation).filter(
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+            ).all()
+
+            teacher_cis = set(d.teacher_ci for d in designations)
+            teacher_names = {t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(teacher_cis)).all()}
+
+            att_by_teacher: dict = defaultdict(list)
+            for r in att_records:
+                att_by_teacher[r.teacher_ci].append(r)
+
+            desig_by_teacher: dict = defaultdict(list)
+            for d in designations:
+                desig_by_teacher[d.teacher_ci].append(d)
+
+            discrepancies = []
+            for ci in sorted(teacher_cis):
+                if ci.startswith("TEMP-"):
+                    continue
+                name = teacher_names.get(ci, ci)
+                teacher_att = att_by_teacher.get(ci, [])
+                teacher_desigs = desig_by_teacher.get(ci, [])
+
+                expected_monthly_hours = sum(d.monthly_hours or 0 for d in teacher_desigs)
+
+                if not teacher_att:
+                    discrepancies.append({
+                        "teacher_ci": ci,
+                        "teacher_name": name,
+                        "type": "no_records",
+                        "description": "Sin registros de asistencia",
+                        "expected_hours": expected_monthly_hours,
+                        "actual_hours": 0,
+                        "severity": "high",
+                    })
+                    continue
+
+                absences = sum(1 for r in teacher_att if r.status == "ABSENT")
+                total = len(teacher_att)
+                absence_rate = absences / total if total > 0 else 0
+                attended_hours = sum(r.academic_hours for r in teacher_att if r.status in ("ATTENDED", "LATE"))
+
+                already_added = False
+                if absence_rate > 0.3:
+                    discrepancies.append({
+                        "teacher_ci": ci,
+                        "teacher_name": name,
+                        "type": "high_absence",
+                        "description": f"Tasa de ausencia: {absence_rate*100:.0f}% ({absences}/{total} clases)",
+                        "expected_hours": expected_monthly_hours,
+                        "actual_hours": attended_hours,
+                        "severity": "high" if absence_rate > 0.5 else "medium",
+                    })
+                    already_added = True
+
+                if expected_monthly_hours > 0 and attended_hours < expected_monthly_hours * 0.5:
+                    if not already_added:
+                        discrepancies.append({
+                            "teacher_ci": ci,
+                            "teacher_name": name,
+                            "type": "hours_mismatch",
+                            "description": f"Horas asistidas ({attended_hours}h) < 50% de esperadas ({expected_monthly_hours}h)",
+                            "expected_hours": expected_monthly_hours,
+                            "actual_hours": attended_hours,
+                            "severity": "medium",
+                        })
+
+            return {
+                "report_type": "reconciliation",
+                "month": month,
+                "year": year,
+                "total_teachers": len(teacher_cis),
+                "total_discrepancies": len(discrepancies),
+                "high_severity": sum(1 for d in discrepancies if d["severity"] == "high"),
+                "medium_severity": sum(1 for d in discrepancies if d["severity"] == "medium"),
+                "discrepancies": discrepancies,
             }
 
         else:
