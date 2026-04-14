@@ -235,15 +235,13 @@ def get_attendance(
         ) from exc
 
 
-@router.get("/attendance/audit/{teacher_ci}")
-def get_attendance_audit(
+def _get_audit_data(
     teacher_ci: str,
-    month: int = Query(...),
-    year: int = Query(...),
-    current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    month: int,
+    year: int,
+    db: Session,
 ):
-    """Get detailed attendance audit for a teacher — shows schedule, biometric data, and processing result."""
+    """Shared data-collection logic for the audit GET and PDF endpoints."""
     from app.models.biometric import BiometricRecord, BiometricUpload
     from app.config import settings
 
@@ -256,19 +254,6 @@ def get_attendance_audit(
         Designation.teacher_ci == teacher_ci,
         Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
     ).all()
-
-    schedule_info = []
-    for d in designations:
-        slots = d.schedule_json or []
-        schedule_info.append({
-            "designation_id": d.id,
-            "subject": d.subject,
-            "group_code": d.group_code,
-            "semester": d.semester,
-            "monthly_hours": d.monthly_hours,
-            "weekly_hours": d.weekly_hours,
-            "slots": slots,
-        })
 
     # 2. Raw biometric records for this teacher in this period
     bio_records = (
@@ -283,17 +268,6 @@ def get_attendance_audit(
         .all()
     )
 
-    biometric_data = [
-        {
-            "id": r.id,
-            "date": r.date.isoformat() if r.date else None,
-            "entry_time": r.entry_time.strftime("%H:%M") if r.entry_time else None,
-            "exit_time": r.exit_time.strftime("%H:%M") if r.exit_time else None,
-            "worked_minutes": r.worked_minutes,
-        }
-        for r in bio_records
-    ]
-
     # 3. Processed attendance records (the system's output)
     att_records = (
         db.query(AttendanceRecord)
@@ -305,6 +279,48 @@ def get_attendance_audit(
         .order_by(AttendanceRecord.date, AttendanceRecord.scheduled_start)
         .all()
     )
+
+    return teacher, designations, bio_records, att_records
+
+
+@router.get("/attendance/audit/{teacher_ci}")
+def get_attendance_audit(
+    teacher_ci: str,
+    month: int = Query(...),
+    year: int = Query(...),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Get detailed attendance audit for a teacher — shows schedule, biometric data, and processing result."""
+    from app.models.biometric import BiometricRecord
+
+    teacher, designations, bio_records, att_records = _get_audit_data(
+        teacher_ci, month, year, db
+    )
+
+    schedule_info = []
+    for d in designations:
+        slots = d.schedule_json or []
+        schedule_info.append({
+            "designation_id": d.id,
+            "subject": d.subject,
+            "group_code": d.group_code,
+            "semester": d.semester,
+            "monthly_hours": d.monthly_hours,
+            "weekly_hours": d.weekly_hours,
+            "slots": slots,
+        })
+
+    biometric_data = [
+        {
+            "id": r.id,
+            "date": r.date.isoformat() if r.date else None,
+            "entry_time": r.entry_time.strftime("%H:%M") if r.entry_time else None,
+            "exit_time": r.exit_time.strftime("%H:%M") if r.exit_time else None,
+            "worked_minutes": r.worked_minutes,
+        }
+        for r in bio_records
+    ]
 
     # Build detailed audit trail per record
     attendance_audit = []
@@ -380,6 +396,51 @@ def get_attendance_audit(
         "biometric_raw": biometric_data,
         "attendance_detail": attendance_audit,
     }
+
+
+@router.get("/attendance/audit/{teacher_ci}/pdf")
+def export_attendance_audit_pdf(
+    teacher_ci: str,
+    month: int = Query(...),
+    year: int = Query(...),
+    request: Request = None,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate and download a PDF audit report for a specific teacher."""
+    from app.services.audit_report_pdf import generate_audit_report_pdf
+    from fastapi.responses import FileResponse
+
+    teacher, designations, bio_records, att_records = _get_audit_data(
+        teacher_ci, month, year, db
+    )
+
+    pdf_path = generate_audit_report_pdf(
+        teacher=teacher,
+        month=month,
+        year=year,
+        designations=designations,
+        bio_records=bio_records,
+        att_records=att_records,
+        db=db,
+    )
+
+    log_activity(
+        db,
+        "export_audit_report",
+        "reports",
+        f"Reporte de auditoría exportado: {teacher.full_name} — {MONTH_NAMES.get(month)} {year}",
+        user=current_user,
+        request=request,
+    )
+    db.commit()
+
+    safe_name = teacher.full_name.replace(" ", "_")
+    return FileResponse(
+        path=pdf_path,
+        filename=f"Auditoria_Asistencia_{safe_name}_{month}_{year}.pdf",
+        media_type="application/pdf",
+    )
 
 
 @router.get("/observations/{month}/{year}", response_model=list[ObservationResponse])

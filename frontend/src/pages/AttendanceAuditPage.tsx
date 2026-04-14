@@ -7,10 +7,13 @@ import {
   Loader2,
   X,
   Users,
+  Download,
 } from 'lucide-react'
 import { useAttendanceAudit } from '@/api/hooks/useAttendance'
 import { useTeachers } from '@/api/hooks/useTeachers'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { api } from '@/api/client'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -32,6 +35,7 @@ export function AttendanceAuditPage() {
   const [teacherSearch, setTeacherSearch] = useState('')
   const [selectedCi, setSelectedCi] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const { data: teachersData } = useTeachers({ page: 1, perPage: 500 })
@@ -51,6 +55,30 @@ export function AttendanceAuditPage() {
     year,
     !!selectedCi,
   )
+
+  const handleDownloadPDF = async () => {
+    if (!selectedCi) return
+    setDownloading(true)
+    try {
+      const response = await api.get(
+        `/attendance/audit/${selectedCi}/pdf?month=${month}&year=${year}`,
+        { responseType: 'blob' },
+      )
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const safeName = (data?.teacher_name ?? 'docente').replace(/\s+/g, '_')
+      link.download = `Auditoria_Asistencia_${safeName}_${month}_${year}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Error downloading audit PDF:', e)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -233,6 +261,20 @@ export function AttendanceAuditPage() {
                   ? `${data.biometric_records_count} registros biométricos`
                   : 'Sin biométrico'}
               </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
+                onClick={handleDownloadPDF}
+                disabled={downloading}
+              >
+                {downloading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+                Descargar PDF
+              </Button>
             </div>
 
             {/* Summary cards */}
