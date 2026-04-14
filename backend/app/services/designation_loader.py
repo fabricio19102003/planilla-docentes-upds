@@ -4,16 +4,21 @@ Loads designation JSON files into the database.
 
 Supported JSON formats
 ----------------------
-1. New format (designacion_new.json) — direct array:
+1. UPDS Official format (Designaciones_UPDS_*.json) — direct array with uppercase keys:
+   [{"CI": 6593630, "NOMBRE COMPLETO": "...", "MATERIAS": "...", "HORARIO": "...", ...}]
+   Teachers are created with REAL CIs (no TEMP needed).
+
+2. New format (designacion_new.json) — direct array:
    [{"docente": ..., "materias": ..., "carga_horaria": ..., "mes": ..., "semana": ...,
      "horario": "...(raw string)...", "horario_detalle": [{"dia": "Lunes", ...}], ...}]
 
-2. Old format (designaciones_normalizadas.json) — dict with wrapper:
+3. Old format (designaciones_normalizadas.json) — dict with wrapper:
    {"metadata": {...}, "designaciones": [...old entries...]}
    Kept for backwards compatibility during transition.
 
 Strategy for teacher CI resolution:
-  - Designations don't have CI → create teachers with TEMP-{slug} CI
+  - UPDS Official format: has real CIs — use them directly
+  - New/Old formats: no CI → create teachers with TEMP-{slug} CI
   - When biometric data arrives (CI + name), call link_teachers_by_name()
     to promote TEMP records to real CIs using fuzzy name matching
 """
@@ -22,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -125,6 +131,17 @@ def _make_temp_ci(full_name: str) -> str:
     return f"TEMP-{digest}"
 
 
+def _calc_duration(hora_inicio: str, hora_fin: str) -> int:
+    """Calculate duration in minutes between two HH:MM strings. Returns 0 on error."""
+    try:
+        t_inicio = datetime.strptime(hora_inicio, "%H:%M")
+        t_fin = datetime.strptime(hora_fin, "%H:%M")
+        mins = int((t_fin - t_inicio).total_seconds() / 60)
+        return max(mins, 0)
+    except (ValueError, TypeError):
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Main loader class
 # ---------------------------------------------------------------------------
@@ -177,25 +194,86 @@ class DesignationLoader:
         # ---- Detect format ----
         if isinstance(data, list):
             entries: list[dict[str, Any]] = data
-            is_new_format = True
-            logger.info("Detected NEW format (direct array) — %d entries from %s", len(entries), path.name)
+            # Sub-detect: UPDS official format vs old new format
+            if entries and ("NOMBRE COMPLETO" in entries[0] or "CI" in entries[0]):
+                format_type = "upds_official"
+                logger.info(
+                    "Detected UPDS OFFICIAL format — %d entries from %s",
+                    len(entries),
+                    path.name,
+                )
+            else:
+                format_type = "new"
+                logger.info(
+                    "Detected NEW format (direct array) — %d entries from %s",
+                    len(entries),
+                    path.name,
+                )
         else:
             entries = data.get("designaciones", [])
-            is_new_format = False
-            logger.info("Detected OLD format (dict wrapper) — %d entries from %s", len(entries), path.name)
+            format_type = "old"
+            logger.info(
+                "Detected OLD format (dict wrapper) — %d entries from %s",
+                len(entries),
+                path.name,
+            )
 
-        # Cache of name → TEMP CI to avoid repeated DB lookups within this run
+        # Cache of name → CI to avoid repeated DB lookups within this run
         name_to_ci: dict[str, str] = {}
 
         for entry in entries:
-            docente_raw = entry.get("docente")
+            # ── UPDS official personal-data fields (initialized to None for non-upds formats) ──
+            teacher_ci_str: str | None = None
+            teacher_email: str | None = None
+            teacher_phone: str | None = None
+            teacher_bank: str | None = None
+            teacher_account: str | None = None
+            teacher_nit: str | None = None
+            teacher_retention: str | None = None
 
-            if is_new_format:
+            # ── Field extraction by format ──
+            if format_type == "upds_official":
+                docente_raw = entry.get("NOMBRE COMPLETO")
+                ci_raw = entry.get("CI")
+                subject = entry.get("MATERIAS", "")
+                semester = entry.get("SEMESTRE", "")
+                raw_group = entry.get("GRUPO", "")
+                semester_hours = entry.get("CARGA HORARIA SEMESTRAL")
+                monthly_hours = entry.get("CARGA HORARIA MENSUAL")
+                weekly_hours = entry.get("CARGA HORARIA SEMANAL")
+                schedule_raw = entry.get("HORARIO", "")
+
+                # Parse HORARIO string into schedule_json
+                schedule_json = self._parse_horario_string(schedule_raw or "")
+                weekly_hours_calculated = sum(
+                    s.get("horas_academicas", 0) for s in schedule_json
+                )
+
+                # Personal data for teacher update
+                teacher_ci_str = str(ci_raw).strip() if ci_raw is not None else None
+                teacher_email = str(entry.get("CORREO", "")).strip() or None
+                teacher_phone = str(entry.get("NÚMERO DE TELÉFONO", "")).strip() or None
+                teacher_bank = (
+                    str(entry.get("BANCO", "")).strip().title() or None
+                )
+                teacher_account = (
+                    str(entry.get("NÚMERO CUENTA BANCARIA", "")).strip() or None
+                )
+
+                nit_raw = str(entry.get("NIT", "")).strip().upper()
+                if nit_raw in ("RETENCION", "RETENCIÓN"):
+                    teacher_retention = "RETENCION"
+                elif nit_raw and nit_raw not in ("NONE", ""):
+                    teacher_nit = nit_raw
+
+            elif format_type == "new":
+                docente_raw = entry.get("docente")
                 # New format: horario_detalle is the parsed schedule array
                 horario_detalle: list[dict] = entry.get("horario_detalle") or []
                 # Transform to internal format expected by attendance_engine
                 schedule_json = self._transform_horario_detalle(horario_detalle)
                 subject = entry.get("materias", "")
+                semester = entry.get("semestre", "")
                 semester_hours = entry.get("carga_horaria")
                 monthly_hours = entry.get("mes")
                 weekly_hours = entry.get("semana")
@@ -207,8 +285,10 @@ class DesignationLoader:
                 )
             else:
                 # Old format: horario is already the parsed schedule array
+                docente_raw = entry.get("docente")
                 schedule_json = entry.get("horario") or []
                 subject = entry.get("materia", "")
+                semester = entry.get("semestre", "")
                 semester_hours = entry.get("carga_horaria_semestral")
                 monthly_hours = entry.get("carga_horaria_mensual")
                 weekly_hours = entry.get("carga_horaria_semanal")
@@ -240,7 +320,7 @@ class DesignationLoader:
                 )
                 continue
 
-            docente_name: str = docente_raw.strip()
+            docente_name: str = docente_raw.strip().upper()
             if not docente_name:
                 result.skipped_no_schedule += 1
                 continue
@@ -249,14 +329,53 @@ class DesignationLoader:
             group_code = normalize_group_code(raw_group) if raw_group else raw_group
 
             # ---- Resolve or create Teacher ----
-            teacher_ci = self._get_or_create_teacher(
-                db=db,
-                full_name=docente_name,
-                name_to_ci_cache=name_to_ci,
-                result=result,
-            )
-
-            semester = entry.get("semestre", "")
+            if format_type == "upds_official" and teacher_ci_str:
+                # Use real CI directly — no TEMP needed
+                teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci_str).first()
+                if teacher is None:
+                    teacher = Teacher(
+                        ci=teacher_ci_str,
+                        full_name=docente_name,
+                        email=(
+                            teacher_email
+                            if teacher_email and "@" in teacher_email
+                            else None
+                        ),
+                        phone=teacher_phone,
+                        bank=teacher_bank,
+                        account_number=teacher_account,
+                        nit=teacher_nit,
+                        invoice_retention=teacher_retention,
+                    )
+                    db.add(teacher)
+                    db.flush()
+                    result.teachers_created += 1
+                    name_to_ci[normalize_name(docente_name)] = teacher_ci_str
+                else:
+                    # Update teacher with new personal data if provided
+                    if teacher_email and "@" in teacher_email:
+                        teacher.email = teacher_email
+                    if teacher_phone:
+                        teacher.phone = teacher_phone
+                    if teacher_bank:
+                        teacher.bank = teacher_bank
+                    if teacher_account:
+                        teacher.account_number = teacher_account
+                    if teacher_nit:
+                        teacher.nit = teacher_nit
+                    if teacher_retention:
+                        teacher.invoice_retention = teacher_retention
+                    result.teachers_reused += 1
+                    name_to_ci[normalize_name(docente_name)] = teacher.ci
+                # Use the real CI for designation
+                teacher_ci = teacher_ci_str
+            else:
+                teacher_ci = self._get_or_create_teacher(
+                    db=db,
+                    full_name=docente_name,
+                    name_to_ci_cache=name_to_ci,
+                    result=result,
+                )
 
             # ---- Create or update Designation ----
             designation = (
@@ -348,6 +467,153 @@ class DesignationLoader:
                 "horas_academicas": horas_academicas,
             })
         return result_slots
+
+    @staticmethod
+    def _parse_horario_string(horario_raw: str) -> list[dict]:
+        """Parse UPDS HORARIO string into schedule_json slots.
+
+        Input examples::
+
+            "LUNES 06:30 - 08:00\\n MARTES 06:30 - 08:55\\n VIERNES 06:30-08:00"
+            "MARTES 15:55-17:25\\n MIERCOLES 15:10-17:25\\n JUVES: 15:55-17:25"
+
+        Output::
+
+            [{"dia": "lunes", "hora_inicio": "06:30", "hora_fin": "08:00",
+              "duracion_minutos": 90, "horas_academicas": 2}, ...]
+
+        Edge cases handled:
+        - Tight format: ``06:30-08:00`` (no spaces around dash)
+        - Spaced-one-side: ``06:30 -08:00`` or ``06:30- 08:00``
+        - Trailing colon after day: ``JUVES: 15:55``
+        - Extra colon in time: ``07:15: - 08:00`` (parsed with relaxed pattern)
+        - Day name typos: JUVES → JUEVES
+        - Dot separator: ``17:30-18.15`` (dot → colon)
+        - AM/PM suffix: parsed then converted to 24-hour
+        - Incomplete end time (``08:10 - 40``): skipped with warning
+        - "A" instead of "-": ``16:05 A 17:35`` — handled via secondary pattern
+        """
+        if not horario_raw:
+            return []
+
+        # Known day name corrections (typos found in real data)
+        DAY_CORRECTIONS: dict[str, str] = {
+            "JUVES": "JUEVES",
+            "JEVES": "JUEVES",
+            "LUNE": "LUNES",
+            "MARTE": "MARTES",
+            "MIERCOLE": "MIERCOLES",
+            "VIERNE": "VIERNES",
+            "SABDO": "SABADO",
+        }
+
+        slots: list[dict] = []
+        lines = [line.strip() for line in horario_raw.split("\n") if line.strip()]
+
+        for line in lines:
+            # Normalize: uppercase, collapse internal spaces slightly
+            line_up = line.upper().strip()
+
+            # Replace dot-as-colon in time part only (e.g. "18.15" → "18:15")
+            # Only replace dots surrounded by digits (avoids G.E. group codes)
+            line_up = re.sub(r'(\d)\.(\d)', r'\1:\2', line_up)
+
+            # Remove trailing colon at end of line
+            line_up = line_up.rstrip(":")
+
+            # Pattern 1: DAY[: ] HH:MM[ ]-[ ]HH:MM  (standard and tight)
+            # Handles: "LUNES 06:30 - 08:00", "JUVES: 15:55-17:25", "06:30 -08:00"
+            match = re.match(
+                r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})(?:\s*[:\s])?\s*-\s*(\d{1,2}:\d{2})(?:\s*(?:AM|PM))?',
+                line_up,
+            )
+
+            # Pattern 2: DAY[: ] HH:MM AM|PM - HH:MM AM|PM  (12-hour format)
+            if not match:
+                match = re.match(
+                    r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}:\d{2})\s*(AM|PM)',
+                    line_up,
+                )
+                if match:
+                    day_raw = match.group(1)
+                    time_start_str = match.group(2)
+                    ampm_start = match.group(3)
+                    time_end_str = match.group(4)
+                    ampm_end = match.group(5)
+                    # Convert to 24-hour
+                    try:
+                        t_start_12 = datetime.strptime(f"{time_start_str} {ampm_start}", "%I:%M %p")
+                        t_end_12 = datetime.strptime(f"{time_end_str} {ampm_end}", "%I:%M %p")
+                        hora_inicio = t_start_12.strftime("%H:%M")
+                        hora_fin = t_end_12.strftime("%H:%M")
+                    except ValueError:
+                        logger.warning("_parse_horario_string: cannot parse 12h time in: %r", line)
+                        continue
+
+                    day_name = DAY_CORRECTIONS.get(day_raw, day_raw)
+                    day_lower = unicodedata.normalize("NFD", day_name.lower())
+                    day_lower = "".join(
+                        c for c in day_lower if unicodedata.category(c) != "Mn"
+                    )
+
+                    duracion_minutos = _calc_duration(hora_inicio, hora_fin)
+                    slots.append({
+                        "dia": day_lower,
+                        "hora_inicio": hora_inicio,
+                        "hora_fin": hora_fin,
+                        "duracion_minutos": duracion_minutos,
+                        "horas_academicas": calc_academic_hours(duracion_minutos),
+                    })
+                    continue
+
+            # Pattern 3: DAY[: ] HH:MM A HH:MM  ("A" as separator)
+            if not match:
+                match = re.match(
+                    r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})\s+A\s+(\d{1,2}:\d{2})',
+                    line_up,
+                )
+
+            if not match:
+                logger.warning("_parse_horario_string: could not parse line: %r", line)
+                continue
+
+            day_raw = match.group(1)
+            hora_inicio = match.group(2)
+            hora_fin = match.group(3)
+
+            # Validate both times are full HH:MM (reject "08:10 - 40")
+            if not re.match(r'^\d{1,2}:\d{2}$', hora_fin):
+                logger.warning(
+                    "_parse_horario_string: incomplete end time in: %r — skipping", line
+                )
+                continue
+
+            # Pad single-digit hours: "8:00" → "08:00"
+            if len(hora_inicio) == 4:
+                hora_inicio = "0" + hora_inicio
+            if len(hora_fin) == 4:
+                hora_fin = "0" + hora_fin
+
+            # Fix day typos
+            day_name = DAY_CORRECTIONS.get(day_raw, day_raw)
+
+            # Normalize: remove accents for internal storage
+            day_lower = unicodedata.normalize("NFD", day_name.lower())
+            day_lower = "".join(
+                c for c in day_lower if unicodedata.category(c) != "Mn"
+            )
+
+            duracion_minutos = _calc_duration(hora_inicio, hora_fin)
+
+            slots.append({
+                "dia": day_lower,
+                "hora_inicio": hora_inicio,
+                "hora_fin": hora_fin,
+                "duracion_minutos": duracion_minutos,
+                "horas_academicas": calc_academic_hours(duracion_minutos),
+            })
+
+        return slots
 
     def load_from_excel(
         self,
