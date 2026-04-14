@@ -6,11 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.biometric import BiometricUpload
+from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse, BiometricUploadResult
@@ -178,3 +178,87 @@ def get_upload_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo obtener el historial de cargas",
         ) from exc
+
+
+@router.get("/biometric/date-range")
+def get_biometric_date_range(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Detect the actual date range of biometric data for a given month/year."""
+    from sqlalchemy import func
+
+    # Find the most recent upload for this period
+    upload = (
+        db.query(BiometricUpload)
+        .filter(
+            BiometricUpload.month == month,
+            BiometricUpload.year == year,
+        )
+        .order_by(BiometricUpload.upload_date.desc())
+        .first()
+    )
+
+    if not upload:
+        return {
+            "has_data": False,
+            "message": "No hay datos biométricos cargados para este período",
+        }
+
+    # Get actual date range from biometric records
+    min_date = (
+        db.query(func.min(BiometricRecord.date))
+        .filter(BiometricRecord.upload_id == upload.id)
+        .scalar()
+    )
+
+    max_date = (
+        db.query(func.max(BiometricRecord.date))
+        .filter(BiometricRecord.upload_id == upload.id)
+        .scalar()
+    )
+
+    # Count records and unique teachers
+    record_count = (
+        db.query(func.count(BiometricRecord.id))
+        .filter(BiometricRecord.upload_id == upload.id)
+        .scalar()
+    )
+
+    teacher_count = (
+        db.query(func.count(func.distinct(BiometricRecord.teacher_ci)))
+        .filter(BiometricRecord.upload_id == upload.id)
+        .scalar()
+    )
+
+    # Count how many days have actual entry/exit data (not just empty rows)
+    days_with_data = (
+        db.query(func.count(func.distinct(BiometricRecord.date)))
+        .filter(
+            BiometricRecord.upload_id == upload.id,
+            BiometricRecord.entry_time.isnot(None),
+        )
+        .scalar()
+    )
+
+    min_str = min_date.strftime("%d/%m/%Y") if min_date else "?"
+    max_str = max_date.strftime("%d/%m/%Y") if max_date else "?"
+
+    return {
+        "has_data": True,
+        "start_date": min_date.isoformat() if min_date else None,
+        "end_date": max_date.isoformat() if max_date else None,
+        "record_count": record_count,
+        "teacher_count": teacher_count,
+        "days_with_data": days_with_data,
+        "upload_filename": upload.filename,
+        "upload_date": upload.upload_date.isoformat(),
+        "suggested_start": min_date.isoformat() if min_date else None,
+        "suggested_end": max_date.isoformat() if max_date else None,
+        "message": (
+            f"Biométrico cubre del {min_str} al {max_str} "
+            f"({teacher_count} docentes, {days_with_data} días con registros)"
+        ),
+    }

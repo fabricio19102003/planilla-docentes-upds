@@ -10,6 +10,20 @@ import type {
   UploadDesignationsPayload,
 } from '@/api/types'
 
+export interface BiometricDateRange {
+  has_data: boolean
+  start_date: string | null
+  end_date: string | null
+  record_count: number
+  teacher_count: number
+  days_with_data: number
+  upload_filename: string
+  upload_date: string
+  suggested_start: string | null
+  suggested_end: string | null
+  message: string
+}
+
 async function fetchUploadHistory() {
   const response = await api.get<BiometricUpload[]>('/uploads/history')
 
@@ -114,5 +128,16 @@ export function useUploadTeacherList() {
       void queryClient.invalidateQueries({ queryKey: ['teachers'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
     },
+  })
+}
+
+export function useBiometricDateRange(month: number, year: number) {
+  return useQuery({
+    queryKey: ['biometric-date-range', month, year],
+    queryFn: async () => {
+      const res = await api.get<BiometricDateRange>(`/uploads/biometric/date-range?month=${month}&year=${year}`)
+      return res.data
+    },
+    enabled: month > 0 && year > 0,
   })
 }

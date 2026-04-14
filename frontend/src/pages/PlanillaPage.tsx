@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
+import { useBiometricDateRange } from '@/api/hooks/useBiometric'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,7 @@ export function PlanillaPage() {
   const [lastResult, setLastResult] = useState<PlanillaGenerateResponse | null>(null)
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
+  const [datesManuallySet, setDatesManuallySet] = useState(false)
   const [showDetail] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
@@ -43,17 +45,26 @@ export function PlanillaPage() {
   const [editingOverride, setEditingOverride] = useState<string | null>(null)
   const [overrideValue, setOverrideValue] = useState('')
 
+  const { data: bioRange } = useBiometricDateRange(month, year)
+
+  // Reset manual flag when month/year changes so auto-fill can run again
   useEffect(() => {
-    if (month === 3 && year === 2026) {
-      setStartDate('2026-03-02')
-      setEndDate('2026-03-20')
-    } else {
+    setDatesManuallySet(false)
+  }, [month, year])
+
+  // Auto-fill dates from biometric range when available
+  useEffect(() => {
+    if (!datesManuallySet && bioRange?.has_data && bioRange.suggested_start && bioRange.suggested_end) {
+      setStartDate(bioRange.suggested_start)
+      setEndDate(bioRange.suggested_end)
+    } else if (!datesManuallySet && bioRange !== undefined && !bioRange.has_data) {
+      // No biometric data: fall back to standard cut-off period
       const prevMonth = month === 1 ? 12 : month - 1
       const prevYear = month === 1 ? year - 1 : year
       setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
       setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
     }
-  }, [month, year])
+  }, [bioRange, datesManuallySet, month, year])
 
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
@@ -149,13 +160,43 @@ export function PlanillaPage() {
 
           <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
             <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
+
+            {/* Biometric Coverage Info */}
+            {bioRange && (
+              <div className={`flex items-start gap-2 p-3 rounded-lg border mb-3 ${
+                bioRange.has_data ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'
+              }`}>
+                {bioRange.has_data ? (
+                  <>
+                    <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-blue-700 font-medium">Rango biométrico detectado</p>
+                      <p className="text-xs text-blue-600 mt-0.5">{bioRange.message}</p>
+                      <p className="text-xs text-blue-500 mt-1">
+                        Las fechas de inicio y fin se han ajustado automáticamente al rango del biométrico.
+                        Puede modificarlas si lo necesita.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-yellow-700 font-medium">Sin datos biométricos</p>
+                      <p className="text-xs text-yellow-600 mt-0.5">{bioRange.message}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="flex items-end gap-4 flex-wrap">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Fecha inicio</label>
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => { setStartDate(e.target.value); setDatesManuallySet(true) }}
                   className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
                 />
               </div>
@@ -164,7 +205,7 @@ export function PlanillaPage() {
                 <input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) => { setEndDate(e.target.value); setDatesManuallySet(true) }}
                   className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
                 />
               </div>
@@ -172,6 +213,22 @@ export function PlanillaPage() {
                 Estándar: del 21 del mes anterior al 20 del mes actual
               </p>
             </div>
+
+            {/* Warning: dates extend beyond biometric coverage */}
+            {bioRange?.has_data && startDate && endDate &&
+              (startDate < (bioRange.suggested_start ?? '') || endDate > (bioRange.suggested_end ?? '')) && (
+              <div className="flex items-start gap-2 p-3 bg-orange-50 rounded-lg border border-orange-200 mt-2">
+                <AlertTriangle size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-orange-700 font-medium">Rango extendido más allá del biométrico</p>
+                  <p className="text-xs text-orange-600 mt-0.5">
+                    El rango seleccionado ({startDate} — {endDate}) excede la cobertura del biométrico
+                    ({bioRange.suggested_start} — {bioRange.suggested_end}). Los días sin cobertura generarán
+                    ausencias para todos los docentes con biométrico.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {generatePlanilla.isError && (
