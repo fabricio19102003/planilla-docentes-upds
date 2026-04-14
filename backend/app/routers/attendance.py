@@ -124,8 +124,8 @@ def _get_audit_data(
 @router.get("/attendance/audit/{teacher_ci}")
 def get_attendance_audit(
     teacher_ci: str,
-    month: int = Query(...),
-    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -239,8 +239,8 @@ def get_attendance_audit(
 @router.get("/attendance/audit/{teacher_ci}/pdf")
 def export_attendance_audit_pdf(
     teacher_ci: str,
-    month: int = Query(...),
-    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
     request: Request = None,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),

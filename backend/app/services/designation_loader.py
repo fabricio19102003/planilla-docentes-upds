@@ -629,9 +629,9 @@ class DesignationLoader:
                 hora_fin = "0" + hora_fin
 
             # Handle single trailing AM/PM from Pattern 1 group 4
-            # e.g. "LUNES 03:00-05:00 PM" → both times are PM
-            # If only end time carries AM/PM, apply it to start time too
-            # (university classes don't span across AM/PM boundary)
+            # e.g. "LUNES 03:00-05:00 PM" → end time is PM, start inferred
+            # The trailing AM/PM applies to the END time only.
+            # Start time is converted only if it makes sense (start < end in 24h).
             trailing_period: str | None = (
                 match.group(4)
                 if (match.lastindex is not None and match.lastindex >= 4)
@@ -641,16 +641,21 @@ class DesignationLoader:
                 try:
                     start_h, start_m = map(int, hora_inicio.split(":"))
                     end_h, end_m = map(int, hora_fin.split(":"))
-                    if trailing_period == "PM":
-                        if start_h < 12:
-                            start_h += 12
-                        if end_h < 12:
-                            end_h += 12
-                    elif trailing_period == "AM":
-                        if start_h == 12:
-                            start_h = 0
-                        if end_h == 12:
-                            end_h = 0
+
+                    # Apply to end time first
+                    if trailing_period == "PM" and end_h < 12:
+                        end_h += 12
+                    elif trailing_period == "AM" and end_h == 12:
+                        end_h = 0
+
+                    # Apply to start time only if it keeps start < end
+                    if trailing_period == "PM" and start_h < 12:
+                        converted_start = start_h + 12
+                        # Only convert if it keeps chronological order
+                        if converted_start < end_h or (converted_start == end_h and start_m < end_m):
+                            start_h = converted_start
+                    elif trailing_period == "AM" and start_h == 12:
+                        start_h = 0
                     hora_inicio = f"{start_h:02d}:{start_m:02d}"
                     hora_fin = f"{end_h:02d}:{end_m:02d}"
                 except (ValueError, AttributeError):
