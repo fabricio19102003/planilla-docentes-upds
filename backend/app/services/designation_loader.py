@@ -90,12 +90,23 @@ def names_match(name1: str, name2: str) -> bool:
     """
     Return True if two names likely refer to the same person.
 
-    Stricter matching to avoid false positives with common surnames:
+    Matching rules (evaluated in order, first match wins):
       1. Exact match after normalization.
-      2. At least 3 shared tokens AND >= 80% token overlap.
+      2. All tokens from the shorter name are found in the longer name,
+         with at least 3 tokens in the shorter name AND at least one "real name" token
+         (token length >= 4, to reject preposition-only matches like "DE LA CRUZ").
+         Example: "YHAGO DE SOUZA" (3 tokens) ⊆ "YHAGO DE SOUZA FROTA" (4 tokens) → MATCH.
+         Counter-example: "ABNER FLORES" (2 tokens) ⊄ match for "ABNER FLORES MAMANI"
+         because 2-token subsets are too ambiguous (many people share any 2-token name).
+      3. At least 3 shared tokens AND >= 80% token overlap relative to the shorter name.
 
-    Substring matching has been removed — it produces too many false positives
-    when teachers share common surnames (e.g., "GARCIA" matching unrelated people).
+    Rationale:
+      - Rule 2 handles biometric systems that truncate compound surnames: the shorter
+        form (from one system) must be a complete subset of the longer form (in the other).
+      - Rule 3 is the fallback for near-matches where names differ by middle names or
+        ordering.
+      - Substring matching has been removed — it produces too many false positives
+        when teachers share common surnames (e.g., "GARCIA" matching unrelated people).
     """
     n1 = normalize_name(name1)
     n2 = normalize_name(name2)
@@ -109,10 +120,22 @@ def names_match(name1: str, name2: str) -> bool:
     if not tokens1 or not tokens2:
         return False
 
+    # Rule 2: all tokens from the shorter name are present in the longer name.
+    # Requires at least 3 tokens in the shorter name to avoid ambiguous 2-token
+    # matches (e.g. "ABNER FLORES" should NOT match "ABNER FLORES MAMANI" because
+    # any two-token partial name could match too many unrelated people).
+    shorter = tokens1 if len(tokens1) <= len(tokens2) else tokens2
+    longer = tokens2 if len(tokens1) <= len(tokens2) else tokens1
+    if len(shorter) >= 3 and shorter <= longer:
+        # At least one token must be a "real name" (not just prepositions/articles)
+        has_real_name_token = any(len(t) >= 4 for t in shorter)
+        if has_real_name_token:
+            return True
+
     shared = tokens1 & tokens2
     min_len = min(len(tokens1), len(tokens2))
 
-    # Require at least 3 shared tokens AND 80%+ overlap relative to the shorter name
+    # Rule 3: at least 3 shared tokens AND 80%+ overlap relative to the shorter name
     if len(shared) >= 3 and len(shared) / min_len >= 0.8:
         return True
 

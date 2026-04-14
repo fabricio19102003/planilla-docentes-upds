@@ -335,13 +335,25 @@ class BiometricParser:
         month: int,
         year: int,
         filename: str,
+        ci_alias_map: dict[str, str] | None = None,
     ) -> BiometricUpload:
         """
         Persist parsed biometric data to the database.
 
         Creates one BiometricUpload and N BiometricRecord rows.
         Returns the created BiometricUpload (flushed, not yet committed).
+
+        Parameters
+        ----------
+        ci_alias_map : dict[str, str] | None
+            Optional mapping of ``{bio_ci → real_teacher_ci}`` produced during
+            biometric upload when a bio CI doesn't match any teacher directly but
+            the teacher was found by name matching.  When provided, records are
+            stored using the real teacher CI so the attendance engine can find them.
         """
+        if ci_alias_map is None:
+            ci_alias_map = {}
+
         upload = BiometricUpload(
             filename=filename,
             month=month,
@@ -354,10 +366,19 @@ class BiometricParser:
         db.flush()  # get upload.id without full commit
 
         for ci, entries in parse_result.records.items():
+            # Use aliased CI if available (handles CI mismatches between systems)
+            real_ci = ci_alias_map.get(ci, ci)
+            if real_ci != ci:
+                logger.info(
+                    "save_to_db: bio CI %s aliased to teacher CI %s (%s)",
+                    ci,
+                    real_ci,
+                    entries[0].teacher_name if entries else "?",
+                )
             for entry in entries:
                 record = BiometricRecord(
                     upload_id=upload.id,
-                    teacher_ci=ci,
+                    teacher_ci=real_ci,
                     teacher_name=entry.teacher_name,
                     date=entry.date,
                     entry_time=entry.entry_time,
@@ -368,10 +389,11 @@ class BiometricParser:
                 db.add(record)
 
         logger.info(
-            "Saved BiometricUpload id=%d: %d records for %d teachers",
+            "Saved BiometricUpload id=%d: %d records for %d teachers (%d CI aliases applied)",
             upload.id,
             parse_result.stats["total_records"],
             parse_result.stats["total_teachers"],
+            len(ci_alias_map),
         )
 
         return upload

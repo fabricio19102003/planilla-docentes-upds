@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.biometric import BiometricUpload
+from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse, BiometricUploadResult
 from app.services.biometric_parser import BiometricParser
-from app.services.designation_loader import DesignationLoader
+from app.services.designation_loader import DesignationLoader, names_match
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -60,12 +61,43 @@ def upload_biometric(
         loader = DesignationLoader()
 
         parse_result = parser.parse_file(str(saved_path))
+
+        # ── Build CI alias map: bio_ci → real_teacher_ci ──────────────────
+        # When a biometric CI doesn't match any teacher record directly, try to
+        # resolve via fuzzy name matching.  This handles cases where the CI was
+        # entered differently in each system (e.g. "10752810" vs "E-10152810").
+        all_teachers = db.query(Teacher).all()
+        ci_alias_map: dict[str, str] = {}
+
+        for bio_ci, bio_entries in parse_result.records.items():
+            # Check for exact CI match first — no alias needed
+            if db.query(Teacher).filter(Teacher.ci == bio_ci).first():
+                continue
+
+            bio_name = bio_entries[0].teacher_name if bio_entries else ""
+            if not bio_name:
+                continue
+
+            for teacher in all_teachers:
+                if names_match(bio_name, teacher.full_name):
+                    ci_alias_map[bio_ci] = teacher.ci
+                    logger.info(
+                        "CI alias: bio %s (%s) → teacher %s (%s)",
+                        bio_ci,
+                        bio_name,
+                        teacher.ci,
+                        teacher.full_name,
+                    )
+                    break
+        # ──────────────────────────────────────────────────────────────────
+
         upload = parser.save_to_db(
             db=db,
             parse_result=parse_result,
             month=month,
             year=year,
             filename=stored_name,
+            ci_alias_map=ci_alias_map,
         )
 
         ci_name_map = {
@@ -87,6 +119,7 @@ def upload_biometric(
                 "year": year,
                 "teachers_found": upload.total_teachers,
                 "records_count": upload.total_records,
+                "ci_aliases_applied": len(ci_alias_map),
             },
             request=request,
         )
@@ -95,6 +128,11 @@ def upload_biometric(
         db.refresh(upload)
 
         warnings = list(parse_result.warnings)
+        if ci_alias_map:
+            warnings.append(
+                f"Se resolvieron {len(ci_alias_map)} CI(s) biométrico(s) por nombre "
+                f"(CIs no coincidían entre sistemas)."
+            )
         if linked_teachers:
             warnings.append(f"Se vincularon {linked_teachers} docente(s) por nombre.")
 
