@@ -8,6 +8,7 @@ import {
   X,
   Users,
   Download,
+  FileText,
 } from 'lucide-react'
 import { useAttendanceAudit } from '@/api/hooks/useAttendance'
 import { useTeachers } from '@/api/hooks/useTeachers'
@@ -37,6 +38,12 @@ export function AttendanceAuditPage() {
   const [showDropdown, setShowDropdown] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Batch audit state
+  const [batchMode, setBatchMode] = useState<'all' | 'select'>('all')
+  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set())
+  const [batchSearch, setBatchSearch] = useState('')
+  const [batchGenerating, setBatchGenerating] = useState(false)
 
   const { data: teachersData } = useTeachers({ page: 1, perPage: 500 })
   const teachers = teachersData?.items ?? []
@@ -77,6 +84,36 @@ export function AttendanceAuditPage() {
       console.error('Error downloading audit PDF:', e)
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const handleBatchPDF = async () => {
+    setBatchGenerating(true)
+    try {
+      const payload = {
+        month,
+        year,
+        teacher_cis: batchMode === 'select' ? [...batchSelected] : null,
+      }
+      const response = await api.post('/attendance/audit/batch-pdf', payload, {
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const mn = MONTH_NAMES[month] ?? month
+      link.download =
+        batchMode === 'all'
+          ? `Auditoria_Asistencia_General_${mn}_${year}.pdf`
+          : `Auditoria_Asistencia_${batchSelected.size}_docentes_${mn}_${year}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Error generating batch audit:', e)
+    } finally {
+      setBatchGenerating(false)
     }
   }
 
@@ -197,6 +234,99 @@ export function AttendanceAuditPage() {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Batch Audit Export */}
+      <div className="card-3d-static overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+            Reporte de Auditoría Masivo
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Generá un reporte PDF con la auditoría de múltiples docentes
+          </p>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Toggle: All vs Select */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setBatchMode('all')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                batchMode === 'all' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'
+              }`}
+            >
+              Todos los docentes
+            </button>
+            <button
+              onClick={() => setBatchMode('select')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                batchMode === 'select' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'
+              }`}
+            >
+              Seleccionar docentes
+            </button>
+          </div>
+
+          {/* Teacher multi-select (only when batchMode === 'select') */}
+          {batchMode === 'select' && (
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Buscar docente..."
+                value={batchSearch}
+                onChange={(e) => setBatchSearch(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent"
+              />
+              <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y">
+                {teachers
+                  .filter(
+                    (t) =>
+                      !t.ci.startsWith('TEMP-') &&
+                      (!batchSearch ||
+                        t.full_name.toLowerCase().includes(batchSearch.toLowerCase()) ||
+                        t.ci.includes(batchSearch)),
+                  )
+                  .map((t) => (
+                    <label
+                      key={t.ci}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={batchSelected.has(t.ci)}
+                        onChange={(e) => {
+                          const next = new Set(batchSelected)
+                          e.target.checked ? next.add(t.ci) : next.delete(t.ci)
+                          setBatchSelected(next)
+                        }}
+                      />
+                      <span className="font-medium text-gray-800">{t.full_name}</span>
+                      <span className="text-xs text-gray-400 ml-auto">{t.ci}</span>
+                    </label>
+                  ))}
+              </div>
+              <p className="text-xs text-gray-500">{batchSelected.size} docente(s) seleccionado(s)</p>
+            </div>
+          )}
+
+          {/* Generate button */}
+          <Button
+            className="gap-2 text-white"
+            style={{ backgroundColor: '#003366' }}
+            disabled={batchGenerating || (batchMode === 'select' && batchSelected.size === 0)}
+            onClick={handleBatchPDF}
+          >
+            {batchGenerating ? (
+              <>
+                <Loader2 size={14} className="animate-spin" /> Generando...
+              </>
+            ) : (
+              <>
+                <FileText size={14} /> Generar Reporte de Auditoría
+              </>
+            )}
+          </Button>
         </div>
       </div>
 

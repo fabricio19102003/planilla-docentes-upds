@@ -139,11 +139,12 @@ def _add_branded_header(
     elements.append(Spacer(1, 2 * mm))
 
 
-def _add_footer(elements: list, styles: Any) -> None:
+def _add_footer(elements: list, styles: Any, generated_by_name: str | None = None) -> None:
     """Single-line audit footer."""
     now = datetime.now()
+    by_part = f" | Generado por: {generated_by_name}" if generated_by_name else ""
     footer_text = (
-        f"Generado: {now.strftime('%d/%m/%Y %H:%M:%S')}  |  "
+        f"Generado: {now.strftime('%d/%m/%Y %H:%M:%S')}{by_part}  |  "
         "SIPAD — Sistema Integrado de Pago Docente"
     )
 
@@ -403,4 +404,184 @@ def generate_audit_report_pdf(
     doc.build(elements)
 
     logger.info("Generated audit report PDF: %s", filename)
+    return str(filepath)
+
+
+def generate_batch_audit_pdf(
+    all_audit_data: list[dict],
+    month: int,
+    year: int,
+    generated_by_name: str | None = None,
+) -> str:
+    """Generate a single PDF with audit data for multiple teachers.
+
+    Each teacher gets their own section, separated by a page break.
+    Returns the absolute path to the generated PDF file.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    month_name = MONTH_NAMES.get(month, str(month))
+    filename = f"auditoria_general_{month_name}_{year}_{timestamp}.pdf"
+    filepath = _output_dir() / filename
+
+    doc = SimpleDocTemplate(
+        str(filepath),
+        pagesize=landscape(A4),
+        leftMargin=10 * mm,
+        rightMargin=10 * mm,
+        topMargin=12 * mm,
+        bottomMargin=15 * mm,
+    )
+
+    elements: list = []
+    styles = getSampleStyleSheet()
+    cs = _make_cell_styles(styles)
+
+    # ── Cover / global header ─────────────────────────────────────────────────
+    _add_branded_header(
+        elements,
+        styles,
+        "Reporte General de Auditoría de Asistencia",
+        f"{month_name} {year} — {len(all_audit_data)} docentes",
+    )
+
+    # ── Global summary table ───────────────────────────────────────────────────
+    total_attended = sum(d["audit"]["summary"]["attended"] for d in all_audit_data)
+    total_late = sum(d["audit"]["summary"]["late"] for d in all_audit_data)
+    total_absent = sum(d["audit"]["summary"]["absent"] for d in all_audit_data)
+    total_no_exit = sum(d["audit"]["summary"]["no_exit"] for d in all_audit_data)
+    total_slots = sum(d["audit"]["summary"]["total_slots"] for d in all_audit_data)
+    with_bio = sum(1 for d in all_audit_data if d["audit"]["has_biometric"])
+    without_bio = len(all_audit_data) - with_bio
+
+    general_rate = (
+        f"{(total_attended + total_late + total_no_exit) / total_slots * 100:.1f}%"
+        if total_slots > 0
+        else "—"
+    )
+
+    summary_data = [
+        [_cell(h, cs["header"]) for h in [
+            "Docentes", "Con Biométrico", "Sin Biométrico",
+            "Total Clases", "Asistidos", "Tardanzas", "Ausencias", "Tasa General",
+        ]],
+        [_cell(v, cs["cell_center"]) for v in [
+            str(len(all_audit_data)), str(with_bio), str(without_bio),
+            str(total_slots), str(total_attended), str(total_late),
+            str(total_absent), general_rate,
+        ]],
+    ]
+    summary_table = Table(summary_data, colWidths=[60, 70, 70, 70, 60, 60, 60, 75])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 4 * mm))
+    elements.append(PageBreak())
+
+    # ── Per-teacher sections ──────────────────────────────────────────────────
+    teacher_header_style = ParagraphStyle(
+        "BatchTeacherHeader", parent=styles["Normal"],
+        fontSize=11, fontName="Helvetica-Bold",
+        textColor=NAVY, spaceAfter=3,
+    )
+    mini_summary_style = ParagraphStyle(
+        "BatchMiniSummary", parent=styles["Normal"],
+        fontSize=8, textColor=colors.HexColor("#555555"), spaceAfter=5,
+    )
+    no_data_style = ParagraphStyle(
+        "BatchNoData", parent=styles["Normal"],
+        fontSize=8, textColor=colors.gray, spaceAfter=4,
+    )
+
+    for idx, item in enumerate(all_audit_data):
+        teacher = item["teacher"]
+        audit = item["audit"]
+        summary = audit["summary"]
+
+        # Teacher heading
+        elements.append(Paragraph(
+            f"<b>{idx + 1}. {teacher.full_name}</b> &nbsp;&nbsp; CI: {teacher.ci}",
+            teacher_header_style,
+        ))
+
+        # Mini summary line
+        bio_note = " | Sin biométrico" if not audit["has_biometric"] else ""
+        elements.append(Paragraph(
+            f"Asistidos: {summary['attended']} | Tardanzas: {summary['late']} | "
+            f"Ausencias: {summary['absent']} | Sin salida: {summary['no_exit']} | "
+            f"Tasa: {summary.get('attendance_rate', 0)}%{bio_note}",
+            mini_summary_style,
+        ))
+
+        # Detail table
+        if audit["attendance_detail"]:
+            detail_header_row = [_cell(h, cs["header"]) for h in [
+                "Fecha", "Día", "Materia", "Grupo",
+                "Programado", "Entrada", "Salida",
+                "Estado", "Retraso", "Explicación",
+            ]]
+            detail_data: list = [detail_header_row]
+            detail_row_colors: list = []
+
+            for row_i, rec in enumerate(audit["attendance_detail"]):
+                ri = row_i + 1  # offset for header
+                status_label = STATUS_LABELS.get(rec["status"], rec["status"])
+                late_str = f"{rec['late_minutes']}m" if rec["late_minutes"] > 0 else "—"
+
+                if rec["status"] == "ABSENT":
+                    detail_row_colors.append(("BACKGROUND", (0, ri), (-1, ri), RED_BG))
+                elif rec["status"] == "LATE":
+                    detail_row_colors.append(("BACKGROUND", (0, ri), (-1, ri), YELLOW_BG))
+                elif row_i % 2 == 0:
+                    detail_row_colors.append(("BACKGROUND", (0, ri), (-1, ri), LIGHT_GRAY))
+
+                detail_data.append([
+                    _cell(rec["date_formatted"], cs["cell_center"]),
+                    _cell(rec["day_name"], cs["cell"]),
+                    _cell(rec["subject"], cs["cell"]),
+                    _cell(rec["group_code"], cs["cell_center"]),
+                    _cell(f"{rec['scheduled_start']}–{rec['scheduled_end']}", cs["cell_center"]),
+                    _cell(rec["actual_entry"] or "—", cs["cell_center"]),
+                    _cell(rec["actual_exit"] or "—", cs["cell_center"]),
+                    _cell(status_label, cs["cell_center"]),
+                    _cell(late_str, cs["cell_center"]),
+                    _cell(rec["explanation"], cs["cell_small"]),
+                ])
+
+            # Landscape A4 usable ≈ 757pt; cols sum = 45+45+95+35+55+38+38+48+32+126 = 557
+            col_widths = [45, 45, 95, 35, 55, 38, 38, 48, 32, 126]
+            detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
+
+            detail_style_cmds: list = [
+                ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ] + detail_row_colors
+
+            detail_table.setStyle(TableStyle(detail_style_cmds))
+            elements.append(detail_table)
+        else:
+            elements.append(Paragraph(
+                "<i>Sin registros de asistencia para este período.</i>",
+                no_data_style,
+            ))
+
+        elements.append(Spacer(1, 6 * mm))
+
+        # Page break between teachers (not after the last one)
+        if idx < len(all_audit_data) - 1:
+            elements.append(PageBreak())
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    _add_footer(elements, styles, generated_by_name)
+
+    doc.build(elements)
+    logger.info("Generated batch audit PDF (%d teachers): %s", len(all_audit_data), filename)
     return str(filepath)

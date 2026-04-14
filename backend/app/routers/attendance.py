@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -441,6 +442,153 @@ def export_attendance_audit_pdf(
         filename=f"Auditoria_Asistencia_{safe_name}_{month}_{year}.pdf",
         media_type="application/pdf",
     )
+
+
+class BatchAuditRequest(PydanticBaseModel):
+    teacher_cis: list[str] | None = None  # None or empty = ALL teachers
+    month: int
+    year: int
+
+
+def _build_audit_response(
+    teacher: Teacher,
+    designations: list,
+    bio_records: list,
+    att_records: list,
+) -> dict:
+    """Build the audit dict used by the batch PDF generator."""
+    WEEKDAY_NAMES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+    attendance_detail = []
+    for rec in att_records:
+        desig = next((d for d in designations if d.id == rec.designation_id), None)
+
+        if rec.status == "ABSENT":
+            explanation = "No se encontró registro biométrico para este horario programado"
+        elif rec.status == "LATE":
+            explanation = f"Entrada registrada {rec.late_minutes} minutos después del horario programado ({rec.scheduled_start.strftime('%H:%M')})"
+        elif rec.status == "ATTENDED":
+            explanation = "Entrada registrada dentro del margen de tolerancia"
+        elif rec.status == "NO_EXIT":
+            explanation = "Se registró entrada pero no se registró salida"
+        else:
+            explanation = rec.status
+
+        attendance_detail.append({
+            "date": rec.date.isoformat() if rec.date else None,
+            "date_formatted": rec.date.strftime("%d/%m/%Y") if rec.date else "—",
+            "day_name": WEEKDAY_NAMES[rec.date.weekday()].capitalize() if rec.date else "—",
+            "scheduled_start": rec.scheduled_start.strftime("%H:%M") if rec.scheduled_start else "—",
+            "scheduled_end": rec.scheduled_end.strftime("%H:%M") if rec.scheduled_end else "—",
+            "actual_entry": rec.actual_entry.strftime("%H:%M") if rec.actual_entry else None,
+            "actual_exit": rec.actual_exit.strftime("%H:%M") if rec.actual_exit else None,
+            "status": rec.status,
+            "late_minutes": rec.late_minutes or 0,
+            "subject": desig.subject if desig else "—",
+            "group_code": desig.group_code if desig else "—",
+            "explanation": explanation,
+        })
+
+    total_slots = len(att_records)
+    attended = sum(1 for r in att_records if r.status == "ATTENDED")
+    late = sum(1 for r in att_records if r.status == "LATE")
+    absent = sum(1 for r in att_records if r.status == "ABSENT")
+    no_exit = sum(1 for r in att_records if r.status == "NO_EXIT")
+
+    return {
+        "has_biometric": len(bio_records) > 0,
+        "summary": {
+            "total_slots": total_slots,
+            "attended": attended,
+            "late": late,
+            "absent": absent,
+            "no_exit": no_exit,
+            "attendance_rate": round((attended + late + no_exit) / total_slots * 100, 1) if total_slots > 0 else 0,
+        },
+        "attendance_detail": attendance_detail,
+    }
+
+
+@router.post("/attendance/audit/batch-pdf")
+def export_batch_audit_pdf(
+    request: Request,
+    payload: BatchAuditRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate a single PDF with audit data for multiple (or all) teachers."""
+    from app.services.audit_report_pdf import generate_batch_audit_pdf
+    from app.config import settings
+    from fastapi.responses import FileResponse
+
+    month = payload.month
+    year = payload.year
+
+    # Determine which teachers to include
+    if payload.teacher_cis:
+        teachers = (
+            db.query(Teacher)
+            .filter(Teacher.ci.in_(payload.teacher_cis))
+            .order_by(Teacher.full_name)
+            .all()
+        )
+    else:
+        # All teachers with active designations (excluding TEMP-)
+        teacher_cis_with_desig = {
+            d.teacher_ci
+            for d in db.query(Designation).filter(
+                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+                ~Designation.teacher_ci.startswith("TEMP-"),
+            ).all()
+        }
+        teachers = (
+            db.query(Teacher)
+            .filter(Teacher.ci.in_(teacher_cis_with_desig))
+            .order_by(Teacher.full_name)
+            .all()
+        )
+
+    if not teachers:
+        raise HTTPException(400, detail="No se encontraron docentes para el reporte")
+
+    # Collect audit data for each teacher
+    all_audit_data = []
+    for teacher in teachers:
+        t_obj, designations, bio_records, att_records = _get_audit_data(
+            teacher.ci, month, year, db
+        )
+        audit = _build_audit_response(t_obj, designations, bio_records, att_records)
+        all_audit_data.append({
+            "teacher": teacher,
+            "audit": audit,
+        })
+
+    pdf_path = generate_batch_audit_pdf(
+        all_audit_data=all_audit_data,
+        month=month,
+        year=year,
+        generated_by_name=current_user.full_name,
+    )
+
+    log_activity(
+        db,
+        "export_batch_audit",
+        "reports",
+        f"Reporte de auditoría masivo: {len(teachers)} docentes — {MONTH_NAMES.get(month)} {year}",
+        user=current_user,
+        details={"teacher_count": len(teachers), "month": month, "year": year},
+        request=request,
+    )
+    db.commit()
+
+    month_name = MONTH_NAMES.get(month, str(month))
+    filename = (
+        f"Auditoria_Asistencia_General_{month_name}_{year}.pdf"
+        if not payload.teacher_cis
+        else f"Auditoria_Asistencia_{len(teachers)}_docentes_{month_name}_{year}.pdf"
+    )
+
+    return FileResponse(path=pdf_path, filename=filename, media_type="application/pdf")
 
 
 @router.get("/observations/{month}/{year}", response_model=list[ObservationResponse])
