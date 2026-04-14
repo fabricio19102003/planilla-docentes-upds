@@ -71,6 +71,17 @@ export function useObservations(month: number, year: number, type?: string, teac
   })
 }
 
+export function useAttendanceAudit(teacherCi: string, month: number, year: number, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['attendance-audit', teacherCi, month, year],
+    queryFn: async () => {
+      const res = await api.get(`/attendance/audit/${teacherCi}?month=${month}&year=${year}`)
+      return res.data
+    },
+    enabled: enabled && !!teacherCi,
+  })
+}
+
 export function useProcessAttendance() {
   const queryClient = useQueryClient()
 

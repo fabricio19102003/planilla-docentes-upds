@@ -19,6 +19,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { ActivityLogPage } from './pages/ActivityLogPage'
 import { ContractsPage } from './pages/ContractsPage'
 import { BackupPage } from './pages/BackupPage'
+import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -63,6 +64,7 @@ function AppRoutes() {
             <Route index element={<DashboardPage />} />
             <Route path="upload" element={<UploadPage />} />
             <Route path="attendance" element={<AttendancePage />} />
+            <Route path="attendance-audit" element={<AttendanceAuditPage />} />
             <Route path="observations" element={<ObservationsPage />} />
             <Route path="planilla" element={<PlanillaPage />} />
             <Route path="teachers" element={<TeachersPage />} />

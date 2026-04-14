@@ -235,6 +235,153 @@ def get_attendance(
         ) from exc
 
 
+@router.get("/attendance/audit/{teacher_ci}")
+def get_attendance_audit(
+    teacher_ci: str,
+    month: int = Query(...),
+    year: int = Query(...),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Get detailed attendance audit for a teacher — shows schedule, biometric data, and processing result."""
+    from app.models.biometric import BiometricRecord, BiometricUpload
+    from app.config import settings
+
+    teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Docente no encontrado")
+
+    # 1. Teacher's designations (schedule)
+    designations = db.query(Designation).filter(
+        Designation.teacher_ci == teacher_ci,
+        Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+    ).all()
+
+    schedule_info = []
+    for d in designations:
+        slots = d.schedule_json or []
+        schedule_info.append({
+            "designation_id": d.id,
+            "subject": d.subject,
+            "group_code": d.group_code,
+            "semester": d.semester,
+            "monthly_hours": d.monthly_hours,
+            "weekly_hours": d.weekly_hours,
+            "slots": slots,
+        })
+
+    # 2. Raw biometric records for this teacher in this period
+    bio_records = (
+        db.query(BiometricRecord)
+        .join(BiometricUpload)
+        .filter(
+            BiometricRecord.teacher_ci == teacher_ci,
+            BiometricUpload.month == month,
+            BiometricUpload.year == year,
+        )
+        .order_by(BiometricRecord.date, BiometricRecord.entry_time)
+        .all()
+    )
+
+    biometric_data = [
+        {
+            "id": r.id,
+            "date": r.date.isoformat() if r.date else None,
+            "entry_time": r.entry_time.strftime("%H:%M") if r.entry_time else None,
+            "exit_time": r.exit_time.strftime("%H:%M") if r.exit_time else None,
+            "worked_minutes": r.worked_minutes,
+        }
+        for r in bio_records
+    ]
+
+    # 3. Processed attendance records (the system's output)
+    att_records = (
+        db.query(AttendanceRecord)
+        .filter(
+            AttendanceRecord.teacher_ci == teacher_ci,
+            AttendanceRecord.month == month,
+            AttendanceRecord.year == year,
+        )
+        .order_by(AttendanceRecord.date, AttendanceRecord.scheduled_start)
+        .all()
+    )
+
+    # Build detailed audit trail per record
+    attendance_audit = []
+    for rec in att_records:
+        desig = next((d for d in designations if d.id == rec.designation_id), None)
+
+        # Find the linked biometric record
+        bio_match = None
+        if rec.biometric_record_id:
+            bio = db.query(BiometricRecord).filter(BiometricRecord.id == rec.biometric_record_id).first()
+            if bio:
+                bio_match = {
+                    "id": bio.id,
+                    "entry_time": bio.entry_time.strftime("%H:%M") if bio.entry_time else None,
+                    "exit_time": bio.exit_time.strftime("%H:%M") if bio.exit_time else None,
+                    "worked_minutes": bio.worked_minutes,
+                }
+
+        # Build explanation of why this status was assigned
+        explanation = ""
+        if rec.status == "ABSENT":
+            explanation = "No se encontró registro biométrico para este horario programado"
+        elif rec.status == "LATE":
+            explanation = f"Entrada registrada {rec.late_minutes} minutos después del horario programado ({rec.scheduled_start.strftime('%H:%M')})"
+        elif rec.status == "ATTENDED":
+            explanation = "Entrada registrada dentro del margen de tolerancia"
+        elif rec.status == "NO_EXIT":
+            explanation = "Se registró entrada pero no se registró salida"
+
+        attendance_audit.append({
+            "date": rec.date.isoformat() if rec.date else None,
+            "day_name": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][rec.date.weekday()] if rec.date else None,
+            "scheduled_start": rec.scheduled_start.strftime("%H:%M") if rec.scheduled_start else None,
+            "scheduled_end": rec.scheduled_end.strftime("%H:%M") if rec.scheduled_end else None,
+            "actual_entry": rec.actual_entry.strftime("%H:%M") if rec.actual_entry else None,
+            "actual_exit": rec.actual_exit.strftime("%H:%M") if rec.actual_exit else None,
+            "status": rec.status,
+            "academic_hours": rec.academic_hours,
+            "late_minutes": rec.late_minutes,
+            "observation": rec.observation,
+            "subject": desig.subject if desig else "—",
+            "group_code": desig.group_code if desig else "—",
+            "biometric_match": bio_match,
+            "explanation": explanation,
+            "has_biometric_link": rec.biometric_record_id is not None,
+        })
+
+    # 4. Summary stats
+    total_slots = len(att_records)
+    attended = sum(1 for r in att_records if r.status == "ATTENDED")
+    late = sum(1 for r in att_records if r.status == "LATE")
+    absent = sum(1 for r in att_records if r.status == "ABSENT")
+    no_exit = sum(1 for r in att_records if r.status == "NO_EXIT")
+
+    has_biometric = len(bio_records) > 0
+
+    return {
+        "teacher_ci": teacher.ci,
+        "teacher_name": teacher.full_name,
+        "month": month,
+        "year": year,
+        "has_biometric": has_biometric,
+        "biometric_records_count": len(bio_records),
+        "summary": {
+            "total_slots": total_slots,
+            "attended": attended,
+            "late": late,
+            "absent": absent,
+            "no_exit": no_exit,
+            "attendance_rate": round((attended + late + no_exit) / total_slots * 100, 1) if total_slots > 0 else 0,
+        },
+        "schedule": schedule_info,
+        "biometric_raw": biometric_data,
+        "attendance_detail": attendance_audit,
+    }
+
+
 @router.get("/observations/{month}/{year}", response_model=list[ObservationResponse])
 def get_observations(
     month: int,
