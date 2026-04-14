@@ -100,11 +100,14 @@ def upload_biometric(
             ci_alias_map=ci_alias_map,
         )
 
-        ci_name_map = {
-            ci: entries[0].teacher_name
-            for ci, entries in parse_result.records.items()
-            if entries and entries[0].teacher_name
-        }
+        # Build ci_name_map using ALIASED CIs so link_teachers_by_name works with
+        # the same CIs that were persisted in the DB (not the raw biometric CIs).
+        ci_name_map: dict[str, str] = {}
+        for bio_ci, entries in parse_result.records.items():
+            if entries and entries[0].teacher_name:
+                # Use aliased CI if available, otherwise use raw bio CI
+                real_ci = ci_alias_map.get(bio_ci, bio_ci)
+                ci_name_map[real_ci] = entries[0].teacher_name
         linked_teachers = loader.link_teachers_by_name(db, ci_name_map) if ci_name_map else 0
 
         log_activity(

@@ -93,12 +93,15 @@ def names_match(name1: str, name2: str) -> bool:
     Matching rules (evaluated in order, first match wins):
       1. Exact match after normalization.
       2. All tokens from the shorter name are found in the longer name,
-         with at least 3 tokens in the shorter name AND at least one "real name" token
-         (token length >= 4, to reject preposition-only matches like "DE LA CRUZ").
-         Example: "YHAGO DE SOUZA" (3 tokens) ⊆ "YHAGO DE SOUZA FROTA" (4 tokens) → MATCH.
+         with at least 3 tokens in the shorter name AND at least 2 "real name" tokens
+         (token length >= 4, to reject preposition-only matches like "DE LA CRUZ" where
+         only CRUZ qualifies — 1 real token is not enough to identify a person).
+         Example: "YHAGO DE SOUZA" (3 tokens, real: YHAGO+SOUZA=2) ⊆ "YHAGO DE SOUZA FROTA" → MATCH.
+         Counter-example: "DE LA CRUZ" (3 tokens, real: CRUZ=1) ⊆ "JUAN DE LA CRUZ PEREZ" → NO MATCH.
          Counter-example: "ABNER FLORES" (2 tokens) ⊄ match for "ABNER FLORES MAMANI"
          because 2-token subsets are too ambiguous (many people share any 2-token name).
-      3. At least 3 shared tokens AND >= 80% token overlap relative to the shorter name.
+      3. At least 3 shared tokens AND >= 80% token overlap relative to the shorter name,
+         AND at least 2 shared tokens must be "real name" tokens (≥4 chars).
 
     Rationale:
       - Rule 2 handles biometric systems that truncate compound surnames: the shorter
@@ -124,20 +127,27 @@ def names_match(name1: str, name2: str) -> bool:
     # Requires at least 3 tokens in the shorter name to avoid ambiguous 2-token
     # matches (e.g. "ABNER FLORES" should NOT match "ABNER FLORES MAMANI" because
     # any two-token partial name could match too many unrelated people).
+    # Additionally requires at least 2 "real name" tokens (≥4 chars) to prevent
+    # preposition-only matches like "DE LA CRUZ" ⊆ "JUAN DE LA CRUZ PEREZ"
+    # where shorter has only CRUZ(4) as a real name token — not enough to identify.
     shorter = tokens1 if len(tokens1) <= len(tokens2) else tokens2
     longer = tokens2 if len(tokens1) <= len(tokens2) else tokens1
     if len(shorter) >= 3 and shorter <= longer:
-        # At least one token must be a "real name" (not just prepositions/articles)
-        has_real_name_token = any(len(t) >= 4 for t in shorter)
-        if has_real_name_token:
+        real_name_tokens = [t for t in shorter if len(t) >= 4]
+        if len(real_name_tokens) >= 2:
             return True
 
     shared = tokens1 & tokens2
     min_len = min(len(tokens1), len(tokens2))
 
-    # Rule 3: at least 3 shared tokens AND 80%+ overlap relative to the shorter name
+    # Rule 3: at least 3 shared tokens AND 80%+ overlap relative to the shorter name,
+    # AND at least 2 of the shared tokens must be "real name" tokens (≥4 chars).
+    # This prevents "DE LA CRUZ" (3 shared, 100% overlap) from matching
+    # "JUAN DE LA CRUZ PEREZ" when the shared set contains mostly prepositions.
     if len(shared) >= 3 and len(shared) / min_len >= 0.8:
-        return True
+        real_shared_tokens = [t for t in shared if len(t) >= 4]
+        if len(real_shared_tokens) >= 2:
+            return True
 
     return False
 
@@ -544,10 +554,11 @@ class DesignationLoader:
             # Remove trailing colon at end of line
             line_up = line_up.rstrip(":")
 
-            # Pattern 1: DAY[: ] HH:MM[ ]-[ ]HH:MM  (standard and tight)
+            # Pattern 1: DAY[: ] HH:MM[ ]-[ ]HH:MM [AM|PM]  (standard and tight)
             # Handles: "LUNES 06:30 - 08:00", "JUVES: 15:55-17:25", "06:30 -08:00"
+            # Also handles single trailing AM/PM: "LUNES 03:00-05:00 PM"
             match = re.match(
-                r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})(?:\s*[:\s])?\s*-\s*(\d{1,2}:\d{2})(?:\s*(?:AM|PM))?',
+                r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})(?:\s*[:\s])?\s*-\s*(\d{1,2}:\d{2})(?:\s*(AM|PM))?',
                 line_up,
             )
 
@@ -616,6 +627,36 @@ class DesignationLoader:
                 hora_inicio = "0" + hora_inicio
             if len(hora_fin) == 4:
                 hora_fin = "0" + hora_fin
+
+            # Handle single trailing AM/PM from Pattern 1 group 4
+            # e.g. "LUNES 03:00-05:00 PM" → both times are PM
+            # If only end time carries AM/PM, apply it to start time too
+            # (university classes don't span across AM/PM boundary)
+            trailing_period: str | None = (
+                match.group(4)
+                if (match.lastindex is not None and match.lastindex >= 4)
+                else None
+            )
+            if trailing_period:
+                try:
+                    start_h, start_m = map(int, hora_inicio.split(":"))
+                    end_h, end_m = map(int, hora_fin.split(":"))
+                    if trailing_period == "PM":
+                        if start_h < 12:
+                            start_h += 12
+                        if end_h < 12:
+                            end_h += 12
+                    elif trailing_period == "AM":
+                        if start_h == 12:
+                            start_h = 0
+                        if end_h == 12:
+                            end_h = 0
+                    hora_inicio = f"{start_h:02d}:{start_m:02d}"
+                    hora_fin = f"{end_h:02d}:{end_m:02d}"
+                except (ValueError, AttributeError):
+                    logger.warning(
+                        "_parse_horario_string: cannot apply AM/PM conversion for: %r", line
+                    )
 
             # Fix day typos
             day_name = DAY_CORRECTIONS.get(day_raw, day_raw)
