@@ -59,7 +59,185 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.2 RoomType
+### 2.2 Career
+
+**Table**: `careers`  
+**Module**: `core/models/career.py`  
+**Phase**: 2
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `id` | `Integer` | PK, autoincrement | — | |
+| `code` | `String(20)` | NOT NULL, UNIQUE | — | e.g. `"MED"`, `"ODO"`, `"ENF"` |
+| `name` | `String(200)` | NOT NULL | — | e.g. `"Medicina"`, `"Odontologia"` |
+| `description` | `Text` | nullable | `None` | |
+| `is_active` | `Boolean` | NOT NULL | `True` | Soft delete |
+| `created_at` | `DateTime` | NOT NULL | `func.now()` | |
+| `updated_at` | `DateTime` | nullable | `onupdate=func.now()` | |
+
+**Relationships**:
+- `semesters` → `Semester[]` (back_populates `career`, cascade `all, delete-orphan`)
+
+**Business Rules**:
+- BR-CR-1: Cannot deactivate a career that has semesters with active designations. Return HTTP 409.
+- BR-CR-2: `code` must be uppercase alphanumeric, max 20 chars.
+- BR-CR-3: Career lives in `core/` because it's a foundational entity shared by scheduling and (potentially) payroll.
+
+**Note**: Career is a `core/` entity, not `scheduling/`, because multiple modules may depend on it. A career defines the academic program; scheduling assigns schedules within that program.
+
+---
+
+### 2.3 Semester
+
+**Table**: `semesters`  
+**Module**: `core/models/semester.py`  
+**Phase**: 2
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `id` | `Integer` | PK, autoincrement | — | |
+| `career_id` | `Integer` | FK → `careers.id`, NOT NULL | — | `ondelete="CASCADE"` |
+| `number` | `Integer` | NOT NULL | — | 1-10 (or more, depends on career) |
+| `name` | `String(100)` | NOT NULL | — | e.g. `"1er Semestre"`, `"5to Semestre"` |
+| `is_active` | `Boolean` | NOT NULL | `True` | |
+| `created_at` | `DateTime` | NOT NULL | `func.now()` | |
+
+**Unique Constraint**: `uq_semester_career_number` on `(career_id, number)`.
+
+**Relationships**:
+- `career` → `Career` (back_populates `semesters`)
+- `subjects` → `Subject[]` (back_populates `semester`, cascade `all, delete-orphan`)
+
+**Business Rules**:
+- BR-SM-1: `number` must be >= 1.
+- BR-SM-2: Cannot delete a semester that has subjects with active designations. Return HTTP 409.
+- BR-SM-3: The combination `(career_id, number)` must be unique.
+- BR-SM-4: Semester lives in `core/` because it's part of the curriculum structure.
+
+---
+
+### 2.4 Subject
+
+**Table**: `subjects`  
+**Module**: `core/models/subject.py`  
+**Phase**: 2
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `id` | `Integer` | PK, autoincrement | — | |
+| `semester_id` | `Integer` | FK → `semesters.id`, NOT NULL | — | `ondelete="CASCADE"` |
+| `code` | `String(20)` | nullable, UNIQUE when not null | — | e.g. `"MRF 0100"`, `null` for electives |
+| `name` | `String(200)` | NOT NULL | — | e.g. `"Anatomia Humana I"` |
+| `theoretical_hours` | `Integer` | NOT NULL | `0` | HT from curriculum (semester total) |
+| `practical_hours` | `Integer` | NOT NULL | `0` | HP from curriculum (semester total) |
+| `credits` | `Integer` | NOT NULL | `0` | CR from curriculum |
+| `is_elective` | `Boolean` | NOT NULL | `False` | True for "Electiva I", "Electiva II", etc. |
+| `is_active` | `Boolean` | NOT NULL | `True` | |
+| `created_at` | `DateTime` | NOT NULL | `func.now()` | |
+| `updated_at` | `DateTime` | nullable | `onupdate=func.now()` | |
+
+**Indexes**: `ix_subjects_semester` on `(semester_id)`.
+
+**Relationships**:
+- `semester` → `Semester` (back_populates `subjects`)
+- `designations` → `Designation[]` (back_populates `subject_rel`)
+
+**Business Rules**:
+- BR-SJ-1: `code` can be NULL for elective subjects (e.g. "Electiva I" has no fixed code in the malla). When not null, must be unique.
+- BR-SJ-2: Cannot delete a subject that has active designations. Return HTTP 409.
+- BR-SJ-3: `theoretical_hours` and `practical_hours` must be >= 0.
+- BR-SJ-4: `credits` must be >= 0.
+- BR-SJ-5: Subjects are editable even after creation (to handle elective name/hour changes between periods).
+- BR-SJ-6: Subject lives in `core/` because it's part of the curriculum (malla curricular), not a scheduling artifact.
+
+**Curriculum Import**: The system should support bulk import of subjects from the malla curricular JSON format:
+```json
+{
+    "carrera": "Medicina",
+    "semestres": [
+        {
+            "semestre": 1,
+            "materias": [
+                {"codigo": "MRF 0100", "nombre": "Anatomía Humana I", "HT": 51, "HP": 51, "CR": 5}
+            ]
+        }
+    ]
+}
+```
+
+---
+
+### 2.5 Shift
+
+**Table**: `shifts`  
+**Module**: `scheduling/models/shift.py`  
+**Phase**: 2
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `id` | `Integer` | PK, autoincrement | — | |
+| `code` | `String(5)` | NOT NULL, UNIQUE | — | `"M"`, `"T"`, `"N"` |
+| `name` | `String(50)` | NOT NULL | — | `"Mañana"`, `"Tarde"`, `"Noche"` |
+| `start_time` | `Time` | NOT NULL | — | Typical start, e.g. `06:30` for morning |
+| `end_time` | `Time` | NOT NULL | — | Typical end, e.g. `12:30` for morning |
+| `display_order` | `Integer` | NOT NULL | `0` | For UI sorting: M=1, T=2, N=3 |
+
+**Relationships**:
+- `groups` → `Group[]` (back_populates `shift`)
+
+**Business Rules**:
+- BR-SH-1: System ships with 3 pre-seeded shifts: M (Mañana, 06:30-12:30), T (Tarde, 12:30-18:30), N (Noche, 18:30-22:00).
+- BR-SH-2: Cannot delete a shift that has groups referencing it. Return HTTP 409.
+- BR-SH-3: `start_time` and `end_time` are indicative ranges (not hard constraints on scheduling — a morning group could have a class ending at 13:00).
+
+---
+
+### 2.6 Group
+
+**Table**: `groups`  
+**Module**: `scheduling/models/group.py`  
+**Phase**: 2
+
+| Column | Type | Constraints | Default | Notes |
+|--------|------|-------------|---------|-------|
+| `id` | `Integer` | PK, autoincrement | — | |
+| `academic_period_id` | `Integer` | FK → `academic_periods.id`, NOT NULL | — | `ondelete="CASCADE"` |
+| `semester_id` | `Integer` | FK → `semesters.id`, NOT NULL | — | `ondelete="RESTRICT"` |
+| `shift_id` | `Integer` | FK → `shifts.id`, NOT NULL | — | `ondelete="RESTRICT"` |
+| `number` | `Integer` | NOT NULL | — | Parallel number within the shift (1, 2, 3...) |
+| `code` | `String(20)` | NOT NULL | — | Auto-generated: `"{shift.code}-{number}"` e.g. `"M-1"`, `"T-2"`, `"N-1"` |
+| `is_special` | `Boolean` | NOT NULL | `False` | True for G.E. (Grupos Especiales — convalidacion students) |
+| `student_count` | `Integer` | nullable | `None` | Estimated students (for room capacity validation) |
+| `is_active` | `Boolean` | NOT NULL | `True` | |
+| `created_at` | `DateTime` | NOT NULL | `func.now()` | |
+
+**Unique Constraint**: `uq_group_period_semester_code` on `(academic_period_id, semester_id, code)`.
+
+**Indexes**: `ix_groups_period_semester` on `(academic_period_id, semester_id)`.
+
+**Relationships**:
+- `academic_period` → `AcademicPeriod`
+- `semester` → `Semester`
+- `shift` → `Shift` (back_populates `groups`)
+- `designations` → `Designation[]` (back_populates `group_rel`)
+
+**Business Rules**:
+- BR-GR-1: `code` is auto-generated from `shift.code` + `-` + `number`. For special groups: `code = "G.E."` (or custom code).
+- BR-GR-2: Groups are created PER academic period. Each period, the admin decides which groups exist for each semester.
+- BR-GR-3: Cannot delete a group that has designations. Return HTTP 409.
+- BR-GR-4: `number` must be >= 1.
+- BR-GR-5: For `is_special = True` (G.E.), the group follows a separate curriculum and schedule. The `semester_id` still references the semester it's associated with, but the subjects may differ.
+- BR-GR-6: `student_count` is used for room capacity validation when assigning rooms to slots. If null, capacity check is skipped.
+
+**Special Group (G.E.) handling**:
+- G.E. students come from other universities (convalidacion) and have a custom adapted curriculum
+- G.E. groups have `is_special = True` and `code = "G.E."` (or "G.E.-1", "G.E.-2" if multiple)
+- G.E. designations may reference subjects from any semester (not restricted to one semester's malla)
+- G.E. scheduling follows the same conflict detection rules as regular groups
+
+---
+
+### 2.7 RoomType (was 2.2)
 
 **Table**: `room_types`  
 **Module**: `scheduling/models/room_type.py`  
@@ -80,7 +258,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.3 Equipment
+### 2.8 Equipment (was 2.3)
 
 **Table**: `equipment`  
 **Module**: `scheduling/models/equipment.py`  
@@ -98,7 +276,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.4 Room
+### 2.9 Room (was 2.4)
 
 **Table**: `rooms`  
 **Module**: `scheduling/models/room.py`  
@@ -132,7 +310,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.5 RoomEquipment
+### 2.10 RoomEquipment (was 2.5)
 
 **Table**: `room_equipment`  
 **Module**: `scheduling/models/room_equipment.py`  
@@ -154,7 +332,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.6 TeacherAvailability
+### 2.11 TeacherAvailability (was 2.6)
 
 **Table**: `teacher_availabilities`  
 **Module**: `scheduling/models/teacher_availability.py`  
@@ -177,7 +355,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.7 AvailabilitySlot
+### 2.12 AvailabilitySlot (was 2.7)
 
 **Table**: `availability_slots`  
 **Module**: `scheduling/models/availability_slot.py`  
@@ -200,7 +378,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 ---
 
-### 2.8 Designation (MODIFIED)
+### 2.13 Designation (MODIFIED — was 2.8)
 
 **Table**: `designations` (unchanged table name)  
 **Module**: `scheduling/models/designation.py` (moved from `models/`)  
@@ -212,10 +390,7 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 |--------|------|-------------|---------|-------|
 | `id` | `Integer` | PK, autoincrement | — | |
 | `teacher_ci` | `String(20)` | FK → `teachers.ci`, NOT NULL | — | `ondelete="CASCADE"` |
-| `subject` | `String(200)` | NOT NULL | — | |
-| `semester` | `String(50)` | NOT NULL | — | |
-| `group_code` | `String(20)` | NOT NULL | — | e.g. `"M-1"`, `"T-2"`, `"N-3"` |
-| `semester_hours` | `Integer` | nullable | — | |
+| `semester_hours` | `Integer` | nullable | — | From curriculum (total semester hours) |
 | `monthly_hours` | `Integer` | nullable | — | Auto-computed: `weekly_hours_calculated * 4` |
 | `weekly_hours` | `Integer` | nullable | — | From source data (original) |
 | `weekly_hours_calculated` | `Integer` | nullable | — | Auto-computed: sum of slot `academic_hours` |
@@ -226,6 +401,8 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 | Column | Type | Constraints | Default | Notes |
 |--------|------|-------------|---------|-------|
 | `academic_period_id` | `Integer` | FK → `academic_periods.id`, NOT NULL | — | `ondelete="RESTRICT"`. Replaces `academic_period` string. |
+| `subject_id` | `Integer` | FK → `subjects.id`, NOT NULL | — | `ondelete="RESTRICT"`. Replaces `subject` string. |
+| `group_id` | `Integer` | FK → `groups.id`, NOT NULL | — | `ondelete="RESTRICT"`. Replaces `group_code` string. Links to semester implicitly via group. |
 | `source` | `String(20)` | NOT NULL | `"manual"` | Enum: `manual`, `legacy_import` |
 | `status` | `String(20)` | NOT NULL | `"draft"` | Enum: `draft`, `confirmed`, `cancelled` |
 
@@ -234,6 +411,9 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 | Column | Type | Notes |
 |--------|------|-------|
 | `academic_period` | `String(20)` | Kept during transition. Auto-populated from `AcademicPeriod.code` on save. Removed in Phase 4. |
+| `subject` | `String(200)` | Kept during transition. Auto-populated from `Subject.name` on save. Removed in Phase 4. |
+| `semester` | `String(50)` | Kept during transition. Auto-populated from `Semester.name` via `Group.semester`. Removed in Phase 4. |
+| `group_code` | `String(20)` | Kept during transition. Auto-populated from `Group.code` on save. Removed in Phase 4. |
 | `schedule_json` | `JSON` | Kept during transition. Auto-populated from `DesignationSlot` records by `CompatibilityAdapter`. Removed in Phase 4. |
 | `schedule_raw` | `Text` | Kept during transition. No longer populated for `source=manual`. Removed in Phase 4. |
 
@@ -241,12 +421,15 @@ All models use SQLAlchemy 2.0 `Mapped` style (consistent with existing codebase)
 
 Replace `uq_designation_teacher_subject_semester_group_period`:
 ```
-UNIQUE (teacher_ci, subject, semester, group_code, academic_period_id)
+UNIQUE (teacher_ci, subject_id, group_id, academic_period_id)
 ```
+Note: `semester` is no longer in the unique constraint because `group_id` already implies a semester (via `Group.semester_id`).
 
 **Relationships**:
 - `teacher` → `Teacher` (back_populates `designations`)
 - `academic_period` → `AcademicPeriod` (back_populates `designations`)
+- `subject_rel` → `Subject` (back_populates `designations`)
+- `group_rel` → `Group` (back_populates `designations`)
 - `slots` → `DesignationSlot[]` (back_populates `designation`, cascade `all, delete-orphan`)
 - `attendance_records` → `AttendanceRecord[]` (back_populates `designation`) — payroll FK remains
 
@@ -261,7 +444,7 @@ UNIQUE (teacher_ci, subject, semester, group_code, academic_period_id)
 
 ---
 
-### 2.9 DesignationSlot
+### 2.14 DesignationSlot (was 2.9)
 
 **Table**: `designation_slots`  
 **Module**: `scheduling/models/designation_slot.py`  
@@ -353,7 +536,194 @@ class PeriodService:
 
 ---
 
-### 3.2 RoomTypeService
+### 3.2 CareerService
+
+**Module**: `core/services/career_service.py`  
+**Phase**: 2
+
+```python
+class CareerService:
+    def create(self, db: Session, *, code: str, name: str, description: str | None = None) -> Career:
+        """Create a new career. Validates unique code.
+        Raises: 409 if code exists.
+        """
+
+    def update(self, db: Session, career_id: int, **fields) -> Career:
+        """Update career fields (name, description). Raises 404."""
+
+    def deactivate(self, db: Session, career_id: int) -> Career:
+        """Soft delete. Validates BR-CR-1 (no active designations in any semester).
+        Raises: 409 if active designations exist.
+        """
+
+    def reactivate(self, db: Session, career_id: int) -> Career
+
+    def list_all(self, db: Session, *, active_only: bool = True) -> list[Career]:
+        """List careers with semester count."""
+
+    def get(self, db: Session, career_id: int) -> Career:
+        """Career with eagerly loaded semesters and subjects. Raises 404."""
+
+    def import_curriculum(
+        self, db: Session, career_id: int, curriculum_json: dict
+    ) -> dict:
+        """Bulk import subjects from malla curricular JSON format.
+        Creates semesters and subjects that don't exist yet. Updates existing ones.
+        Returns: {semesters_created, subjects_created, subjects_updated, warnings[]}
+        """
+```
+
+---
+
+### 3.3 SemesterService
+
+**Module**: `core/services/semester_service.py`  
+**Phase**: 2
+
+```python
+class SemesterService:
+    def create(self, db: Session, *, career_id: int, number: int, name: str) -> Semester:
+        """Create semester in career. Validates unique (career_id, number).
+        Raises: 409 if exists, 404 if career not found.
+        """
+
+    def update(self, db: Session, semester_id: int, **fields) -> Semester:
+        """Update name. Raises 404."""
+
+    def delete(self, db: Session, semester_id: int) -> None:
+        """Hard delete. Validates BR-SM-2 (no active designations).
+        Raises: 409 if active designations exist.
+        """
+
+    def list_by_career(self, db: Session, career_id: int) -> list[Semester]:
+        """All semesters for a career, ordered by number. Includes subject count."""
+
+    def get(self, db: Session, semester_id: int) -> Semester:
+        """Semester with subjects. Raises 404."""
+```
+
+---
+
+### 3.4 SubjectService
+
+**Module**: `core/services/subject_service.py`  
+**Phase**: 2
+
+```python
+class SubjectService:
+    def create(
+        self, db: Session, *, semester_id: int, code: str | None,
+        name: str, theoretical_hours: int, practical_hours: int,
+        credits: int, is_elective: bool = False
+    ) -> Subject:
+        """Create subject in semester. Code nullable for electives.
+        Validates: unique code (when not null), semester exists.
+        Raises: 409 if code exists, 404 if semester not found, 422 if hours < 0.
+        """
+
+    def update(self, db: Session, subject_id: int, **fields) -> Subject:
+        """Update subject fields. All fields editable (BR-SJ-5).
+        Raises: 404 if not found.
+        """
+
+    def delete(self, db: Session, subject_id: int) -> None:
+        """Hard delete. Validates BR-SJ-2 (no active designations).
+        Raises: 409 if active designations exist.
+        """
+
+    def list_by_semester(self, db: Session, semester_id: int) -> list[Subject]:
+        """All subjects for a semester, ordered by code. Includes designation count per active period."""
+
+    def get(self, db: Session, subject_id: int) -> Subject:
+        """Subject with semester and career info. Raises 404."""
+
+    def search(self, db: Session, *, query: str, career_id: int | None = None) -> list[Subject]:
+        """Search subjects by name or code. Optionally filter by career."""
+```
+
+---
+
+### 3.5 ShiftService
+
+**Module**: `scheduling/services/shift_service.py`  
+**Phase**: 2
+
+```python
+class ShiftService:
+    def list_all(self, db: Session) -> list[Shift]:
+        """All shifts ordered by display_order. Pre-seeded: M, T, N."""
+
+    def get(self, db: Session, shift_id: int) -> Shift:
+        """Raises 404."""
+
+    def update(self, db: Session, shift_id: int, **fields) -> Shift:
+        """Update name, start/end times, display_order.
+        Raises: 404 if not found.
+        """
+
+    def seed_defaults(self, db: Session) -> list[Shift]:
+        """Create default shifts if they don't exist:
+        M (Mañana, 06:30-12:30, order=1)
+        T (Tarde, 12:30-18:30, order=2)
+        N (Noche, 18:30-22:00, order=3)
+        Idempotent — safe to call multiple times.
+        """
+```
+
+---
+
+### 3.6 GroupService
+
+**Module**: `scheduling/services/group_service.py`  
+**Phase**: 2
+
+```python
+class GroupService:
+    def create_group(
+        self, db: Session, *, period_id: int, semester_id: int,
+        shift_id: int, number: int, is_special: bool = False,
+        student_count: int | None = None
+    ) -> Group:
+        """Create group for a period+semester+shift.
+        Auto-generates code: '{shift.code}-{number}' or 'G.E.' for special.
+        Validates: unique (period_id, semester_id, code).
+        Raises: 409 if duplicate, 404 if period/semester/shift not found.
+        """
+
+    def create_bulk(
+        self, db: Session, *, period_id: int, semester_id: int,
+        groups: list[dict]  # [{shift_id, number, student_count?, is_special?}]
+    ) -> list[Group]:
+        """Create multiple groups at once for a semester in a period.
+        Useful when admin sets up 'this semester has M-1, M-2, T-1, N-1, N-2'.
+        """
+
+    def update(self, db: Session, group_id: int, **fields) -> Group:
+        """Update student_count, is_active. Cannot change shift/number if designations exist.
+        Raises: 404 if not found.
+        """
+
+    def delete(self, db: Session, group_id: int) -> None:
+        """Delete group. Validates BR-GR-3 (no designations).
+        Raises: 409 if designations exist.
+        """
+
+    def list_by_period(
+        self, db: Session, period_id: int, *,
+        semester_id: int | None = None
+    ) -> list[Group]:
+        """All groups for a period, optionally filtered by semester.
+        Ordered by semester number, shift display_order, group number.
+        Includes: semester, shift, designation count.
+        """
+
+    def get(self, db: Session, group_id: int) -> Group:
+        """Group with semester, shift, period. Raises 404."""
+```
+
+---
+
+### 3.7 RoomTypeService (was 3.2)
 
 **Module**: `scheduling/services/room_type_service.py`  
 **Phase**: 2
@@ -369,7 +739,7 @@ class RoomTypeService:
 
 ---
 
-### 3.3 EquipmentService
+### 3.8 EquipmentService (was 3.3)
 
 **Module**: `scheduling/services/equipment_service.py`  
 **Phase**: 2
@@ -385,7 +755,7 @@ class EquipmentService:
 
 ---
 
-### 3.4 RoomService
+### 3.9 RoomService (was 3.4)
 
 **Module**: `scheduling/services/room_service.py`  
 **Phase**: 2
@@ -444,7 +814,7 @@ class RoomService:
 
 ---
 
-### 3.5 AvailabilityService
+### 3.10 AvailabilityService (was 3.5)
 
 **Module**: `scheduling/services/availability_service.py`  
 **Phase**: 2
@@ -479,7 +849,7 @@ class AvailabilityService:
 
 ---
 
-### 3.6 DesignationService
+### 3.11 DesignationService (was 3.6)
 
 **Module**: `scheduling/services/designation_service.py`  
 **Phase**: 2
@@ -488,28 +858,31 @@ class AvailabilityService:
 class DesignationService:
     def create_designation(
         self, db: Session, *,
-        teacher_ci: str, period_id: int, subject: str,
-        semester: str, group_code: str,
+        teacher_ci: str, period_id: int, subject_id: int,
+        group_id: int,
         slots: list[dict],  # [{day_of_week, start_time, end_time, room_id?}]
         semester_hours: int | None = None,
         weekly_hours: int | None = None,
     ) -> Designation:
         """Create designation with slots. Status='draft', source='manual'.
+        Validates: teacher, period, subject, group all exist.
+        Validates: group belongs to the given period.
         For each slot:
           1. Compute duration_minutes, academic_hours (BR-DS-2, BR-DS-3)
           2. Validate via ConflictService (BR-DS-4)
           3. Create DesignationSlot
         After all slots: compute weekly_hours_calculated and monthly_hours (BR-DG-1, BR-DG-2).
         Generate schedule_json via CompatibilityAdapter (BR-DG-6).
-        Populate deprecated academic_period string from AcademicPeriod.code.
-        Raises: 404 teacher/period not found, 409 conflicts detected, 422 validation.
+        Populate deprecated string columns (subject, semester, group_code, academic_period) from FK entities.
+        Raises: 404 teacher/period/subject/group not found, 409 conflicts detected, 422 validation.
         """
 
     def update_designation(
         self, db: Session, designation_id: int, **fields
     ) -> Designation:
-        """Update non-slot fields (subject, semester, group_code, semester_hours).
+        """Update non-slot fields (subject_id, group_id, semester_hours).
         Validates BR-DG-4 (confirmed cannot edit), BR-DG-5 (cancelled cannot edit).
+        Re-populates deprecated string columns on change.
         """
 
     def add_slot(
@@ -578,7 +951,7 @@ class DesignationService:
 
 ---
 
-### 3.7 ConflictService
+### 3.12 ConflictService (was 3.7)
 
 **Module**: `scheduling/services/conflict_service.py`  
 **Phase**: 2
@@ -678,7 +1051,7 @@ CREATE INDEX ix_slots_room_day ON designation_slots(room_id, day_of_week)
 
 ---
 
-### 3.8 SlotReadService (Payroll Interface)
+### 3.13 SlotReadService (was 3.8) (Payroll Interface)
 
 **Module**: `scheduling/services/slot_read_service.py`  
 **Phase**: 3
@@ -741,7 +1114,7 @@ class SlotReadService:
 
 ---
 
-### 3.9 CompatibilityAdapter
+### 3.14 CompatibilityAdapter (was 3.9)
 
 **Module**: `scheduling/services/compatibility_adapter.py`  
 **Phase**: 2 (created), Phase 4 (removed)
@@ -827,7 +1200,154 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.2 Room Types
+### 4.2 Careers
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/core/careers` | admin | Create career |
+| `GET` | `/api/core/careers` | admin | List careers (query: `?active_only=true`) |
+| `GET` | `/api/core/careers/{id}` | admin | Get career with semesters + subjects |
+| `PUT` | `/api/core/careers/{id}` | admin | Update career |
+| `POST` | `/api/core/careers/{id}/deactivate` | admin | Soft delete |
+| `POST` | `/api/core/careers/{id}/reactivate` | admin | Reactivate |
+| `POST` | `/api/core/careers/{id}/import-curriculum` | admin | Bulk import subjects from malla curricular JSON |
+
+**Request: Import Curriculum**
+```json
+{
+    "semestres": [
+        {
+            "semestre": 1,
+            "materias": [
+                {"codigo": "MRF 0100", "nombre": "Anatomía Humana I", "HT": 51, "HP": 51, "CR": 5},
+                {"codigo": null, "nombre": "Electiva I", "HT": 40, "HP": 40, "CR": 4}
+            ]
+        }
+    ]
+}
+```
+
+**Response: Import Result**
+```json
+{
+    "semesters_created": 10,
+    "subjects_created": 78,
+    "subjects_updated": 0,
+    "warnings": ["Electiva I: código null, marcada como electiva"]
+}
+```
+
+---
+
+### 4.3 Semesters
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/core/careers/{career_id}/semesters` | admin | Create semester |
+| `GET` | `/api/core/careers/{career_id}/semesters` | admin | List semesters for career |
+| `GET` | `/api/core/semesters/{id}` | admin | Get semester with subjects |
+| `PUT` | `/api/core/semesters/{id}` | admin | Update semester |
+| `DELETE` | `/api/core/semesters/{id}` | admin | Delete (409 if designations exist) |
+
+---
+
+### 4.4 Subjects
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/core/semesters/{semester_id}/subjects` | admin | Create subject |
+| `GET` | `/api/core/semesters/{semester_id}/subjects` | admin | List subjects for semester |
+| `GET` | `/api/core/subjects/{id}` | admin | Get subject detail |
+| `PUT` | `/api/core/subjects/{id}` | admin | Update subject |
+| `DELETE` | `/api/core/subjects/{id}` | admin | Delete (409 if designations exist) |
+| `GET` | `/api/core/subjects/search` | admin | Search subjects (query: `?q=anatomia&career_id=1`) |
+
+**Response: Subject**
+```json
+{
+    "id": 1,
+    "code": "MRF 0100",
+    "name": "Anatomía Humana I",
+    "theoretical_hours": 51,
+    "practical_hours": 51,
+    "credits": 5,
+    "is_elective": false,
+    "is_active": true,
+    "semester": {"id": 1, "number": 1, "name": "1er Semestre"},
+    "career": {"id": 1, "code": "MED", "name": "Medicina"}
+}
+```
+
+---
+
+### 4.5 Shifts
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/scheduling/shifts` | admin | List all shifts (pre-seeded: M, T, N) |
+| `PUT` | `/api/scheduling/shifts/{id}` | admin | Update shift (name, times, order) |
+
+Shifts are pre-seeded and cannot be created or deleted via API.
+
+---
+
+### 4.6 Groups
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/scheduling/groups` | admin | Create group |
+| `POST` | `/api/scheduling/groups/bulk` | admin | Create multiple groups at once |
+| `GET` | `/api/scheduling/groups` | admin | List groups (query: `?period_id=&semester_id=`) |
+| `GET` | `/api/scheduling/groups/{id}` | admin | Get group detail |
+| `PUT` | `/api/scheduling/groups/{id}` | admin | Update group |
+| `DELETE` | `/api/scheduling/groups/{id}` | admin | Delete (409 if designations exist) |
+
+**Request: Create Group**
+```json
+{
+    "period_id": 1,
+    "semester_id": 1,
+    "shift_id": 1,
+    "number": 1,
+    "student_count": 35
+}
+```
+
+**Response: Group**
+```json
+{
+    "id": 1,
+    "code": "M-1",
+    "academic_period": {"id": 1, "code": "I/2026"},
+    "semester": {"id": 1, "number": 1, "name": "1er Semestre", "career": {"id": 1, "name": "Medicina"}},
+    "shift": {"id": 1, "code": "M", "name": "Mañana"},
+    "number": 1,
+    "is_special": false,
+    "student_count": 35,
+    "is_active": true,
+    "designation_count": 0
+}
+```
+
+**Request: Bulk Create Groups**
+```json
+{
+    "period_id": 1,
+    "semester_id": 1,
+    "groups": [
+        {"shift_id": 1, "number": 1, "student_count": 35},
+        {"shift_id": 1, "number": 2, "student_count": 30},
+        {"shift_id": 2, "number": 1, "student_count": 40},
+        {"shift_id": 3, "number": 1, "student_count": 25},
+        {"shift_id": 3, "number": 2, "student_count": 28}
+    ]
+}
+```
+This creates groups M-1, M-2, T-1, N-1, N-2 for 1er Semestre in period I/2026.
+
+---
+
+### 4.7 Room Types (was 4.2)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -839,7 +1359,7 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.3 Equipment
+### 4.8 Equipment (was 4.3)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -851,7 +1371,7 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.4 Rooms
+### 4.9 Rooms (was 4.4)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -904,7 +1424,7 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.5 Teacher Availability
+### 4.10 Teacher Availability (was 4.5)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -927,7 +1447,7 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.6 Designations
+### 4.11 Designations (was 4.6)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -948,9 +1468,8 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 {
     "teacher_ci": "1234567",
     "period_id": 1,
-    "subject": "Anatomia I",
-    "semester": "1er Semestre",
-    "group_code": "M-1",
+    "subject_id": 1,
+    "group_id": 1,
     "semester_hours": 80,
     "slots": [
         {"day_of_week": 0, "start_time": "08:00", "end_time": "09:30", "room_id": 1},
@@ -966,9 +1485,8 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
     "id": 1,
     "teacher": {"ci": "1234567", "full_name": "PEREZ Juan"},
     "academic_period": {"id": 1, "code": "I/2026", "name": "Primer Semestre 2026"},
-    "subject": "Anatomia I",
-    "semester": "1er Semestre",
-    "group_code": "M-1",
+    "subject": {"id": 1, "code": "MRF 0100", "name": "Anatomía Humana I"},
+    "group": {"id": 1, "code": "M-1", "semester": {"id": 1, "number": 1, "name": "1er Semestre"}, "shift": {"code": "M", "name": "Mañana"}},
     "status": "draft",
     "source": "manual",
     "semester_hours": 80,
@@ -1012,7 +1530,7 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ---
 
-### 4.7 Conflict Checking
+### 4.12 Conflict Checking (was 4.7)
 
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -1061,6 +1579,22 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ### 5.1 New Pages
 
+#### CareersPage (`/admin/careers`)
+- Table listing careers with columns: code, name, semester count, subject count, active status
+- Actions per row: edit, deactivate/reactivate, view curriculum
+- Create button → modal form with: code, name, description
+- Curriculum detail view: expandable accordion or tabs by semester, showing all subjects with code, name, HT, HP, CR
+- Import curriculum button → upload JSON file or paste JSON → calls bulk import endpoint
+- Inline subject editing (add/edit/remove subjects within a semester)
+
+#### GroupsPage (`/admin/groups`)
+- Period selector dropdown (defaults to active period)
+- View organized by semester (tabs or accordion): "1er Semestre", "2do Semestre", etc.
+- For each semester: table of groups with columns: code, shift, number, student count, designation count, active
+- Quick-create: select semester → select shifts and numbers → bulk create (e.g. "add M-1, M-2, T-1, N-1, N-2 to 1er Semestre")
+- Actions per group: edit student count, delete (if no designations)
+- Visual summary: grid showing all semesters × shifts with group counts
+
 #### AcademicPeriodsPage (`/admin/periods`)
 - Table listing all periods with columns: code, name, year, status, is_active badge, designation count
 - Actions per row: edit, activate, close
@@ -1077,12 +1611,14 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 #### DesignationManagementPage (`/admin/designations`)
 - Period selector dropdown (defaults to active period)
-- Table listing designations with: teacher, subject, group, semester, status, weekly hours, slot count
+- Table listing designations with: teacher, subject (from Subject entity), group code (from Group entity), semester, status, weekly hours, slot count
 - Actions: edit, confirm, cancel, view detail
 - Create button → multi-step form:
-  1. Select teacher + period + subject + semester + group
-  2. Add slots (day picker, time pickers, optional room selector)
-  3. Review (shows weekly hours calculation, any conflicts)
+  1. Select teacher + period
+  2. Select career → semester → subject (cascading dropdowns from normalized entities)
+  3. Select group (filtered by period + semester, shows shift + number)
+  4. Add slots (day picker, time pickers, optional room selector)
+  5. Review (shows weekly hours calculation, any conflicts)
 - Detail view: card with designation info + visual weekly schedule grid showing slots with room assignments
 - Inline conflict warnings (real-time validation as slots are added)
 
@@ -1121,10 +1657,14 @@ All endpoints require JWT authentication. Role requirements specified per endpoi
 
 ### 5.3 Navigation
 
-Add new section in sidebar under scheduling/academic group:
+Add new sections in sidebar:
 ```
-Programacion Academica
+Gestion Academica
+  ├── Carreras y Mallas
   ├── Periodos Academicos
+  └── Grupos
+
+Programacion de Horarios
   ├── Aulas
   ├── Disponibilidad Docente
   ├── Designaciones
@@ -1154,19 +1694,29 @@ backend/app/
 │   │   ├── __init__.py
 │   │   ├── teacher.py               ← moved from app/models/teacher.py
 │   │   ├── user.py                  ← moved from app/models/user.py
+│   │   ├── career.py                ← NEW
+│   │   ├── semester.py              ← NEW
+│   │   ├── subject.py               ← NEW
 │   │   ├── activity_log.py          ← moved from app/models/activity_log.py
 │   │   ├── notification.py          ← moved from app/models/notification.py
 │   │   └── detail_request.py        ← moved from app/models/detail_request.py
 │   ├── schemas/
 │   │   ├── teacher.py
-│   │   └── user.py
+│   │   ├── user.py
+│   │   ├── career.py                ← NEW
+│   │   └── subject.py               ← NEW
 │   ├── services/
 │   │   ├── auth_service.py          ← moved from app/services/auth_service.py
-│   │   └── activity_logger.py       ← moved from app/services/activity_logger.py
+│   │   ├── activity_logger.py       ← moved from app/services/activity_logger.py
+│   │   ├── career_service.py        ← NEW
+│   │   ├── semester_service.py      ← NEW
+│   │   └── subject_service.py       ← NEW
 │   └── routers/
 │       ├── auth.py                  ← moved from app/routers/auth.py
 │       ├── users.py                 ← moved from app/routers/users.py
 │       ├── teachers.py              ← moved from app/routers/teachers.py
+│       ├── careers.py               ← NEW
+│       ├── subjects.py              ← NEW (includes semester routes)
 │       ├── detail_requests.py       ← moved from app/routers/detail_requests.py
 │       ├── activity_log.py          ← moved from app/routers/activity_log.py
 │       ├── admin.py                 ← moved from app/routers/admin.py
@@ -1177,6 +1727,8 @@ backend/app/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── academic_period.py       ← NEW
+│   │   ├── shift.py                 ← NEW
+│   │   ├── group.py                 ← NEW
 │   │   ├── room_type.py             ← NEW
 │   │   ├── equipment.py             ← NEW
 │   │   ├── room.py                  ← NEW
@@ -1187,11 +1739,15 @@ backend/app/
 │   │   └── designation_slot.py      ← NEW
 │   ├── schemas/
 │   │   ├── period.py
+│   │   ├── shift.py                 ← NEW
+│   │   ├── group.py                 ← NEW
 │   │   ├── room.py
 │   │   ├── availability.py
 │   │   └── designation.py
 │   ├── services/
 │   │   ├── period_service.py        ← NEW
+│   │   ├── shift_service.py         ← NEW
+│   │   ├── group_service.py         ← NEW
 │   │   ├── room_type_service.py     ← NEW
 │   │   ├── equipment_service.py     ← NEW
 │   │   ├── room_service.py          ← NEW
@@ -1204,6 +1760,8 @@ backend/app/
 │   │   └── schedule_pdf.py          ← moved from app/services/schedule_pdf.py
 │   └── routers/
 │       ├── periods.py               ← NEW
+│       ├── shifts.py                ← NEW
+│       ├── groups.py                ← NEW
 │       ├── room_types.py            ← NEW
 │       ├── equipment.py             ← NEW
 │       ├── rooms.py                 ← NEW
@@ -1282,15 +1840,24 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 **Phase 1**: No schema changes. Only file moves and import path changes.
 
 **Phase 2**: Add new tables and modify `designations`:
-1. Create `academic_periods`, `room_types`, `equipment`, `rooms`, `room_equipment`, `teacher_availabilities`, `availability_slots`, `designation_slots` tables via `create_all()`.
-2. Add columns to `designations`: `academic_period_id` (nullable initially), `source`, `status` via `_run_column_migrations()`.
-3. Data migration script: 
+1. Create new tables via `create_all()`:
+   - Core: `careers`, `semesters`, `subjects`
+   - Scheduling: `academic_periods`, `shifts`, `groups`, `room_types`, `equipment`, `rooms`, `room_equipment`, `teacher_availabilities`, `availability_slots`, `designation_slots`
+2. Seed default data:
+   - Seed shifts: M (Mañana), T (Tarde), N (Noche)
+   - Create default career "Medicina" with code "MED"
+   - Import malla curricular from JSON file → creates 10 semesters + ~78 subjects
+3. Add columns to `designations`: `academic_period_id`, `subject_id`, `group_id` (all nullable initially), `source`, `status` via `_run_column_migrations()`.
+4. Data migration script:
    - Create `AcademicPeriod` record for `settings.ACTIVE_ACADEMIC_PERIOD` value.
-   - Backfill `designations.academic_period_id` from the created period.
-   - Make `academic_period_id` NOT NULL after backfill.
+   - Create `Group` records from existing unique `group_code` values in designations (match to shift + number).
+   - Match existing `subject` strings to `Subject` records by name similarity.
+   - Match existing `semester` strings to `Semester` records by number extraction.
+   - Backfill `designations.academic_period_id`, `subject_id`, `group_id` from matched entities.
+   - Make FK columns NOT NULL after backfill.
    - Set `source = 'legacy_import'` and `status = 'confirmed'` for all existing designations.
    - Parse each designation's `schedule_json` → create `DesignationSlot` records.
-4. After successful migration, `schedule_json` kept but only maintained by `CompatibilityAdapter`.
+5. After successful migration, deprecated string columns (`subject`, `semester`, `group_code`, `schedule_json`) kept but only maintained by `CompatibilityAdapter`.
 
 ### 7.2 Payroll Transition (Phase 3)
 
@@ -1328,7 +1895,35 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | AP-7 | Reject close with drafts | Period has draft designations | Close period | 409 Conflict with draft count |
 | AP-8 | Reject edit on closed | Period closed | Update name | 409 Conflict |
 
-### 8.2 Rooms & Equipment
+### 8.2 Careers, Semesters & Subjects
+
+| # | Scenario | Given | When | Then |
+|---|----------|-------|------|------|
+| CR-1 | Create career | — | Create "MED" / "Medicina" | Career created, active |
+| CR-2 | Reject duplicate code | "MED" exists | Create "MED" again | 409 Conflict |
+| CR-3 | Import curriculum | Career "MED" exists, JSON with 10 semesters | Import curriculum | 10 semesters, 78 subjects created |
+| CR-4 | Import updates existing | Subject "MRF 0100" exists with HT=51 | Import with HT=60 | Subject updated, count shows 0 created, 1 updated |
+| CR-5 | Elective without code | JSON has materia with `codigo: null` | Import | Subject created with `is_elective=true`, `code=null` |
+| CR-6 | Delete subject with designations | Subject has active designation | Delete subject | 409 with designation count |
+| CR-7 | Delete empty subject | Subject has no designations | Delete | Subject deleted |
+| CR-8 | Search subjects | 3 subjects with "Anatomía" in name | Search "anatomia" | Returns 3 results |
+| CR-9 | Deactivate career with designations | Career has semester with active designation | Deactivate | 409 |
+
+### 8.3 Shifts & Groups
+
+| # | Scenario | Given | When | Then |
+|---|----------|-------|------|------|
+| SG-1 | Seed default shifts | No shifts exist | Call seed_defaults | M, T, N created with correct times and order |
+| SG-2 | Seed is idempotent | Shifts already exist | Call seed_defaults again | No duplicates, same 3 shifts |
+| SG-3 | Create group | Period, semester, shift M exist | Create M-1 | Group created with code="M-1" |
+| SG-4 | Bulk create groups | Period + 1er Semestre exist | Bulk create M-1, M-2, T-1, N-1, N-2 | 5 groups created |
+| SG-5 | Reject duplicate group | M-1 exists in period+semester | Create M-1 again | 409 Conflict |
+| SG-6 | Create special group | Period + semester exist | Create with is_special=true | Group created with code="G.E." |
+| SG-7 | Delete group with designations | Group has designations | Delete | 409 |
+| SG-8 | Delete empty group | Group has no designations | Delete | Deleted |
+| SG-9 | List groups by period+semester | 5 groups in 1st sem, 3 in 2nd | List for 1st sem | Returns 5 groups ordered by shift+number |
+
+### 8.4 Rooms & Equipment (was 8.2)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1340,7 +1935,7 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | RM-6 | Reject delete type with rooms | RoomType has rooms | Delete type | 409 |
 | RM-7 | Reject delete equipment assigned | Equipment assigned to room | Delete equipment | 409 |
 
-### 8.3 Teacher Availability
+### 8.5 Teacher Availability (was 8.3)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1350,7 +1945,7 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | AV-4 | Reject invalid time | — | Set start=14:00, end=12:00 | 422 Validation error |
 | AV-5 | Clear availability | Existing slots | Clear | All slots deleted |
 
-### 8.4 Designations & Slots
+### 8.6 Designations & Slots (was 8.4)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1367,7 +1962,7 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | DG-11 | Unassign room | Slot with room | Unassign | slot.room_id = null |
 | DG-12 | Schedule_json compatibility | Create designation with 3 slots | Check schedule_json | Matches legacy format exactly |
 
-### 8.5 Conflict Detection
+### 8.7 Conflict Detection (was 8.5)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1382,7 +1977,7 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | CF-9 | Update slot excludes self | Slot id=5 Mon 8-10 | Update slot 5 to Mon 8-11 | Excludes self from overlap check |
 | CF-10 | Cancelled designation ignored | Cancelled designation has Mon 8-10 | Add Mon 8-10 for same teacher | No conflict (cancelled excluded) |
 
-### 8.6 Compatibility & Migration
+### 8.8 Compatibility & Migration (was 8.6)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1392,7 +1987,7 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 | CM-4 | Legacy upload still works | Upload designations JSON file | Process upload | Designations created with source=legacy_import, status=confirmed, DesignationSlots auto-created |
 | CM-5 | Existing data migrated | 400 designations with schedule_json | Run migration script | 400 designations have matching DesignationSlot records |
 
-### 8.7 Integration
+### 8.9 Integration (was 8.7)
 
 | # | Scenario | Given | When | Then |
 |---|----------|-------|------|------|
@@ -1406,12 +2001,19 @@ Since the project currently uses `create_all()` + manual column migrations in `m
 
 | Term | Definition |
 |------|-----------|
+| Career | Academic program (e.g. Medicina, Odontología). Contains semesters and subjects (malla curricular). |
+| Semester | Academic level within a career (1er Semestre through 10mo Semestre for Medicina). Contains the subjects from the curriculum. |
+| Subject | A course in the curriculum (e.g. "Anatomía Humana I"). Has code, hours, credits. Linked to a semester. |
+| Shift | Time-of-day classification for groups: M (Mañana), T (Tarde), N (Noche). Pre-seeded, not user-created. |
+| Group | A specific student group for a semester in a period (e.g. M-1 = morning group 1). Created per period by admin. |
+| G.E. (Grupo Especial) | Special group for convalidación students from other universities. Has `is_special=true` and may take subjects from different semesters. |
 | Academic Period | A semester (e.g. I/2026). Contains all designations, availability, and scheduling for that term. |
 | Designation | Assignment of a teacher to a subject+group for a period. Has one or more time slots. |
 | DesignationSlot | A single weekly class block (e.g. Monday 8:00-9:30 in Room A-101). |
 | Conflict | An overlap or validation error that prevents or warns about a schedule assignment. |
 | HARD conflict | Blocks the operation — cannot save. |
 | SOFT conflict | Warning only — can still save. |
+| Malla Curricular | The fixed curriculum of a career. Defines which subjects belong to which semester with their hours and credits. |
 | schedule_json | Legacy JSON blob storing slot data inside Designation. Deprecated in Phase 2, removed in Phase 4. |
 | ScheduledSlotDTO | Flat data transfer object that payroll services consume from scheduling. |
 | CompatibilityAdapter | Service that generates legacy schedule_json from DesignationSlot records during transition. |
