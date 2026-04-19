@@ -1,0 +1,81 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Tech stack: Python FastAPI + SQLAlchemy 2.0 + PostgreSQL/SQLite (backend), React 19 + TypeScript + Vite 8 + TanStack Query + Tailwind 4 + shadcn/ui (frontend)
+  Architecture: Layered — routers/services/models (backend), pages/components/api/hooks (frontend), Alembic migrations + runtime column migrations
+  Testing: pytest 8 + pytest-asyncio + httpx (backend), no frontend test runner
+  Style: ESLint flat config + typescript-eslint (frontend), no linter configured (backend)
+  Auth: JWT (python-jose + passlib/bcrypt), role-based (admin/docente)
+  PDF generation: ReportLab (contracts, retention letters, schedules, audit reports)
+
+strict_tdd: false
+
+testing:
+  strict_tdd: false
+  detected: "2026-04-19"
+  backend:
+    runner:
+      command: "pytest"
+      framework: "pytest 8.3.3"
+    layers:
+      unit: true
+      integration: true
+      e2e: false
+    integration_tools: "httpx + FastAPI TestClient"
+    coverage:
+      available: false
+      command: null
+      note: "pytest-cov not in requirements.txt — install with: pip install pytest-cov"
+    quality:
+      linter: null
+      type_checker: null
+      formatter: null
+  frontend:
+    runner:
+      command: null
+      framework: null
+      note: "No test runner detected — install vitest: npm i -D vitest @testing-library/react @testing-library/jest-dom"
+    layers:
+      unit: false
+      integration: false
+      e2e: false
+    coverage:
+      available: false
+    quality:
+      linter:
+        available: true
+        command: "npx eslint ."
+      type_checker:
+        available: true
+        command: "tsc -b"
+      formatter:
+        available: false
+        note: "Consider adding prettier"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns and conventions
+      - Load relevant coding skills for the project stack
+    tdd: false
+    test_command: "pytest"
+  verify:
+    test_command: "pytest"
+    build_command: "tsc -b && vite build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas (large removals)
