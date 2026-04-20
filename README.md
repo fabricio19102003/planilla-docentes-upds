@@ -22,14 +22,40 @@ SIPAD procesa designaciones docentes, datos biometricos de asistencia y genera p
 | **Exportacion** | html-to-image (PNG) · openpyxl (Excel parsing) · xlrd (XLS parsing) |
 | **Autenticacion** | JWT (PyJWT) · bcrypt |
 
+## Guia Rapida (TL;DR)
+
+Si ya tenes todo instalado (Python, Node, PostgreSQL) y solo queres arrancar:
+
+```bash
+# 1. Crear la BD (una sola vez)
+createdb planilla_docentes_upds
+
+# 2. Backend (Terminal 1)
+cd backend
+python -m venv venv          # solo la primera vez
+venv\Scripts\activate        # Windows CMD (o .\venv\Scripts\Activate.ps1 en PowerShell)
+pip install -r requirements.txt  # solo la primera vez
+cp .env.example .env         # solo la primera vez — editar con tu password de PostgreSQL
+uvicorn app.main:app --reload --port 8000
+
+# 3. Frontend (Terminal 2)
+cd frontend
+npm install                  # solo la primera vez
+npm run dev
+```
+
+Abri http://localhost:5173 y logueate con usuario `admin` y contraseña `Admin123`.
+
+---
+
 ## Requisitos Previos
 
-- **Python 3.11+**
-- **Node.js 18+** y npm
-- **PostgreSQL 14+** (con `pg_dump` accesible en PATH para backups)
+- **Python 3.11+** ([descargar](https://www.python.org/downloads/))
+- **Node.js 18+** y npm ([descargar](https://nodejs.org/))
+- **PostgreSQL 14+** corriendo localmente (con `pg_dump` accesible en PATH para backups)
 - Git
 
-## Instalacion
+## Instalacion Paso a Paso
 
 ### 1. Clonar el repositorio
 
@@ -38,38 +64,87 @@ git clone https://github.com/fabricio19102003/planilla-docentes-upds.git
 cd planilla-docentes-upds
 ```
 
-### 2. Backend
+### 2. Base de datos PostgreSQL
+
+Asegurate de tener PostgreSQL corriendo. Luego crea la base de datos:
+
+```bash
+# Desde cualquier terminal con acceso a PostgreSQL
+createdb planilla_docentes_upds
+```
+
+> Si usas pgAdmin, crea una base de datos llamada `planilla_docentes_upds` manualmente.
+
+### 3. Backend (Python + FastAPI)
+
+#### 3.1 Crear el entorno virtual
+
+El entorno virtual aisla las dependencias del proyecto para no afectar tu sistema.
 
 ```bash
 cd backend
 
-# Crear entorno virtual
+# Crear el entorno virtual (solo la primera vez)
 python -m venv venv
-
-# Activar (Windows)
-venv\Scripts\activate
-# Activar (Linux/Mac)
-source venv/bin/activate
-
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Configurar variables de entorno
-cp .env.example .env
-# Editar .env con los datos de tu BD
 ```
 
-### 3. Base de datos
+> Esto crea una carpeta `venv/` dentro de `backend/`. **No la subas a git** (ya esta en `.gitignore`).
+
+#### 3.2 Activar el entorno virtual
+
+**Hay que activar el entorno virtual CADA VEZ que abras una terminal nueva** para trabajar con el backend.
+
+**Windows (CMD):**
+```cmd
+venv\Scripts\activate
+```
+
+**Windows (PowerShell):**
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+> Si PowerShell te bloquea con un error de "execution policy", ejecuta primero:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
+**Linux / macOS:**
+```bash
+source venv/bin/activate
+```
+
+Sabras que esta activo cuando veas `(venv)` al inicio de la linea de tu terminal:
+```
+(venv) C:\...\backend>
+```
+
+#### 3.3 Instalar dependencias
+
+Con el entorno virtual activo:
 
 ```bash
-# Crear la base de datos en PostgreSQL
-createdb planilla_docentes_upds
-
-# Las tablas se crean automaticamente al iniciar el backend
-# Las migraciones de columnas nuevas tambien se ejecutan automaticamente
+pip install -r requirements.txt
 ```
 
-### 4. Frontend
+#### 3.4 Configurar variables de entorno
+
+```bash
+# Copiar el archivo de ejemplo
+cp .env.example .env
+```
+
+Edita `backend/.env` con los datos de **tu** PostgreSQL local:
+
+```env
+# Reemplaza "tu_password" con la contraseña de tu usuario postgres
+DATABASE_URL=postgresql+psycopg2://postgres:tu_password@localhost:5432/planilla_docentes_upds
+ASYNC_DATABASE_URL=postgresql+asyncpg://postgres:tu_password@localhost:5432/planilla_docentes_upds
+```
+
+> Las demas variables ya vienen con valores por defecto funcionales. Solo necesitas cambiar la contraseña de PostgreSQL.
+
+### 4. Frontend (React + Vite)
 
 ```bash
 cd frontend
@@ -81,54 +156,139 @@ npm install
 ### Variables de entorno (`backend/.env`)
 
 ```env
-# Base de datos PostgreSQL
+# ─── Base de datos PostgreSQL ──────────────────────────────
 DATABASE_URL=postgresql+psycopg2://postgres:tu_password@localhost:5432/planilla_docentes_upds
 ASYNC_DATABASE_URL=postgresql+asyncpg://postgres:tu_password@localhost:5432/planilla_docentes_upds
 
-# CORS — origenes permitidos del frontend
-CORS_ORIGINS=["http://localhost:5173"]
+# ─── CORS ──────────────────────────────────────────────────
+CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
 
-# JWT — CAMBIAR en produccion
+# ─── JWT — CAMBIAR en produccion ───────────────────────────
 JWT_SECRET=tu-clave-secreta-segura-cambiar-en-produccion
 
-# Directorio de uploads
+# ─── Uploads ───────────────────────────────────────────────
 UPLOAD_DIR=./data/uploads
 
-# Contrasena del admin por defecto (8+ chars, 1 mayuscula, 1 minuscula, 1 numero)
-ADMIN_DEFAULT_PASSWORD=Admin2026!
+# ─── Admin Bootstrap ──────────────────────────────────────
+# Contraseña para los admins por defecto (admin, daniel, pedro)
+# Debe cumplir: 8+ chars, 1 mayuscula, 1 minuscula, 1 numero
+ADMIN_DEFAULT_PASSWORD=Admin123
 
-# Periodo academico activo (cambiar cada semestre)
+# ─── Periodo Academico ────────────────────────────────────
 ACTIVE_ACADEMIC_PERIOD=I/2026
 
-# Tarifa por hora academica (Bs)
+# ─── Tarifa ───────────────────────────────────────────────
 HOURLY_RATE=70
 ```
 
-### Primer inicio
+### Primer inicio (seed automatico)
 
-Al iniciar el backend por primera vez:
+Al iniciar el backend por primera vez con una base de datos vacia:
+
 1. Se crean todas las tablas automaticamente
-2. Se ejecutan las migraciones de columnas nuevas (must_change_password, billing_snapshot, nit, etc.)
-3. Se crea el usuario admin por defecto (si `ADMIN_DEFAULT_PASSWORD` esta configurado)
+2. Se ejecutan las migraciones de columnas nuevas
+3. Se crean **3 usuarios admin** por defecto (si `ADMIN_DEFAULT_PASSWORD` esta configurado):
+
+| Usuario | Contraseña | Rol |
+|---------|-----------|-----|
+| `admin` | `Admin123` | Admin |
+| `daniel` | `Admin123` | Admin |
+| `pedro` | `Admin123` | Admin |
+
 4. Se vinculan usuarios docentes a sus docentes correspondientes
+
+> **Nota:** En el primer login el sistema pide cambiar la contraseña. Todos los admins seed tienen `must_change_password=true`.
 
 ## Ejecucion
 
-### Desarrollo
+Necesitas **dos terminales** corriendo simultaneamente.
+
+### Terminal 1 — Backend
+
+**Paso 1:** Abri una terminal y navega a la carpeta del backend:
 
 ```bash
-# Terminal 1 — Backend
 cd backend
-uvicorn app.main:app --reload --port 8000
+```
 
-# Terminal 2 — Frontend
+**Paso 2:** Activa el entorno virtual:
+
+**Windows (CMD):**
+```cmd
+venv\Scripts\activate
+```
+
+**Windows (PowerShell):**
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+**Linux / macOS:**
+```bash
+source venv/bin/activate
+```
+
+Confirma que esta activo — vas a ver `(venv)` en la terminal:
+```
+(venv) C:\...\backend>
+```
+
+**Paso 3:** Levanta el servidor:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Si todo funciona vas a ver algo como:
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+INFO:     Created 3 default admin(s): admin, daniel, pedro (must change password on first login)
+```
+
+> Si ves errores de conexion a la BD, revisa la seccion de [Troubleshooting](#troubleshooting-comun).
+
+### Terminal 2 — Frontend
+
+**Paso 1:** Abri una **segunda** terminal (dejando el backend corriendo en la primera):
+
+```bash
 cd frontend
+```
+
+**Paso 2:** Levanta el servidor de desarrollo:
+
+```bash
 npm run dev
 ```
 
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8000
-- **Documentacion API**: http://localhost:8000/docs (Swagger UI)
+Vas a ver:
+```
+VITE v6.x.x  ready in xxx ms
+
+➜  Local:   http://localhost:5173/
+```
+
+### Listo — Acceder al sistema
+
+1. Abri el navegador en **http://localhost:5173**
+2. Ingresa con cualquiera de estos usuarios:
+
+| Usuario | Contraseña |
+|---------|-----------|
+| `admin` | `Admin123` |
+| `daniel` | `Admin123` |
+| `pedro` | `Admin123` |
+
+3. En el primer login te va a pedir cambiar la contraseña — esto es normal y por seguridad.
+
+### URLs
+
+| Servicio | URL |
+|----------|-----|
+| **Frontend** | http://localhost:5173 |
+| **Backend API** | http://localhost:8000 |
+| **Swagger (docs API)** | http://localhost:8000/docs |
 
 ### Build de produccion
 
@@ -137,6 +297,17 @@ cd frontend
 npm run build
 # Los archivos estaticos quedan en frontend/dist/
 ```
+
+### Troubleshooting comun
+
+| Problema | Solucion |
+|----------|----------|
+| `uvicorn: command not found` | No activaste el entorno virtual. Ejecuta `venv\Scripts\activate` primero. |
+| `ModuleNotFoundError` | No instalaste las dependencias. Ejecuta `pip install -r requirements.txt` con el venv activo. |
+| PowerShell bloquea la activacion | Ejecuta `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+| `connection refused` al PostgreSQL | Verifica que PostgreSQL esta corriendo y que la contraseña en `.env` es correcta. |
+| No se crean los admins al iniciar | Verifica que `ADMIN_DEFAULT_PASSWORD=Admin123` esta en tu archivo `backend/.env`. |
+| El frontend no conecta al backend | Asegurate de que el backend esta corriendo en el puerto 8000 antes de usar el frontend. |
 
 ## Estructura del Proyecto
 

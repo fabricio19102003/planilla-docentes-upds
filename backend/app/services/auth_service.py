@@ -166,20 +166,31 @@ class AuthService:
     # Default admin bootstrap
     # ------------------------------------------------------------------
 
-    def create_default_admin(self, db: Session) -> Optional[User]:
-        """
-        Create default admin user if no admin exists.
+    # Default admin accounts created on first startup (seed)
+    _DEFAULT_ADMINS = [
+        {"ci": "admin", "full_name": "Administrador SIPAD"},
+        {"ci": "daniel", "full_name": "Daniel (Admin)"},
+        {"ci": "pedro", "full_name": "Pedro (Admin)"},
+    ]
 
-        Requires the ADMIN_DEFAULT_PASSWORD environment variable to be set.
-        If the variable is absent, bootstrap is skipped and a warning is logged
-        so the deployment is not silently left with a hardcoded credential.
+    def create_default_admin(self, db: Session) -> list[User]:
+        """
+        Create default admin users if no admin exists yet.
+
+        Creates all accounts defined in ``_DEFAULT_ADMINS`` using the
+        password from the ``ADMIN_DEFAULT_PASSWORD`` environment variable.
+
+        If the variable is absent, bootstrap is skipped and a warning is
+        logged so the deployment is not silently left without credentials.
 
         Password must meet strength requirements: 8+ chars, upper, lower, digit.
         Sets must_change_password=True to force a password change on first login.
+
+        Returns the list of newly created admin users (empty if skipped).
         """
         admin_exists = db.query(User).filter(User.role == "admin").first()
         if admin_exists:
-            return None
+            return []
 
         admin_password = os.environ.get("ADMIN_DEFAULT_PASSWORD")
         if not admin_password:
@@ -187,7 +198,7 @@ class AuthService:
                 "No ADMIN_DEFAULT_PASSWORD env var set — skipping default admin creation. "
                 "Set ADMIN_DEFAULT_PASSWORD to bootstrap the first admin account."
             )
-            return None
+            return []
 
         # Validate password strength
         if (
@@ -200,22 +211,39 @@ class AuthService:
                 "ADMIN_DEFAULT_PASSWORD does not meet strength requirements "
                 "(8+ chars, at least one uppercase, one lowercase, one digit) — skipping admin creation."
             )
-            return None
+            return []
 
-        logger.info("No admin user found — creating default admin (CI: admin)")
-        admin = User(
-            ci="admin",
-            full_name="Administrador SIPAD",
-            password_hash=self.hash_password(admin_password),
-            role="admin",
-            is_active=True,
-            must_change_password=True,  # Force change on first login
-        )
-        db.add(admin)
-        db.flush()
-        db.commit()
-        logger.info("Default admin created successfully (must change password on first login)")
-        return admin
+        created: list[User] = []
+        hashed = self.hash_password(admin_password)
+
+        for acct in self._DEFAULT_ADMINS:
+            # Skip if a user with the same CI already exists (safety guard)
+            if db.query(User).filter(User.ci == acct["ci"]).first():
+                logger.info("User with CI '%s' already exists — skipping", acct["ci"])
+                continue
+
+            logger.info("Creating default admin user (CI: %s)", acct["ci"])
+            user = User(
+                ci=acct["ci"],
+                full_name=acct["full_name"],
+                password_hash=hashed,
+                role="admin",
+                is_active=True,
+                must_change_password=True,  # Force change on first login
+            )
+            db.add(user)
+            db.flush()
+            created.append(user)
+
+        if created:
+            db.commit()
+            logger.info(
+                "Created %d default admin(s): %s (must change password on first login)",
+                len(created),
+                ", ".join(u.ci for u in created),
+            )
+
+        return created
 
 
 auth_service = AuthService()

@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     # Ensure new columns exist on existing databases (create_all doesn't add columns)
     _run_column_migrations()
 
-    # Create default admin user if none exists
+    # Create default admin users if none exist (admin, daniel, pedro)
     try:
         from app.services.auth_service import auth_service
 
