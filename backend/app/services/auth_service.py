@@ -192,7 +192,7 @@ class AuthService:
         if admin_exists:
             return []
 
-        admin_password = os.environ.get("ADMIN_DEFAULT_PASSWORD")
+        admin_password = settings.ADMIN_DEFAULT_PASSWORD
         if not admin_password:
             logger.warning(
                 "No ADMIN_DEFAULT_PASSWORD env var set — skipping default admin creation. "

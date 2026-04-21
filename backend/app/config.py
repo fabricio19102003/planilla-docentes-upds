@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 import json
 
 
@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "planilla-docentes-upds-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480  # 8 horas
+
+    # Admin bootstrap — password for seed admin accounts (read by auth_service)
+    ADMIN_DEFAULT_PASSWORD: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
