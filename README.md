@@ -44,7 +44,13 @@ npm install                  # solo la primera vez
 npm run dev
 ```
 
-Abri http://localhost:5173 y logueate con usuario `admin` y contraseña `Admin123`.
+Abri http://localhost:5173 y logueate con cualquiera de los 3 admins que se crean automaticamente:
+
+| Usuario | Contraseña |
+|---------|-----------|
+| `admin` | `Admin123` |
+| `daniel` | `Admin123` |
+| `pedro` | `Admin123` |
 
 ---
 
