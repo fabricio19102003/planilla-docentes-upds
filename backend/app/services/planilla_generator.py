@@ -6,13 +6,13 @@ Design Decisions:
   - Generate from scratch (NOT clone template) — gives full control over layout.
   - One row per teacher × subject × group combination.
   - Two output sheets: "Planilla" (summary) and "Detalle" (granular slot view).
-  - Payment rate: 70 Bs/academic hour (uniform for all types).
+  - Payment rate: configurable from admin UI (default 70 Bs/academic hour).
   - Supports payment_overrides with row keys "teacher_ci:designation_id"
     and teacher-total keys {teacher_ci: float} for admin adjustments.
   - Freeze panes at row 7, col 4 (so identity cols + headers always visible).
 
 Payment Model C:
-  - Base pay = designation.monthly_hours × 70 Bs
+  - Base pay = designation.monthly_hours × HOURLY_RATE (from app_settings)
   - Deduct ONLY hours where status=ABSENT
   - Teachers without ANY biometric record get full pay (0 absences assumed)
   - Payable hours = max(0, monthly_hours - absent_hours)
@@ -23,12 +23,12 @@ Column Layout:
   AV(48)      : Hrs Pagables (payable_hours = base - absent)
   AW(49)      : Grupo
   AX(50)      : Materia
-  AY(51)      : Pago por Hora (70 Bs)
+  AY(51)      : Pago por Hora (from app_settings HOURLY_RATE)
   AZ(52)      : Hrs Asignadas (base_monthly_hours from designation)
   BA(53)      : Hrs Descontadas (absent_hours)
   BB(54)      : Hrs Asistidas (attended hours, informational)
   BC(55)      : Total Pagable (payable_hours, verification)
-  BD(56)      : Total Pago Calculado (payable_hours × 70 Bs)
+  BD(56)      : Total Pago Calculado (payable_hours × HOURLY_RATE)
   BE(57)      : Pago Ajustado (admin override, NULL = use BD)
   BF(58)      : Observaciones
 
@@ -64,7 +64,7 @@ from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
-from app.config import settings
+from app.services import app_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,9 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
+# Fallback rate when a row is constructed outside a DB context (tests, legacy
+# callers).  The live value comes from ``app_settings_service.get_hourly_rate``
+# and is injected through ``_build_planilla_data``/``_build_row``.
 RATE_PER_HOUR: float = 70.0  # Bs per academic hour
 
 # Spanish month names
@@ -260,6 +263,7 @@ class PlanillaResult:
     total_payment: float
     planilla_output_id: Optional[int]
     warnings: list[str] = field(default_factory=list)
+    discount_mode: str = "attendance"
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +298,7 @@ class PlanillaGenerator:
         payment_overrides: Optional[dict[str, float]] = None,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        discount_mode: str = "attendance",
     ) -> PlanillaResult:
         """
         Generate the planilla Excel for a given month/year.
@@ -313,6 +318,8 @@ class PlanillaGenerator:
                 and/or {teacher_ci: teacher_total_override} for admin adjustments
             start_date: Optional start of attendance window to filter records
             end_date: Optional end of attendance window to filter records
+            discount_mode: "attendance" (apply discounts) or "full" (no discounts,
+                all teachers receive full assigned hours)
 
         Returns:
             PlanillaResult with file path and statistics
@@ -321,13 +328,14 @@ class PlanillaGenerator:
             payment_overrides = {}
 
         logger.info(
-            "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s",
-            month, year, start_date, end_date,
+            "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s discount_mode=%s",
+            month, year, start_date, end_date, discount_mode,
         )
 
         # Step 1: Build data
         rows, detail_rows, warnings = self._build_planilla_data(
-            db, month, year, start_date=start_date, end_date=end_date
+            db, month, year, start_date=start_date, end_date=end_date,
+            discount_mode=discount_mode,
         )
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
@@ -357,6 +365,7 @@ class PlanillaGenerator:
             payment_overrides=payment_overrides,
             start_date=start_date,
             end_date=end_date,
+            discount_mode=discount_mode,
         )
 
         return PlanillaResult(
@@ -369,6 +378,7 @@ class PlanillaGenerator:
             total_payment=total_payment,
             planilla_output_id=planilla_output.id if planilla_output else None,
             warnings=warnings,
+            discount_mode=discount_mode,
         )
 
     # ------------------------------------------------------------------
@@ -382,6 +392,7 @@ class PlanillaGenerator:
         year: int,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        discount_mode: str = "attendance",
     ) -> tuple[list[PlanillaRow], list[DetailRow], list[str]]:
         """
         Build PlanillaRow and DetailRow lists from DB data.
@@ -390,17 +401,23 @@ class PlanillaGenerator:
           - Iterates ALL designations (not just those with attendance records).
           - Teachers WITHOUT any biometric record for this period get full pay.
           - Teachers WITH biometric records: deduct only ABSENT hours from monthly_hours.
+          - When discount_mode="full", ALL teachers get full pay regardless of attendance.
 
         Args:
             start_date: When provided, attendance records are filtered to >= start_date.
             end_date:   When provided, attendance records are filtered to <= end_date.
+            discount_mode: "attendance" (default, apply discounts) or "full" (no discounts).
         """
         warnings: list[str] = []
+
+        # Rate and active period are pulled once per generation from app_settings.
+        hourly_rate = app_settings_service.get_hourly_rate(db)
+        active_period = app_settings_service.get_active_academic_period(db)
 
         # ── Step 1: Load ALL designations (scoped to active academic period) ──
         all_designations: list[Designation] = (
             db.query(Designation)
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == active_period)
             .all()
         )
 
@@ -484,7 +501,14 @@ class PlanillaGenerator:
             # If they have no attendance records at all, they get full pay.
             has_biometric = ci in cis_with_biometric
 
-            row = self._build_row(teacher, desig, records, has_biometric=has_biometric)
+            row = self._build_row(
+                teacher,
+                desig,
+                records,
+                has_biometric=has_biometric,
+                discount_mode=discount_mode,
+                hourly_rate=hourly_rate,
+            )
             planilla_rows.append(row)
 
             # Build detail rows for each attendance slot (only when records exist)
@@ -525,15 +549,22 @@ class PlanillaGenerator:
         desig: Designation,
         records: list[AttendanceRecord],
         has_biometric: bool = True,
+        discount_mode: str = "attendance",
+        hourly_rate: float = RATE_PER_HOUR,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow using Payment Model C.
 
         Model C rules:
-          - Base pay = designation.monthly_hours × 70 Bs
+          - Base pay = designation.monthly_hours × hourly_rate (from app_settings)
           - Deduct ONLY hours where status=ABSENT
           - No biometric at all → full pay (has_biometric=False)
+          - discount_mode="full" → full pay for ALL teachers (no deductions)
           - attended/late/no_exit hours in daily_hours are for display only
+
+        ``hourly_rate`` is injected from the caller (defaults to the legacy
+        ``RATE_PER_HOUR`` constant so tests that construct rows directly keep
+        working).
         """
         daily_hours: dict[int, int] = {}
         daily_status: dict[int, str] = {}
@@ -585,8 +616,13 @@ class PlanillaGenerator:
             absent_hours = 0
             absent_count = 0
 
+        # discount_mode="full" → override: pay full assigned hours, zero deductions
+        if discount_mode == "full":
+            absent_hours = 0
+            absent_count = 0
+
         payable_hours = max(0, base_monthly_hours - absent_hours)
-        calculated_payment = payable_hours * RATE_PER_HOUR
+        calculated_payment = payable_hours * hourly_rate
 
         # RC-IVA 13% retention
         has_retention = (teacher.invoice_retention or "").strip().upper() == "RETENCION"
@@ -594,11 +630,20 @@ class PlanillaGenerator:
         retention_amount = round(calculated_payment * retention_rate, 2)
         final_payment = round(calculated_payment - retention_amount, 2)
 
-        # Build observation summary
+        # Build observation summary.
+        # "full" mode and "sin biométrico" are orthogonal facts about the row: a
+        # teacher can lack biometric data AND the payroll be run in "full" mode,
+        # so both observations should appear when applicable. Use independent
+        # `if`s instead of `if/elif` so one doesn't mask the other.
+        # Attendance-based counts only make sense when there IS biometric data
+        # AND we are actually discounting — in "full" mode absent_hours/count
+        # are zeroed out above, so those checks are naturally no-ops there.
         obs_parts: list[str] = []
+        if discount_mode == "full":
+            obs_parts.append("Modo sin descuentos — pago completo")
         if not has_biometric:
             obs_parts.append("Sin biométrico — pago completo")
-        else:
+        if has_biometric and discount_mode != "full":
             if late_count > 0:
                 obs_parts.append(f"{late_count} tardanza{'s' if late_count > 1 else ''}")
             if absent_count > 0:
@@ -637,7 +682,7 @@ class PlanillaGenerator:
             total_theory_hours=base_monthly_hours,            # COL_HRS_TEORIA = assigned
             total_practice_internal_hours=absent_hours,       # COL_HRS_PRACT_INT = deducted
             total_practice_external_hours=attended_hours,     # COL_HRS_PRACT_EXT = attended (info)
-            rate_per_hour=RATE_PER_HOUR,
+            rate_per_hour=hourly_rate,
             calculated_payment=calculated_payment,
             has_retention=has_retention,
             retention_rate=retention_rate,
@@ -1366,6 +1411,7 @@ class PlanillaGenerator:
         payment_overrides: Optional[dict[str, float]] = None,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        discount_mode: str = "attendance",
     ) -> Optional[PlanillaOutput]:
         """
         Create or update a PlanillaOutput record in the DB.
@@ -1392,6 +1438,7 @@ class PlanillaGenerator:
                 existing.payment_overrides_json = overrides_data
                 existing.start_date = start_date
                 existing.end_date = end_date
+                existing.discount_mode = discount_mode
                 existing.generated_at = datetime.now()
                 existing.status = "generated"
                 db.flush()
@@ -1408,6 +1455,7 @@ class PlanillaGenerator:
                     payment_overrides_json=overrides_data,
                     start_date=start_date,
                     end_date=end_date,
+                    discount_mode=discount_mode,
                     status="generated",
                 )
                 db.add(output)

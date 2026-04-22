@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle } from 'lucide-react'
-import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
+import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
@@ -39,17 +39,25 @@ export function PlanillaPage() {
   const [showDetail] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
+  const [discountMode, setDiscountMode] = useState<'attendance' | 'full'>('attendance')
+  const [discountModeManuallySet, setDiscountModeManuallySet] = useState(false)
 
   // Payment override state
   const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
   const [editingOverride, setEditingOverride] = useState<string | null>(null)
   const [overrideValue, setOverrideValue] = useState('')
 
+  // Salary report download loading state (keyed by planilla id for history rows,
+  // "current" for the main action bar). Using a map lets multiple rows spin
+  // independently without one blocking the others.
+  const [salaryReportLoading, setSalaryReportLoading] = useState<Record<string, boolean>>({})
+
   const { data: bioRange } = useBiometricDateRange(month, year)
 
-  // Reset manual flag when month/year changes so auto-fill can run again
+  // Reset manual flags when month/year changes so auto-fill can run again
   useEffect(() => {
     setDatesManuallySet(false)
+    setDiscountModeManuallySet(false)
   }, [month, year])
 
   // Auto-fill dates from biometric range when available
@@ -68,9 +76,20 @@ export function PlanillaPage() {
 
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
-  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined)
   const { data: publication } = usePublicationStatus(month, year)
   const { data: planillaStatus } = usePlanillaStatus(month, year)
+
+  // Derive the effective discount mode: if the user manually toggled, use their
+  // choice. Otherwise fall back to the stored planilla's mode (if one exists),
+  // then to the local state default ("attendance"). This is a single source of
+  // truth — no sync effect, no race condition, no clobbering on refetch.
+  const effectiveDiscountMode: 'attendance' | 'full' = discountModeManuallySet
+    ? discountMode
+    : (planillaStatus?.discount_mode === 'attendance' || planillaStatus?.discount_mode === 'full')
+      ? planillaStatus.discount_mode
+      : discountMode
+
+  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const approvePlanilla = useApprovePlanilla()
@@ -85,6 +104,7 @@ export function PlanillaPage() {
         payment_overrides: paymentOverrides,
         start_date: startDate || undefined,
         end_date: endDate || undefined,
+        discount_mode: effectiveDiscountMode,
       },
       {
         onSuccess: (data) => setLastResult(data),
@@ -231,6 +251,53 @@ export function PlanillaPage() {
             )}
           </div>
 
+          {/* Discount Mode Switch */}
+          <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Modo de cálculo</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {effectiveDiscountMode === 'attendance'
+                    ? 'Se aplican descuentos por ausencias registradas en el biométrico'
+                    : 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={effectiveDiscountMode === 'full'}
+                onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(prev => prev === 'attendance' ? 'full' : 'attendance') }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:ring-offset-2 ${
+                  effectiveDiscountMode === 'full' ? 'bg-[#0066CC]' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    effectiveDiscountMode === 'full' ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                effectiveDiscountMode === 'attendance'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-green-100 text-green-700'
+              }`}>
+                {effectiveDiscountMode === 'attendance' ? 'Con descuentos' : 'Sin descuentos — pago completo'}
+              </span>
+            </div>
+            {effectiveDiscountMode === 'full' && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 mt-3">
+                <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-amber-700">
+                  <strong>Atención:</strong> En este modo no se aplicarán descuentos por ausencias.
+                  Todos los docentes recibirán el monto total correspondiente a sus horas asignadas.
+                </p>
+              </div>
+            )}
+          </div>
+
           {generatePlanilla.isError && (
             <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-sm text-red-600">
@@ -269,14 +336,37 @@ export function PlanillaPage() {
                 </div>
               </div>
               {lastResult.file_path && (
-                <Button
-                  variant="outline"
-                  className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
-                  onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
-                >
-                  <Download size={16} />
-                  Descargar Excel
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
+                    onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
+                  >
+                    <Download size={16} />
+                    Descargar Excel
+                  </Button>
+                  <button
+                    onClick={async () => {
+                      setSalaryReportLoading((prev) => ({ ...prev, current: true }))
+                      try {
+                        await downloadSalaryReport({
+                          month: lastResult.month,
+                          year: lastResult.year,
+                          discount_mode: effectiveDiscountMode,
+                          start_date: startDate || undefined,
+                          end_date: endDate || undefined,
+                        })
+                      } finally {
+                        setSalaryReportLoading((prev) => ({ ...prev, current: false }))
+                      }
+                    }}
+                    disabled={salaryReportLoading.current}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+                  >
+                    {salaryReportLoading.current ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                    Planilla Salarios
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -812,16 +902,41 @@ export function PlanillaPage() {
                       </td>
                       <td className="px-4 py-3">
                         {item.file_path ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
-                          >
-                            <Download size={12} />
-                            Excel
-                          </button>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
+                            >
+                              <Download size={12} />
+                              Excel
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const key = `row-${item.id}`
+                                setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
+                                try {
+                                  await downloadSalaryReport({
+                                    month: item.month,
+                                    year: item.year,
+                                    discount_mode: item.discount_mode,
+                                  })
+                                } finally {
+                                  setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
+                                }
+                              }}
+                              disabled={salaryReportLoading[`row-${item.id}`]}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-green-700 hover:bg-green-50 border border-green-600/30 text-xs font-medium transition-colors disabled:opacity-50"
+                            >
+                              {salaryReportLoading[`row-${item.id}`]
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <FileSpreadsheet size={12} />}
+                              Salarios
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-gray-300 text-xs">No disponible</span>
                         )}

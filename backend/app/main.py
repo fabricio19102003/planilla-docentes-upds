@@ -20,6 +20,7 @@ from app.routers import (
     activity_log_router,
     contracts_router,
     admin_router,
+    admin_settings_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ def _run_column_migrations() -> None:
                 if "end_date" not in po_cols:
                     conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN end_date DATE"))
                     logger.info("Added column planilla_outputs.end_date")
+                if "discount_mode" not in po_cols:
+                    conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN discount_mode VARCHAR(20) NOT NULL DEFAULT 'attendance'"))
+                    logger.info("Added column planilla_outputs.discount_mode")
 
             # teachers.nit
             teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
@@ -74,11 +78,16 @@ def _run_column_migrations() -> None:
                 logger.info("Added column teachers.nit")
 
             # designations.academic_period
+            # NOTE: we intentionally hardcode the default here instead of
+            # reading app_settings — this runs during startup migration
+            # before the SessionLocal for app_settings is even used, and
+            # the DEFAULT only backfills existing rows (new rows come from
+            # the upload flow which reads the live setting).
             if inspector.has_table("designations"):
                 desig_cols = {c["name"] for c in inspector.get_columns("designations")}
                 if "academic_period" not in desig_cols:
                     conn.execute(text(
-                        f"ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT '{settings.ACTIVE_ACADEMIC_PERIOD}'"
+                        "ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT 'I/2026'"
                     ))
                     logger.info("Added column designations.academic_period")
 
@@ -115,6 +124,37 @@ async def lifespan(app: FastAPI):
 
     # Ensure new columns exist on existing databases (create_all doesn't add columns)
     _run_column_migrations()
+
+    # Seed default business settings if the table is empty.
+    # This must run AFTER create_tables() so the ``app_settings`` table exists.
+    try:
+        from app.models.app_setting import AppSetting
+        from app.services import app_settings_service
+
+        db = SessionLocal()
+        try:
+            # Per-key upsert: only seed keys that don't already exist.
+            # This survives partial seeds and future additions of new keys.
+            existing_keys = {row[0] for row in db.query(AppSetting.key).all()}
+            defaults_spec = [
+                ("ACTIVE_ACADEMIC_PERIOD", "I/2026", "Período académico activo (ej: I/2026, II/2025)"),
+                ("COMPANY_NAME", "UNIPANDO S.R.L.", "Nombre de la empresa para el encabezado de planilla salarios"),
+                ("COMPANY_NIT", "456850023", "NIT de la empresa para el encabezado de planilla salarios"),
+                ("HOURLY_RATE", "70.0", "Tarifa por hora académica en Bs"),
+            ]
+            added = 0
+            for key, value, desc in defaults_spec:
+                if key not in existing_keys:
+                    db.add(AppSetting(key=key, value=value, description=desc))
+                    added += 1
+            if added:
+                db.commit()
+                app_settings_service.invalidate_cache()
+                logger.info("Seeded %d missing app settings", added)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.exception("Failed to seed app_settings on startup: %s", exc)
 
     # Create default admin users if none exist (admin, daniel, pedro)
     try:
@@ -191,6 +231,7 @@ app.include_router(billing_publication_router)
 app.include_router(activity_log_router)
 app.include_router(contracts_router)
 app.include_router(admin_router)
+app.include_router(admin_settings_router)
 
 
 @app.get("/health", tags=["system"])

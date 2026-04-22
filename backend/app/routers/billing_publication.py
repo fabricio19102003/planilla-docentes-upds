@@ -16,6 +16,7 @@ from app.models.planilla import PlanillaOutput
 from app.models.user import User
 from app.services.planilla_generator import PlanillaGenerator
 from app.services.activity_logger import log_activity
+from app.services import app_settings_service
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -110,11 +111,15 @@ def publish_billing(
             if stored_planilla.payment_overrides_json:
                 stored_overrides = stored_planilla.payment_overrides_json
 
-            # Use stored start/end dates from the approved planilla
+            # Use stored start/end dates and discount_mode from the approved planilla.
+            # `discount_mode` is a NOT NULL column with a default of "attendance",
+            # so direct attribute access is always safe — no defensive getattr needed.
             sd = stored_planilla.start_date
             ed = stored_planilla.end_date
+            dm = stored_planilla.discount_mode
             rows, _detail_rows, _warnings = generator._build_planilla_data(
-                db, month=month, year=year, start_date=sd, end_date=ed
+                db, month=month, year=year, start_date=sd, end_date=ed,
+                discount_mode=dm,
             )
             total_teachers = len({r.teacher_ci for r in rows})
 
@@ -188,10 +193,11 @@ def publish_billing(
                 "teacher_details": list(teacher_map.values()),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
-                "rate_per_hour": 70.0,
+                "rate_per_hour": app_settings_service.get_hourly_rate(db),
                 "generated_at": datetime.now().isoformat(),
                 "source": "planilla_output",
                 "planilla_id": planilla_id,
+                "discount_mode": dm,
             }
         except HTTPException:
             raise

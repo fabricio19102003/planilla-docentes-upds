@@ -20,12 +20,12 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.models.attendance import AttendanceRecord
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
 from app.models.report import Report
+from app.services import app_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,15 @@ class ReportGenerator:
         from app.services.planilla_generator import PlanillaGenerator
 
         gen = PlanillaGenerator()
-        rows, _, warnings = gen._build_planilla_data(db, month=month, year=year)
+        # Use stored discount_mode so PDF matches the approved planilla
+        stored_po = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+        dm = stored_po.discount_mode if stored_po else "attendance"
+        rows, _, warnings = gen._build_planilla_data(db, month=month, year=year, discount_mode=dm)
 
         if teacher_ci:
             rows = [r for r in rows if r.teacher_ci == teacher_ci]
@@ -524,17 +532,17 @@ class ReportGenerator:
         gen = PlanillaGenerator()
         monthly_data = []
         for m in months:
-            rows, _, _ = gen._build_planilla_data(db, month=m, year=year)
-            if teacher_ci:
-                rows = [r for r in rows if r.teacher_ci == teacher_ci]
-
-            # Prefer stored PlanillaOutput total (reflects admin overrides) when no filter
+            # Use stored discount_mode so PDF matches the approved planilla
             stored_m = (
                 db.query(PlanillaOutput)
                 .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
                 .order_by(PlanillaOutput.generated_at.desc())
                 .first()
             )
+            m_dm = stored_m.discount_mode if stored_m else "attendance"
+            rows, _, _ = gen._build_planilla_data(db, month=m, year=year, discount_mode=m_dm)
+            if teacher_ci:
+                rows = [r for r in rows if r.teacher_ci == teacher_ci]
             if stored_m and not teacher_ci:
                 month_total = float(stored_m.total_payment)
             else:
@@ -649,7 +657,7 @@ class ReportGenerator:
 
         all_teacher_cis = {
             r[0] for r in db.query(Designation.teacher_ci)
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
             .distinct().all()
         }
 
@@ -850,7 +858,7 @@ class ReportGenerator:
         ).all()
 
         designations = db.query(Designation).filter(
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+            Designation.academic_period == app_settings_service.get_active_academic_period(db)
         ).all()
 
         teacher_cis = set(d.teacher_ci for d in designations)
@@ -1030,7 +1038,7 @@ class ReportGenerator:
         desig_counts: Counter[str] = Counter()
         desig_hours: Counter[str] = Counter()
         all_desigs = db.query(Designation).filter(
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+            Designation.academic_period == app_settings_service.get_active_academic_period(db)
         ).all()
         for d in all_desigs:
             desig_counts[d.teacher_ci] += 1

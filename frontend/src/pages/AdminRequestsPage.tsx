@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAllRequests, useRespondRequest } from '@/api/hooks/useAuth'
-import { usePlanillaDetail, useTeacherDesignations } from '@/api/hooks/usePlanilla'
+import { usePlanillaDetail, usePlanillaStatus, useTeacherDesignations } from '@/api/hooks/usePlanilla'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -54,11 +54,20 @@ function RequestDetailDialog({
   request: DetailRequestInfo | null
   onClose: () => void
 }) {
+  // Use stored discount_mode so values match the approved planilla
+  const { data: reqPlanillaStatus } = usePlanillaStatus(request?.month ?? 0, request?.year ?? 0)
+  const reqDiscountMode = (reqPlanillaStatus?.discount_mode === 'attendance' || reqPlanillaStatus?.discount_mode === 'full')
+    ? reqPlanillaStatus.discount_mode
+    : 'attendance'
+
   // Load planilla detail for this teacher's billing info
   const { data: planillaDetail } = usePlanillaDetail(
     request?.month ?? 0,
     request?.year ?? 0,
     Boolean(request),
+    undefined,
+    undefined,
+    reqDiscountMode,
   )
 
   // Load teacher designations with schedule info

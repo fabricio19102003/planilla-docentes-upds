@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from app.config import settings
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
 from app.models.billing_publication import BillingPublication
@@ -18,6 +17,7 @@ from app.models.notification import Notification
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.teacher import TeacherResponse
+from app.services import app_settings_service
 from app.services.activity_logger import log_activity
 from app.services.attendance_engine import WEEKDAY_MAP as _ENGINE_WEEKDAY_MAP, _normalize_day
 from app.utils.auth import require_docente
@@ -213,17 +213,33 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
       - Base = designation.monthly_hours (assigned load)
       - Deduct ONLY ABSENT hours from base
       - Teachers without biometric data for the period get full pay (0 deductions)
+
+    When a PlanillaOutput exists for the period with discount_mode="full", we skip
+    absence deduction entirely — otherwise the fallback would show different (lower)
+    amounts than the actual published planilla. If no PlanillaOutput exists we keep
+    the historical behavior (attendance mode).
     """
     from app.models.biometric import BiometricRecord, BiometricUpload  # avoid circular at module level
+    from app.models.planilla import PlanillaOutput
 
-    rate = settings.HOURLY_RATE
+    rate = app_settings_service.get_hourly_rate(db)
+
+    # Respect the discount_mode of the stored planilla for this period.
+    # No stored planilla → default to attendance mode (legacy behavior).
+    stored_planilla = (
+        db.query(PlanillaOutput)
+        .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+        .order_by(PlanillaOutput.generated_at.desc())
+        .first()
+    )
+    dm = stored_planilla.discount_mode if stored_planilla else "attendance"
 
     # Get all designations for this teacher (scoped to active academic period)
     all_designations = (
         db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher_ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .all()
     )
@@ -247,7 +263,10 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
     for d in all_designations:
         base_hours = d.monthly_hours or 0
 
-        if has_biometric:
+        if dm == "full":
+            # "Sin descuentos" mode: pay the full assigned load regardless of attendance.
+            absent_hours = 0
+        elif has_biometric:
             # Model C: deduct ABSENT hours using scheduled slot hours from schedule_json.
             # IMPORTANT: AttendanceRecord.academic_hours is always 0 for ABSENT records
             # (set by the attendance engine), so summing that column returns 0 and absences
@@ -374,7 +393,8 @@ def get_current_billing(
                 year=now.year,
                 month_name=MONTH_NAMES.get(now.month, str(now.month)),
                 total_hours=teacher_data["total_hours"],
-                rate_per_hour=snapshot.get("rate_per_hour", 70.0),
+                # Historical snapshots may lack rate_per_hour; fall back to live config
+                rate_per_hour=snapshot["rate_per_hour"] if "rate_per_hour" in snapshot else app_settings_service.get_hourly_rate(db),
                 total_payment=snap_gross,          # Bruto (for display)
                 adjusted_payment=None,
                 has_retention=snap_has_retention,
@@ -474,7 +494,7 @@ def get_docente_profile(
         db.query(func.count(Designation.id))
         .filter(
             Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .scalar()
         or 0
@@ -559,7 +579,7 @@ def generate_retention_letter_endpoint(
         db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .all()
     )
@@ -611,7 +631,7 @@ def export_schedule_pdf(
         db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .all()
     )
@@ -657,7 +677,7 @@ def get_my_schedule(
         db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .all()
     )

@@ -27,6 +27,9 @@ class PlanillaOutput(Base):
     start_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="generated", nullable=False)
+    # "attendance" = apply attendance-based discounts (default/legacy behaviour)
+    # "full" = pay all teachers their full assigned hours (no discounts)
+    discount_mode: Mapped[str] = mapped_column(String(20), default="attendance", nullable=False)
 
     def __repr__(self) -> str:
-        return f"<PlanillaOutput id={self.id} month={self.month}/{self.year} status={self.status}>"
+        return f"<PlanillaOutput id={self.id} month={self.month}/{self.year} status={self.status} discount_mode={self.discount_mode}>"

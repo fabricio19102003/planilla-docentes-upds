@@ -8,11 +8,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.database import get_db
 from app.models.planilla import PlanillaOutput
 from app.models.report import Report
 from app.models.user import User
+from app.services import app_settings_service
 from app.services.report_generator import ReportGenerator
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
@@ -163,7 +163,20 @@ def preview_report(
         if report_type == 'financial':
             from app.services.planilla_generator import PlanillaGenerator
             gen = PlanillaGenerator()
-            planilla_rows, detail_rows, gen_warnings = gen._build_planilla_data(db, month=month, year=year)
+            # Respect the discount_mode stored on the approved planilla (if any).
+            # Otherwise the preview would always recalculate in "attendance" mode and
+            # differ from the actual published totals when the planilla was generated
+            # in "full" mode.
+            stored_fin = (
+                db.query(PlanillaOutput)
+                .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+                .order_by(PlanillaOutput.generated_at.desc())
+                .first()
+            )
+            fin_dm = stored_fin.discount_mode if stored_fin else "attendance"
+            planilla_rows, detail_rows, gen_warnings = gen._build_planilla_data(
+                db, month=month, year=year, discount_mode=fin_dm,
+            )
             rows = planilla_rows
             if teacher_ci:
                 rows = [r for r in rows if r.teacher_ci == teacher_ci]
@@ -276,19 +289,26 @@ def preview_report(
             gen = PG()
             monthly_data = []
             for m in months:
-                planilla_rows, detail_rows, warn_rows = gen._build_planilla_data(db, month=m, year=year)
+                # Look up the stored planilla for this month first so we can reuse
+                # its discount_mode when computing rows — without this, months
+                # generated in "full" mode would be recomputed in "attendance" mode
+                # here and show inconsistent totals.
+                stored_m = (
+                    db.query(PlanillaOutput)
+                    .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
+                    .order_by(PlanillaOutput.generated_at.desc())
+                    .first()
+                )
+                m_dm = stored_m.discount_mode if stored_m else "attendance"
+                planilla_rows, detail_rows, warn_rows = gen._build_planilla_data(
+                    db, month=m, year=year, discount_mode=m_dm,
+                )
                 rows = planilla_rows
                 if teacher_ci:
                     rows = [r for r in rows if r.teacher_ci == teacher_ci]
 
                 # Prefer stored PlanillaOutput total when no teacher filter
                 if not teacher_ci:
-                    stored_m = (
-                        db.query(PlanillaOutput)
-                        .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
-                        .order_by(PlanillaOutput.generated_at.desc())
-                        .first()
-                    )
                     month_total = float(stored_m.total_payment) if stored_m else sum(r.final_payment for r in rows)
                 else:
                     month_total = sum(r.final_payment for r in rows)  # net — after retention
@@ -318,7 +338,7 @@ def preview_report(
             teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
             desig_counts: Counter[str] = Counter()
             all_desigs = db.query(Designation).filter(
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+                Designation.academic_period == app_settings_service.get_active_academic_period(db)
             ).all()
             for d in all_desigs:
                 desig_counts[d.teacher_ci] += 1
@@ -369,7 +389,7 @@ def preview_report(
 
             all_teacher_cis = {
                 r[0] for r in db.query(Designation.teacher_ci)
-                .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+                .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
                 .distinct().all()
             }
 
@@ -437,7 +457,7 @@ def preview_report(
             ).all()
 
             designations = db.query(Designation).filter(
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD
+                Designation.academic_period == app_settings_service.get_active_academic_period(db)
             ).all()
 
             teacher_cis = set(d.teacher_ci for d in designations)

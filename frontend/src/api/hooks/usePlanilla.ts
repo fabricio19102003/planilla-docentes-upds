@@ -77,10 +77,38 @@ export async function downloadPlanilla(planillaId: number, filename?: string) {
   window.URL.revokeObjectURL(url)
 }
 
-async function fetchPlanillaDetail(month: number, year: number, startDate?: string, endDate?: string) {
+export async function downloadSalaryReport(params: {
+  month: number
+  year: number
+  company_name?: string
+  company_nit?: string
+  discount_mode?: string
+  start_date?: string
+  end_date?: string
+}) {
+  const response = await api.post('/planilla/salary-report', params, {
+    responseType: 'blob',
+  })
+  const url = window.URL.createObjectURL(new Blob([response.data]))
+  const link = document.createElement('a')
+  link.href = url
+  const monthNames: Record<number, string> = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+  }
+  link.download = `Planilla_Salario_${monthNames[params.month]}_${params.year}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+async function fetchPlanillaDetail(month: number, year: number, startDate?: string, endDate?: string, discountMode?: string) {
   const params = new URLSearchParams()
   if (startDate) params.set('start_date', startDate)
   if (endDate) params.set('end_date', endDate)
+  if (discountMode) params.set('discount_mode', discountMode)
   const qs = params.toString()
   const url = `/planilla/${month}/${year}/detail${qs ? '?' + qs : ''}`
   const response = await api.get<PlanillaDetailResponse>(url)
@@ -93,10 +121,11 @@ export function usePlanillaDetail(
   enabled: boolean = true,
   startDate?: string,
   endDate?: string,
+  discountMode?: string,
 ) {
   return useQuery({
-    queryKey: ['planilla-detail', month, year, startDate, endDate],
-    queryFn: () => fetchPlanillaDetail(month, year, startDate, endDate),
+    queryKey: ['planilla-detail', month, year, startDate, endDate, discountMode],
+    queryFn: () => fetchPlanillaDetail(month, year, startDate, endDate, discountMode),
     enabled,
   })
 }

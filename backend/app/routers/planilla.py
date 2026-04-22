@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -22,10 +23,12 @@ from app.schemas.planilla import (
     PlanillaGenerateRequest,
     PlanillaGenerateResponse,
     PlanillaOutputResponse,
+    SalaryReportRequest,
 )
-from app.config import settings
+from app.services import app_settings_service
 from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PlanillaGenerator
+from app.services.salary_report_generator import SalaryReportGenerator
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -47,9 +50,12 @@ def _output_dir() -> Path:
 
 
 @router.get("/config/active-period")
-def get_active_period(_: User = Depends(require_admin)):
+def get_active_period(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     """Return the active academic period configured on the server."""
-    return {"academic_period": settings.ACTIVE_ACADEMIC_PERIOD}
+    return {"academic_period": app_settings_service.get_active_academic_period(db)}
 
 
 @router.post("/planilla/generate", response_model=PlanillaGenerateResponse)
@@ -69,6 +75,7 @@ def generate_planilla(
             payment_overrides=payload.payment_overrides,
             start_date=payload.start_date,
             end_date=payload.end_date,
+            discount_mode=payload.discount_mode,
         )
         log_activity(
             db,
@@ -82,6 +89,7 @@ def generate_planilla(
                 "total_teachers": result.total_teachers,
                 "total_hours": result.total_hours,
                 "total_payment": float(result.total_payment),
+                "discount_mode": payload.discount_mode,
             },
             request=request,
         )
@@ -103,6 +111,7 @@ def generate_planilla(
             total_hours=result.total_hours,
             total_payment=result.total_payment,
             warnings=result.warnings,
+            discount_mode=result.discount_mode,
         )
     except HTTPException:
         db.rollback()
@@ -213,12 +222,98 @@ def download_planilla(
         ) from exc
 
 
+@router.post("/planilla/salary-report")
+def generate_salary_report(
+    payload: SalaryReportRequest,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """
+    Generate and return the "Planilla Salarios" Excel report for the given
+    month/year. This replicates the official UNIPANDO template format.
+
+    Behavior:
+      - If payload.discount_mode is omitted/default, try to reuse the stored
+        PlanillaOutput's mode so the report matches the approved planilla.
+      - Company name/NIT default to server settings when not provided.
+    """
+    try:
+        # Resolve discount_mode from stored planilla if caller did not override
+        stored = (
+            db.query(PlanillaOutput)
+            .filter(
+                PlanillaOutput.month == payload.month,
+                PlanillaOutput.year == payload.year,
+            )
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+        effective_mode = payload.discount_mode
+        if stored is not None and stored.discount_mode in ("attendance", "full"):
+            # Only inherit when caller passed the default; explicit override wins.
+            # SalaryReportRequest default is "attendance"; if stored differs we
+            # still prefer the caller's explicit value. To keep things simple
+            # we only override when caller left it at the default "attendance"
+            # and the stored mode is "full" (which is the meaningful case).
+            if payload.discount_mode == "attendance" and stored.discount_mode == "full":
+                effective_mode = "full"
+
+        generator = SalaryReportGenerator(output_dir=str(_output_dir()))
+        file_path = generator.generate(
+            db=db,
+            month=payload.month,
+            year=payload.year,
+            company_name=payload.company_name or app_settings_service.get_company_name(db),
+            company_nit=payload.company_nit or app_settings_service.get_company_nit(db),
+            discount_mode=effective_mode,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+
+        month_name = MONTH_NAMES.get(payload.month, str(payload.month))
+        download_name = f"Planilla_Salario_{month_name}_{payload.year}.xlsx"
+
+        log_activity(
+            db,
+            "generate_salary_report",
+            "planilla",
+            f"Planilla salarios generada: {month_name} {payload.year}",
+            user=current_user,
+            details={
+                "month": payload.month,
+                "year": payload.year,
+                "discount_mode": effective_mode,
+                "file": str(file_path),
+            },
+            request=request,
+        )
+        db.commit()
+
+        return FileResponse(
+            path=file_path,
+            filename=download_name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Salary report generation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo generar la planilla de salarios",
+        ) from exc
+
+
 @router.get("/planilla/{month}/{year}/detail")
 def get_planilla_detail(
     month: int,
     year: int,
     start_date: date | None = None,
     end_date: date | None = None,
+    discount_mode: Literal["attendance", "full"] = Query("attendance"),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -226,12 +321,15 @@ def get_planilla_detail(
 
     Optional ``start_date`` / ``end_date`` query parameters narrow the attendance
     window passed to the generator (same semantics as the generate endpoint).
+    ``discount_mode`` controls whether attendance-based discounts are applied
+    ("attendance", default) or bypassed ("full").
     """
     try:
         generator = PlanillaGenerator()
         rows, _detail_rows, warnings = generator._build_planilla_data(
             db, month=month, year=year,
             start_date=start_date, end_date=end_date,
+            discount_mode=discount_mode,
         )
 
         detail = []
@@ -292,10 +390,17 @@ def get_planilla_detail(
 
         computed_total = sum(r.final_payment for r in rows)
 
-        # Use stored planilla total ONLY for full-month requests (no date filter).
-        # Partial date ranges produce a subset of data that won't match the stored total.
+        # Use stored planilla total ONLY for full-month requests (no date filter)
+        # AND only when the stored planilla's discount_mode matches the requested one.
+        # Otherwise the stored total (which reflects the mode it was generated with)
+        # would be shown on top of rows computed in a different mode.
         is_full_month = start_date is None and end_date is None
-        use_stored = stored is not None and is_full_month
+        stored_mode = stored.discount_mode if stored is not None else None
+        use_stored = (
+            stored is not None
+            and is_full_month
+            and stored_mode == discount_mode
+        )
 
         response: dict = {
             "month": month,
@@ -336,7 +441,7 @@ def get_teacher_designations(
             db.query(Designation)
             .filter(
                 Designation.teacher_ci == teacher_ci,
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
             )
             .all()
         )
@@ -414,7 +519,7 @@ def global_search(
     ).limit(5).all()
 
     desigs = db.query(Designation).filter(
-        Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        Designation.academic_period == app_settings_service.get_active_academic_period(db),
         (Designation.subject.ilike(term)) | (Designation.group_code.ilike(term))
     ).limit(10).all()
 
@@ -457,7 +562,7 @@ def dashboard_summary(
         teacher_count = db.query(func.count(Teacher.ci)).scalar() or 0
         designation_count = (
             db.query(func.count(Designation.id))
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
             .scalar()
             or 0
         )
@@ -514,8 +619,27 @@ def dashboard_summary(
         total_monthly_payment = 0.0
         if latest_period:
             try:
+                # Look up stored planilla first so we can reuse its discount_mode
+                # when computing the rows — otherwise top_earners would default to
+                # "attendance" even when the stored planilla was generated in "full" mode.
+                stored_planilla = (
+                    db.query(PlanillaOutput)
+                    .filter(
+                        PlanillaOutput.month == latest_period.month,
+                        PlanillaOutput.year == latest_period.year,
+                    )
+                    .order_by(PlanillaOutput.generated_at.desc())
+                    .first()
+                )
+                stored_dm = stored_planilla.discount_mode if stored_planilla else "attendance"
+
                 gen = PlanillaGenerator()
-                planilla_rows, _, _ = gen._build_planilla_data(db, month=latest_period.month, year=latest_period.year)
+                planilla_rows, _, _ = gen._build_planilla_data(
+                    db,
+                    month=latest_period.month,
+                    year=latest_period.year,
+                    discount_mode=stored_dm,
+                )
                 teacher_payments: dict = {}
                 for r in planilla_rows:
                     if r.teacher_ci not in teacher_payments:
@@ -526,15 +650,6 @@ def dashboard_summary(
                 top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
 
                 # If there is a stored planilla with admin overrides, use its total
-                stored_planilla = (
-                    db.query(PlanillaOutput)
-                    .filter(
-                        PlanillaOutput.month == latest_period.month,
-                        PlanillaOutput.year == latest_period.year,
-                    )
-                    .order_by(PlanillaOutput.generated_at.desc())
-                    .first()
-                )
                 if stored_planilla:
                     total_monthly_payment = float(stored_planilla.total_payment)
             except Exception:
@@ -543,7 +658,7 @@ def dashboard_summary(
         # ── Group distribution (for pie/bar chart) ───────
         group_dist_query = (
             db.query(Designation.group_code, func.count(Designation.id))
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
             .group_by(Designation.group_code)
             .order_by(func.count(Designation.id).desc())
             .all()
@@ -553,7 +668,7 @@ def dashboard_summary(
         # ── Semester distribution ────────────────────────
         semester_dist_query = (
             db.query(Designation.semester, func.count(Designation.id))
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
             .group_by(Designation.semester)
             .order_by(func.count(Designation.id).desc())
             .all()

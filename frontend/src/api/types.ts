@@ -264,6 +264,7 @@ export interface PlanillaOutput {
   status: string
   start_date: string | null
   end_date: string | null
+  discount_mode: 'attendance' | 'full'
 }
 
 export interface PlanillaGenerateResponse {
@@ -275,6 +276,7 @@ export interface PlanillaGenerateResponse {
   total_hours: number
   total_payment: string
   warnings: string[]
+  discount_mode: 'attendance' | 'full'
 }
 
 export interface DashboardSummary {
@@ -331,6 +333,7 @@ export interface GeneratePlanillaPayload {
   payment_overrides: Record<string, number>
   start_date?: string   // ISO date format "YYYY-MM-DD"
   end_date?: string     // ISO date format "YYYY-MM-DD"
+  discount_mode?: 'attendance' | 'full'  // default: "attendance"
 }
 
 export interface UploadBiometricPayload {
@@ -450,4 +453,19 @@ export interface PlanillaDetailResponse {
   detail: PlanillaDetailRow[]
   teacher_totals: PlanillaTeacherTotal[]
   warnings: string[]
+}
+
+// ─── App Settings (admin Configuración page) ─────────────────────────────────
+export interface AppSettings {
+  active_academic_period: string
+  company_name: string
+  company_nit: string
+  hourly_rate: number
+}
+
+export interface AppSettingsUpdate {
+  active_academic_period?: string
+  company_name?: string
+  company_nit?: string
+  hourly_rate?: number
 }

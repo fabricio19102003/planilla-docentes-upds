@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 from decimal import Decimal
 
 from app.schemas.attendance import MonthlyAttendanceSummaryResponse
@@ -21,6 +21,7 @@ class PlanillaOutputResponse(BaseModel):
     status: str
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    discount_mode: Literal["attendance", "full"] = "attendance"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,6 +33,9 @@ class PlanillaGenerateRequest(BaseModel):
     payment_overrides: dict[str, float] = Field(default_factory=dict)
     start_date: date | None = None   # Optional: start of attendance period for filtering
     end_date: date | None = None     # Optional: end of attendance period for filtering
+    # "attendance" = apply attendance-based discounts (default)
+    # "full" = pay full assigned hours to all teachers (no discounts)
+    discount_mode: Literal["attendance", "full"] = "attendance"
 
 
 class PlanillaGenerateResponse(BaseModel):
@@ -44,6 +48,19 @@ class PlanillaGenerateResponse(BaseModel):
     total_hours: int
     total_payment: Decimal
     warnings: list[str] = Field(default_factory=list)
+    discount_mode: Literal["attendance", "full"] = "attendance"
+
+
+class SalaryReportRequest(BaseModel):
+    """Request body for salary report (Planilla Salarios) generation."""
+    month: int
+    year: int
+    # Override config defaults when provided
+    company_name: Optional[str] = None
+    company_nit: Optional[str] = None
+    discount_mode: Literal["attendance", "full"] = "attendance"
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
 
 class DashboardSummaryResponse(BaseModel):
