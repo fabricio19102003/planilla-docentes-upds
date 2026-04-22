@@ -180,12 +180,13 @@ UPLOAD_DIR=./data/uploads
 # Debe cumplir: 8+ chars, 1 mayuscula, 1 minuscula, 1 numero
 ADMIN_DEFAULT_PASSWORD=Admin123
 
-# ─── Periodo Academico ────────────────────────────────────
-ACTIVE_ACADEMIC_PERIOD=I/2026
-
-# ─── Tarifa ───────────────────────────────────────────────
-HOURLY_RATE=70
+# ─── Configuracion de Negocio ─────────────────────────────
+# ACTIVE_ACADEMIC_PERIOD, COMPANY_NAME, COMPANY_NIT, HOURLY_RATE
+# se configuran desde la UI (pagina Configuracion del admin).
+# Los valores por defecto se crean automaticamente en la BD al primer inicio.
 ```
+
+> **Nota:** Las configuraciones de negocio (periodo academico, tarifa por hora, nombre/NIT de empresa) ya **no van en el `.env`**. Se gestionan desde la pagina **Configuracion** en el menu del admin.
 
 ### Primer inicio (seed automatico)
 
@@ -201,7 +202,16 @@ Al iniciar el backend por primera vez con una base de datos vacia:
 | `daniel` | `Admin123` | Admin |
 | `pedro` | `Admin123` | Admin |
 
-4. Se vinculan usuarios docentes a sus docentes correspondientes
+4. Se crean las **configuraciones de negocio** por defecto:
+
+| Configuracion | Valor por defecto | Editable desde |
+|---------------|-------------------|----------------|
+| Periodo Academico | `I/2026` | Configuracion (UI) |
+| Nombre Empresa | `UNIPANDO S.R.L.` | Configuracion (UI) |
+| NIT Empresa | `456850023` | Configuracion (UI) |
+| Tarifa por Hora | `70.0 Bs` | Configuracion (UI) |
+
+5. Se vinculan usuarios docentes a sus docentes correspondientes
 
 > **Nota:** En el primer login el sistema pide cambiar la contraseña. Todos los admins seed tienen `must_change_password=true`.
 
@@ -321,26 +331,27 @@ npm run build
 planilla-docentes-upds/
 ├── backend/
 │   ├── app/
-│   │   ├── models/              # 11 modelos SQLAlchemy
+│   │   ├── models/              # 12 modelos SQLAlchemy
 │   │   │   ├── teacher.py               # Docente (CI, nombre, email, banco, NIT)
 │   │   │   ├── designation.py           # Designacion (materia, grupo, horario, periodo)
 │   │   │   ├── attendance.py            # Registro de asistencia
 │   │   │   ├── biometric.py             # Datos biometricos (upload + records)
-│   │   │   ├── planilla.py              # Planilla generada (con overrides)
+│   │   │   ├── planilla.py              # Planilla generada (con overrides + discount_mode)
 │   │   │   ├── billing_publication.py   # Publicacion de facturacion (snapshot inmutable)
 │   │   │   ├── user.py                  # Usuarios (admin/docente, must_change_password)
 │   │   │   ├── notification.py          # Notificaciones para docentes
 │   │   │   ├── detail_request.py        # Solicitudes docente→admin
 │   │   │   ├── activity_log.py          # Registro de actividad (audit trail)
-│   │   │   └── report.py               # Reportes generados
+│   │   │   ├── report.py               # Reportes generados
+│   │   │   └── app_setting.py           # Configuracion de negocio (key-value en BD)
 │   │   │
-│   │   ├── routers/             # 14 routers FastAPI
+│   │   ├── routers/             # 15 routers FastAPI
 │   │   │   ├── auth.py                  # Login, cambio de contrasena
 │   │   │   ├── teachers.py              # CRUD docentes + upload lista + bulk delete
 │   │   │   ├── designations.py          # Upload designaciones (3 formatos)
 │   │   │   ├── biometric.py             # Upload biometrico + date-range detection
 │   │   │   ├── attendance.py            # Procesar asistencia + auditoria
-│   │   │   ├── planilla.py              # Generar planilla + dashboard + approve/reject + search
+│   │   │   ├── planilla.py              # Generar planilla + salary report + dashboard + approve/reject
 │   │   │   ├── billing_publication.py   # Publicar/despublicar facturacion
 │   │   │   ├── contracts.py             # Generar contratos PDF
 │   │   │   ├── reports.py               # Generar reportes PDF (7 tipos)
@@ -348,10 +359,13 @@ planilla-docentes-upds/
 │   │   │   ├── detail_requests.py       # Solicitudes admin↔docente
 │   │   │   ├── users.py                 # Gestion de usuarios
 │   │   │   ├── activity_log.py          # Registro de actividad
-│   │   │   └── admin.py                 # Backups de BD
+│   │   │   ├── admin.py                 # Backups de BD
+│   │   │   └── admin_settings.py        # Configuracion de negocio (CRUD admin)
 │   │   │
 │   │   ├── services/            # Logica de negocio
-│   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + retencion)
+│   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + retencion + discount_mode)
+│   │   │   ├── salary_report_generator.py # Planilla de salarios Excel (formato UNIPANDO)
+│   │   │   ├── app_settings_service.py   # Configuracion de negocio (cache + CRUD)
 │   │   │   ├── attendance_engine.py      # Procesamiento de asistencia
 │   │   │   ├── designation_loader.py     # Carga de designaciones (3 formatos + HORARIO parser)
 │   │   │   ├── biometric_parser.py       # Parseo de archivos biometricos + CI aliasing
@@ -382,7 +396,7 @@ planilla-docentes-upds/
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/               # 22 paginas
+│   │   ├── pages/               # 24 paginas
 │   │   │   ├── LoginPage.tsx            # Login split-layout (desktop + mobile)
 │   │   │   ├── ForceChangePasswordPage  # Cambio obligatorio de contrasena
 │   │   │   ├── DashboardPage.tsx        # Dashboard con Recharts
@@ -399,6 +413,7 @@ planilla-docentes-upds/
 │   │   │   ├── ObservationsPage.tsx     # Observaciones de asistencia
 │   │   │   ├── ActivityLogPage.tsx      # Registro de actividad
 │   │   │   ├── BackupPage.tsx           # Respaldos de BD
+│   │   │   ├── SettingsPage.tsx         # Configuracion de negocio (admin)
 │   │   │   ├── BillingPage.tsx          # Facturacion actual (docente)
 │   │   │   ├── BillingHistoryPage.tsx   # Historial de facturacion (docente)
 │   │   │   ├── MyProfilePage.tsx        # Perfil editable (docente)
@@ -415,7 +430,7 @@ planilla-docentes-upds/
 │   │   ├── api/                 # API layer
 │   │   │   ├── client.ts                # Axios con interceptor JWT
 │   │   │   ├── types.ts                 # TypeScript interfaces
-│   │   │   └── hooks/                   # 12 hooks TanStack Query
+│   │   │   └── hooks/                   # 13 hooks TanStack Query
 │   │   │
 │   │   ├── context/             # React contexts
 │   │   │   ├── AuthContext.tsx           # Auth + must_change_password redirect
@@ -437,8 +452,8 @@ planilla-docentes-upds/
 ### Modelo de Pago (Model C)
 
 ```
-Pago Base     = Horas Mensuales Asignadas x Bs 70/hora
-Descuento     = Horas Ausentes (verificadas por biometrico) x Bs 70/hora
+Pago Base     = Horas Mensuales Asignadas x Tarifa/hora (configurable, default 70 Bs)
+Descuento     = Horas Ausentes (verificadas por biometrico) x Tarifa/hora
 Bruto         = Pago Base - Descuento
 Retencion     = Bruto x 13% (solo docentes con retencion RC-IVA)
 Neto          = Bruto - Retencion
@@ -452,6 +467,26 @@ Neto          = Bruto - Retencion
 - Publicacion crea **snapshot inmutable** — los montos publicados no cambian si los datos base cambian
 - El sistema **detecta automaticamente** el rango del biometrico y sugiere las fechas al admin
 - **46 docentes** tienen retencion RC-IVA 13%, **87** facturan con NIT propio
+
+### Modo de calculo (discount_mode)
+
+La planilla soporta dos modos de calculo que el admin elige al momento de generar:
+
+| Modo | Comportamiento |
+|------|---------------|
+| **Con descuentos** (default) | Se aplican descuentos por horas ausentes segun biometrico |
+| **Sin descuentos** | Todos los docentes cobran el 100% de sus horas asignadas |
+
+El modo se persiste en la planilla y se propaga a la publicacion de facturacion y reportes.
+
+### Planilla de Salarios (Excel)
+
+Desde la pagina de Planilla, el admin puede descargar una **Planilla de Salarios** en formato Excel que replica la plantilla oficial UNIPANDO. Incluye:
+- Encabezado con nombre y NIT de la empresa (configurables desde la UI)
+- Una fila por designacion docente con: nombre, telefono, email, CI, materia, semestre, horas, monto, retencion RC-IVA, liquido pagable, NIT, cuenta bancaria, banco
+- Formulas Excel (`=J*13%` para retencion, `=J-K` para liquido pagable)
+- Fila de totales con `SUBTOTAL`
+- Configuracion de impresion (landscape, escala)
 
 ### Formatos de designacion soportados
 
@@ -497,8 +532,10 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
    → Exportar PDF individual o masivo
 
 6. Generar Planilla
+   → Elegir modo: con descuentos (default) o sin descuentos
    → Calcula pagos (Model C + retencion 13%)
    → Admin puede ajustar montos (overrides)
+   → Descargar Planilla de Salarios (Excel formato UNIPANDO)
 
 7. Aprobar Planilla
    → Estado: generated → approved (o rejected)
