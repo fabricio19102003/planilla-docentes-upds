@@ -159,6 +159,8 @@ COLOR_DAY_WEEKEND = "F2F2F2"        # Light gray — weekend/no schedule
 COLOR_SUMMARY_BG = "EDEDED"         # Light gray — summary columns header
 COLOR_TOTAL_ROW = "FFE699"          # Amber — totals row
 COLOR_WHITE = "FFFFFF"
+COLOR_OUTSIDE_CUTOFF = "EFEFEF"     # Light gray — day outside cutoff window
+COLOR_SPACER = "D9D9D9"             # Slightly darker gray — spacer column between month blocks
 
 THIN_SIDE = Side(border_style="thin", color="B8B8B8")
 MEDIUM_SIDE = Side(border_style="medium", color="595959")
@@ -173,6 +175,29 @@ MEDIUM_BORDER = Border(
 # ---------------------------------------------------------------------------
 # Data Transfer Objects
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class MonthBlock:
+    """Describes one block of day columns in the Excel.
+
+    When the payroll period fits within a single calendar month (legacy
+    behavior), there is ONE block covering days 1..days_in_month with
+    ``active_start=1`` and ``active_end=days_in_month``.
+
+    When the cutoff crosses months (e.g. Mar 21 → Apr 20), there are TWO
+    blocks — one per calendar month — and ``active_start``/``active_end``
+    mark the sub-range that holds real attendance data. Days OUTSIDE that
+    range are rendered grayed out to signal "outside cutoff period".
+    """
+
+    month: int
+    year: int
+    month_name: str
+    days_in_month: int     # total calendar days in this month
+    col_start: int         # Excel column index (1-based) for day 1 of this block
+    active_start: int      # first day (1-based) within the cutoff window
+    active_end: int        # last day (1-based) within the cutoff window
 
 
 @dataclass
@@ -303,6 +328,111 @@ def _build_day_window(
     return [date(year, month, d) for d in range(1, days_in_month + 1)]
 
 
+def _build_month_blocks(
+    month: int,
+    year: int,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> list[MonthBlock]:
+    """Build the list of month-blocks that describe the day-columns layout.
+
+    Single-month (no ``start_date``/``end_date``, OR both provided but within
+    the same calendar month): returns ONE block covering the target month
+    with the full month as the active range.
+
+    Cross-month (``start_date``/``end_date`` cross a month boundary, e.g.
+    ``Mar 21 → Apr 20``): returns TWO blocks — one for the previous month
+    (days 1..N of that month, active range = ``start_date.day``..N) and one
+    for the target month (days 1..M, active range = 1..``end_date.day``).
+
+    A 1-column visual spacer between blocks is NOT part of the block itself;
+    it is implied by the gap between ``blocks[0].col_start + blocks[0].days_in_month``
+    and ``blocks[1].col_start``.
+
+    Raises:
+        ValueError: if ``start_date > end_date`` or the total span exceeds 62 days.
+    """
+    # Validation mirrors _build_day_window
+    if start_date and end_date:
+        if start_date > end_date:
+            raise ValueError(
+                f"start_date ({start_date}) cannot be after end_date ({end_date})"
+            )
+        num_days = (end_date - start_date).days + 1
+        if num_days > 62:
+            raise ValueError(
+                f"Day window is too large ({num_days} days). Maximum supported is 62."
+            )
+
+    # Same-month case: ONE block covering the target calendar month fully.
+    if (
+        start_date is None
+        or end_date is None
+        or (start_date.month == end_date.month and start_date.year == end_date.year)
+    ):
+        # When the cutoff fits in one month but differs from the target
+        # (unlikely but possible), honor the provided month/year of the range.
+        if start_date and end_date:
+            blk_month = start_date.month
+            blk_year = start_date.year
+            active_start = start_date.day
+            active_end = end_date.day
+        else:
+            blk_month = month
+            blk_year = year
+            active_start = 1
+            active_end = calendar.monthrange(blk_year, blk_month)[1]
+
+        _, days_in_month = calendar.monthrange(blk_year, blk_month)
+        return [
+            MonthBlock(
+                month=blk_month,
+                year=blk_year,
+                month_name=MONTH_NAMES.get(blk_month, str(blk_month)),
+                days_in_month=days_in_month,
+                col_start=DAY_COL_START,
+                active_start=active_start,
+                active_end=active_end,
+            )
+        ]
+
+    # Cross-month case: TWO blocks.
+    # Block 0: start_date's month (active range = start_date.day .. end-of-month)
+    prev_month = start_date.month
+    prev_year = start_date.year
+    _, days_in_prev = calendar.monthrange(prev_year, prev_month)
+
+    # Block 1: end_date's month (active range = 1 .. end_date.day)
+    tgt_month = end_date.month
+    tgt_year = end_date.year
+    _, days_in_tgt = calendar.monthrange(tgt_year, tgt_month)
+
+    # Block 0 starts at DAY_COL_START; Block 1 starts after days_in_prev cols + 1 spacer.
+    block0_col_start = DAY_COL_START
+    block1_col_start = DAY_COL_START + days_in_prev + 1  # +1 spacer column
+
+    return [
+        MonthBlock(
+            month=prev_month,
+            year=prev_year,
+            month_name=MONTH_NAMES.get(prev_month, str(prev_month)),
+            days_in_month=days_in_prev,
+            col_start=block0_col_start,
+            active_start=start_date.day,
+            active_end=days_in_prev,
+        ),
+        MonthBlock(
+            month=tgt_month,
+            year=tgt_year,
+            month_name=MONTH_NAMES.get(tgt_month, str(tgt_month)),
+            days_in_month=days_in_tgt,
+            col_start=block1_col_start,
+            active_start=1,
+            active_end=end_date.day,
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Main generator class
 # ---------------------------------------------------------------------------
@@ -377,11 +507,11 @@ class PlanillaGenerator:
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
         # Step 2: Create workbook.
-        # Build day_window once so headers, data, and totals stay aligned with
-        # the attendance window (cross-month ranges when start/end provided).
-        day_window = _build_day_window(month, year, start_date, end_date)
+        # Build month-blocks once so headers, data, and totals stay aligned
+        # with the attendance window (1 block same-month, 2 blocks cross-month).
+        blocks = _build_month_blocks(month, year, start_date, end_date)
         wb = self._create_workbook(
-            rows, detail_rows, month, year, payment_overrides, day_window
+            rows, detail_rows, month, year, payment_overrides, blocks
         )
 
         # Step 3: Save file
@@ -816,18 +946,22 @@ class PlanillaGenerator:
     # Workbook creation
     # ------------------------------------------------------------------
 
-    def _get_summary_cols(self, day_window: list[date]) -> dict[str, int]:
-        """Compute summary column positions based on the day-window length.
+    def _get_summary_cols(self, blocks: list[MonthBlock]) -> dict[str, int]:
+        """Compute summary column positions based on the block layout.
 
-        The legacy layout hardcoded 31 day columns so summary columns started
-        at ``DAY_COL_START + 31 = 48``. With dynamic windows, they shift.
+        Summary columns live immediately after the LAST day-block. For a
+        single-month layout this is identical to the legacy behavior
+        (``DAY_COL_START + 31 = 48``). For cross-month it shifts to the right
+        because of block 0 + 1 spacer + block 1.
 
         Returns a dict with keys matching the module-level ``COL_*`` constants
         (minus the ``COL_`` prefix, lowercased) so call sites can look up the
         current column for each summary field.
         """
-        num_days = len(day_window)
-        base = DAY_COL_START + num_days  # first column after the day columns
+        last_block = blocks[-1]
+        # First col after the last day-block (last_block.col_start is day 1,
+        # so last day sits at col_start + days_in_month - 1).
+        base = last_block.col_start + last_block.days_in_month
         return {
             'total_horas': base,
             'grupo_resumen': base + 1,
@@ -851,7 +985,7 @@ class PlanillaGenerator:
         month: int,
         year: int,
         payment_overrides: dict[str, float],
-        day_window: list[date],
+        blocks: list[MonthBlock],
     ) -> Workbook:
         """Create the complete Excel workbook with Planilla + Detalle sheets."""
         wb = Workbook()
@@ -864,17 +998,17 @@ class PlanillaGenerator:
             default_sheet = wb.worksheets[1]
             del wb[default_sheet.title]
 
-        scols = self._get_summary_cols(day_window)
+        scols = self._get_summary_cols(blocks)
         # 13 summary columns → last column = observaciones
         total_cols = scols['observaciones']
 
-        self._write_headers(ws, month, year, day_window, scols, total_cols)
+        self._write_headers(ws, month, year, blocks, scols, total_cols)
         last_data_row = self._write_data_rows(
-            ws, rows, month, year, payment_overrides, day_window, scols
+            ws, rows, month, year, payment_overrides, blocks, scols
         )
         self._write_totals_row(
             ws, rows, last_data_row + 1, payment_overrides,
-            day_window, scols, total_cols,
+            blocks, scols, total_cols,
         )
         self._apply_formatting(ws, last_data_row + 1, month, year, total_cols)
 
@@ -893,7 +1027,7 @@ class PlanillaGenerator:
         ws,
         month: int,
         year: int,
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
         total_cols: int,
     ) -> None:
@@ -926,16 +1060,16 @@ class PlanillaGenerator:
         ws.row_dimensions[ROW_EMPTY].height = 6
 
         # ── Row 4: Section headers ─────────────────────────────────────
-        self._write_section_headers(ws, month, month_name, year, day_window, scols)
+        self._write_section_headers(ws, month, month_name, year, blocks, scols)
 
         # ── Row 5: Column headers (day numbers + identity names) ───────
-        self._write_column_headers(ws, month, year, day_window, scols)
+        self._write_column_headers(ws, month, year, blocks, scols)
 
         # ── Row 6: Weekday letters under day columns ───────────────────
-        self._write_weekday_row(ws, month, year, day_window, scols, total_cols)
+        self._write_weekday_row(ws, month, year, blocks, scols, total_cols)
 
         # ── Column widths ──────────────────────────────────────────────
-        self._set_column_widths(ws, month, year, day_window, scols)
+        self._set_column_widths(ws, month, year, blocks, scols)
 
     def _write_section_headers(
         self,
@@ -943,13 +1077,21 @@ class PlanillaGenerator:
         month: int,
         month_name: str,
         year: int,
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
     ) -> None:
-        """Row 4: Merged section labels."""
+        """Row 4: Merged section labels.
+
+        Single-month: one merged "ASISTENCIA {MONTH} {YEAR}" label spanning the
+        block's day columns — identical to legacy behavior.
+
+        Cross-month: one merged section header PER block. The spacer column
+        between blocks gets a neutral styled cell (no value). Each block's
+        label includes the active cutoff hint ("desde día X" / "hasta día Y").
+        """
         row = ROW_SECTION_HEADERS
 
-        # DATOS DOCENTE (cols A–P)
+        # DATOS DOCENTE (cols A–P) — same in both modes
         ws.merge_cells(
             start_row=row, start_column=COL_SEMESTRE,
             end_row=row, end_column=COL_BANCO
@@ -958,24 +1100,39 @@ class PlanillaGenerator:
         cell.value = "DATOS DOCENTE"
         self._style_section_header(cell)
 
-        # ASISTENCIA — spans the dynamic day-window range
-        asistencia_end_col = DAY_COL_START + len(day_window) - 1
-        ws.merge_cells(
-            start_row=row, start_column=DAY_COL_START,
-            end_row=row, end_column=asistencia_end_col
-        )
-        cell = ws.cell(row=row, column=DAY_COL_START)
-        # If the window crosses months, expose the range in the header.
-        if day_window and day_window[0].month != day_window[-1].month:
-            cell.value = (
-                f"ASISTENCIA {day_window[0].strftime('%d/%m')} — "
-                f"{day_window[-1].strftime('%d/%m/%Y')}"
+        # ASISTENCIA — one merge per block
+        is_cross_month = len(blocks) > 1
+        for idx, block in enumerate(blocks):
+            start_col = block.col_start
+            end_col = block.col_start + block.days_in_month - 1
+            ws.merge_cells(
+                start_row=row, start_column=start_col,
+                end_row=row, end_column=end_col,
             )
-        else:
-            cell.value = f"ASISTENCIA {month_name} {year}"
-        self._style_section_header(cell)
+            cell = ws.cell(row=row, column=start_col)
+            bname = block.month_name.upper()
+            if not is_cross_month:
+                cell.value = f"ASISTENCIA {bname} {block.year}"
+            elif idx == 0:
+                # First block: "desde día X"
+                cell.value = (
+                    f"ASISTENCIA {bname} {block.year} (desde día {block.active_start})"
+                )
+            else:
+                # Last block: "hasta día Y"
+                cell.value = (
+                    f"ASISTENCIA {bname} {block.year} (hasta día {block.active_end})"
+                )
+            self._style_section_header(cell)
 
-        # RESUMEN Y PAGOS — shifts based on day-window length
+            # Style the spacer column (only present between blocks)
+            if idx < len(blocks) - 1:
+                spacer_col = end_col + 1
+                spacer_cell = ws.cell(row=row, column=spacer_col)
+                spacer_cell.fill = PatternFill("solid", fgColor=COLOR_SPACER)
+                spacer_cell.border = THIN_BORDER
+
+        # RESUMEN Y PAGOS — shifts based on block layout via scols
         ws.merge_cells(
             start_row=row, start_column=scols['total_horas'],
             end_row=row, end_column=scols['observaciones']
@@ -991,10 +1148,16 @@ class PlanillaGenerator:
         ws,
         month: int,
         year: int,
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
     ) -> None:
-        """Row 5: Actual column headers including day numbers."""
+        """Row 5: Actual column headers including day numbers.
+
+        Iterates each block and writes day numbers 1..days_in_month.
+        Days outside the block's active cutoff range get a muted style
+        (gray bg, lighter font) to signal they're outside the window.
+        The spacer column between blocks (cross-month) gets a neutral cell.
+        """
         row = ROW_COL_HEADERS
 
         identity_headers = [
@@ -1021,18 +1184,33 @@ class PlanillaGenerator:
             cell.value = header
             self._style_col_header(cell)
 
-        # Day number headers — iterate the actual window. In cross-month mode,
-        # ALL cells show d/m format for consistency (e.g. "21/3", "1/4").
-        # In same-month mode, just the day number as before.
-        is_cross_month = day_window and day_window[0].month != day_window[-1].month
-        for i, d in enumerate(day_window):
-            col = DAY_COL_START + i
-            cell = ws.cell(row=row, column=col)
-            if is_cross_month:
-                cell.value = f"{d.day}/{d.month}"
-            else:
-                cell.value = d.day
-            self._style_col_header(cell, is_day=True)
+        # Day number headers — iterate each block. Days outside active cutoff
+        # range are rendered with a muted/gray style.
+        for idx, block in enumerate(blocks):
+            for day in range(1, block.days_in_month + 1):
+                col = block.col_start + (day - 1)
+                cell = ws.cell(row=row, column=col)
+                cell.value = day
+                is_active = block.active_start <= day <= block.active_end
+                if is_active:
+                    self._style_col_header(cell, is_day=True)
+                else:
+                    # Outside cutoff — muted header style
+                    cell.font = Font(
+                        name="Calibri", size=9, bold=False, color="A6A6A6"
+                    )
+                    cell.fill = PatternFill("solid", fgColor=COLOR_OUTSIDE_CUTOFF)
+                    cell.alignment = Alignment(
+                        horizontal="center", vertical="center"
+                    )
+                    cell.border = THIN_BORDER
+
+            # Spacer column styling (only between blocks)
+            if idx < len(blocks) - 1:
+                spacer_col = block.col_start + block.days_in_month
+                spacer_cell = ws.cell(row=row, column=spacer_col)
+                spacer_cell.fill = PatternFill("solid", fgColor=COLOR_SPACER)
+                spacer_cell.border = THIN_BORDER
 
         # Summary column headers — Model C semantics, positions are dynamic
         summary_headers = {
@@ -1062,27 +1240,56 @@ class PlanillaGenerator:
         ws,
         month: int,
         year: int,
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
         total_cols: int,
     ) -> None:
-        """Row 6: Day-of-week letter under each day column."""
+        """Row 6: Day-of-week letter under each day column.
+
+        Iterates blocks and writes weekday letters (L/M/M/J/V/S/D) for every
+        day of each block. Days outside the active cutoff get a muted gray
+        style. Spacer columns between blocks get a neutral fill.
+        """
         row = ROW_WEEKDAY
 
-        for i, d in enumerate(day_window):
-            col = DAY_COL_START + i
-            cell = ws.cell(row=row, column=col)
-            cell.value = WEEKDAY_LETTERS[d.weekday()]
-            cell.font = Font(name="Calibri", size=8, bold=True, color="595959")
-            cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = THIN_BORDER
+        # Collect the set of columns occupied by day-blocks + spacers so we
+        # can skip them when filling "non-day" columns with the weekday bg.
+        block_cols: set[int] = set()
 
-        # Fill non-day columns in this row with empty styled cells.
-        # Day columns span DAY_COL_START .. DAY_COL_START + len(day_window) - 1;
-        # everything else (identity + summary) gets the weekday background.
-        day_cols_end = DAY_COL_START + len(day_window)  # exclusive
-        for col in list(range(1, DAY_COL_START)) + list(range(day_cols_end, total_cols + 1)):
+        for idx, block in enumerate(blocks):
+            for day in range(1, block.days_in_month + 1):
+                col = block.col_start + (day - 1)
+                block_cols.add(col)
+                cell = ws.cell(row=row, column=col)
+                target_date = date(block.year, block.month, day)
+                cell.value = WEEKDAY_LETTERS[target_date.weekday()]
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = THIN_BORDER
+
+                is_active = block.active_start <= day <= block.active_end
+                if is_active:
+                    cell.font = Font(
+                        name="Calibri", size=8, bold=True, color="595959"
+                    )
+                    cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
+                else:
+                    cell.font = Font(
+                        name="Calibri", size=8, bold=False, color="A6A6A6"
+                    )
+                    cell.fill = PatternFill("solid", fgColor=COLOR_OUTSIDE_CUTOFF)
+
+            # Spacer column (only present between blocks)
+            if idx < len(blocks) - 1:
+                spacer_col = block.col_start + block.days_in_month
+                block_cols.add(spacer_col)
+                spacer_cell = ws.cell(row=row, column=spacer_col)
+                spacer_cell.fill = PatternFill("solid", fgColor=COLOR_SPACER)
+                spacer_cell.border = THIN_BORDER
+
+        # Fill non-day/non-spacer columns in this row with the weekday bg.
+        for col in range(1, total_cols + 1):
+            if col in block_cols:
+                continue
             cell = ws.cell(row=row, column=col)
             cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
             cell.border = THIN_BORDER
@@ -1094,10 +1301,15 @@ class PlanillaGenerator:
         ws,
         month: int,
         year: int,
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
     ) -> None:
-        """Set optimized column widths."""
+        """Set optimized column widths.
+
+        All day columns (active AND outside-cutoff) use width 3.5 because the
+        header shows a plain day number 1..N. The spacer column between blocks
+        uses a narrow 1.5 to visually separate months.
+        """
         # Identity columns
         widths = {
             COL_SEMESTRE: 10,
@@ -1120,13 +1332,14 @@ class PlanillaGenerator:
         for col, width in widths.items():
             ws.column_dimensions[get_column_letter(col)].width = width
 
-        # Day columns — narrow (3.5) for same-month; wider (5.0) for cross-month
-        # because ALL cells show "d/m" format in cross-month mode.
-        is_cross_month = day_window and day_window[0].month != day_window[-1].month
-        day_col_width = 5.0 if is_cross_month else 3.5
-        for i in range(len(day_window)):
-            col = DAY_COL_START + i
-            ws.column_dimensions[get_column_letter(col)].width = day_col_width
+        # Day + spacer columns
+        for idx, block in enumerate(blocks):
+            for day in range(1, block.days_in_month + 1):
+                col = block.col_start + (day - 1)
+                ws.column_dimensions[get_column_letter(col)].width = 3.5
+            if idx < len(blocks) - 1:
+                spacer_col = block.col_start + block.days_in_month
+                ws.column_dimensions[get_column_letter(spacer_col)].width = 1.5
 
         # Summary columns — positions are dynamic (scols)
         summary_widths = {
@@ -1158,7 +1371,7 @@ class PlanillaGenerator:
         month: int,
         year: int,
         payment_overrides: dict[str, float],
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
     ) -> int:
         """Write all data rows. Returns the row number of the last written row."""
@@ -1172,7 +1385,7 @@ class PlanillaGenerator:
                 year,
                 payment_overrides,
                 rows,
-                day_window,
+                blocks,
                 scols,
             )
 
@@ -1188,7 +1401,7 @@ class PlanillaGenerator:
         year: int,
         payment_overrides: dict[str, float],
         all_rows: list[PlanillaRow],
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
     ) -> None:
         """Write one teacher×designation data row."""
@@ -1228,35 +1441,56 @@ class PlanillaGenerator:
         write_identity(COL_ESPECIALIDAD, data.specialty)
         write_identity(COL_BANCO, data.bank)
 
-        # Day columns — iterate the actual day window (supports cross-month)
-        for i, d in enumerate(day_window):
-            col = DAY_COL_START + i
-            cell = ws.cell(row=row_num, column=col)
+        # Day columns — iterate each block. Days outside the active cutoff
+        # are grayed out (no value, no class coloring). Spacer columns between
+        # blocks are styled neutrally.
+        for idx, block in enumerate(blocks):
+            for day in range(1, block.days_in_month + 1):
+                col = block.col_start + (day - 1)
+                cell = ws.cell(row=row_num, column=col)
 
-            hours = data.daily_hours.get(d, 0)
-            status = data.daily_status.get(d, "")
+                is_active = block.active_start <= day <= block.active_end
+                if not is_active:
+                    # Outside cutoff — neutral fill, no value
+                    cell.value = None
+                    cell.fill = PatternFill("solid", fgColor=COLOR_OUTSIDE_CUTOFF)
+                    cell.border = THIN_BORDER
+                    continue
 
-            # Determine fill color based on status and day type
-            if status == "ABSENT":
-                fill_color = COLOR_DAY_ABSENT
-            elif status == "LATE":
-                fill_color = COLOR_DAY_LATE
-            elif status in ("ATTENDED", "NO_EXIT"):
-                fill_color = COLOR_DAY_CLASS
-            elif hours > 0:
-                fill_color = COLOR_DAY_CLASS
-            else:
-                # No class on this day — check if it's a weekend
-                if d.weekday() >= 5:  # Saturday=5, Sunday=6
-                    fill_color = "E8E8E8"   # Slightly darker gray for weekends
+                # Active day — look up attendance by the full date
+                target_date = date(block.year, block.month, day)
+                hours = data.daily_hours.get(target_date, 0)
+                status = data.daily_status.get(target_date, "")
+
+                # Determine fill color based on status and day type
+                if status == "ABSENT":
+                    fill_color = COLOR_DAY_ABSENT
+                elif status == "LATE":
+                    fill_color = COLOR_DAY_LATE
+                elif status in ("ATTENDED", "NO_EXIT"):
+                    fill_color = COLOR_DAY_CLASS
+                elif hours > 0:
+                    fill_color = COLOR_DAY_CLASS
                 else:
-                    fill_color = COLOR_DAY_WEEKEND
+                    # No class on this day — check if it's a weekend
+                    if target_date.weekday() >= 5:  # Saturday=5, Sunday=6
+                        fill_color = "E8E8E8"   # Slightly darker gray for weekends
+                    else:
+                        fill_color = COLOR_DAY_WEEKEND
 
-            cell.value = hours if hours > 0 else None
-            cell.font = Font(name="Calibri", size=9, bold=(hours > 0))
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.fill = PatternFill("solid", fgColor=fill_color)
-            cell.border = THIN_BORDER
+                cell.value = hours if hours > 0 else None
+                cell.font = Font(name="Calibri", size=9, bold=(hours > 0))
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.fill = PatternFill("solid", fgColor=fill_color)
+                cell.border = THIN_BORDER
+
+            # Spacer column styling (only present between blocks)
+            if idx < len(blocks) - 1:
+                spacer_col = block.col_start + block.days_in_month
+                spacer_cell = ws.cell(row=row_num, column=spacer_col)
+                spacer_cell.value = None
+                spacer_cell.fill = PatternFill("solid", fgColor=COLOR_SPACER)
+                spacer_cell.border = THIN_BORDER
 
         # Summary columns
         def write_summary(col: int, value, is_currency: bool = False) -> None:
@@ -1335,7 +1569,7 @@ class PlanillaGenerator:
         rows: list[PlanillaRow],
         totals_row: int,
         payment_overrides: dict[str, float],
-        day_window: list[date],
+        blocks: list[MonthBlock],
         scols: dict[str, int],
         total_cols: int,
     ) -> None:
@@ -1369,16 +1603,34 @@ class PlanillaGenerator:
         label_cell.alignment = Alignment(horizontal="right", vertical="center")
         label_cell.border = THIN_BORDER
 
-        # Day columns — sum per day using full-date keys
-        for i, d in enumerate(day_window):
-            col = DAY_COL_START + i
-            day_total = sum(r.daily_hours.get(d, 0) for r in rows)
-            cell = ws.cell(row=totals_row, column=col)
-            cell.value = day_total if day_total > 0 else None
-            cell.font = totals_font
-            cell.alignment = totals_align
-            cell.fill = totals_fill
-            cell.border = THIN_BORDER
+        # Day columns — sum per day using full-date keys. Inactive days and
+        # spacer columns get styled but empty cells so the row looks coherent.
+        for idx, block in enumerate(blocks):
+            for day in range(1, block.days_in_month + 1):
+                col = block.col_start + (day - 1)
+                cell = ws.cell(row=totals_row, column=col)
+                cell.font = totals_font
+                cell.alignment = totals_align
+                cell.border = THIN_BORDER
+
+                is_active = block.active_start <= day <= block.active_end
+                if not is_active:
+                    cell.value = None
+                    cell.fill = PatternFill("solid", fgColor=COLOR_OUTSIDE_CUTOFF)
+                    continue
+
+                target_date = date(block.year, block.month, day)
+                day_total = sum(r.daily_hours.get(target_date, 0) for r in rows)
+                cell.value = day_total if day_total > 0 else None
+                cell.fill = totals_fill
+
+            # Spacer column (only between blocks)
+            if idx < len(blocks) - 1:
+                spacer_col = block.col_start + block.days_in_month
+                spacer_cell = ws.cell(row=totals_row, column=spacer_col)
+                spacer_cell.value = None
+                spacer_cell.fill = PatternFill("solid", fgColor=COLOR_SPACER)
+                spacer_cell.border = THIN_BORDER
 
         # Summary totals
         def write_total(col: int, value, is_currency: bool = False) -> None:
