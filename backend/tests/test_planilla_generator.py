@@ -382,10 +382,10 @@ class TestBuildRow:
             self._make_att(16, "LATE", 3, 10, "Llegada tardía: 10 min"),
         ]
         row = gen._build_row(teacher, desig, records)
-        # daily_hours still shows actual attendance for Excel day columns
-        assert row.daily_hours[2] == 3
-        assert row.daily_hours[9] == 3
-        assert row.daily_hours[16] == 3
+        # daily_hours is keyed by full date (supports cross-month windows)
+        assert row.daily_hours[date(2026, 3, 2)] == 3
+        assert row.daily_hours[date(2026, 3, 9)] == 3
+        assert row.daily_hours[date(2026, 3, 16)] == 3
         # Model C: total_hours = payable_hours = base_monthly_hours - absent_hours
         # No absences → payable = 12, total_hours = 12
         assert row.total_hours == 12
@@ -404,7 +404,7 @@ class TestBuildRow:
             self._make_att(9, "ABSENT", 0),
         ]
         row = gen._build_row(teacher, desig, records)
-        assert row.daily_hours.get(9, 0) == 0
+        assert row.daily_hours.get(date(2026, 3, 9), 0) == 0
         assert row.absent_count == 1
         # absent_hours=0 because schedule_json=[] so _get_slot_hours returns 0
         # payable_hours = 12 - 0 = 12 (schedule not matched)
@@ -445,7 +445,7 @@ class TestBuildRow:
         r1 = self._make_att(5, "ATTENDED", 2)
         r2 = self._make_att(5, "ATTENDED", 2)
         row = gen._build_row(teacher, desig, [r1, r2])
-        assert row.daily_hours[5] == 4
+        assert row.daily_hours[date(2026, 3, 5)] == 4
         # total_hours = payable_hours = monthly_hours (no absences)
         assert row.total_hours == 8
 
@@ -457,7 +457,7 @@ class TestBuildRow:
         r1 = self._make_att(5, "ATTENDED", 2)
         r2 = self._make_att(5, "LATE", 2, 10)
         row = gen._build_row(teacher, desig, [r1, r2])
-        assert row.daily_status[5] == "LATE"
+        assert row.daily_status[date(2026, 3, 5)] == "LATE"
 
     def test_observations_included_when_present(self):
         gen = PlanillaGenerator.__new__(PlanillaGenerator)
@@ -507,8 +507,8 @@ class TestBuildPlanillaData:
         row = rows[0]
         assert row.teacher_ci == "11111111"
         assert row.subject == "Anatomía I"
-        assert row.daily_hours[2] == 3
-        assert row.daily_hours[9] == 3
+        assert row.daily_hours[date(2026, 3, 2)] == 3
+        assert row.daily_hours[date(2026, 3, 9)] == 3
         # Model C: total_hours = payable_hours = base_monthly_hours (12) - absent_hours (0)
         assert row.base_monthly_hours == 12
         assert row.absent_hours == 0
@@ -567,7 +567,7 @@ class TestBuildPlanillaData:
         row = rows[0]
         assert row.has_biometric is True
         # Model C: daily_hours for absent day = 0 (no academic hours awarded)
-        assert row.daily_hours.get(9, 0) == 0
+        assert row.daily_hours.get(date(2026, 3, 9), 0) == 0
         assert row.absent_count == 1
         # Absent slot: scheduled_start=08:00 matches schedule_json hora_inicio="08:00" → 3h deducted
         assert row.base_monthly_hours == 12
@@ -835,7 +835,13 @@ class TestGenerateExcel:
         assert day2_weekday == "L"
 
     def test_february_has_no_day_29_in_non_leap_year(self, db, temp_output_dir):
-        """February 2026 has 28 days (non-leap). Day 29–31 cols should be empty."""
+        """February 2026 has 28 days (non-leap). Day window is exactly 28 cols;
+        summary columns shift left to immediately follow the last day.
+
+        After the cross-month refactor, we no longer pad unused day columns —
+        for a 28-day month the day range is 28 cells (DAY_COL_START..DAY_COL_START+27)
+        and col DAY_COL_START+28 is the first summary column ("Hrs Pagables").
+        """
         teacher = seed_teacher(db, "99887766", "RUIZ PABLO")
         desig = seed_designation(db, teacher.ci)
         seed_attendance(db, teacher.ci, desig.id, day=14, month=2, year=2026, academic_hours=2)
@@ -846,9 +852,14 @@ class TestGenerateExcel:
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
 
-        # Col headers for day 29, 30, 31 should be None (month only has 28 days)
-        day29_header = ws.cell(row=ROW_COL_HEADERS, column=DAY_COL_START + 28).value
-        assert day29_header is None
+        # Last day column (day 28) sits at DAY_COL_START + 27 with header == 28
+        day28_header = ws.cell(row=ROW_COL_HEADERS, column=DAY_COL_START + 27).value
+        assert day28_header == 28
+
+        # Next column is now the first summary column ("Hrs Pagables"), NOT day 29
+        first_summary_header = ws.cell(row=ROW_COL_HEADERS, column=DAY_COL_START + 28).value
+        assert first_summary_header is not None
+        assert "Pagables" in str(first_summary_header)
 
     def test_output_filename_contains_month_year(self, db, temp_output_dir):
         teacher = seed_teacher(db, "12341234", "TORRES BELEN")

@@ -42,7 +42,7 @@ import calendar
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -198,11 +198,12 @@ class PlanillaRow:
     specialty: Optional[str]
     bank: Optional[str]
 
-    # Daily hours: {day_of_month (1-31): academic_hours}
-    daily_hours: dict[int, int] = field(default_factory=dict)
+    # Daily hours: {date: academic_hours} — keyed by full date to support
+    # cross-month attendance windows (e.g. Mar 21 → Apr 20).
+    daily_hours: dict[date, int] = field(default_factory=dict)
 
-    # Status per day: {day_of_month: status_string}  — for background coloring
-    daily_status: dict[int, str] = field(default_factory=dict)
+    # Status per day: {date: status_string} — for background coloring
+    daily_status: dict[date, str] = field(default_factory=dict)
 
     # Model C payment fields
     base_monthly_hours: int = 0        # From designation.monthly_hours (assigned load)
@@ -264,6 +265,42 @@ class PlanillaResult:
     planilla_output_id: Optional[int]
     warnings: list[str] = field(default_factory=list)
     discount_mode: str = "attendance"
+
+
+# ---------------------------------------------------------------------------
+# Day-window helper
+# ---------------------------------------------------------------------------
+
+
+def _build_day_window(
+    month: int,
+    year: int,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> list[date]:
+    """Build the list of dates that the day columns represent.
+
+    When ``start_date`` and ``end_date`` are both provided, returns every date
+    in that inclusive range — enabling cross-month windows such as
+    ``Mar 21 → Apr 20`` for an April payroll with a custom cutoff.
+
+    Otherwise falls back to days 1..N of the target month (legacy behavior).
+    """
+    if start_date and end_date:
+        if start_date > end_date:
+            raise ValueError(
+                f"start_date ({start_date}) cannot be after end_date ({end_date})"
+            )
+        num_days = (end_date - start_date).days + 1
+        if num_days > 62:
+            raise ValueError(
+                f"Day window is too large ({num_days} days). Maximum supported is 62."
+            )
+        return [start_date + timedelta(days=i) for i in range(num_days)]
+
+    # Fallback: full target month
+    _, days_in_month = calendar.monthrange(year, month)
+    return [date(year, month, d) for d in range(1, days_in_month + 1)]
 
 
 # ---------------------------------------------------------------------------
@@ -339,8 +376,13 @@ class PlanillaGenerator:
         )
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
-        # Step 2: Create workbook
-        wb = self._create_workbook(rows, detail_rows, month, year, payment_overrides)
+        # Step 2: Create workbook.
+        # Build day_window once so headers, data, and totals stay aligned with
+        # the attendance window (cross-month ranges when start/end provided).
+        day_window = _build_day_window(month, year, start_date, end_date)
+        wb = self._create_workbook(
+            rows, detail_rows, month, year, payment_overrides, day_window
+        )
 
         # Step 3: Save file
         month_name = MONTH_NAMES.get(month, str(month)).upper()
@@ -426,14 +468,24 @@ class PlanillaGenerator:
             return [], [], warnings
 
         # ── Step 2: Load attendance records for this period ─────────────
-        att_query = db.query(AttendanceRecord).filter(
-            AttendanceRecord.month == month,
-            AttendanceRecord.year == year,
-        )
-        if start_date is not None:
-            att_query = att_query.filter(AttendanceRecord.date >= start_date)
-        if end_date is not None:
-            att_query = att_query.filter(AttendanceRecord.date <= end_date)
+        # When both start_date and end_date are provided (cross-month cutoff),
+        # filter ONLY by the date range — NOT by the target month/year columns,
+        # because records from the previous month (e.g. March records when the
+        # target is April) were tagged with month=3 during ingestion.
+        if start_date is not None and end_date is not None:
+            att_query = db.query(AttendanceRecord).filter(
+                AttendanceRecord.date >= start_date,
+                AttendanceRecord.date <= end_date,
+            )
+        else:
+            att_query = db.query(AttendanceRecord).filter(
+                AttendanceRecord.month == month,
+                AttendanceRecord.year == year,
+            )
+            if start_date is not None:
+                att_query = att_query.filter(AttendanceRecord.date >= start_date)
+            if end_date is not None:
+                att_query = att_query.filter(AttendanceRecord.date <= end_date)
 
         att_records: list[AttendanceRecord] = (
             att_query
@@ -459,16 +511,28 @@ class PlanillaGenerator:
             att_index.setdefault(key, []).append(rec)
 
         # ── Step 3b: Determine which teachers have REAL biometric data ──
-        # CRITICAL: Scoped to this specific month/year period so that a teacher
-        # with biometric data in March is NOT treated as "has bio" in April.
-        # We join to BiometricUpload to filter by month+year.
-        cis_with_biometric: set[str] = {
-            row[0]
-            for row in db.query(BiometricRecord.teacher_ci)
+        # When cross-month (both start_date and end_date provided), query by
+        # date range on BiometricRecord.date so we include uploads from both
+        # months (e.g. March upload + April upload for a Mar 21 → Apr 20 window).
+        # When single-month (no cutoff dates), scope to the target month/year
+        # to avoid treating a teacher with March-only biometric data as "has bio"
+        # in a standalone April planilla.
+        bio_query = (
+            db.query(BiometricRecord.teacher_ci)
             .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
-            .filter(BiometricUpload.month == month, BiometricUpload.year == year)
-            .distinct()
-            .all()
+        )
+        if start_date is not None and end_date is not None:
+            bio_query = bio_query.filter(
+                BiometricRecord.date >= start_date,
+                BiometricRecord.date <= end_date,
+            )
+        else:
+            bio_query = bio_query.filter(
+                BiometricUpload.month == month,
+                BiometricUpload.year == year,
+            )
+        cis_with_biometric: set[str] = {
+            row[0] for row in bio_query.distinct().all()
         }
         logger.info(
             "_build_planilla_data: %d teacher CIs with real biometric records",
@@ -566,8 +630,8 @@ class PlanillaGenerator:
         ``RATE_PER_HOUR`` constant so tests that construct rows directly keep
         working).
         """
-        daily_hours: dict[int, int] = {}
-        daily_status: dict[int, str] = {}
+        daily_hours: dict[date, int] = {}
+        daily_status: dict[date, str] = {}
         attended_hours = 0   # for informational display only
         absent_hours = 0     # hours to deduct (Model C)
         late_count = 0
@@ -575,7 +639,7 @@ class PlanillaGenerator:
         observations: list[str] = []
 
         for rec in records:
-            day = rec.date.day
+            day = rec.date   # full date — supports cross-month day windows
             hours = rec.academic_hours
             status = rec.status.upper()
 
@@ -606,7 +670,7 @@ class PlanillaGenerator:
                 attended_hours += hours
 
             if rec.observation:
-                observations.append(f"Día {day}: {rec.observation}")
+                observations.append(f"Día {day.day}/{day.month}: {rec.observation}")
 
         # ── Model C payment calculation ─────────────────────────────────
         base_monthly_hours = desig.monthly_hours or 0
@@ -752,6 +816,34 @@ class PlanillaGenerator:
     # Workbook creation
     # ------------------------------------------------------------------
 
+    def _get_summary_cols(self, day_window: list[date]) -> dict[str, int]:
+        """Compute summary column positions based on the day-window length.
+
+        The legacy layout hardcoded 31 day columns so summary columns started
+        at ``DAY_COL_START + 31 = 48``. With dynamic windows, they shift.
+
+        Returns a dict with keys matching the module-level ``COL_*`` constants
+        (minus the ``COL_`` prefix, lowercased) so call sites can look up the
+        current column for each summary field.
+        """
+        num_days = len(day_window)
+        base = DAY_COL_START + num_days  # first column after the day columns
+        return {
+            'total_horas': base,
+            'grupo_resumen': base + 1,
+            'materia_resumen': base + 2,
+            'pago_hora': base + 3,
+            'hrs_teoria': base + 4,
+            'hrs_pract_int': base + 5,
+            'hrs_pract_ext': base + 6,
+            'total_hrs_check': base + 7,
+            'pago_calculado': base + 8,
+            'retencion_amt': base + 9,
+            'pago_neto': base + 10,
+            'pago_ajustado': base + 11,
+            'observaciones': base + 12,
+        }
+
     def _create_workbook(
         self,
         rows: list[PlanillaRow],
@@ -759,6 +851,7 @@ class PlanillaGenerator:
         month: int,
         year: int,
         payment_overrides: dict[str, float],
+        day_window: list[date],
     ) -> Workbook:
         """Create the complete Excel workbook with Planilla + Detalle sheets."""
         wb = Workbook()
@@ -771,10 +864,19 @@ class PlanillaGenerator:
             default_sheet = wb.worksheets[1]
             del wb[default_sheet.title]
 
-        self._write_headers(ws, month, year)
-        last_data_row = self._write_data_rows(ws, rows, month, year, payment_overrides)
-        self._write_totals_row(ws, rows, last_data_row + 1, payment_overrides)
-        self._apply_formatting(ws, last_data_row + 1, month, year)
+        scols = self._get_summary_cols(day_window)
+        # 13 summary columns → last column = observaciones
+        total_cols = scols['observaciones']
+
+        self._write_headers(ws, month, year, day_window, scols, total_cols)
+        last_data_row = self._write_data_rows(
+            ws, rows, month, year, payment_overrides, day_window, scols
+        )
+        self._write_totals_row(
+            ws, rows, last_data_row + 1, payment_overrides,
+            day_window, scols, total_cols,
+        )
+        self._apply_formatting(ws, last_data_row + 1, month, year, total_cols)
 
         # Sheet 2: Detalle granular
         ws_detail = wb.create_sheet(title="Detalle")
@@ -786,13 +888,20 @@ class PlanillaGenerator:
     # Header writing
     # ------------------------------------------------------------------
 
-    def _write_headers(self, ws, month: int, year: int) -> None:
+    def _write_headers(
+        self,
+        ws,
+        month: int,
+        year: int,
+        day_window: list[date],
+        scols: dict[str, int],
+        total_cols: int,
+    ) -> None:
         """
         Write rows 1–6: title, university, empty, section headers, col headers, weekday row.
         Also sets column widths.
         """
         month_name = MONTH_NAMES.get(month, str(month)).upper()
-        total_cols = TOTAL_COLS
         last_col_letter = get_column_letter(total_cols)
 
         # ── Row 1: Title ───────────────────────────────────────────────
@@ -817,18 +926,26 @@ class PlanillaGenerator:
         ws.row_dimensions[ROW_EMPTY].height = 6
 
         # ── Row 4: Section headers ─────────────────────────────────────
-        self._write_section_headers(ws, month, month_name, year)
+        self._write_section_headers(ws, month, month_name, year, day_window, scols)
 
         # ── Row 5: Column headers (day numbers + identity names) ───────
-        self._write_column_headers(ws, month, year)
+        self._write_column_headers(ws, month, year, day_window, scols)
 
         # ── Row 6: Weekday letters under day columns ───────────────────
-        self._write_weekday_row(ws, month, year)
+        self._write_weekday_row(ws, month, year, day_window, scols, total_cols)
 
         # ── Column widths ──────────────────────────────────────────────
-        self._set_column_widths(ws, month, year)
+        self._set_column_widths(ws, month, year, day_window, scols)
 
-    def _write_section_headers(self, ws, month: int, month_name: str, year: int) -> None:
+    def _write_section_headers(
+        self,
+        ws,
+        month: int,
+        month_name: str,
+        year: int,
+        day_window: list[date],
+        scols: dict[str, int],
+    ) -> None:
         """Row 4: Merged section labels."""
         row = ROW_SECTION_HEADERS
 
@@ -841,28 +958,42 @@ class PlanillaGenerator:
         cell.value = "DATOS DOCENTE"
         self._style_section_header(cell)
 
-        # ASISTENCIA (cols Q–AU = 17-47)
-        _, days_in_month = calendar.monthrange(year, month)
+        # ASISTENCIA — spans the dynamic day-window range
+        asistencia_end_col = DAY_COL_START + len(day_window) - 1
         ws.merge_cells(
             start_row=row, start_column=DAY_COL_START,
-            end_row=row, end_column=DAY_COL_END
+            end_row=row, end_column=asistencia_end_col
         )
         cell = ws.cell(row=row, column=DAY_COL_START)
-        cell.value = f"ASISTENCIA {month_name} {year}"
+        # If the window crosses months, expose the range in the header.
+        if day_window and day_window[0].month != day_window[-1].month:
+            cell.value = (
+                f"ASISTENCIA {day_window[0].strftime('%d/%m')} — "
+                f"{day_window[-1].strftime('%d/%m/%Y')}"
+            )
+        else:
+            cell.value = f"ASISTENCIA {month_name} {year}"
         self._style_section_header(cell)
 
-        # RESUMEN Y PAGOS (cols AV–BH = 48-60)
+        # RESUMEN Y PAGOS — shifts based on day-window length
         ws.merge_cells(
-            start_row=row, start_column=COL_TOTAL_HORAS,
-            end_row=row, end_column=COL_OBSERVACIONES
+            start_row=row, start_column=scols['total_horas'],
+            end_row=row, end_column=scols['observaciones']
         )
-        cell = ws.cell(row=row, column=COL_TOTAL_HORAS)
+        cell = ws.cell(row=row, column=scols['total_horas'])
         cell.value = "RESUMEN Y PAGOS"
         self._style_section_header(cell)
 
         ws.row_dimensions[row].height = 20
 
-    def _write_column_headers(self, ws, month: int, year: int) -> None:
+    def _write_column_headers(
+        self,
+        ws,
+        month: int,
+        year: int,
+        day_window: list[date],
+        scols: dict[str, int],
+    ) -> None:
         """Row 5: Actual column headers including day numbers."""
         row = ROW_COL_HEADERS
 
@@ -890,32 +1021,34 @@ class PlanillaGenerator:
             cell.value = header
             self._style_col_header(cell)
 
-        # Day number headers (1–31)
-        _, days_in_month = calendar.monthrange(year, month)
-        for day in range(1, 32):
-            col = DAY_COL_START + (day - 1)
+        # Day number headers — iterate the actual window. In cross-month mode,
+        # ALL cells show d/m format for consistency (e.g. "21/3", "1/4").
+        # In same-month mode, just the day number as before.
+        is_cross_month = day_window and day_window[0].month != day_window[-1].month
+        for i, d in enumerate(day_window):
+            col = DAY_COL_START + i
             cell = ws.cell(row=row, column=col)
-            if day <= days_in_month:
-                cell.value = day
+            if is_cross_month:
+                cell.value = f"{d.day}/{d.month}"
             else:
-                cell.value = None  # Month doesn't have this day
+                cell.value = d.day
             self._style_col_header(cell, is_day=True)
 
-        # Summary column headers — Model C semantics
+        # Summary column headers — Model C semantics, positions are dynamic
         summary_headers = {
-            COL_TOTAL_HORAS: "Hrs\nPagables",        # payable_hours (base - absent)
-            COL_GRUPO_RESUMEN: "Grupo",
-            COL_MATERIA_RESUMEN: "Materia",
-            COL_PAGO_HORA: "Pago\n/Hora",
-            COL_HRS_TEORIA: "Hrs\nAsignadas",         # base_monthly_hours (from designation)
-            COL_HRS_PRACT_INT: "Hrs\nDescontadas",    # absent_hours (deducted)
-            COL_HRS_PRACT_EXT: "Hrs\nAsistidas",      # attended hours (informational)
-            COL_TOTAL_HRS_CHECK: "Total\nPagable",    # payable_hours (verification)
-            COL_PAGO_CALCULADO: "Total Bruto\n(Bs)",
-            COL_RETENCION_AMT: "Retención\nRC-IVA",   # 13% if has_retention
-            COL_PAGO_NETO: "Pago Neto\n(Bs)",         # final_payment
-            COL_PAGO_AJUSTADO: "Pago\nAjustado",
-            COL_OBSERVACIONES: "Observaciones",
+            scols['total_horas']: "Hrs\nPagables",        # payable_hours (base - absent)
+            scols['grupo_resumen']: "Grupo",
+            scols['materia_resumen']: "Materia",
+            scols['pago_hora']: "Pago\n/Hora",
+            scols['hrs_teoria']: "Hrs\nAsignadas",         # base_monthly_hours
+            scols['hrs_pract_int']: "Hrs\nDescontadas",    # absent_hours (deducted)
+            scols['hrs_pract_ext']: "Hrs\nAsistidas",      # attended hours (info)
+            scols['total_hrs_check']: "Total\nPagable",    # payable_hours (check)
+            scols['pago_calculado']: "Total Bruto\n(Bs)",
+            scols['retencion_amt']: "Retención\nRC-IVA",   # 13% if has_retention
+            scols['pago_neto']: "Pago Neto\n(Bs)",         # final_payment
+            scols['pago_ajustado']: "Pago\nAjustado",
+            scols['observaciones']: "Observaciones",
         }
         for col, header in summary_headers.items():
             cell = ws.cell(row=row, column=col)
@@ -924,31 +1057,46 @@ class PlanillaGenerator:
 
         ws.row_dimensions[row].height = 30
 
-    def _write_weekday_row(self, ws, month: int, year: int) -> None:
+    def _write_weekday_row(
+        self,
+        ws,
+        month: int,
+        year: int,
+        day_window: list[date],
+        scols: dict[str, int],
+        total_cols: int,
+    ) -> None:
         """Row 6: Day-of-week letter under each day column."""
         row = ROW_WEEKDAY
-        _, days_in_month = calendar.monthrange(year, month)
 
-        for day in range(1, 32):
-            col = DAY_COL_START + (day - 1)
+        for i, d in enumerate(day_window):
+            col = DAY_COL_START + i
             cell = ws.cell(row=row, column=col)
-            if day <= days_in_month:
-                d = date(year, month, day)
-                cell.value = WEEKDAY_LETTERS[d.weekday()]
-                cell.font = Font(name="Calibri", size=8, bold=True, color="595959")
-                cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell.border = THIN_BORDER
+            cell.value = WEEKDAY_LETTERS[d.weekday()]
+            cell.font = Font(name="Calibri", size=8, bold=True, color="595959")
+            cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = THIN_BORDER
 
-        # Fill non-day columns in this row with empty styled cells
-        for col in list(range(1, DAY_COL_START)) + list(range(DAY_COL_END + 1, TOTAL_COLS + 1)):
+        # Fill non-day columns in this row with empty styled cells.
+        # Day columns span DAY_COL_START .. DAY_COL_START + len(day_window) - 1;
+        # everything else (identity + summary) gets the weekday background.
+        day_cols_end = DAY_COL_START + len(day_window)  # exclusive
+        for col in list(range(1, DAY_COL_START)) + list(range(day_cols_end, total_cols + 1)):
             cell = ws.cell(row=row, column=col)
             cell.fill = PatternFill("solid", fgColor=COLOR_WEEKDAY_BG)
             cell.border = THIN_BORDER
 
         ws.row_dimensions[row].height = 14
 
-    def _set_column_widths(self, ws, month: int, year: int) -> None:
+    def _set_column_widths(
+        self,
+        ws,
+        month: int,
+        year: int,
+        day_window: list[date],
+        scols: dict[str, int],
+    ) -> None:
         """Set optimized column widths."""
         # Identity columns
         widths = {
@@ -972,26 +1120,29 @@ class PlanillaGenerator:
         for col, width in widths.items():
             ws.column_dimensions[get_column_letter(col)].width = width
 
-        # Day columns — narrow
-        for day in range(1, 32):
-            col = DAY_COL_START + (day - 1)
-            ws.column_dimensions[get_column_letter(col)].width = 3.5
+        # Day columns — narrow (3.5) for same-month; wider (5.0) for cross-month
+        # because ALL cells show "d/m" format in cross-month mode.
+        is_cross_month = day_window and day_window[0].month != day_window[-1].month
+        day_col_width = 5.0 if is_cross_month else 3.5
+        for i in range(len(day_window)):
+            col = DAY_COL_START + i
+            ws.column_dimensions[get_column_letter(col)].width = day_col_width
 
-        # Summary columns
+        # Summary columns — positions are dynamic (scols)
         summary_widths = {
-            COL_TOTAL_HORAS: 8,
-            COL_GRUPO_RESUMEN: 8,
-            COL_MATERIA_RESUMEN: 22,
-            COL_PAGO_HORA: 8,
-            COL_HRS_TEORIA: 8,
-            COL_HRS_PRACT_INT: 9,
-            COL_HRS_PRACT_EXT: 9,
-            COL_TOTAL_HRS_CHECK: 8,
-            COL_PAGO_CALCULADO: 12,
-            COL_RETENCION_AMT: 11,
-            COL_PAGO_NETO: 12,
-            COL_PAGO_AJUSTADO: 12,
-            COL_OBSERVACIONES: 30,
+            scols['total_horas']: 8,
+            scols['grupo_resumen']: 8,
+            scols['materia_resumen']: 22,
+            scols['pago_hora']: 8,
+            scols['hrs_teoria']: 8,
+            scols['hrs_pract_int']: 9,
+            scols['hrs_pract_ext']: 9,
+            scols['total_hrs_check']: 8,
+            scols['pago_calculado']: 12,
+            scols['retencion_amt']: 11,
+            scols['pago_neto']: 12,
+            scols['pago_ajustado']: 12,
+            scols['observaciones']: 30,
         }
         for col, width in summary_widths.items():
             ws.column_dimensions[get_column_letter(col)].width = width
@@ -1007,10 +1158,10 @@ class PlanillaGenerator:
         month: int,
         year: int,
         payment_overrides: dict[str, float],
+        day_window: list[date],
+        scols: dict[str, int],
     ) -> int:
         """Write all data rows. Returns the row number of the last written row."""
-        _, days_in_month = calendar.monthrange(year, month)
-
         for i, data in enumerate(rows):
             row_num = DATA_ROW_START + i
             self._write_data_row(
@@ -1019,9 +1170,10 @@ class PlanillaGenerator:
                 data,
                 month,
                 year,
-                days_in_month,
                 payment_overrides,
                 rows,
+                day_window,
+                scols,
             )
 
         last_row = DATA_ROW_START + len(rows) - 1
@@ -1034,9 +1186,10 @@ class PlanillaGenerator:
         data: PlanillaRow,
         month: int,
         year: int,
-        days_in_month: int,
         payment_overrides: dict[str, float],
         all_rows: list[PlanillaRow],
+        day_window: list[date],
+        scols: dict[str, int],
     ) -> None:
         """Write one teacher×designation data row."""
         override = self._get_row_override(data, payment_overrides, all_rows)
@@ -1075,19 +1228,13 @@ class PlanillaGenerator:
         write_identity(COL_ESPECIALIDAD, data.specialty)
         write_identity(COL_BANCO, data.bank)
 
-        # Day columns
-        for day in range(1, 32):
-            col = DAY_COL_START + (day - 1)
+        # Day columns — iterate the actual day window (supports cross-month)
+        for i, d in enumerate(day_window):
+            col = DAY_COL_START + i
             cell = ws.cell(row=row_num, column=col)
 
-            if day > days_in_month:
-                # Day doesn't exist in this month — gray out
-                cell.fill = PatternFill("solid", fgColor="EFEFEF")
-                cell.border = THIN_BORDER
-                continue
-
-            hours = data.daily_hours.get(day, 0)
-            status = data.daily_status.get(day, "")
+            hours = data.daily_hours.get(d, 0)
+            status = data.daily_status.get(d, "")
 
             # Determine fill color based on status and day type
             if status == "ABSENT":
@@ -1100,8 +1247,7 @@ class PlanillaGenerator:
                 fill_color = COLOR_DAY_CLASS
             else:
                 # No class on this day — check if it's a weekend
-                target_date = date(year, month, day)
-                if target_date.weekday() >= 5:  # Saturday=5, Sunday=6
+                if d.weekday() >= 5:  # Saturday=5, Sunday=6
                     fill_color = "E8E8E8"   # Slightly darker gray for weekends
                 else:
                     fill_color = COLOR_DAY_WEEKEND
@@ -1123,24 +1269,24 @@ class PlanillaGenerator:
             if is_currency:
                 cell.number_format = '#,##0.00 "Bs"'
 
-        # Model C column semantics:
-        #   COL_TOTAL_HORAS     = payable_hours (base - absent) — primary hours field
-        #   COL_HRS_TEORIA      = base_monthly_hours (assigned load from designation)
-        #   COL_HRS_PRACT_INT   = absent_hours (hours deducted)
-        #   COL_HRS_PRACT_EXT   = attended hours (informational, not used for payment)
-        #   COL_TOTAL_HRS_CHECK = payable_hours (verification = base - deducted)
-        write_summary(COL_TOTAL_HORAS, data.payable_hours)
-        write_summary(COL_GRUPO_RESUMEN, data.group_code)
-        write_summary(COL_MATERIA_RESUMEN, data.subject)
-        write_summary(COL_PAGO_HORA, data.rate_per_hour, is_currency=True)
-        write_summary(COL_HRS_TEORIA, data.base_monthly_hours)
-        write_summary(COL_HRS_PRACT_INT, data.absent_hours if data.absent_hours > 0 else None)
-        write_summary(COL_HRS_PRACT_EXT, data.total_practice_external_hours if data.total_practice_external_hours > 0 else None)
-        write_summary(COL_TOTAL_HRS_CHECK, data.payable_hours)
-        write_summary(COL_PAGO_CALCULADO, data.calculated_payment, is_currency=True)
+        # Model C column semantics (positions are dynamic via scols):
+        #   total_horas      = payable_hours (base - absent) — primary hours
+        #   hrs_teoria       = base_monthly_hours (assigned load from designation)
+        #   hrs_pract_int    = absent_hours (hours deducted)
+        #   hrs_pract_ext    = attended hours (informational)
+        #   total_hrs_check  = payable_hours (verification = base - deducted)
+        write_summary(scols['total_horas'], data.payable_hours)
+        write_summary(scols['grupo_resumen'], data.group_code)
+        write_summary(scols['materia_resumen'], data.subject)
+        write_summary(scols['pago_hora'], data.rate_per_hour, is_currency=True)
+        write_summary(scols['hrs_teoria'], data.base_monthly_hours)
+        write_summary(scols['hrs_pract_int'], data.absent_hours if data.absent_hours > 0 else None)
+        write_summary(scols['hrs_pract_ext'], data.total_practice_external_hours if data.total_practice_external_hours > 0 else None)
+        write_summary(scols['total_hrs_check'], data.payable_hours)
+        write_summary(scols['pago_calculado'], data.calculated_payment, is_currency=True)
 
         # Retención RC-IVA
-        ret_cell = ws.cell(row=row_num, column=COL_RETENCION_AMT)
+        ret_cell = ws.cell(row=row_num, column=scols['retencion_amt'])
         ret_cell.value = data.retention_amount if data.has_retention else None
         ret_cell.font = Font(name="Calibri", size=9, color="C00000" if data.has_retention else "000000")
         ret_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1150,7 +1296,7 @@ class PlanillaGenerator:
             ret_cell.number_format = '#,##0.00 "Bs"'
 
         # Pago Neto
-        net_cell = ws.cell(row=row_num, column=COL_PAGO_NETO)
+        net_cell = ws.cell(row=row_num, column=scols['pago_neto'])
         net_cell.value = data.final_payment
         net_cell.font = Font(name="Calibri", size=9, bold=True, color="1F4E79")
         net_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1159,7 +1305,7 @@ class PlanillaGenerator:
         net_cell.number_format = '#,##0.00 "Bs"'
 
         # Pago Ajustado
-        adj_cell = ws.cell(row=row_num, column=COL_PAGO_AJUSTADO)
+        adj_cell = ws.cell(row=row_num, column=scols['pago_ajustado'])
         adj_cell.value = override if override is not None else None
         adj_cell.font = Font(name="Calibri", size=9, bold=(override is not None), color="C00000" if override is not None else "000000")
         adj_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1169,7 +1315,7 @@ class PlanillaGenerator:
             adj_cell.number_format = '#,##0.00 "Bs"'
 
         # Observations
-        obs_cell = ws.cell(row=row_num, column=COL_OBSERVACIONES)
+        obs_cell = ws.cell(row=row_num, column=scols['observaciones'])
         obs_text = "; ".join(data.observations) if data.observations else ""
         obs_cell.value = obs_text if obs_text else None
         obs_cell.font = Font(name="Calibri", size=8, color="595959")
@@ -1189,6 +1335,9 @@ class PlanillaGenerator:
         rows: list[PlanillaRow],
         totals_row: int,
         payment_overrides: dict[str, float],
+        day_window: list[date],
+        scols: dict[str, int],
+        total_cols: int,
     ) -> None:
         """Write the totals row at the bottom of all data rows."""
         if not rows:
@@ -1220,10 +1369,10 @@ class PlanillaGenerator:
         label_cell.alignment = Alignment(horizontal="right", vertical="center")
         label_cell.border = THIN_BORDER
 
-        # Day columns — sum per day
-        for day in range(1, 32):
-            col = DAY_COL_START + (day - 1)
-            day_total = sum(r.daily_hours.get(day, 0) for r in rows)
+        # Day columns — sum per day using full-date keys
+        for i, d in enumerate(day_window):
+            col = DAY_COL_START + i
+            day_total = sum(r.daily_hours.get(d, 0) for r in rows)
             cell = ws.cell(row=totals_row, column=col)
             cell.value = day_total if day_total > 0 else None
             cell.font = totals_font
@@ -1242,19 +1391,19 @@ class PlanillaGenerator:
             if is_currency:
                 cell.number_format = '#,##0.00 "Bs"'
 
-        write_total(COL_TOTAL_HORAS, total_hours)
-        write_total(COL_GRUPO_RESUMEN, None)
-        write_total(COL_MATERIA_RESUMEN, None)
-        write_total(COL_PAGO_HORA, None)
-        write_total(COL_HRS_TEORIA, total_theory)
-        write_total(COL_HRS_PRACT_INT, total_pract_int)
-        write_total(COL_HRS_PRACT_EXT, total_pract_ext)
-        write_total(COL_TOTAL_HRS_CHECK, total_hours)
-        write_total(COL_PAGO_CALCULADO, total_bruto, is_currency=True)
-        write_total(COL_RETENCION_AMT, total_retention if total_retention > 0 else None, is_currency=True)
-        write_total(COL_PAGO_NETO, total_payment, is_currency=True)
-        write_total(COL_PAGO_AJUSTADO, None)
-        write_total(COL_OBSERVACIONES, None)
+        write_total(scols['total_horas'], total_hours)
+        write_total(scols['grupo_resumen'], None)
+        write_total(scols['materia_resumen'], None)
+        write_total(scols['pago_hora'], None)
+        write_total(scols['hrs_teoria'], total_theory)
+        write_total(scols['hrs_pract_int'], total_pract_int)
+        write_total(scols['hrs_pract_ext'], total_pract_ext)
+        write_total(scols['total_hrs_check'], total_hours)
+        write_total(scols['pago_calculado'], total_bruto, is_currency=True)
+        write_total(scols['retencion_amt'], total_retention if total_retention > 0 else None, is_currency=True)
+        write_total(scols['pago_neto'], total_payment, is_currency=True)
+        write_total(scols['pago_ajustado'], None)
+        write_total(scols['observaciones'], None)
 
         ws.row_dimensions[totals_row].height = 18
 
@@ -1262,7 +1411,9 @@ class PlanillaGenerator:
     # Formatting
     # ------------------------------------------------------------------
 
-    def _apply_formatting(self, ws, last_row: int, month: int, year: int) -> None:
+    def _apply_formatting(
+        self, ws, last_row: int, month: int, year: int, total_cols: int,
+    ) -> None:
         """Apply freeze panes and print settings."""
         # Freeze panes: rows 1-6 (headers) and cols 1-3 (CI + name columns)
         ws.freeze_panes = ws.cell(row=DATA_ROW_START, column=COL_CI + 1)
@@ -1272,10 +1423,11 @@ class PlanillaGenerator:
         ws.print_title_cols = f"A:{get_column_letter(COL_BANCO)}"
         ws.sheet_view.showGridLines = True
 
-        # Auto-filter on column headers row
+        # Auto-filter on column headers row — use dynamic total_cols so the
+        # filter always ends at the real last column (varies with day-window).
         if last_row >= DATA_ROW_START:
             ws.auto_filter.ref = (
-                f"A{ROW_COL_HEADERS}:{get_column_letter(TOTAL_COLS)}{last_row}"
+                f"A{ROW_COL_HEADERS}:{get_column_letter(total_cols)}{last_row}"
             )
 
     # ------------------------------------------------------------------
