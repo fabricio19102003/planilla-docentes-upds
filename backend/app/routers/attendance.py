@@ -81,7 +81,7 @@ def _get_audit_data(
 ):
     """Shared data-collection logic for the audit GET and PDF endpoints."""
     from app.models.biometric import BiometricRecord, BiometricUpload
-    from app.config import settings
+    from app.services import app_settings_service
 
     teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
     if not teacher:
@@ -90,7 +90,7 @@ def _get_audit_data(
     # 1. Teacher's designations (schedule)
     designations = db.query(Designation).filter(
         Designation.teacher_ci == teacher_ci,
-        Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+        Designation.academic_period == app_settings_service.get_active_academic_period(db),
     ).all()
 
     # 2. Raw biometric records for this teacher in this period
@@ -369,7 +369,7 @@ def export_batch_audit_pdf(
 ):
     """Generate a single PDF with audit data for multiple (or all) teachers."""
     from app.services.audit_report_pdf import generate_batch_audit_pdf
-    from app.config import settings
+    from app.services import app_settings_service
     from fastapi.responses import FileResponse
 
     month = payload.month
@@ -388,7 +388,7 @@ def export_batch_audit_pdf(
         teacher_cis_with_desig = {
             d.teacher_ci
             for d in db.query(Designation).filter(
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
                 ~Designation.teacher_ci.startswith("TEMP-"),
             ).all()
         }

@@ -12,11 +12,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.database import get_db
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.designation import DesignationUploadResponse
+from app.services import app_settings_service
 from app.services.auth_service import AuthService
 from app.services.designation_loader import DesignationLoader
 from app.services.activity_logger import log_activity
@@ -217,10 +217,18 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
 def upload_designations(
     request: Request,
     file: UploadFile = File(...),
-    academic_period: str = Query(default=settings.ACTIVE_ACADEMIC_PERIOD, description="Período académico, ej: I/2026, II/2025"),
+    academic_period: str | None = Query(
+        default=None,
+        description="Período académico, ej: I/2026, II/2025 (por defecto: el período activo configurado)",
+    ),
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationUploadResponse:
+    # Resolve default at request-time from the DB-backed settings, because
+    # FastAPI evaluates Query defaults at import-time (can't call the DB there).
+    if academic_period is None:
+        academic_period = app_settings_service.get_active_academic_period(db)
+
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
     logger.info(

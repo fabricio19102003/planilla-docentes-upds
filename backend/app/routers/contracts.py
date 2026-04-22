@@ -16,11 +16,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.database import get_db
 from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.models.user import User
+from app.services import app_settings_service
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -95,7 +95,7 @@ def _get_teacher_designations(teacher_ci: str, db: Session) -> tuple[Teacher, li
         db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher_ci,
-            Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+            Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
         .all()
     )
@@ -199,7 +199,7 @@ def generate_batch_contracts(
             .join(Designation, Teacher.ci == Designation.teacher_ci)
             .filter(
                 ~Teacher.ci.startswith("TEMP-"),
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
             )
             .distinct()
             .all()
@@ -219,7 +219,7 @@ def generate_batch_contracts(
             db.query(Designation)
             .filter(
                 Designation.teacher_ci == teacher.ci,
-                Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD,
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
             )
             .all()
         )

@@ -19,6 +19,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { ActivityLogPage } from './pages/ActivityLogPage'
 import { ContractsPage } from './pages/ContractsPage'
 import { BackupPage } from './pages/BackupPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 
 // Pages — Auth
@@ -75,6 +76,7 @@ function AppRoutes() {
             <Route path="contracts" element={<ContractsPage />} />
             <Route path="activity" element={<ActivityLogPage />} />
             <Route path="backup" element={<BackupPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Docente routes */}

@@ -11,6 +11,7 @@ from app.models.report import Report
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.activity_log import ActivityLog
+from app.models.app_setting import AppSetting
 
 __all__ = [
     "Teacher",
@@ -25,4 +26,5 @@ __all__ = [
     "BillingPublication",
     "Notification",
     "ActivityLog",
+    "AppSetting",
 ]

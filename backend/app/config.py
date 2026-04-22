@@ -15,11 +15,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
 
     # Payroll constants
-    HOURLY_RATE: float = 70.0  # Bs/hora académica
+    # NOTE: HOURLY_RATE, COMPANY_NAME, COMPANY_NIT, and ACTIVE_ACADEMIC_PERIOD
+    # are now stored in the ``app_settings`` table and managed from the admin
+    # Configuración page.  Default values are seeded on first startup.
     TOLERANCE_MINUTES: int = 5  # Minutos de tolerancia para asistencia
-
-    # Academic period — used to scope designation queries to the active semester
-    ACTIVE_ACADEMIC_PERIOD: str = "I/2026"
 
     # JWT / Auth
     JWT_SECRET: str = "planilla-docentes-upds-secret-key-change-in-production"

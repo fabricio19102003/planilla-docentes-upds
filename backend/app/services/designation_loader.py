@@ -37,11 +37,11 @@ from typing import Any
 from sqlalchemy import and_, exists, select, text
 from sqlalchemy.orm import Session, aliased
 
-from app.config import settings
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
 from app.models.teacher import Teacher
+from app.services import app_settings_service
 from app.utils.helpers import calc_academic_hours, normalize_group_code
 
 logger = logging.getLogger(__name__)
@@ -213,7 +213,7 @@ class DesignationLoader:
         4. Commit the session and return load statistics.
         """
         if academic_period is None:
-            academic_period = settings.ACTIVE_ACADEMIC_PERIOD
+            academic_period = app_settings_service.get_active_academic_period(db)
 
         result = DesignationLoadResult()
         path = Path(json_path)

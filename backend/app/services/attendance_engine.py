@@ -34,8 +34,8 @@ from sqlalchemy.orm import Session
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
+from app.services import app_settings_service
 from app.utils.helpers import parse_time_str, time_to_minutes
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ class AttendanceEngine:
         # ── Step 2: Load all designations (scoped to active academic period) ──
         all_designations: list[Designation] = (
             db.query(Designation)
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
+            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
             .all()
         )
 
