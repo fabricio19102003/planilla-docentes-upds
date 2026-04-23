@@ -293,6 +293,80 @@ class PlanillaResult:
 
 
 # ---------------------------------------------------------------------------
+# Period-based hour calculation
+# ---------------------------------------------------------------------------
+
+# Maps Python weekday (0=Mon … 6=Sun) → normalized Spanish name (no accents).
+# Must match the values produced by _normalize_day() in attendance_engine.
+_PERIOD_WEEKDAY_MAP: dict[int, str] = {
+    0: "lunes",
+    1: "martes",
+    2: "miercoles",
+    3: "jueves",
+    4: "viernes",
+    5: "sabado",
+    6: "domingo",
+}
+
+
+def _normalize_day_name(day: str) -> str:
+    """Strip accents and lowercase a day name for matching."""
+    import unicodedata
+    nfkd = unicodedata.normalize("NFD", day)
+    stripped = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    return stripped.lower().strip()
+
+
+def _calculate_period_hours(
+    schedule_json: list[dict],
+    start_date: date,
+    end_date: date,
+) -> int:
+    """Count the total academic hours for a designation in a date range.
+
+    Iterates every day in [start_date, end_date], checks if the day-of-week
+    has any scheduled slots in ``schedule_json``, and sums up the
+    ``horas_academicas`` for matching slots.
+
+    This replaces the old ``monthly_hours = weekly_hours × 4`` assumption
+    with an exact count based on the actual calendar.
+
+    Args:
+        schedule_json: list of schedule slots, each with at least
+            ``{"dia": "lunes", "horas_academicas": 2}``
+        start_date: first day of the cutoff period (inclusive)
+        end_date: last day of the cutoff period (inclusive)
+
+    Returns:
+        Total academic hours across all matching days in the period.
+    """
+    if not schedule_json:
+        return 0
+
+    # Pre-index: weekday_name → total academic hours for that day
+    # A teacher may have multiple slots on the same weekday (e.g. morning + afternoon)
+    hours_by_weekday: dict[str, int] = {}
+    for slot in schedule_json:
+        dia = _normalize_day_name(slot.get("dia", ""))
+        hrs = slot.get("horas_academicas", 0) or 0
+        if dia and hrs > 0:
+            hours_by_weekday[dia] = hours_by_weekday.get(dia, 0) + hrs
+
+    if not hours_by_weekday:
+        return 0
+
+    # Walk the date range and sum hours for each matching weekday
+    total = 0
+    current = start_date
+    while current <= end_date:
+        weekday_name = _PERIOD_WEEKDAY_MAP.get(current.weekday(), "")
+        total += hours_by_weekday.get(weekday_name, 0)
+        current += timedelta(days=1)
+
+    return total
+
+
+# ---------------------------------------------------------------------------
 # Day-window helper
 # ---------------------------------------------------------------------------
 
@@ -717,6 +791,8 @@ class PlanillaGenerator:
                 has_biometric=has_biometric,
                 discount_mode=discount_mode,
                 hourly_rate=hourly_rate,
+                start_date=start_date,
+                end_date=end_date,
             )
             planilla_rows.append(row)
 
@@ -760,6 +836,8 @@ class PlanillaGenerator:
         has_biometric: bool = True,
         discount_mode: str = "attendance",
         hourly_rate: float = RATE_PER_HOUR,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow using Payment Model C.
@@ -818,7 +896,17 @@ class PlanillaGenerator:
                 observations.append(f"Día {day.day}/{day.month}: {rec.observation}")
 
         # ── Model C payment calculation ─────────────────────────────────
-        base_monthly_hours = desig.monthly_hours or 0
+        # When a cutoff period is specified (start_date + end_date), calculate
+        # hours from the ACTUAL calendar days in the period instead of using
+        # the static monthly_hours (which assumes 4 weeks per month).
+        # This ensures a teacher with 5 Mondays in the period gets paid for 5,
+        # not the fixed 4 assumed by the old weekly×4 formula.
+        if start_date and end_date and desig.schedule_json:
+            base_monthly_hours = _calculate_period_hours(
+                desig.schedule_json, start_date, end_date
+            )
+        else:
+            base_monthly_hours = desig.monthly_hours or 0
 
         if not has_biometric:
             # No biometric data at all → full pay, 0 deductions
