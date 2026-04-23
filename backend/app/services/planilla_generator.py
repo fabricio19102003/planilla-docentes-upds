@@ -597,73 +597,88 @@ class PlanillaGenerator:
             warnings.append("No hay designaciones en la base de datos")
             return [], [], warnings
 
-        # ── Step 2: Load attendance records for this period ─────────────
-        # When both start_date and end_date are provided (cross-month cutoff),
-        # filter ONLY by the date range — NOT by the target month/year columns,
-        # because records from the previous month (e.g. March records when the
-        # target is April) were tagged with month=3 during ingestion.
-        if start_date is not None and end_date is not None:
-            att_query = db.query(AttendanceRecord).filter(
-                AttendanceRecord.date >= start_date,
-                AttendanceRecord.date <= end_date,
-            )
-        else:
-            att_query = db.query(AttendanceRecord).filter(
-                AttendanceRecord.month == month,
-                AttendanceRecord.year == year,
-            )
-            if start_date is not None:
-                att_query = att_query.filter(AttendanceRecord.date >= start_date)
-            if end_date is not None:
-                att_query = att_query.filter(AttendanceRecord.date <= end_date)
-
-        att_records: list[AttendanceRecord] = (
-            att_query
-            .order_by(AttendanceRecord.teacher_ci, AttendanceRecord.date)
-            .all()
-        )
-
-        if not att_records:
+        # ── discount_mode="full": skip attendance & biometric entirely ──
+        # When the admin chooses "sin descuentos", biometric data is irrelevant
+        # — everyone gets full pay regardless of attendance. We skip the
+        # attendance query, biometric lookup, and indexing to avoid unnecessary
+        # DB work and to allow generating planillas without any biometric upload.
+        if discount_mode == "full":
             logger.info(
-                "No attendance records found for %d/%d — all docentes get full pay (Model C)",
-                month,
-                year,
+                "discount_mode=full — skipping attendance/biometric queries, "
+                "all teachers receive full pay"
             )
-            warnings.append(
-                f"Sin registros de asistencia para {MONTH_NAMES.get(month)} {year} — "
-                f"todos los docentes recibirán pago completo (sin biométrico)"
-            )
-
-        # ── Step 3: Index attendance by (teacher_ci, designation_id) ───
-        att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
-        for rec in att_records:
-            key = (rec.teacher_ci, rec.designation_id)
-            att_index.setdefault(key, []).append(rec)
-
-        # ── Step 3b: Determine which teachers have REAL biometric data ──
-        # When cross-month (both start_date and end_date provided), query by
-        # date range on BiometricRecord.date so we include uploads from both
-        # months (e.g. March upload + April upload for a Mar 21 → Apr 20 window).
-        # When single-month (no cutoff dates), scope to the target month/year
-        # to avoid treating a teacher with March-only biometric data as "has bio"
-        # in a standalone April planilla.
-        bio_query = (
-            db.query(BiometricRecord.teacher_ci)
-            .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
-        )
-        if start_date is not None and end_date is not None:
-            bio_query = bio_query.filter(
-                BiometricRecord.date >= start_date,
-                BiometricRecord.date <= end_date,
-            )
+            att_records = []
+            att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
+            cis_with_biometric: set[str] = set()
         else:
-            bio_query = bio_query.filter(
-                BiometricUpload.month == month,
-                BiometricUpload.year == year,
+            # ── Step 2: Load attendance records for this period ─────────────
+            # When both start_date and end_date are provided (cross-month cutoff),
+            # filter ONLY by the date range — NOT by the target month/year columns,
+            # because records from the previous month (e.g. March records when the
+            # target is April) were tagged with month=3 during ingestion.
+            if start_date is not None and end_date is not None:
+                att_query = db.query(AttendanceRecord).filter(
+                    AttendanceRecord.date >= start_date,
+                    AttendanceRecord.date <= end_date,
+                )
+            else:
+                att_query = db.query(AttendanceRecord).filter(
+                    AttendanceRecord.month == month,
+                    AttendanceRecord.year == year,
+                )
+                if start_date is not None:
+                    att_query = att_query.filter(AttendanceRecord.date >= start_date)
+                if end_date is not None:
+                    att_query = att_query.filter(AttendanceRecord.date <= end_date)
+
+            att_records: list[AttendanceRecord] = (
+                att_query
+                .order_by(AttendanceRecord.teacher_ci, AttendanceRecord.date)
+                .all()
             )
-        cis_with_biometric: set[str] = {
-            row[0] for row in bio_query.distinct().all()
-        }
+
+            if not att_records:
+                logger.info(
+                    "No attendance records found for %d/%d — all docentes get full pay (Model C)",
+                    month,
+                    year,
+                )
+                warnings.append(
+                    f"Sin registros de asistencia para {MONTH_NAMES.get(month)} {year} — "
+                    f"todos los docentes recibirán pago completo (sin biométrico)"
+                )
+
+            # ── Step 3: Index attendance by (teacher_ci, designation_id) ───
+            att_index = {}
+            for rec in att_records:
+                key = (rec.teacher_ci, rec.designation_id)
+                att_index.setdefault(key, []).append(rec)
+
+            # ── Step 3b: Determine which teachers have REAL biometric data ──
+            # When cross-month (both start_date and end_date provided), query by
+            # date range on BiometricRecord.date so we include uploads from both
+            # months (e.g. March upload + April upload for a Mar 21 → Apr 20 window).
+            # When single-month (no cutoff dates), scope to the target month/year
+            # to avoid treating a teacher with March-only biometric data as "has bio"
+            # in a standalone April planilla.
+            bio_query = (
+                db.query(BiometricRecord.teacher_ci)
+                .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
+            )
+            if start_date is not None and end_date is not None:
+                bio_query = bio_query.filter(
+                    BiometricRecord.date >= start_date,
+                    BiometricRecord.date <= end_date,
+                )
+            else:
+                bio_query = bio_query.filter(
+                    BiometricUpload.month == month,
+                    BiometricUpload.year == year,
+                )
+            cis_with_biometric = {
+                row[0] for row in bio_query.distinct().all()
+            }
+
         logger.info(
             "_build_planilla_data: %d teacher CIs with real biometric records",
             len(cis_with_biometric),
