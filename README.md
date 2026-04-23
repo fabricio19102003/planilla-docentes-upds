@@ -363,7 +363,7 @@ planilla-docentes-upds/
 │   │   │   └── admin_settings.py        # Configuracion de negocio (CRUD admin)
 │   │   │
 │   │   ├── services/            # Logica de negocio
-│   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + retencion + discount_mode)
+│   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + dias reales + discount_mode + cross-month)
 │   │   │   ├── salary_report_generator.py # Planilla de salarios Excel (formato UNIPANDO)
 │   │   │   ├── app_settings_service.py   # Configuracion de negocio (cache + CRUD)
 │   │   │   ├── attendance_engine.py      # Procesamiento de asistencia
@@ -452,21 +452,35 @@ planilla-docentes-upds/
 ### Modelo de Pago (Model C)
 
 ```
-Pago Base     = Horas Mensuales Asignadas x Tarifa/hora (configurable, default 70 Bs)
+Horas Reales  = Calculadas desde el horario del docente x dias reales del periodo de corte
+Pago Base     = Horas Reales x Tarifa/hora (configurable, default 70 Bs)
 Descuento     = Horas Ausentes (verificadas por biometrico) x Tarifa/hora
 Bruto         = Pago Base - Descuento
 Retencion     = Bruto x 13% (solo docentes con retencion RC-IVA)
 Neto          = Bruto - Retencion
 ```
 
+> **Nota**: El calculo de horas usa los **dias reales del calendario** en el periodo de corte,
+> no la formula fija `semanal × 4`. Ejemplo: si un docente da clase los lunes (4h) y el
+> periodo 21/Mar → 20/Abr tiene 5 lunes, cobra 20h (no 16h como seria con la formula vieja).
+
 **Reglas de negocio:**
 - Docentes **sin biometrico** = pago completo (0 ausencias asumidas)
-- Biometrico scoped al **periodo** (month+year), no historico
+- Biometrico scoped al **periodo** de corte, no al mes calendario
 - Admin puede aplicar **overrides** manuales al monto de cualquier docente
 - Overrides almacenados inmutables en `PlanillaOutput.payment_overrides_json`
 - Publicacion crea **snapshot inmutable** — los montos publicados no cambian si los datos base cambian
 - El sistema **detecta automaticamente** el rango del biometrico y sugiere las fechas al admin
 - **46 docentes** tienen retencion RC-IVA 13%, **87** facturan con NIT propio
+
+### Periodo de corte (cross-month)
+
+El admin define un **periodo de corte** para cada planilla (ej: 21 de marzo al 20 de abril). El sistema:
+
+- Calcula las horas de cada docente contando los **dias reales** del periodo que coinciden con su horario programado
+- Muestra **dos bloques** en el Excel: uno por cada mes del corte, con los dias fuera del rango en gris
+- Las queries de asistencia y biometrico cubren **ambos meses** del rango
+- Si no se establece periodo de corte, se usa el mes completo como fallback
 
 ### Modo de calculo (discount_mode)
 
@@ -475,9 +489,12 @@ La planilla soporta dos modos de calculo que el admin elige al momento de genera
 | Modo | Comportamiento |
 |------|---------------|
 | **Con descuentos** (default) | Se aplican descuentos por horas ausentes segun biometrico |
-| **Sin descuentos** | Todos los docentes cobran el 100% de sus horas asignadas |
+| **Sin descuentos** | Todos los docentes cobran el 100% de sus horas asignadas. No se requiere biometrico. |
 
-El modo se persiste en la planilla y se propaga a la publicacion de facturacion y reportes.
+En modo "sin descuentos":
+- No se consulta biometrico ni registros de asistencia
+- Los dias del Excel se llenan con las horas programadas del docente (no verificadas)
+- El modo se persiste en la planilla y se propaga a la publicacion de facturacion, reportes PDF, y dashboard
 
 ### Planilla de Salarios (Excel)
 
@@ -532,8 +549,10 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
    → Exportar PDF individual o masivo
 
 6. Generar Planilla
+   → Definir periodo de corte (ej: 21/Mar al 20/Abr)
    → Elegir modo: con descuentos (default) o sin descuentos
-   → Calcula pagos (Model C + retencion 13%)
+   → Calcula pagos por dias reales del calendario (no semanal x 4)
+   → Excel muestra dos bloques de dias (un mes cada uno) con dias fuera del corte en gris
    → Admin puede ajustar montos (overrides)
    → Descargar Planilla de Salarios (Excel formato UNIPANDO)
 
