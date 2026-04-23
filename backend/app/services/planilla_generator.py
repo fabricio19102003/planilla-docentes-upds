@@ -302,43 +302,19 @@ class PlanillaResult:
 from app.services.attendance_engine import WEEKDAY_MAP, _normalize_day
 
 
-def _calculate_period_hours(
-    schedule_json: list[dict],
-    start_date: date,
-    end_date: date,
-) -> int:
-    """Count the total academic hours for a designation in a date range.
+def _index_schedule_by_weekday(schedule_json: list[dict]) -> dict[str, int]:
+    """Index schedule_json slots by normalized weekday name → total academic hours.
 
-    Iterates every day in [start_date, end_date], checks if the day-of-week
-    has any scheduled slots in ``schedule_json``, and sums up the
-    ``horas_academicas`` for matching slots.
+    A teacher may have multiple slots on the same weekday (e.g. morning +
+    afternoon); their hours are summed.  Invalid ``horas_academicas`` values
+    are logged and treated as 0.
 
-    This replaces the old ``monthly_hours = weekly_hours × 4`` assumption
-    with an exact count based on the actual calendar.
-
-    Args:
-        schedule_json: list of schedule slots, each with at least
-            ``{"dia": "lunes", "horas_academicas": 2}``
-        start_date: first day of the cutoff period (inclusive)
-        end_date: last day of the cutoff period (inclusive)
-
-    Returns:
-        Total academic hours across all matching days in the period.
-
-    Raises:
-        ValueError: if start_date > end_date or the range exceeds 62 days.
+    Returns an empty dict when schedule_json is empty/None or no valid
+    slots are found.
     """
     if not schedule_json:
-        return 0
+        return {}
 
-    if start_date > end_date:
-        raise ValueError(f"start_date ({start_date}) > end_date ({end_date})")
-    if (end_date - start_date).days > 62:
-        raise ValueError(f"Period too large: {(end_date - start_date).days + 1} days (max 62)")
-
-
-    # Pre-index: weekday_name → total academic hours for that day
-    # A teacher may have multiple slots on the same weekday (e.g. morning + afternoon)
     hours_by_weekday: dict[str, int] = {}
     for slot in schedule_json:
         dia = _normalize_day(slot.get("dia", ""))
@@ -346,25 +322,69 @@ def _calculate_period_hours(
             hrs = int(slot.get("horas_academicas", 0) or 0)
         except (ValueError, TypeError):
             logger.warning(
-                "_calculate_period_hours: invalid horas_academicas=%r in slot %r — treating as 0",
+                "_index_schedule_by_weekday: invalid horas_academicas=%r in slot %r — treating as 0",
                 slot.get("horas_academicas"), slot,
             )
             hrs = 0
         if dia and hrs > 0:
             hours_by_weekday[dia] = hours_by_weekday.get(dia, 0) + hrs
 
-    if not hours_by_weekday:
-        return 0
+    return hours_by_weekday
 
-    # Walk the date range and sum hours for each matching weekday
-    total = 0
+
+def _expand_schedule_to_daily(
+    schedule_json: list[dict],
+    start_date: date,
+    end_date: date,
+) -> dict[date, int]:
+    """Expand schedule slots into a per-date hour map for a date range.
+
+    Returns ``{date: academic_hours}`` for every day in ``[start_date,
+    end_date]`` whose weekday matches a slot in ``schedule_json``.
+    Days without a matching slot are omitted (not zeroed).
+
+    This is the **single source of truth** used by both
+    ``_calculate_period_hours`` (scalar sum) and the daily-hours
+    fill in ``_build_row`` (per-cell display).
+
+    Raises:
+        ValueError: if start_date > end_date or the range exceeds 62 days.
+    """
+    if start_date > end_date:
+        raise ValueError(f"start_date ({start_date}) > end_date ({end_date})")
+    if (end_date - start_date).days > 62:
+        raise ValueError(f"Period too large: {(end_date - start_date).days + 1} days (max 62)")
+
+    hours_by_weekday = _index_schedule_by_weekday(schedule_json)
+    if not hours_by_weekday:
+        return {}
+
+    result: dict[date, int] = {}
     num_days = (end_date - start_date).days + 1
     for i in range(num_days):
         current = start_date + timedelta(days=i)
         weekday_name = WEEKDAY_MAP.get(current.weekday(), "")
-        total += hours_by_weekday.get(weekday_name, 0)
+        hrs = hours_by_weekday.get(weekday_name, 0)
+        if hrs > 0:
+            result[current] = hrs
 
-    return total
+    return result
+
+
+def _calculate_period_hours(
+    schedule_json: list[dict],
+    start_date: date,
+    end_date: date,
+) -> int:
+    """Count the total academic hours for a designation in a date range.
+
+    Delegates to ``_expand_schedule_to_daily`` (single source of truth) and
+    returns the scalar sum.
+
+    Raises:
+        ValueError: if start_date > end_date or the range exceeds 62 days.
+    """
+    return sum(_expand_schedule_to_daily(schedule_json, start_date, end_date).values())
 
 
 # ---------------------------------------------------------------------------
@@ -794,6 +814,8 @@ class PlanillaGenerator:
                 hourly_rate=hourly_rate,
                 start_date=start_date,
                 end_date=end_date,
+                month=month,
+                year=year,
             )
             planilla_rows.append(row)
 
@@ -839,6 +861,8 @@ class PlanillaGenerator:
         hourly_rate: float = RATE_PER_HOUR,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        month: int = 0,
+        year: int = 0,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow using Payment Model C.
@@ -896,35 +920,41 @@ class PlanillaGenerator:
             if rec.observation:
                 observations.append(f"Día {day.day}/{day.month}: {rec.observation}")
 
-        # ── Fill daily_hours from schedule when no attendance data ───────
-        # When there are no attendance records (either discount_mode="full"
-        # which skips biometric entirely, or the teacher has no biometric),
-        # the day columns in the Excel would be empty — misleading because
-        # the teacher IS being paid for those hours.  Populate daily_hours
-        # from the schedule_json so the Excel shows the expected hours per
-        # class day in the cutoff period.
-        if not records and start_date and end_date and desig.schedule_json:
-            # Pre-index: weekday_name → total academic hours for that day
-            sched_hours_by_weekday: dict[str, int] = {}
-            for slot in desig.schedule_json:
-                dia = _normalize_day(slot.get("dia", ""))
-                try:
-                    hrs = int(slot.get("horas_academicas", 0) or 0)
-                except (ValueError, TypeError):
-                    hrs = 0
-                if dia and hrs > 0:
-                    sched_hours_by_weekday[dia] = sched_hours_by_weekday.get(dia, 0) + hrs
+        # ── Fill daily_hours gaps from schedule ─────────────────────────
+        # For any scheduled day in the period that has NO attendance record
+        # (either because discount_mode="full" skips biometric, the teacher
+        # has no biometric, or biometric only covers part of a cross-month
+        # window), fill from schedule_json so the Excel shows expected hours.
+        #
+        # Uses the SAME shared helper as _calculate_period_hours to guarantee
+        # consistency — no duplicated logic.
+        #
+        # Key rules:
+        #   - Only fills dates NOT already in daily_hours (won't overwrite real attendance)
+        #   - Does NOT set daily_status (no false "ATTENDED" claim without biometric)
+        #   - Does NOT bump attended_hours (these are scheduled, not verified)
+        #   - Works for both cross-month (start/end provided) and single-month (derived)
+        if desig.schedule_json:
+            # Derive effective window: use cutoff dates if provided, else full target month
+            if start_date and end_date:
+                eff_start, eff_end = start_date, end_date
+            elif month and year:
+                _, last_day = calendar.monthrange(year, month)
+                eff_start = date(year, month, 1)
+                eff_end = date(year, month, last_day)
+            else:
+                eff_start, eff_end = None, None
 
-            if sched_hours_by_weekday:
-                current_day = start_date
-                while current_day <= end_date:
-                    weekday_name = WEEKDAY_MAP.get(current_day.weekday(), "")
-                    sched_hrs = sched_hours_by_weekday.get(weekday_name, 0)
-                    if sched_hrs > 0:
-                        daily_hours[current_day] = sched_hrs
-                        daily_status[current_day] = "ATTENDED"
-                        attended_hours += sched_hrs
-                    current_day += timedelta(days=1)
+            if eff_start and eff_end:
+                scheduled_daily = _expand_schedule_to_daily(
+                    desig.schedule_json, eff_start, eff_end
+                )
+                for d, hrs in scheduled_daily.items():
+                    if d not in daily_hours:
+                        daily_hours[d] = hrs
+                        # No daily_status set — cell gets generic "class day" color
+                        # via the hours > 0 fallback in _write_data_row.
+                        # No attended_hours bump — these are scheduled, not verified.
 
         # ── Model C payment calculation ─────────────────────────────────
         # When a cutoff period is specified (start_date + end_date), calculate
