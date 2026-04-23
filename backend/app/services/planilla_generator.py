@@ -296,25 +296,10 @@ class PlanillaResult:
 # Period-based hour calculation
 # ---------------------------------------------------------------------------
 
-# Maps Python weekday (0=Mon … 6=Sun) → normalized Spanish name (no accents).
-# Must match the values produced by _normalize_day() in attendance_engine.
-_PERIOD_WEEKDAY_MAP: dict[int, str] = {
-    0: "lunes",
-    1: "martes",
-    2: "miercoles",
-    3: "jueves",
-    4: "viernes",
-    5: "sabado",
-    6: "domingo",
-}
-
-
-def _normalize_day_name(day: str) -> str:
-    """Strip accents and lowercase a day name for matching."""
-    import unicodedata
-    nfkd = unicodedata.normalize("NFD", day)
-    stripped = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
-    return stripped.lower().strip()
+# Reuse canonical weekday mapping and day-name normalization from
+# attendance_engine to guarantee consistency between attendance processing
+# and payment calculation.  No local copies — single source of truth.
+from app.services.attendance_engine import WEEKDAY_MAP, _normalize_day
 
 
 def _calculate_period_hours(
@@ -339,16 +324,32 @@ def _calculate_period_hours(
 
     Returns:
         Total academic hours across all matching days in the period.
+
+    Raises:
+        ValueError: if start_date > end_date or the range exceeds 62 days.
     """
     if not schedule_json:
         return 0
+
+    if start_date > end_date:
+        raise ValueError(f"start_date ({start_date}) > end_date ({end_date})")
+    if (end_date - start_date).days > 62:
+        raise ValueError(f"Period too large: {(end_date - start_date).days + 1} days (max 62)")
+
 
     # Pre-index: weekday_name → total academic hours for that day
     # A teacher may have multiple slots on the same weekday (e.g. morning + afternoon)
     hours_by_weekday: dict[str, int] = {}
     for slot in schedule_json:
-        dia = _normalize_day_name(slot.get("dia", ""))
-        hrs = slot.get("horas_academicas", 0) or 0
+        dia = _normalize_day(slot.get("dia", ""))
+        try:
+            hrs = int(slot.get("horas_academicas", 0) or 0)
+        except (ValueError, TypeError):
+            logger.warning(
+                "_calculate_period_hours: invalid horas_academicas=%r in slot %r — treating as 0",
+                slot.get("horas_academicas"), slot,
+            )
+            hrs = 0
         if dia and hrs > 0:
             hours_by_weekday[dia] = hours_by_weekday.get(dia, 0) + hrs
 
@@ -357,11 +358,11 @@ def _calculate_period_hours(
 
     # Walk the date range and sum hours for each matching weekday
     total = 0
-    current = start_date
-    while current <= end_date:
-        weekday_name = _PERIOD_WEEKDAY_MAP.get(current.weekday(), "")
+    num_days = (end_date - start_date).days + 1
+    for i in range(num_days):
+        current = start_date + timedelta(days=i)
+        weekday_name = WEEKDAY_MAP.get(current.weekday(), "")
         total += hours_by_weekday.get(weekday_name, 0)
-        current += timedelta(days=1)
 
     return total
 
@@ -902,9 +903,35 @@ class PlanillaGenerator:
         # This ensures a teacher with 5 Mondays in the period gets paid for 5,
         # not the fixed 4 assumed by the old weekly×4 formula.
         if start_date and end_date and desig.schedule_json:
-            base_monthly_hours = _calculate_period_hours(
+            calendar_hours = _calculate_period_hours(
                 desig.schedule_json, start_date, end_date
             )
+            if calendar_hours > 0:
+                base_monthly_hours = calendar_hours
+            else:
+                # Schedule present but no weekday matched the period.
+                # This likely means malformed day names in schedule_json.
+                # Fall back to monthly_hours scaled proportionally to the period
+                # length to approximate the correct value without paying a full
+                # standard-month amount for a partial/custom window.
+                fallback_raw = desig.monthly_hours or 0
+                if fallback_raw > 0:
+                    num_days = (end_date - start_date).days + 1
+                    # Scale proportionally: monthly_hours assumes ~30 days
+                    base_monthly_hours = round(fallback_raw * num_days / 30)
+                    logger.warning(
+                        "Designation %d (CI=%s, %s): calendar hours=0 from schedule_json "
+                        "— falling back to scaled monthly_hours (%d × %d/30 = %d). "
+                        "Check schedule_json day names: %s",
+                        desig.id, desig.teacher_ci, desig.subject,
+                        fallback_raw, num_days, base_monthly_hours,
+                        desig.schedule_json,
+                    )
+                    observations.append(
+                        f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
+                    )
+                else:
+                    base_monthly_hours = 0
         else:
             base_monthly_hours = desig.monthly_hours or 0
 
@@ -917,6 +944,15 @@ class PlanillaGenerator:
         if discount_mode == "full":
             absent_hours = 0
             absent_count = 0
+
+        if absent_hours > base_monthly_hours and base_monthly_hours > 0:
+            logger.warning(
+                "Designation %d (CI=%s): absent_hours=%d exceeds base_monthly_hours=%d "
+                "— possible duplicate attendance records or schedule mismatch. "
+                "Capping absent_hours at base_monthly_hours.",
+                desig.id, teacher.ci, absent_hours, base_monthly_hours,
+            )
+            absent_hours = base_monthly_hours
 
         payable_hours = max(0, base_monthly_hours - absent_hours)
         calculated_payment = payable_hours * hourly_rate
@@ -1006,29 +1042,17 @@ class PlanillaGenerator:
         Day matching uses _normalize_day() to handle accented variants ("miércoles" /
         "sábado") stored in schedule_json alongside the unaccented WEEKDAY_MAP values.
         """
-        import unicodedata as _ud
-
-        def _norm(day: str) -> str:
-            """Strip accents and lowercase — same logic as attendance_engine._normalize_day."""
-            s = _ud.normalize("NFD", day)
-            s = "".join(c for c in s if _ud.category(c) != "Mn")
-            return s.strip().lower()
-
         schedule: list[dict] = desig.schedule_json or []
         rec_start_str = rec.scheduled_start.strftime("%H:%M")
 
-        # Map Python weekday (0=Mon…6=Sun) → normalized (unaccented) Spanish day name
-        _WEEKDAY_MAP: dict[int, str] = {
-            0: "lunes", 1: "martes", 2: "miercoles", 3: "jueves",
-            4: "viernes", 5: "sabado", 6: "domingo",
-        }
+        # Use the canonical weekday map and day-name normalizer (single source of truth)
         target_weekday = rec.date.weekday()
-        target_day_norm = _WEEKDAY_MAP.get(target_weekday, "")
+        target_day_norm = WEEKDAY_MAP.get(target_weekday, "")
 
         # Pass 1: match by weekday + hora_inicio (most accurate)
         for slot in schedule:
             if slot.get("hora_inicio", "") == rec_start_str:
-                slot_dia_norm = _norm(slot.get("dia", ""))
+                slot_dia_norm = _normalize_day(slot.get("dia", ""))
                 if slot_dia_norm == target_day_norm:
                     return int(slot.get("horas_academicas", 0))
 

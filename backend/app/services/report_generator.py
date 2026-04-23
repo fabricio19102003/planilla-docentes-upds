@@ -234,7 +234,9 @@ class ReportGenerator:
             .first()
         )
         dm = stored_po.discount_mode if stored_po else "attendance"
-        rows, _, warnings = gen._build_planilla_data(db, month=month, year=year, discount_mode=dm)
+        sd = stored_po.start_date if stored_po else None
+        ed = stored_po.end_date if stored_po else None
+        rows, _, warnings = gen._build_planilla_data(db, month=month, year=year, start_date=sd, end_date=ed, discount_mode=dm)
 
         if teacher_ci:
             rows = [r for r in rows if r.teacher_ci == teacher_ci]
@@ -540,7 +542,9 @@ class ReportGenerator:
                 .first()
             )
             m_dm = stored_m.discount_mode if stored_m else "attendance"
-            rows, _, _ = gen._build_planilla_data(db, month=m, year=year, discount_mode=m_dm)
+            m_sd = stored_m.start_date if stored_m else None
+            m_ed = stored_m.end_date if stored_m else None
+            rows, _, _ = gen._build_planilla_data(db, month=m, year=year, start_date=m_sd, end_date=m_ed, discount_mode=m_dm)
             if teacher_ci:
                 rows = [r for r in rows if r.teacher_ci == teacher_ci]
             if stored_m and not teacher_ci:

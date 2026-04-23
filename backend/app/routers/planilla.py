@@ -250,14 +250,18 @@ def generate_salary_report(
             .first()
         )
         effective_mode = payload.discount_mode
-        if stored is not None and stored.discount_mode in ("attendance", "full"):
-            # Only inherit when caller passed the default; explicit override wins.
-            # SalaryReportRequest default is "attendance"; if stored differs we
-            # still prefer the caller's explicit value. To keep things simple
-            # we only override when caller left it at the default "attendance"
-            # and the stored mode is "full" (which is the meaningful case).
-            if payload.discount_mode == "attendance" and stored.discount_mode == "full":
-                effective_mode = "full"
+        # Inherit stored planilla settings when the caller doesn't override
+        effective_sd = payload.start_date
+        effective_ed = payload.end_date
+        if stored is not None:
+            if stored.discount_mode in ("attendance", "full"):
+                if payload.discount_mode == "attendance" and stored.discount_mode == "full":
+                    effective_mode = "full"
+            # Use stored cutoff dates when caller doesn't provide them
+            if effective_sd is None and stored.start_date is not None:
+                effective_sd = stored.start_date
+            if effective_ed is None and stored.end_date is not None:
+                effective_ed = stored.end_date
 
         generator = SalaryReportGenerator(output_dir=str(_output_dir()))
         file_path = generator.generate(
@@ -267,8 +271,8 @@ def generate_salary_report(
             company_name=payload.company_name or app_settings_service.get_company_name(db),
             company_nit=payload.company_nit or app_settings_service.get_company_nit(db),
             discount_mode=effective_mode,
-            start_date=payload.start_date,
-            end_date=payload.end_date,
+            start_date=effective_sd,
+            end_date=effective_ed,
         )
 
         month_name = MONTH_NAMES.get(payload.month, str(payload.month))
@@ -632,12 +636,16 @@ def dashboard_summary(
                     .first()
                 )
                 stored_dm = stored_planilla.discount_mode if stored_planilla else "attendance"
+                stored_sd = stored_planilla.start_date if stored_planilla else None
+                stored_ed = stored_planilla.end_date if stored_planilla else None
 
                 gen = PlanillaGenerator()
                 planilla_rows, _, _ = gen._build_planilla_data(
                     db,
                     month=latest_period.month,
                     year=latest_period.year,
+                    start_date=stored_sd,
+                    end_date=stored_ed,
                     discount_mode=stored_dm,
                 )
                 teacher_payments: dict = {}

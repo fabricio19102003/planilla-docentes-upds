@@ -174,8 +174,10 @@ def preview_report(
                 .first()
             )
             fin_dm = stored_fin.discount_mode if stored_fin else "attendance"
+            fin_sd = stored_fin.start_date if stored_fin else None
+            fin_ed = stored_fin.end_date if stored_fin else None
             planilla_rows, detail_rows, gen_warnings = gen._build_planilla_data(
-                db, month=month, year=year, discount_mode=fin_dm,
+                db, month=month, year=year, start_date=fin_sd, end_date=fin_ed, discount_mode=fin_dm,
             )
             rows = planilla_rows
             if teacher_ci:
@@ -300,8 +302,10 @@ def preview_report(
                     .first()
                 )
                 m_dm = stored_m.discount_mode if stored_m else "attendance"
+                m_sd = stored_m.start_date if stored_m else None
+                m_ed = stored_m.end_date if stored_m else None
                 planilla_rows, detail_rows, warn_rows = gen._build_planilla_data(
-                    db, month=m, year=year, discount_mode=m_dm,
+                    db, month=m, year=year, start_date=m_sd, end_date=m_ed, discount_mode=m_dm,
                 )
                 rows = planilla_rows
                 if teacher_ci:
