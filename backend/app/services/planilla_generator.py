@@ -896,6 +896,36 @@ class PlanillaGenerator:
             if rec.observation:
                 observations.append(f"Día {day.day}/{day.month}: {rec.observation}")
 
+        # ── Fill daily_hours from schedule when no attendance data ───────
+        # When there are no attendance records (either discount_mode="full"
+        # which skips biometric entirely, or the teacher has no biometric),
+        # the day columns in the Excel would be empty — misleading because
+        # the teacher IS being paid for those hours.  Populate daily_hours
+        # from the schedule_json so the Excel shows the expected hours per
+        # class day in the cutoff period.
+        if not records and start_date and end_date and desig.schedule_json:
+            # Pre-index: weekday_name → total academic hours for that day
+            sched_hours_by_weekday: dict[str, int] = {}
+            for slot in desig.schedule_json:
+                dia = _normalize_day(slot.get("dia", ""))
+                try:
+                    hrs = int(slot.get("horas_academicas", 0) or 0)
+                except (ValueError, TypeError):
+                    hrs = 0
+                if dia and hrs > 0:
+                    sched_hours_by_weekday[dia] = sched_hours_by_weekday.get(dia, 0) + hrs
+
+            if sched_hours_by_weekday:
+                current_day = start_date
+                while current_day <= end_date:
+                    weekday_name = WEEKDAY_MAP.get(current_day.weekday(), "")
+                    sched_hrs = sched_hours_by_weekday.get(weekday_name, 0)
+                    if sched_hrs > 0:
+                        daily_hours[current_day] = sched_hrs
+                        daily_status[current_day] = "ATTENDED"
+                        attended_hours += sched_hrs
+                    current_day += timedelta(days=1)
+
         # ── Model C payment calculation ─────────────────────────────────
         # When a cutoff period is specified (start_date + end_date), calculate
         # hours from the ACTUAL calendar days in the period instead of using
