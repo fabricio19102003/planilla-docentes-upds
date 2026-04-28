@@ -12,6 +12,16 @@ from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.activity_log import ActivityLog
 
+# Scheduling models are imported here so Base.metadata is aware of them
+from app.scheduling.models import (
+    AcademicPeriod,
+    DesignationSlot,
+    RoomType,
+    Equipment,
+    Room,
+    RoomEquipment,
+)
+
 __all__ = [
     "Teacher",
     "Designation",
@@ -25,4 +35,10 @@ __all__ = [
     "BillingPublication",
     "Notification",
     "ActivityLog",
+    "AcademicPeriod",
+    "DesignationSlot",
+    "RoomType",
+    "Equipment",
+    "Room",
+    "RoomEquipment",
 ]

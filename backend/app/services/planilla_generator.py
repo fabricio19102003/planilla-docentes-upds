@@ -64,6 +64,7 @@ from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
+from app.scheduling.services import SlotReadService
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,8 @@ class PlanillaGenerator:
     def __init__(self, output_dir: str = "backend/data/output"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.db: Optional[Session] = None
+        self.slot_service: Optional[SlotReadService] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -319,6 +322,10 @@ class PlanillaGenerator:
         """
         if payment_overrides is None:
             payment_overrides = {}
+
+        # Store db session and create slot service for payroll integration
+        self.db = db
+        self.slot_service = SlotReadService(db)
 
         logger.info(
             "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s",
@@ -653,55 +660,36 @@ class PlanillaGenerator:
         """
         Find the scheduled academic_hours for an ABSENT slot.
 
-        The engine sets academic_hours=0 for ABSENT records; we must recover
-        the scheduled hours from the designation's schedule_json by matching
-        the slot's weekday + scheduled_start time (and optionally hora_fin).
-
-        Matching priority:
-          1. day-of-week + hora_inicio (most specific — avoids cross-day false match)
-          2. hora_inicio only (fallback when schedule_json lacks "dia" field)
-
-        Day matching uses _normalize_day() to handle accented variants ("miércoles" /
-        "sábado") stored in schedule_json alongside the unaccented WEEKDAY_MAP values.
+        Uses SlotReadService to get hours from relational DesignationSlot data
+        instead of parsing legacy schedule_json.
         """
-        import unicodedata as _ud
+        if not self.slot_service:
+            logger.error("_get_slot_hours called without slot_service initialized")
+            return 0
 
-        def _norm(day: str) -> str:
-            """Strip accents and lowercase — same logic as attendance_engine._normalize_day."""
-            s = _ud.normalize("NFD", day)
-            s = "".join(c for c in s if _ud.category(c) != "Mn")
-            return s.strip().lower()
-
-        schedule: list[dict] = desig.schedule_json or []
-        rec_start_str = rec.scheduled_start.strftime("%H:%M")
-
-        # Map Python weekday (0=Mon…6=Sun) → normalized (unaccented) Spanish day name
+        # Map Python weekday (0=Mon…6=Sun) → normalized Spanish day name
         _WEEKDAY_MAP: dict[int, str] = {
             0: "lunes", 1: "martes", 2: "miercoles", 3: "jueves",
             4: "viernes", 5: "sabado", 6: "domingo",
         }
-        target_weekday = rec.date.weekday()
-        target_day_norm = _WEEKDAY_MAP.get(target_weekday, "")
+        target_day_norm = _WEEKDAY_MAP.get(rec.date.weekday(), "")
+        rec_start_str = rec.scheduled_start.strftime("%H:%M")
 
-        # Pass 1: match by weekday + hora_inicio (most accurate)
-        for slot in schedule:
-            if slot.get("hora_inicio", "") == rec_start_str:
-                slot_dia_norm = _norm(slot.get("dia", ""))
-                if slot_dia_norm == target_day_norm:
-                    return int(slot.get("horas_academicas", 0))
-
-        # Pass 2: fallback — match by hora_inicio only (slot may lack "dia")
-        for slot in schedule:
-            if slot.get("hora_inicio", "") == rec_start_str:
-                return int(slot.get("horas_academicas", 0))
-
-        logger.debug(
-            "Could not find schedule slot for absent record (designation=%d, start=%s, day=%s)",
-            desig.id,
-            rec_start_str,
-            target_day_norm,
+        hours = self.slot_service.get_slot_hours_for_designation(
+            designation_id=desig.id,
+            day_of_week=target_day_norm,
+            start_time_str=rec_start_str,
         )
-        return 0
+
+        if hours == 0:
+            logger.debug(
+                "Could not find schedule slot for absent record (designation=%d, start=%s, day=%s)",
+                desig.id,
+                rec_start_str,
+                target_day_norm,
+            )
+
+        return hours
 
     # ------------------------------------------------------------------
     # Workbook creation

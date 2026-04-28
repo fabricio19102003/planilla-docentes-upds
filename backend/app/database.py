@@ -40,4 +40,5 @@ def create_tables() -> None:
     """Create all tables defined in Base.metadata. Called at app startup."""
     # Import all models to ensure they're registered in Base.metadata
     import app.models  # noqa: F401
+    import app.scheduling.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

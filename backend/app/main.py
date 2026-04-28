@@ -21,6 +21,7 @@ from app.routers import (
     contracts_router,
     admin_router,
 )
+from app.scheduling.routers import academic_periods_router, room_management_router
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,15 @@ def _run_column_migrations() -> None:
                         logger.info("Updated designations unique constraint to include academic_period")
                     except Exception as constraint_exc:
                         logger.warning("Could not update designations constraint: %s", constraint_exc)
+
+                if "academic_period_id" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN academic_period_id INTEGER REFERENCES academic_periods(id)"
+                    ))
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS ix_designations_academic_period_id ON designations (academic_period_id)"
+                    ))
+                    logger.info("Added column designations.academic_period_id")
 
             conn.commit()
     except Exception as exc:
@@ -191,6 +201,8 @@ app.include_router(billing_publication_router)
 app.include_router(activity_log_router)
 app.include_router(contracts_router)
 app.include_router(admin_router)
+app.include_router(academic_periods_router)
+app.include_router(room_management_router)
 
 
 @app.get("/health", tags=["system"])

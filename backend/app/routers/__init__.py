@@ -12,6 +12,7 @@ from app.routers.billing_publication import router as billing_publication_router
 from app.routers.activity_log import router as activity_log_router
 from app.routers.contracts import router as contracts_router
 from app.routers.admin import router as admin_router
+from app.scheduling.routers import academic_periods_router, room_management_router
 
 __all__ = [
     "teachers_router",

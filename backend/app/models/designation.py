@@ -31,6 +31,12 @@ class Designation(Base):
     # NOTE: The actual default used at upload time comes from settings.ACTIVE_ACADEMIC_PERIOD (via router/service).
     # This model-level default is only a safety fallback and should never be relied upon directly.
     academic_period: Mapped[str] = mapped_column(String(20), nullable=False, default="I/2026", index=True)
+    academic_period_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("academic_periods.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     schedule_json: Mapped[Any] = mapped_column(JSON, nullable=False)  # array of schedule slots
     semester_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     monthly_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -43,9 +49,23 @@ class Designation(Base):
     teacher: Mapped["Teacher"] = relationship(  # noqa: F821
         "Teacher", back_populates="designations"
     )
+    academic_period_rel: Mapped["AcademicPeriod"] = relationship(
+        "AcademicPeriod",
+        back_populates="designations",
+    )
     attendance_records: Mapped[list["AttendanceRecord"]] = relationship(  # noqa: F821
         "AttendanceRecord", back_populates="designation"
     )
+    slots: Mapped[list["DesignationSlot"]] = relationship(
+        "DesignationSlot",
+        back_populates="designation",
+        cascade="all, delete-orphan",
+    )
+
+    def schedule_slots(self) -> list[dict[str, object]]:
+        if self.slots:
+            return [slot.to_dict() for slot in self.slots]
+        return self.schedule_json or []
 
     def __repr__(self) -> str:
         return f"<Designation id={self.id} ci={self.teacher_ci} subject={self.subject} group={self.group_code}>"

@@ -34,6 +34,8 @@ from sqlalchemy.orm import Session
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
+from app.scheduling.services import SlotReadService, AcademicPeriodService
+from app.scheduling.schemas import ScheduledSlotDTO
 from app.utils.helpers import parse_time_str, time_to_minutes
 from app.config import settings
 
@@ -189,22 +191,24 @@ class AttendanceEngine:
             upload_id,
         )
 
-        # ── Step 2: Load all designations (scoped to active academic period) ──
-        all_designations: list[Designation] = (
-            db.query(Designation)
-            .filter(Designation.academic_period == settings.ACTIVE_ACADEMIC_PERIOD)
-            .all()
-        )
+        # ── Step 2: Get active academic period ID ──
+        active_period = AcademicPeriodService.get_active_period(db)
+        if not active_period:
+            raise ValueError("No active academic period found")
 
-        # Index: teacher_ci → list[Designation]
-        desig_index: dict[str, list[Designation]] = {}
-        for d in all_designations:
-            desig_index.setdefault(d.teacher_ci, []).append(d)
+        # ── Step 3: Load all scheduled slots for the active period ──
+        slot_service = SlotReadService(db)
+        all_slots: list[ScheduledSlotDTO] = slot_service.get_slots_for_period(active_period.id)
+
+        # Index: teacher_ci → list[ScheduledSlotDTO]
+        slot_index: dict[str, list[ScheduledSlotDTO]] = {}
+        for slot in all_slots:
+            slot_index.setdefault(slot.teacher_ci, []).append(slot)
 
         logger.info(
-            "process_month: loaded %d designations for %d teachers",
-            len(all_designations),
-            len(desig_index),
+            "process_month: loaded %d slots for %d teachers",
+            len(all_slots),
+            len(slot_index),
         )
 
         # ── Step 3: Build list of dates to process ─────────────────────
@@ -239,21 +243,18 @@ class AttendanceEngine:
 
             # Collect teachers who have at least one slot on this weekday
             teachers_today: set[str] = set()
-            for ci, designations in desig_index.items():
-                for desig in designations:
-                    schedule: list[dict] = desig.schedule_json or []
-                    if any(_normalize_day(slot.get("dia", "")) == weekday_name for slot in schedule):
-                        teachers_today.add(ci)
-                        break  # one match per teacher is enough
+            for ci, slots in slot_index.items():
+                if any(_normalize_day(slot.day_name) == weekday_name for slot in slots):
+                    teachers_today.add(ci)
 
             for ci in teachers_today:
-                teacher_designations = desig_index.get(ci, [])
+                teacher_slots = slot_index.get(ci, [])
                 teacher_bio = bio_index.get(ci, {}).get(target_date, [])
 
                 day_results = self.match_teacher_day(
                     teacher_ci=ci,
                     target_date=target_date,
-                    designations=teacher_designations,
+                    slots=teacher_slots,
                     biometric_records=teacher_bio,
                 )
                 all_results.extend(day_results)
@@ -298,7 +299,7 @@ class AttendanceEngine:
         self,
         teacher_ci: str,
         target_date: date,
-        designations: list[Designation],
+        slots: list[ScheduledSlotDTO],
         biometric_records: list[BiometricRecord],
     ) -> list[SlotResult]:
         """
@@ -311,7 +312,7 @@ class AttendanceEngine:
         ----------
         teacher_ci        : Teacher identifier
         target_date       : The date being processed
-        designations      : ALL Designation objects for this teacher
+        slots             : ALL ScheduledSlotDTO objects for this teacher
                             (day filtering happens here internally)
         biometric_records : All BiometricRecord rows for this teacher on target_date
 
@@ -323,20 +324,16 @@ class AttendanceEngine:
         results: list[SlotResult] = []
 
         # ── Collect all slots scheduled for today ───────────────────────
-        day_slots: list[tuple[Designation, dict]] = []
-        for desig in designations:
-            schedule: list[dict] = desig.schedule_json or []
-            for slot in schedule:
-                if _normalize_day(slot.get("dia", "")) == weekday_name:
-                    day_slots.append((desig, slot))
+        day_slots: list[ScheduledSlotDTO] = []
+        for slot in slots:
+            if _normalize_day(slot.day_name) == weekday_name:
+                day_slots.append(slot)
 
         if not day_slots:
             return results  # Nothing scheduled today for this teacher
 
         # Sort slots by start time (ascending)
-        day_slots.sort(
-            key=lambda x: parse_time_str(x[1].get("hora_inicio", "00:00")) or time(0, 0)
-        )
+        day_slots.sort(key=lambda x: x.start_time)
 
         # Sort biometric records by entry_time (records with no entry go last)
         bio_sorted = sorted(
@@ -345,19 +342,10 @@ class AttendanceEngine:
         )
 
         # ── Match each slot ─────────────────────────────────────────────
-        for desig, slot in day_slots:
-            slot_start = parse_time_str(slot.get("hora_inicio", ""))
-            slot_end = parse_time_str(slot.get("hora_fin", ""))
-            slot_hours: int = slot.get("horas_academicas", 0)
-
-            if slot_start is None or slot_end is None:
-                logger.warning(
-                    "Designation %d has unparseable time slot: %s – %s",
-                    desig.id,
-                    slot.get("hora_inicio"),
-                    slot.get("hora_fin"),
-                )
-                continue
+        for slot in day_slots:
+            slot_start = slot.start_time
+            slot_end = slot.end_time
+            slot_hours = slot.academic_hours
 
             covering = self._find_covering_record(slot_start, slot_end, bio_sorted)
 
@@ -365,7 +353,7 @@ class AttendanceEngine:
                 bio_rec, status, late_min, obs = covering
                 results.append(
                     SlotResult(
-                        designation_id=desig.id,
+                        designation_id=slot.designation_id,
                         teacher_ci=teacher_ci,
                         date=target_date,
                         scheduled_start=slot_start,
@@ -377,14 +365,14 @@ class AttendanceEngine:
                         late_minutes=late_min,
                         observation=obs,
                         biometric_record_id=bio_rec.id,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
+                        subject=slot.subject,
+                        group_code=slot.group_code,
                     )
                 )
             else:
                 results.append(
                     SlotResult(
-                        designation_id=desig.id,
+                        designation_id=slot.designation_id,
                         teacher_ci=teacher_ci,
                         date=target_date,
                         scheduled_start=slot_start,
@@ -396,12 +384,12 @@ class AttendanceEngine:
                         late_minutes=0,
                         observation=(
                             f"Sin registro biométrico para "
-                            f"{slot.get('hora_inicio', '?')}"
-                            f"-{slot.get('hora_fin', '?')}"
+                            f"{slot_start.strftime('%H:%M') if slot_start else '?'}"
+                            f"-{slot_end.strftime('%H:%M') if slot_end else '?'}"
                         ),
                         biometric_record_id=None,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
+                        subject=slot.subject,
+                        group_code=slot.group_code,
                     )
                 )
 
