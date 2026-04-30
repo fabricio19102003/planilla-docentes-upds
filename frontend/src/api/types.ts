@@ -346,6 +346,75 @@ export interface UploadDesignationsPayload {
   onProgress?: (progress: number) => void
 }
 
+// ─── Scheduling Admin ─────────────────────────────────────────────────────────
+export interface AcademicPeriodResponse {
+  id: number
+  code: string
+  name: string
+  start_date: string
+  end_date: string
+  status: string
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface CreateAcademicPeriodPayload {
+  code: string
+  name: string
+  start_date: string
+  end_date: string
+  status: string
+  is_active: boolean
+}
+
+export interface RoomType {
+  id: number
+  code: string
+  name: string
+  description: string | null
+}
+
+export interface CreateRoomTypePayload {
+  code: string
+  name: string
+  description?: string
+}
+
+export interface Equipment {
+  id: number
+  code: string
+  name: string
+  description: string | null
+}
+
+export interface CreateEquipmentPayload {
+  code: string
+  name: string
+  description?: string
+}
+
+export interface Room {
+  id: number
+  code: string
+  name: string
+  building: string
+  floor: string
+  capacity: number
+  room_type_id: number
+  description: string | null
+}
+
+export interface CreateRoomPayload {
+  code: string
+  name: string
+  building: string
+  floor: string
+  capacity: number
+  room_type_id: number
+  description?: string
+}
+
 // ─── Portal Profile Update ────────────────────────────────────────────────────
 export interface ProfileUpdatePayload {
   email?: string

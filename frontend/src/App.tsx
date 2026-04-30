@@ -20,6 +20,7 @@ import { ActivityLogPage } from './pages/ActivityLogPage'
 import { ContractsPage } from './pages/ContractsPage'
 import { BackupPage } from './pages/BackupPage'
 import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
+import { SchedulingPage } from './pages/SchedulingPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -75,6 +76,7 @@ function AppRoutes() {
             <Route path="contracts" element={<ContractsPage />} />
             <Route path="activity" element={<ActivityLogPage />} />
             <Route path="backup" element={<BackupPage />} />
+            <Route path="scheduling" element={<SchedulingPage />} />
           </Route>
 
           {/* Docente routes */}

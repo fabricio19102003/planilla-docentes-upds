@@ -21,6 +21,7 @@ import {
   ChevronRight,
   FileSignature,
   Database,
+  Settings,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -49,6 +50,7 @@ const adminNavItems: NavItem[] = [
   { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
   { to: '/activity', label: 'Registro de Actividad', icon: Activity },
   { to: '/backup', label: 'Respaldos', icon: Database },
+  { to: '/scheduling', label: 'Configuración Horario', icon: Settings },
 ]
 
 const docenteNavItems: NavItem[] = [
