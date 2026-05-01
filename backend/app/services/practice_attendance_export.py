@@ -11,8 +11,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, cm
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from sqlalchemy.orm import Session
 
 from app.models.practice_attendance import PracticeAttendanceLog
@@ -28,6 +28,7 @@ MONTH_NAMES = {
     9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
 }
 
+# ── UPDS Brand Colors ────────────────────────────────────────────────────────
 NAVY = colors.HexColor("#003366")
 BLUE = colors.HexColor("#0066CC")
 LIGHT_BLUE = colors.HexColor("#E8F4FD")
@@ -36,8 +37,11 @@ YELLOW_BG = colors.HexColor("#FFFBEB")
 RED_BG = colors.HexColor("#FEF2F2")
 BLUE_BG = colors.HexColor("#EFF6FF")
 LIGHT_GRAY = colors.HexColor("#F5F5F5")
+DARK_GRAY = colors.HexColor("#666666")
 
 OUTPUT_DIR = Path("data/output")
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "data" / "assets"
+ISOLOGO_PATH = ASSETS_DIR / "isologo_upds.png"
 
 STATUS_LABELS = {
     "attended": "ASISTIO",
@@ -111,15 +115,19 @@ def generate_practice_attendance_pdf(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     teacher_ci: Optional[str] = None,
+    generated_by: str = "Sistema",
+    generated_by_ci: str = "",
+    client_ip: str = "unknown",
 ) -> Path:
-    """Generate a PDF of the practice attendance list.
+    """Generate a branded UPDS PDF of the practice attendance list.
 
     The PDF replicates the physical attendance list that practice teachers
-    used to sign on paper. Grouped by teacher, then by date.
+    used to sign on paper. Grouped by teacher, then by date. Includes
+    professional audit footer with user/IP/timestamp.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    company_name = app_settings_service.get_company_name(db)
+    period_name = app_settings_service.get_active_academic_period(db)
 
     logs = _query_logs(db, month, year, start_date, end_date, teacher_ci)
 
@@ -133,6 +141,7 @@ def generate_practice_attendance_pdf(
             teacher_names[log.teacher_ci] = teacher.full_name if teacher else log.teacher_ci
 
     date_range = _date_range_str(month, year, start_date, end_date)
+    generation_ts = datetime.now()
     filename = f"asistencia_practicas_{month:02d}_{year}.pdf"
     filepath = OUTPUT_DIR / filename
 
@@ -140,32 +149,75 @@ def generate_practice_attendance_pdf(
         str(filepath),
         pagesize=landscape(A4),
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+        topMargin=1.5 * cm, bottomMargin=2 * cm,
     )
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "CustomTitle", parent=styles["Title"],
-        fontSize=16, textColor=NAVY, spaceAfter=2 * mm,
+
+    # ── Branded UPDS Header ──────────────────────────────────────────────
+    elements: list = []
+
+    # Logo + institution name side by side
+    if ISOLOGO_PATH.exists():
+        logo = Image(str(ISOLOGO_PATH), width=2 * cm, height=2 * cm)
+        logo.hAlign = "LEFT"
+        elements.append(logo)
+        elements.append(Spacer(1, 2 * mm))
+
+    # Title bar (navy background)
+    title_bar_style = ParagraphStyle(
+        "TitleBar", parent=styles["Normal"],
+        fontSize=13, textColor=colors.white,
+        fontName="Helvetica-Bold", leading=17, alignment=TA_LEFT,
     )
-    subtitle_style = ParagraphStyle(
-        "Subtitle", parent=styles["Normal"],
-        fontSize=11, textColor=BLUE, spaceAfter=4 * mm, alignment=TA_CENTER,
+    title_table = Table(
+        [[Paragraph("Universidad Privada Domingo Savio — UPDS", title_bar_style)]],
+        colWidths=["100%"],
     )
+    title_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    elements.append(title_table)
+    elements.append(Spacer(1, 2 * mm))
+
+    # Subtitle line
+    sub_style = ParagraphStyle(
+        "SubLine", parent=styles["Normal"],
+        fontSize=9, textColor=DARK_GRAY, alignment=TA_LEFT,
+    )
+    elements.append(Paragraph(
+        f"Facultad de Medicina · Periodo {period_name}",
+        sub_style,
+    ))
+    elements.append(Spacer(1, 4 * mm))
+
+    # Report title
+    report_title_style = ParagraphStyle(
+        "ReportTitle", parent=styles["Normal"],
+        fontSize=14, textColor=NAVY, fontName="Helvetica-Bold",
+        alignment=TA_CENTER, spaceAfter=2 * mm,
+    )
+    elements.append(Paragraph(
+        f"Control de Asistencia — Practicas Internas",
+        report_title_style,
+    ))
+
+    report_period_style = ParagraphStyle(
+        "ReportPeriod", parent=styles["Normal"],
+        fontSize=11, textColor=BLUE, alignment=TA_CENTER, spaceAfter=4 * mm,
+    )
+    elements.append(Paragraph(f"Periodo: {date_range}", report_period_style))
+    elements.append(Spacer(1, 3 * mm))
+
+    # ── Teacher sections ─────────────────────────────────────────────────
     teacher_header_style = ParagraphStyle(
         "TeacherHeader", parent=styles["Heading2"],
         fontSize=12, textColor=NAVY, spaceBefore=6 * mm, spaceAfter=2 * mm,
     )
-
-    elements: list = []
-
-    # Title
-    elements.append(Paragraph(f"{company_name}", title_style))
-    elements.append(Paragraph(
-        f"Control de Asistencia — Practicas Internas — {date_range}",
-        subtitle_style,
-    ))
-    elements.append(Spacer(1, 4 * mm))
 
     for ci in sorted(teacher_groups.keys(), key=lambda c: teacher_names.get(c, "")):
         group_logs = teacher_groups[ci]
@@ -179,7 +231,7 @@ def generate_practice_attendance_pdf(
         absent = sum(1 for l in group_logs if l.status == "absent")
         rate = round(attended / total * 100, 1) if total > 0 else 0
 
-        summary_style = ParagraphStyle("Summary", parent=styles["Normal"], fontSize=9, textColor=colors.gray)
+        summary_style = ParagraphStyle("Summary", parent=styles["Normal"], fontSize=9, textColor=DARK_GRAY)
         elements.append(Paragraph(
             f"Clases programadas: {total} | Asistidas: {attended} | Ausentes: {absent} | Tasa: {rate}%",
             summary_style,
@@ -215,21 +267,18 @@ def generate_practice_attendance_pdf(
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
 
         style_commands = [
-            # Header
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, 0), 8),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            # Data rows
             ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
             ("FONTSIZE", (0, 1), (-1, -1), 8),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
         ]
 
-        # Status-based cell coloring
         for i, log in enumerate(group_logs, start=1):
             bg = STATUS_COLORS.get(log.status, colors.white)
             style_commands.append(("BACKGROUND", (7, i), (7, i), bg))
@@ -244,15 +293,70 @@ def generate_practice_attendance_pdf(
             styles["Normal"],
         ))
 
-    # Footer
-    footer_style = ParagraphStyle(
-        "Footer", parent=styles["Normal"],
-        fontSize=7, textColor=colors.gray, alignment=TA_CENTER,
-    )
+    # ── Professional Audit Footer ────────────────────────────────────────
     elements.append(Spacer(1, 10 * mm))
+
+    # Separator line
+    separator = Table([[""]], colWidths=["100%"])
+    separator.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 1, NAVY),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(separator)
+
+    # Audit info table
+    footer_left_style = ParagraphStyle(
+        "FooterLeft", parent=styles["Normal"],
+        fontSize=7, textColor=DARK_GRAY, alignment=TA_LEFT,
+    )
+    footer_right_style = ParagraphStyle(
+        "FooterRight", parent=styles["Normal"],
+        fontSize=7, textColor=DARK_GRAY, alignment=TA_RIGHT,
+    )
+
+    footer_data = [
+        [
+            Paragraph(
+                f"<b>Generado por:</b> {generated_by} (CI: {generated_by_ci})",
+                footer_left_style,
+            ),
+            Paragraph(
+                f"<b>Fecha/Hora:</b> {generation_ts.strftime('%d/%m/%Y %H:%M:%S')}",
+                footer_right_style,
+            ),
+        ],
+        [
+            Paragraph(
+                f"<b>Direccion IP:</b> {client_ip}",
+                footer_left_style,
+            ),
+            Paragraph(
+                f"<b>Sistema:</b> SIPAD v1.0 — Universidad Privada Domingo Savio",
+                footer_right_style,
+            ),
+        ],
+    ]
+
+    footer_table = Table(footer_data, colWidths=["50%", "50%"])
+    footer_table.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(footer_table)
+
+    # Disclaimer
+    disclaimer_style = ParagraphStyle(
+        "Disclaimer", parent=styles["Normal"],
+        fontSize=6, textColor=colors.HexColor("#999999"), alignment=TA_CENTER,
+        spaceBefore=3 * mm,
+    )
     elements.append(Paragraph(
-        f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M')} — SIPAD",
-        footer_style,
+        "Este documento fue generado automaticamente por SIPAD. "
+        "Cualquier alteracion manual invalida su contenido. "
+        "Para verificar su autenticidad, contacte a la administracion de la Facultad de Medicina.",
+        disclaimer_style,
     ))
 
     doc.build(elements)

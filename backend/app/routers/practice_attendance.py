@@ -423,18 +423,23 @@ def delete_practice_attendance(
 def export_practice_attendance_pdf(
     month: int,
     year: int,
+    request: Request,
     start_date: date | None = None,
     end_date: date | None = None,
     teacher_ci: str | None = None,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     """Export practice attendance as PDF."""
     try:
+        client_ip = request.client.host if request.client else "unknown"
         filepath = generate_practice_attendance_pdf(
             db, month, year,
             start_date=start_date, end_date=end_date,
             teacher_ci=teacher_ci,
+            generated_by=current_user.full_name or current_user.ci,
+            generated_by_ci=current_user.ci,
+            client_ip=client_ip,
         )
         return FileResponse(
             path=str(filepath),
