@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, cm
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -147,9 +147,9 @@ def generate_practice_attendance_pdf(
 
     doc = SimpleDocTemplate(
         str(filepath),
-        pagesize=landscape(A4),
+        pagesize=A4,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=1.5 * cm, bottomMargin=2 * cm,
+        topMargin=1.5 * cm, bottomMargin=2.5 * cm,
     )
 
     styles = getSampleStyleSheet()
@@ -239,12 +239,22 @@ def generate_practice_attendance_pdf(
         elements.append(Spacer(1, 2 * mm))
 
         # Table
-        headers = [
-            "Fecha", "Materia", "Grupo", "Horario Program.",
-            "Hora Llegada", "Hora Salida", "Hrs Acad.", "Estado", "Observacion",
+        header_cell_style = ParagraphStyle("HeaderCell", fontSize=7, leading=8,
+            textColor=colors.white, fontName="Helvetica-Bold", alignment=TA_CENTER)
+
+        headers_wrapped = [
+            Paragraph("Fecha", header_cell_style),
+            Paragraph("Materia", header_cell_style),
+            Paragraph("Grupo", header_cell_style),
+            Paragraph("Horario<br/>Program.", header_cell_style),
+            Paragraph("Hora<br/>Llegada", header_cell_style),
+            Paragraph("Hora<br/>Salida", header_cell_style),
+            Paragraph("Hrs<br/>Acad.", header_cell_style),
+            Paragraph("Estado", header_cell_style),
+            Paragraph("Observacion", header_cell_style),
         ]
 
-        table_data = [headers]
+        table_data = [headers_wrapped]
         for log in group_logs:
             desig = db.query(Designation).filter(Designation.id == log.designation_id).first()
             subject = desig.subject if desig else "—"
@@ -262,7 +272,7 @@ def generate_practice_attendance_pdf(
                 Paragraph(log.observation or "", ParagraphStyle("CellObs", fontSize=7, leading=8)),
             ])
 
-        col_widths = [55, 120, 40, 75, 50, 50, 35, 60, 120]
+        col_widths = [52, 85, 30, 62, 42, 42, 28, 55, 95]
 
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
 
@@ -293,73 +303,50 @@ def generate_practice_attendance_pdf(
             styles["Normal"],
         ))
 
-    # ── Professional Audit Footer ────────────────────────────────────────
-    elements.append(Spacer(1, 10 * mm))
+    # ── Fixed Footer (drawn on every page via onPage callback) ─────────
+    def _draw_page_footer(canvas, doc_obj):
+        """Draw fixed footer on every page."""
+        canvas.saveState()
+        page_width, page_height = A4  # portrait
 
-    # Separator line
-    separator = Table([[""]], colWidths=["100%"])
-    separator.setStyle(TableStyle([
-        ("LINEABOVE", (0, 0), (-1, 0), 1, NAVY),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(separator)
+        # Separator line
+        y_line = 55
+        canvas.setStrokeColor(NAVY)
+        canvas.setLineWidth(1)
+        canvas.line(1.5 * cm, y_line, page_width - 1.5 * cm, y_line)
 
-    # Audit info table
-    footer_left_style = ParagraphStyle(
-        "FooterLeft", parent=styles["Normal"],
-        fontSize=7, textColor=DARK_GRAY, alignment=TA_LEFT,
-    )
-    footer_right_style = ParagraphStyle(
-        "FooterRight", parent=styles["Normal"],
-        fontSize=7, textColor=DARK_GRAY, alignment=TA_RIGHT,
-    )
+        # Audit info
+        canvas.setFont("Helvetica", 6)
+        canvas.setFillColor(DARK_GRAY)
 
-    footer_data = [
-        [
-            Paragraph(
-                f"<b>Generado por:</b> {generated_by} (CI: {generated_by_ci})",
-                footer_left_style,
-            ),
-            Paragraph(
-                f"<b>Fecha/Hora:</b> {generation_ts.strftime('%d/%m/%Y %H:%M:%S')}",
-                footer_right_style,
-            ),
-        ],
-        [
-            Paragraph(
-                f"<b>Direccion IP:</b> {client_ip}",
-                footer_left_style,
-            ),
-            Paragraph(
-                f"<b>Sistema:</b> SIPAD v1.0 — Universidad Privada Domingo Savio",
-                footer_right_style,
-            ),
-        ],
-    ]
+        left_x = 1.5 * cm
+        right_x = page_width - 1.5 * cm
 
-    footer_table = Table(footer_data, colWidths=["50%", "50%"])
-    footer_table.setStyle(TableStyle([
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    elements.append(footer_table)
+        # Line 1
+        y1 = y_line - 10
+        canvas.drawString(left_x, y1, f"Generado por: {generated_by} (CI: {generated_by_ci})")
+        canvas.drawRightString(right_x, y1, f"Fecha/Hora: {generation_ts.strftime('%d/%m/%Y %H:%M:%S')}")
 
-    # Disclaimer
-    disclaimer_style = ParagraphStyle(
-        "Disclaimer", parent=styles["Normal"],
-        fontSize=6, textColor=colors.HexColor("#999999"), alignment=TA_CENTER,
-        spaceBefore=3 * mm,
-    )
-    elements.append(Paragraph(
-        "Este documento fue generado automaticamente por SIPAD. "
-        "Cualquier alteracion manual invalida su contenido. "
-        "Para verificar su autenticidad, contacte a la administracion de la Facultad de Medicina.",
-        disclaimer_style,
-    ))
+        # Line 2
+        y2 = y1 - 9
+        canvas.drawString(left_x, y2, f"Direccion IP: {client_ip}")
+        canvas.drawRightString(right_x, y2, "Sistema: SIPAD v1.0 — Universidad Privada Domingo Savio")
 
-    doc.build(elements)
+        # Page number
+        y3 = y2 - 9
+        canvas.drawCentredString(page_width / 2, y3, f"Pagina {canvas.getPageNumber()}")
+
+        # Disclaimer
+        canvas.setFont("Helvetica", 5)
+        canvas.setFillColor(colors.HexColor("#999999"))
+        y4 = y3 - 8
+        canvas.drawCentredString(page_width / 2, y4,
+            "Este documento fue generado automaticamente por SIPAD. "
+            "Cualquier alteracion manual invalida su contenido.")
+
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=_draw_page_footer, onLaterPages=_draw_page_footer)
     logger.info("Generated practice attendance PDF: %s", filepath)
     return filepath
 

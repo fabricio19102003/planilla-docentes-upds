@@ -11,6 +11,11 @@ import {
   Trash2,
   FileText,
   FileSpreadsheet,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  CheckCheck,
+  X,
 } from 'lucide-react'
 import {
   usePracticeAttendance,
@@ -66,6 +71,18 @@ function formatTime(timeStr: string | null): string {
   return timeStr.slice(0, 5)
 }
 
+const DAY_NAMES_FULL = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado']
+
+function formatFullDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  const dayName = DAY_NAMES_FULL[d.getDay()]
+  const day = d.getDate()
+  const monthName = MONTH_NAMES[d.getMonth() + 1]
+  const year = d.getFullYear()
+  return `${dayName} ${day} de ${monthName} de ${year}`
+}
+
 export function PracticeAttendancePage() {
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -75,10 +92,12 @@ export function PracticeAttendancePage() {
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
   const [teacherFilter, setTeacherFilter] = useState<string>('')
+  const [selectedDate, setSelectedDate] = useState<string>('')
   const [editingObs, setEditingObs] = useState<number | null>(null)
   const [obsValue, setObsValue] = useState('')
   const [pdfLoading, setPdfLoading] = useState(false)
   const [excelLoading, setExcelLoading] = useState(false)
+  const [bulkLoading, setBulkLoading] = useState(false)
 
   const { data: entries, isLoading } = usePracticeAttendance(
     month, year,
@@ -105,11 +124,26 @@ export function PracticeAttendancePage() {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [entries])
 
-  // Group entries by teacher
-  const grouped = useMemo(() => {
+  // Filter entries by selected date
+  const filteredEntries = useMemo(() => {
     if (!entries) return []
+    if (!selectedDate) return entries
+    return entries.filter((e) => e.date === selectedDate)
+  }, [entries, selectedDate])
+
+  // Daily view: flat list sorted by scheduled_start
+  const dailyEntries = useMemo(() => {
+    if (!selectedDate || !filteredEntries.length) return []
+    return [...filteredEntries].sort((a, b) =>
+      (a.scheduled_start ?? '').localeCompare(b.scheduled_start ?? ''),
+    )
+  }, [selectedDate, filteredEntries])
+
+  // Group entries by teacher (uses filteredEntries so date filter applies)
+  const grouped = useMemo(() => {
+    if (!filteredEntries.length) return []
     const map = new Map<string, { name: string; entries: PracticeAttendanceEntry[] }>()
-    for (const e of entries) {
+    for (const e of filteredEntries) {
       const key = e.teacher_ci
       if (!map.has(key)) {
         map.set(key, { name: e.teacher_name ?? key, entries: [] })
@@ -117,7 +151,7 @@ export function PracticeAttendancePage() {
       map.get(key)!.entries.push(e)
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [entries])
+  }, [filteredEntries])
 
   // Summary totals
   const totals = useMemo(() => {
@@ -146,6 +180,27 @@ export function PracticeAttendancePage() {
       start_date: startDate || undefined,
       end_date: endDate || undefined,
     })
+  }
+
+  async function handleBulkStatus(newStatus: 'attended' | 'absent') {
+    if (!dailyEntries.length) return
+    setBulkLoading(true)
+    try {
+      for (const entry of dailyEntries) {
+        if (entry.status !== newStatus) {
+          await updateMutation.mutateAsync({ id: entry.id, status: newStatus })
+        }
+      }
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  function navigateDate(direction: -1 | 1) {
+    if (!selectedDate) return
+    const d = new Date(selectedDate + 'T00:00:00')
+    d.setDate(d.getDate() + direction)
+    setSelectedDate(d.toISOString().split('T')[0])
   }
 
   if (isLoading) return <LoadingPage />
@@ -231,6 +286,31 @@ export function PracticeAttendancePage() {
                 <option key={t.ci} value={t.ci}>{t.name}</option>
               ))}
             </select>
+          </div>
+
+          {/* Specific date filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <CalendarDays size={14} className="inline mr-1" />
+              Fecha Especifica
+            </label>
+            <div className="flex items-center gap-1">
+              <input
+                type="date"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate('')}
+                  className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                  title="Limpiar fecha"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Generate button */}
@@ -357,160 +437,356 @@ export function PracticeAttendancePage() {
         </div>
       )}
 
-      {/* Detailed entries grouped by teacher */}
-      {grouped.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <AlertTriangle size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500 text-lg">No hay registros de asistencia para este periodo</p>
-          <p className="text-gray-400 text-sm mt-1">Usa el boton "Generar Asistencia" para crear los registros desde el horario</p>
-        </div>
+      {/* ===== DAILY VIEW (when a specific date is selected) ===== */}
+      {selectedDate && (
+        <>
+          {/* Daily view header with navigation */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => navigateDate(-1)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                  Dia anterior
+                </button>
+                <div className="text-center">
+                  <h2 className="text-lg font-semibold text-blue-800">
+                    <CalendarDays size={18} className="inline mr-2" />
+                    Asistencia del {formatFullDate(selectedDate)}
+                  </h2>
+                  <p className="text-sm text-blue-600">
+                    {dailyEntries.length} clase{dailyEntries.length !== 1 ? 's' : ''} programada{dailyEntries.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigateDate(1)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Dia siguiente
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Bulk action buttons */}
+              {dailyEntries.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleBulkStatus('attended')}
+                    disabled={bulkLoading || updateMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-100 text-green-700 border border-green-300 rounded-lg hover:bg-green-200 disabled:opacity-50 transition-colors"
+                  >
+                    {bulkLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />}
+                    Todos Asistieron
+                  </button>
+                  <button
+                    onClick={() => handleBulkStatus('absent')}
+                    disabled={bulkLoading || updateMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-100 text-red-700 border border-red-300 rounded-lg hover:bg-red-200 disabled:opacity-50 transition-colors"
+                  >
+                    {bulkLoading ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                    Todos Ausentes
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Daily flat table */}
+          {dailyEntries.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+              <Calendar size={48} className="mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-500 text-lg">No hay clases programadas para esta fecha</p>
+              <p className="text-gray-400 text-sm mt-1">Selecciona otra fecha o usa los botones de navegacion</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Docente</th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600">Materia</th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600">Grupo</th>
+                      <th className="text-center px-3 py-3 font-medium text-gray-600">Horario</th>
+                      <th className="text-center px-3 py-3 font-medium text-gray-600">Estado</th>
+                      <th className="text-center px-3 py-3 font-medium text-gray-600">Hora Llegada</th>
+                      <th className="text-center px-3 py-3 font-medium text-gray-600">Hora Salida</th>
+                      <th className="text-left px-3 py-3 font-medium text-gray-600">Obs</th>
+                      <th className="px-2 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {dailyEntries.map((entry) => {
+                      const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+                      return (
+                        <tr key={entry.id} className={`hover:bg-gray-50 ${cfg.rowBg}`}>
+                          <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">
+                            {entry.teacher_name ?? entry.teacher_ci}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
+                            {entry.subject}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-600">{entry.group_code}</td>
+                          <td className="text-center px-3 py-2.5 text-gray-600 whitespace-nowrap">
+                            {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                          </td>
+                          <td className="text-center px-3 py-2.5">
+                            <select
+                              className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
+                              value={entry.status}
+                              onChange={(e) => handleStatusChange(entry, e.target.value)}
+                              disabled={updateMutation.isPending}
+                            >
+                              {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
+                                <option key={value} value={value}>{sc.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="text-center px-3 py-2.5">
+                            <input
+                              type="time"
+                              step="60"
+                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
+                              value={entry.actual_start?.slice(0, 5) ?? ''}
+                              onChange={(e) => {
+                                const newStart = e.target.value || undefined
+                                updateMutation.mutate({ id: entry.id, actual_start: newStart })
+                                if (newStart && entry.scheduled_start) {
+                                  const newStatus = autoSetStatus(entry.scheduled_start, newStart)
+                                  if (newStatus && newStatus !== entry.status) {
+                                    updateMutation.mutate({ id: entry.id, status: newStatus })
+                                  }
+                                }
+                              }}
+                            />
+                          </td>
+                          <td className="text-center px-3 py-2.5">
+                            <input
+                              type="time"
+                              step="60"
+                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
+                              value={entry.actual_end?.slice(0, 5) ?? ''}
+                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
+                            />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            {editingObs === entry.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  className="border border-gray-300 rounded px-2 py-1 text-xs w-32"
+                                  value={obsValue}
+                                  onChange={(e) => setObsValue(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && handleObsSave(entry.id)}
+                                  autoFocus
+                                />
+                                <button
+                                  className="text-green-600 hover:text-green-800"
+                                  onClick={() => handleObsSave(entry.id)}
+                                >
+                                  <CheckCircle size={14} />
+                                </button>
+                                <button
+                                  className="text-gray-400 hover:text-gray-600"
+                                  onClick={() => { setEditingObs(null); setObsValue('') }}
+                                >
+                                  <XCircle size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span
+                                className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 truncate max-w-[120px] inline-block"
+                                title={entry.observation ?? 'Click para agregar'}
+                                onClick={() => { setEditingObs(entry.id); setObsValue(entry.observation ?? '') }}
+                              >
+                                {entry.observation || <span className="italic text-gray-300">sin obs.</span>}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5">
+                            <button
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Eliminar"
+                              onClick={() => {
+                                if (confirm('Eliminar este registro de asistencia?')) {
+                                  deleteMutation.mutate(entry.id)
+                                }
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {grouped.map((group) => (
-        <div key={group.name} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-            <h3 className="text-base font-semibold text-gray-800">{group.name}</h3>
-            <p className="text-xs text-gray-500">{group.entries.length} registros</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50/50">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Materia</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Grupo</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Horario Prog.</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Inicio</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Fin</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Hrs</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Observacion</th>
-                  <th className="px-2 py-2"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {group.entries.map((entry, idx, arr) => {
-                  const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
-                  const showDateHeader = idx === 0 || arr[idx - 1].date !== entry.date
-                  return (
-                    <Fragment key={entry.id}>
-                    {showDateHeader && (
-                      <tr className="bg-gray-100/80">
-                        <td colSpan={10} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                          {formatDate(entry.date)}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className={`hover:bg-gray-100/60 ${cfg.rowBg}`}>
-                      <td className="px-4 py-2 whitespace-nowrap text-gray-700">{formatDate(entry.date)}</td>
-                      <td className="px-3 py-2 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
-                        {entry.subject}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600">{entry.group_code}</td>
-                      <td className="text-center px-3 py-2 text-gray-600 whitespace-nowrap">
-                        {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
-                      </td>
-                      <td className="text-center px-3 py-2">
-                        <select
-                          className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
-                          value={entry.status}
-                          onChange={(e) => handleStatusChange(entry, e.target.value)}
-                          disabled={updateMutation.isPending}
-                        >
-                          {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
-                            <option key={value} value={value}>{sc.label}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="text-center px-3 py-2">
-                        <input
-                          type="time"
-                          step="60"
-                          placeholder="HH:MM"
-                          className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                          value={entry.actual_start?.slice(0, 5) ?? ''}
-                          onChange={(e) => {
-                            const newStart = e.target.value || undefined
-                            updateMutation.mutate({ id: entry.id, actual_start: newStart })
-                            if (newStart && entry.scheduled_start) {
-                              const newStatus = autoSetStatus(entry.scheduled_start, newStart)
-                              if (newStatus && newStatus !== entry.status) {
-                                updateMutation.mutate({ id: entry.id, status: newStatus })
-                              }
-                            }
-                          }}
-                        />
-                      </td>
-                      <td className="text-center px-3 py-2">
-                        <input
-                          type="time"
-                          step="60"
-                          placeholder="HH:MM"
-                          className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                          value={entry.actual_end?.slice(0, 5) ?? ''}
-                          onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
-                        />
-                      </td>
-                      <td className="text-center px-3 py-2 text-gray-600">{entry.academic_hours}h</td>
-                      <td className="px-3 py-2">
-                        {editingObs === entry.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="text"
-                              className="border border-gray-300 rounded px-2 py-1 text-xs w-32"
-                              value={obsValue}
-                              onChange={(e) => setObsValue(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleObsSave(entry.id)}
-                              autoFocus
-                            />
-                            <button
-                              className="text-green-600 hover:text-green-800"
-                              onClick={() => handleObsSave(entry.id)}
-                            >
-                              <CheckCircle size={14} />
-                            </button>
-                            <button
-                              className="text-gray-400 hover:text-gray-600"
-                              onClick={() => { setEditingObs(null); setObsValue('') }}
-                            >
-                              <XCircle size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <span
-                            className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 truncate max-w-[120px] inline-block"
-                            title={entry.observation ?? 'Click para agregar'}
-                            onClick={() => { setEditingObs(entry.id); setObsValue(entry.observation ?? '') }}
-                          >
-                            {entry.observation || <span className="italic text-gray-300">sin obs.</span>}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 py-2">
-                        <button
-                          className="text-gray-300 hover:text-red-500 transition-colors"
-                          title="Eliminar"
-                          onClick={() => {
-                            if (confirm('Eliminar este registro de asistencia?')) {
-                              deleteMutation.mutate(entry.id)
-                            }
-                          }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
+      {/* ===== GROUPED VIEW (when no specific date is selected) ===== */}
+      {!selectedDate && (
+        <>
+          {grouped.length === 0 && !isLoading && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+              <AlertTriangle size={48} className="mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-500 text-lg">No hay registros de asistencia para este periodo</p>
+              <p className="text-gray-400 text-sm mt-1">Usa el boton "Generar Asistencia" para crear los registros desde el horario</p>
+            </div>
+          )}
+
+          {grouped.map((group) => (
+            <div key={group.name} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                <h3 className="text-base font-semibold text-gray-800">{group.name}</h3>
+                <p className="text-xs text-gray-500">{group.entries.length} registros</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50/50">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Materia</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Grupo</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Horario Prog.</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Inicio</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Fin</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hrs</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Observacion</th>
+                      <th className="px-2 py-2"></th>
                     </tr>
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))}
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {group.entries.map((entry, idx, arr) => {
+                      const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+                      const showDateHeader = idx === 0 || arr[idx - 1].date !== entry.date
+                      return (
+                        <Fragment key={entry.id}>
+                        {showDateHeader && (
+                          <tr className="bg-gray-100/80">
+                            <td colSpan={10} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                              {formatDate(entry.date)}
+                            </td>
+                          </tr>
+                        )}
+                        <tr className={`hover:bg-gray-100/60 ${cfg.rowBg}`}>
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-700">{formatDate(entry.date)}</td>
+                          <td className="px-3 py-2 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
+                            {entry.subject}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600">{entry.group_code}</td>
+                          <td className="text-center px-3 py-2 text-gray-600 whitespace-nowrap">
+                            {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                          </td>
+                          <td className="text-center px-3 py-2">
+                            <select
+                              className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
+                              value={entry.status}
+                              onChange={(e) => handleStatusChange(entry, e.target.value)}
+                              disabled={updateMutation.isPending}
+                            >
+                              {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
+                                <option key={value} value={value}>{sc.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="text-center px-3 py-2">
+                            <input
+                              type="time"
+                              step="60"
+                              placeholder="HH:MM"
+                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
+                              value={entry.actual_start?.slice(0, 5) ?? ''}
+                              onChange={(e) => {
+                                const newStart = e.target.value || undefined
+                                updateMutation.mutate({ id: entry.id, actual_start: newStart })
+                                if (newStart && entry.scheduled_start) {
+                                  const newStatus = autoSetStatus(entry.scheduled_start, newStart)
+                                  if (newStatus && newStatus !== entry.status) {
+                                    updateMutation.mutate({ id: entry.id, status: newStatus })
+                                  }
+                                }
+                              }}
+                            />
+                          </td>
+                          <td className="text-center px-3 py-2">
+                            <input
+                              type="time"
+                              step="60"
+                              placeholder="HH:MM"
+                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
+                              value={entry.actual_end?.slice(0, 5) ?? ''}
+                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
+                            />
+                          </td>
+                          <td className="text-center px-3 py-2 text-gray-600">{entry.academic_hours}h</td>
+                          <td className="px-3 py-2">
+                            {editingObs === entry.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  className="border border-gray-300 rounded px-2 py-1 text-xs w-32"
+                                  value={obsValue}
+                                  onChange={(e) => setObsValue(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && handleObsSave(entry.id)}
+                                  autoFocus
+                                />
+                                <button
+                                  className="text-green-600 hover:text-green-800"
+                                  onClick={() => handleObsSave(entry.id)}
+                                >
+                                  <CheckCircle size={14} />
+                                </button>
+                                <button
+                                  className="text-gray-400 hover:text-gray-600"
+                                  onClick={() => { setEditingObs(null); setObsValue('') }}
+                                >
+                                  <XCircle size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span
+                                className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 truncate max-w-[120px] inline-block"
+                                title={entry.observation ?? 'Click para agregar'}
+                                onClick={() => { setEditingObs(entry.id); setObsValue(entry.observation ?? '') }}
+                              >
+                                {entry.observation || <span className="italic text-gray-300">sin obs.</span>}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2">
+                            <button
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Eliminar"
+                              onClick={() => {
+                                if (confirm('Eliminar este registro de asistencia?')) {
+                                  deleteMutation.mutate(entry.id)
+                                }
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
 
       {/* Loading overlay for mutations */}
-      {(updateMutation.isPending || deleteMutation.isPending) && (
+      {(updateMutation.isPending || deleteMutation.isPending || bulkLoading) && (
         <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm z-50">
           <Loader2 size={14} className="animate-spin" />
           Guardando...
