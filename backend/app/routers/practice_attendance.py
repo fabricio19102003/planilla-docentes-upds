@@ -5,6 +5,7 @@ from calendar import monthrange
 from datetime import date, time as time_type
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,10 @@ from app.schemas.practice_attendance import (
 )
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.practice_attendance_export import (
+    generate_practice_attendance_pdf,
+    generate_practice_attendance_excel,
+)
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -406,3 +411,57 @@ def delete_practice_attendance(
     db.commit()
 
     return {"success": True, "deleted_id": entry_id}
+
+
+@router.get("/{month}/{year}/export/pdf")
+def export_practice_attendance_pdf(
+    month: int,
+    year: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    teacher_ci: str | None = None,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Export practice attendance as PDF."""
+    try:
+        filepath = generate_practice_attendance_pdf(
+            db, month, year,
+            start_date=start_date, end_date=end_date,
+            teacher_ci=teacher_ci,
+        )
+        return FileResponse(
+            path=str(filepath),
+            filename=filepath.name,
+            media_type="application/pdf",
+        )
+    except Exception as exc:
+        logger.exception("Failed to generate practice attendance PDF: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al generar PDF de asistencia")
+
+
+@router.get("/{month}/{year}/export/excel")
+def export_practice_attendance_excel(
+    month: int,
+    year: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    teacher_ci: str | None = None,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Export practice attendance as Excel."""
+    try:
+        filepath = generate_practice_attendance_excel(
+            db, month, year,
+            start_date=start_date, end_date=end_date,
+            teacher_ci=teacher_ci,
+        )
+        return FileResponse(
+            path=str(filepath),
+            filename=filepath.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception as exc:
+        logger.exception("Failed to generate practice attendance Excel: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al generar Excel de asistencia")

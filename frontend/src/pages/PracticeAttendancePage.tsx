@@ -9,6 +9,8 @@ import {
   Clock,
   AlertTriangle,
   Trash2,
+  FileText,
+  FileSpreadsheet,
 } from 'lucide-react'
 import {
   usePracticeAttendance,
@@ -16,6 +18,8 @@ import {
   useGeneratePracticeAttendance,
   useUpdatePracticeAttendance,
   useDeletePracticeAttendance,
+  downloadPracticeAttendancePdf,
+  downloadPracticeAttendanceExcel,
 } from '@/api/hooks/usePracticeAttendance'
 import type { PracticeAttendanceEntry } from '@/api/hooks/usePracticeAttendance'
 import { StatCard } from '@/components/shared/StatCard'
@@ -59,6 +63,8 @@ export function PracticeAttendancePage() {
   const [teacherFilter, setTeacherFilter] = useState<string>('')
   const [editingObs, setEditingObs] = useState<number | null>(null)
   const [obsValue, setObsValue] = useState('')
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [excelLoading, setExcelLoading] = useState(false)
 
   const { data: entries, isLoading } = usePracticeAttendance(
     month, year,
@@ -227,6 +233,46 @@ export function PracticeAttendancePage() {
               )}
               Generar Asistencia
             </Button>
+          </div>
+
+          {/* Export buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                setPdfLoading(true)
+                try {
+                  await downloadPracticeAttendancePdf({
+                    month, year,
+                    start_date: startDate || undefined,
+                    end_date: endDate || undefined,
+                    teacher_ci: teacherFilter || undefined,
+                  })
+                } finally { setPdfLoading(false) }
+              }}
+              disabled={pdfLoading}
+              className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+            >
+              {pdfLoading ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+              Exportar PDF
+            </button>
+            <button
+              onClick={async () => {
+                setExcelLoading(true)
+                try {
+                  await downloadPracticeAttendanceExcel({
+                    month, year,
+                    start_date: startDate || undefined,
+                    end_date: endDate || undefined,
+                    teacher_ci: teacherFilter || undefined,
+                  })
+                } finally { setExcelLoading(false) }
+              }}
+              disabled={excelLoading}
+              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+            >
+              {excelLoading ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+              Exportar Excel
+            </button>
           </div>
         </div>
 

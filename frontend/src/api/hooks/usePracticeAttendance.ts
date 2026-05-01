@@ -120,3 +120,53 @@ export function useDeletePracticeAttendance() {
     },
   })
 }
+
+// Export PDF
+export async function downloadPracticeAttendancePdf(params: {
+  month: number; year: number;
+  start_date?: string; end_date?: string;
+  teacher_ci?: string;
+}) {
+  const qp = new URLSearchParams()
+  if (params.start_date) qp.set('start_date', params.start_date)
+  if (params.end_date) qp.set('end_date', params.end_date)
+  if (params.teacher_ci) qp.set('teacher_ci', params.teacher_ci)
+  const qs = qp.toString()
+  const response = await api.get(
+    `/practice-attendance/${params.month}/${params.year}/export/pdf${qs ? '?' + qs : ''}`,
+    { responseType: 'blob' }
+  )
+  const url = window.URL.createObjectURL(new Blob([response.data]))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `asistencia_practicas_${params.month}_${params.year}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+// Export Excel
+export async function downloadPracticeAttendanceExcel(params: {
+  month: number; year: number;
+  start_date?: string; end_date?: string;
+  teacher_ci?: string;
+}) {
+  const qp = new URLSearchParams()
+  if (params.start_date) qp.set('start_date', params.start_date)
+  if (params.end_date) qp.set('end_date', params.end_date)
+  if (params.teacher_ci) qp.set('teacher_ci', params.teacher_ci)
+  const qs = qp.toString()
+  const response = await api.get(
+    `/practice-attendance/${params.month}/${params.year}/export/excel${qs ? '?' + qs : ''}`,
+    { responseType: 'blob' }
+  )
+  const url = window.URL.createObjectURL(new Blob([response.data]))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `asistencia_practicas_${params.month}_${params.year}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
