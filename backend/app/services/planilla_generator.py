@@ -681,10 +681,16 @@ class PlanillaGenerator:
         hourly_rate = app_settings_service.get_hourly_rate(db)
         active_period = app_settings_service.get_active_academic_period(db)
 
-        # ── Step 1: Load ALL designations (scoped to active academic period) ──
+        # ── Step 1: Load REGULAR designations (scoped to active academic period) ──
+        # Practice designations (designation_type="practice") are handled by
+        # PracticePlanillaGenerator — they have a different rate and attendance
+        # source, so they must NOT appear in the regular planilla.
         all_designations: list[Designation] = (
             db.query(Designation)
-            .filter(Designation.academic_period == active_period)
+            .filter(
+                Designation.academic_period == active_period,
+                Designation.designation_type != "practice",
+            )
             .all()
         )
 

@@ -13,6 +13,8 @@ from app.routers.activity_log import router as activity_log_router
 from app.routers.contracts import router as contracts_router
 from app.routers.admin import router as admin_router
 from app.routers.admin_settings import router as admin_settings_router
+from app.routers.practice_attendance import router as practice_attendance_router
+from app.routers.practice_planilla import router as practice_planilla_router
 
 __all__ = [
     "teachers_router",
@@ -30,4 +32,6 @@ __all__ = [
     "contracts_router",
     "admin_router",
     "admin_settings_router",
+    "practice_attendance_router",
+    "practice_planilla_router",
 ]
