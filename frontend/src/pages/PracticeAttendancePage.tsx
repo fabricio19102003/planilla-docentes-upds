@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import {
   ClipboardCheck,
   Loader2,
@@ -33,18 +33,32 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  attended: { label: 'Asistio', bg: 'bg-green-100', text: 'text-green-700' },
-  absent:   { label: 'Ausente', bg: 'bg-red-100', text: 'text-red-700' },
-  late:     { label: 'Tardanza', bg: 'bg-yellow-100', text: 'text-yellow-700' },
-  justified:{ label: 'Justificado', bg: 'bg-blue-100', text: 'text-blue-700' },
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; rowBg: string }> = {
+  attended:  { label: 'ASISTIÓ',      bg: 'bg-green-100',  text: 'text-green-700',  rowBg: 'bg-green-50/40' },
+  absent:    { label: 'AUSENTE',      bg: 'bg-red-100',    text: 'text-red-700',    rowBg: 'bg-red-50/40' },
+  late:      { label: 'TARDANZA',     bg: 'bg-yellow-100', text: 'text-yellow-700', rowBg: 'bg-yellow-50/40' },
+  justified: { label: 'JUSTIFICADO', bg: 'bg-blue-100',   text: 'text-blue-700',   rowBg: 'bg-blue-50/40' },
+}
+
+function autoSetStatus(scheduledStart: string, actualStart: string): 'attended' | 'late' | null {
+  if (!actualStart || !scheduledStart) return null
+
+  const [sh, sm] = scheduledStart.split(':').map(Number)
+  const [ah, am] = actualStart.split(':').map(Number)
+
+  const scheduledMinutes = sh * 60 + sm
+  const actualMinutes = ah * 60 + am
+  const diff = actualMinutes - scheduledMinutes
+
+  if (diff <= 15) return 'attended' // On time or up to 15 min late
+  return 'late' // More than 15 min late
 }
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return '\u2014'
   const d = new Date(dateStr + 'T00:00:00')
   const days = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
-  return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+  return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
 function formatTime(timeStr: string | null): string {
@@ -72,7 +86,7 @@ export function PracticeAttendancePage() {
     startDate || undefined,
     endDate || undefined,
   )
-  const { data: summaries } = usePracticeAttendanceSummary(month, year)
+  const { data: summaries } = usePracticeAttendanceSummary(month, year, startDate || undefined, endDate || undefined)
   const generateMutation = useGeneratePracticeAttendance()
   const updateMutation = useUpdatePracticeAttendance()
   const deleteMutation = useDeletePracticeAttendance()
@@ -375,10 +389,19 @@ export function PracticeAttendancePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {group.entries.map((entry) => {
+                {group.entries.map((entry, idx, arr) => {
                   const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+                  const showDateHeader = idx === 0 || arr[idx - 1].date !== entry.date
                   return (
-                    <tr key={entry.id} className="hover:bg-gray-50/50">
+                    <Fragment key={entry.id}>
+                    {showDateHeader && (
+                      <tr className="bg-gray-100/80">
+                        <td colSpan={10} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                          {formatDate(entry.date)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className={`hover:bg-gray-100/60 ${cfg.rowBg}`}>
                       <td className="px-4 py-2 whitespace-nowrap text-gray-700">{formatDate(entry.date)}</td>
                       <td className="px-3 py-2 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
                         {entry.subject}
@@ -389,29 +412,41 @@ export function PracticeAttendancePage() {
                       </td>
                       <td className="text-center px-3 py-2">
                         <select
-                          className={`text-xs font-medium rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
+                          className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
                           value={entry.status}
                           onChange={(e) => handleStatusChange(entry, e.target.value)}
                           disabled={updateMutation.isPending}
                         >
-                          <option value="attended">Asistio</option>
-                          <option value="absent">Ausente</option>
-                          <option value="late">Tardanza</option>
-                          <option value="justified">Justificado</option>
+                          {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
+                            <option key={value} value={value}>{sc.label}</option>
+                          ))}
                         </select>
                       </td>
                       <td className="text-center px-3 py-2">
                         <input
                           type="time"
-                          className="border border-gray-200 rounded px-2 py-1 text-xs w-20 text-center"
+                          step="60"
+                          placeholder="HH:MM"
+                          className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                           value={entry.actual_start?.slice(0, 5) ?? ''}
-                          onChange={(e) => updateMutation.mutate({ id: entry.id, actual_start: e.target.value || undefined })}
+                          onChange={(e) => {
+                            const newStart = e.target.value || undefined
+                            updateMutation.mutate({ id: entry.id, actual_start: newStart })
+                            if (newStart && entry.scheduled_start) {
+                              const newStatus = autoSetStatus(entry.scheduled_start, newStart)
+                              if (newStatus && newStatus !== entry.status) {
+                                updateMutation.mutate({ id: entry.id, status: newStatus })
+                              }
+                            }
+                          }}
                         />
                       </td>
                       <td className="text-center px-3 py-2">
                         <input
                           type="time"
-                          className="border border-gray-200 rounded px-2 py-1 text-xs w-20 text-center"
+                          step="60"
+                          placeholder="HH:MM"
+                          className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                           value={entry.actual_end?.slice(0, 5) ?? ''}
                           onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
                         />
@@ -465,6 +500,7 @@ export function PracticeAttendancePage() {
                         </button>
                       </td>
                     </tr>
+                    </Fragment>
                   )
                 })}
               </tbody>

@@ -562,9 +562,30 @@ class DesignationLoader:
         slots: list[dict] = []
         lines = [line.strip() for line in horario_raw.split("\n") if line.strip()]
 
+        # Pre-pass: merge lines where day name and time range are split by \n
+        # e.g. ["Jueves", "20:50 - 23:00"] → ["Jueves 20:50 - 23:00"]
+        merged_lines = []
+        i = 0
+        while i < len(lines):
+            line_up = lines[i].upper().strip()
+            # Check if this line is ONLY a day name (no digits)
+            if re.match(r'^[A-ZÁÉÍÓÚÑ]+:?\s*$', line_up) and i + 1 < len(lines):
+                # Next line should have time range (has digits and dash)
+                next_line = lines[i + 1].strip()
+                if re.search(r'\d', next_line) and '-' in next_line:
+                    merged_lines.append(f"{lines[i].strip()} {next_line}")
+                    i += 2
+                    continue
+            merged_lines.append(lines[i])
+            i += 1
+        lines = merged_lines
+
         for line in lines:
             # Normalize: uppercase, collapse internal spaces slightly
             line_up = line.upper().strip()
+
+            # Normalize spaces within time parts: "08: 55" → "08:55", "17: 30" → "17:30"
+            line_up = re.sub(r'(\d{1,2}):\s+(\d{2})', r'\1:\2', line_up)
 
             # Replace dot-as-colon in time part only (e.g. "18.15" → "18:15")
             # Only replace dots surrounded by digits (avoids G.E. group codes)

@@ -253,13 +253,19 @@ def list_practice_attendance(
 def get_practice_attendance_summary(
     month: int,
     year: int,
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Calculate attendance summary per teacher for the given period."""
-    period_start = date(year, month, 1)
-    _, last_day = monthrange(year, month)
-    period_end = date(year, month, last_day)
+    if start_date and end_date:
+        period_start = start_date
+        period_end = end_date
+    else:
+        period_start = date(year, month, 1)
+        _, last_day = monthrange(year, month)
+        period_end = date(year, month, last_day)
 
     rows = (
         db.query(PracticeAttendanceLog, Teacher.full_name)
