@@ -32,6 +32,7 @@ KEY_ACTIVE_ACADEMIC_PERIOD = "ACTIVE_ACADEMIC_PERIOD"
 KEY_COMPANY_NAME = "COMPANY_NAME"
 KEY_COMPANY_NIT = "COMPANY_NIT"
 KEY_HOURLY_RATE = "HOURLY_RATE"
+KEY_PRACTICE_HOURLY_RATE = "PRACTICE_HOURLY_RATE"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -40,6 +41,7 @@ _DEFAULTS: dict[str, str] = {
     KEY_COMPANY_NAME: "UNIPANDO S.R.L.",
     KEY_COMPANY_NIT: "456850023",
     KEY_HOURLY_RATE: "70.0",
+    KEY_PRACTICE_HOURLY_RATE: "50.0",
 }
 
 # ── In-memory cache ────────────────────────────────────────────────────────
@@ -141,3 +143,13 @@ def get_hourly_rate(db: Session) -> float:
     except (TypeError, ValueError):
         logger.warning("Invalid HOURLY_RATE value in DB: %r — falling back to default", raw)
         return float(_DEFAULTS[KEY_HOURLY_RATE])
+
+
+def get_practice_hourly_rate(db: Session) -> float:
+    """Tarifa por hora académica para docentes asistenciales (prácticas internas)."""
+    raw = get_setting(db, KEY_PRACTICE_HOURLY_RATE, _DEFAULTS[KEY_PRACTICE_HOURLY_RATE])
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid PRACTICE_HOURLY_RATE value in DB: %r — falling back to default", raw)
+        return float(_DEFAULTS[KEY_PRACTICE_HOURLY_RATE])

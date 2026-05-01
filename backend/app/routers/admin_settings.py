@@ -37,6 +37,7 @@ class SettingsResponse(BaseModel):
     company_name: str
     company_nit: str
     hourly_rate: float
+    practice_hourly_rate: float
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +47,7 @@ class SettingsUpdateRequest(BaseModel):
     company_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     company_nit: Optional[str] = Field(default=None, min_length=1, max_length=50)
     hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
+    practice_hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
 
 
 def _current_settings(db: Session) -> SettingsResponse:
@@ -54,6 +56,7 @@ def _current_settings(db: Session) -> SettingsResponse:
         company_name=app_settings_service.get_company_name(db),
         company_nit=app_settings_service.get_company_nit(db),
         hourly_rate=app_settings_service.get_hourly_rate(db),
+        practice_hourly_rate=app_settings_service.get_practice_hourly_rate(db),
     )
 
 
@@ -108,6 +111,14 @@ def update_settings(
                 str(payload.hourly_rate),
             )
             changes["hourly_rate"] = payload.hourly_rate
+
+        if payload.practice_hourly_rate is not None:
+            app_settings_service.update_setting(
+                db,
+                app_settings_service.KEY_PRACTICE_HOURLY_RATE,
+                str(payload.practice_hourly_rate),
+            )
+            changes["practice_hourly_rate"] = payload.practice_hourly_rate
 
         if changes:
             log_activity(

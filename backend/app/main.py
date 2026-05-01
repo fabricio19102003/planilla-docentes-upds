@@ -85,6 +85,11 @@ def _run_column_migrations() -> None:
             # the upload flow which reads the live setting).
             if inspector.has_table("designations"):
                 desig_cols = {c["name"] for c in inspector.get_columns("designations")}
+                if "designation_type" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN designation_type VARCHAR(20) NOT NULL DEFAULT 'regular'"
+                    ))
+                    logger.info("Added column designations.designation_type")
                 if "academic_period" not in desig_cols:
                     conn.execute(text(
                         "ALTER TABLE designations ADD COLUMN academic_period VARCHAR(20) NOT NULL DEFAULT 'I/2026'"
@@ -140,7 +145,8 @@ async def lifespan(app: FastAPI):
                 ("ACTIVE_ACADEMIC_PERIOD", "I/2026", "Período académico activo (ej: I/2026, II/2025)"),
                 ("COMPANY_NAME", "UNIPANDO S.R.L.", "Nombre de la empresa para el encabezado de planilla salarios"),
                 ("COMPANY_NIT", "456850023", "NIT de la empresa para el encabezado de planilla salarios"),
-                ("HOURLY_RATE", "70.0", "Tarifa por hora académica en Bs"),
+                ("HOURLY_RATE", "70.0", "Tarifa por hora académica en Bs (docentes de teoría)"),
+                ("PRACTICE_HOURLY_RATE", "50.0", "Tarifa por hora académica en Bs (docentes asistenciales / prácticas)"),
             ]
             added = 0
             for key, value, desc in defaults_spec:

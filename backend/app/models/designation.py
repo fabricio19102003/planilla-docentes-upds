@@ -28,8 +28,10 @@ class Designation(Base):
     subject: Mapped[str] = mapped_column(String(200), nullable=False)
     semester: Mapped[str] = mapped_column(String(50), nullable=False)
     group_code: Mapped[str] = mapped_column(String(20), nullable=False)  # Normalized: M-1, T-2, N-3, G.E.
-    # NOTE: The actual default used at upload time comes from settings.ACTIVE_ACADEMIC_PERIOD (via router/service).
-    # This model-level default is only a safety fallback and should never be relied upon directly.
+    # NOTE: The actual default used at upload time comes from the DB-backed
+    # app_settings (key ACTIVE_ACADEMIC_PERIOD), resolved via the router/service.
+    # This model-level default is only a safety fallback and should never be
+    # relied upon directly.
     academic_period: Mapped[str] = mapped_column(String(20), nullable=False, default="I/2026", index=True)
     schedule_json: Mapped[Any] = mapped_column(JSON, nullable=False)  # array of schedule slots
     semester_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -37,6 +39,9 @@ class Designation(Base):
     weekly_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     weekly_hours_calculated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     schedule_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # "regular" = docente de teoría (tarifa HOURLY_RATE)
+    # "practice" = docente asistencial / prácticas internas (tarifa PRACTICE_HOURLY_RATE)
+    designation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="regular", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
     # Relationships

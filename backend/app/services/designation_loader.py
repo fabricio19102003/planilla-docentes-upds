@@ -436,6 +436,7 @@ class DesignationLoader:
                     weekly_hours=weekly_hours,
                     weekly_hours_calculated=weekly_hours_calculated,
                     schedule_raw=schedule_raw,
+                    designation_type=self._detect_designation_type(subject),
                 )
                 db.add(designation)
             else:
@@ -445,6 +446,7 @@ class DesignationLoader:
                 designation.weekly_hours = weekly_hours
                 designation.weekly_hours_calculated = weekly_hours_calculated
                 designation.schedule_raw = schedule_raw
+                designation.designation_type = self._detect_designation_type(subject)
 
             result.designations_loaded += 1
 
@@ -500,6 +502,23 @@ class DesignationLoader:
                 "horas_academicas": horas_academicas,
             })
         return result_slots
+
+    @staticmethod
+    def _detect_designation_type(subject: str) -> str:
+        """Detect whether a designation is regular (theory) or practice (assistential).
+
+        Returns "practice" if the subject name contains "PRACTICA" or "PRÁCTICA"
+        (case-insensitive, accent-insensitive), "regular" otherwise.
+        """
+        import unicodedata
+        if not subject:
+            return "regular"
+        # Normalize: strip accents and uppercase for comparison
+        nfkd = unicodedata.normalize("NFD", subject.upper())
+        normalized = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+        if "PRACTICA" in normalized:
+            return "practice"
+        return "regular"
 
     @staticmethod
     def _parse_horario_string(horario_raw: str) -> list[dict]:

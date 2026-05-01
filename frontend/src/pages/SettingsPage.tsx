@@ -12,6 +12,7 @@ interface FormState {
   company_name: string
   company_nit: string
   hourly_rate: string // keep as string to allow empty input; parsed on save
+  practice_hourly_rate: string
 }
 
 function toFormState(s: AppSettings): FormState {
@@ -20,6 +21,7 @@ function toFormState(s: AppSettings): FormState {
     company_name: s.company_name,
     company_nit: s.company_nit,
     hourly_rate: String(s.hourly_rate),
+    practice_hourly_rate: String(s.practice_hourly_rate),
   }
 }
 
@@ -53,6 +55,14 @@ function buildPayload(form: FormState, server: AppSettings): AppSettingsUpdate {
     }
   }
 
+  const practiceRateStr = form.practice_hourly_rate.trim()
+  if (practiceRateStr) {
+    const practiceRate = Number(practiceRateStr)
+    if (!Number.isNaN(practiceRate) && practiceRate !== server.practice_hourly_rate) {
+      payload.practice_hourly_rate = practiceRate
+    }
+  }
+
   return payload
 }
 
@@ -82,11 +92,24 @@ export function SettingsPage() {
     if (rateStr) {
       const rate = Number(rateStr)
       if (Number.isNaN(rate) || rate <= 0) {
-        setValidationError('La tarifa por hora debe ser un número mayor a 0.')
+        setValidationError('La tarifa por hora (teoría) debe ser un número mayor a 0.')
         return
       }
       if (rate > 10000) {
-        setValidationError('La tarifa por hora no puede ser mayor a 10.000 Bs.')
+        setValidationError('La tarifa por hora (teoría) no puede ser mayor a 10.000 Bs.')
+        return
+      }
+    }
+
+    const practiceRateStr = form.practice_hourly_rate.trim()
+    if (practiceRateStr) {
+      const practiceRate = Number(practiceRateStr)
+      if (Number.isNaN(practiceRate) || practiceRate <= 0) {
+        setValidationError('La tarifa por hora (prácticas) debe ser un número mayor a 0.')
+        return
+      }
+      if (practiceRate > 10000) {
+        setValidationError('La tarifa por hora (prácticas) no puede ser mayor a 10.000 Bs.')
         return
       }
     }
@@ -209,9 +232,9 @@ export function SettingsPage() {
                 </p>
               </div>
 
-              {/* Hourly Rate */}
+              {/* Hourly Rate - Theory */}
               <div className="space-y-1.5">
-                <Label htmlFor="hourly_rate">Tarifa por Hora (Bs)</Label>
+                <Label htmlFor="hourly_rate">Tarifa por Hora — Teoría (Bs)</Label>
                 <Input
                   id="hourly_rate"
                   type="number"
@@ -224,7 +247,26 @@ export function SettingsPage() {
                   disabled={updateMutation.isPending}
                 />
                 <p className="text-xs text-gray-500">
-                  Monto por hora académica usado en el cálculo de planillas.
+                  Monto por hora académica para docentes de teoría.
+                </p>
+              </div>
+
+              {/* Hourly Rate - Practice */}
+              <div className="space-y-1.5">
+                <Label htmlFor="practice_hourly_rate">Tarifa por Hora — Prácticas (Bs)</Label>
+                <Input
+                  id="practice_hourly_rate"
+                  type="number"
+                  min={0.01}
+                  max={10000}
+                  step={0.5}
+                  placeholder="50"
+                  value={form.practice_hourly_rate}
+                  onChange={(e) => setForm({ ...form, practice_hourly_rate: e.target.value })}
+                  disabled={updateMutation.isPending}
+                />
+                <p className="text-xs text-gray-500">
+                  Monto por hora académica para docentes asistenciales (prácticas internas).
                 </p>
               </div>
 

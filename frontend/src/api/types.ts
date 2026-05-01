@@ -461,6 +461,7 @@ export interface AppSettings {
   company_name: string
   company_nit: string
   hourly_rate: number
+  practice_hourly_rate: number
 }
 
 export interface AppSettingsUpdate {
@@ -468,4 +469,5 @@ export interface AppSettingsUpdate {
   company_name?: string
   company_nit?: string
   hourly_rate?: number
+  practice_hourly_rate?: number
 }
