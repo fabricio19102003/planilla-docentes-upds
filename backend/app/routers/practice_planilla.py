@@ -171,9 +171,9 @@ def get_practice_planilla_detail(
             discount_mode=discount_mode,
         )
 
-        detail = []
+        row_list = []
         for row in rows:
-            detail.append({
+            row_list.append({
                 "teacher_ci": row.teacher_ci,
                 "teacher_name": row.teacher_name,
                 "subject": row.subject,
@@ -185,49 +185,29 @@ def get_practice_planilla_detail(
                 "rate_per_hour": row.rate_per_hour,
                 "calculated_payment": row.calculated_payment,
                 "has_retention": row.has_retention,
+                "retention_rate": row.retention_rate,
                 "retention_amount": row.retention_amount,
                 "final_payment": row.final_payment,
                 "has_biometric": row.has_biometric,
                 "late_count": row.late_count,
                 "absent_count": row.absent_count,
-                "observations": row.observations,
+                # Join observations list into a single string for the frontend
+                "observation": "; ".join(row.observations) if row.observations else "",
             })
 
-        # Group by teacher for totals
-        teacher_totals: dict = {}
-        for row in rows:
-            ci = row.teacher_ci
-            if ci not in teacher_totals:
-                teacher_totals[ci] = {
-                    "teacher_ci": ci,
-                    "teacher_name": row.teacher_name,
-                    "total_base_hours": 0,
-                    "total_absent_hours": 0,
-                    "total_payable_hours": 0,
-                    "total_payment": 0.0,
-                    "designation_count": 0,
-                    "has_retention": row.has_retention,
-                    "retention_amount": 0.0,
-                    "final_payment": 0.0,
-                }
-            teacher_totals[ci]["total_base_hours"] += row.base_monthly_hours
-            teacher_totals[ci]["total_absent_hours"] += row.absent_hours
-            teacher_totals[ci]["total_payable_hours"] += row.payable_hours
-            teacher_totals[ci]["total_payment"] += row.calculated_payment
-            teacher_totals[ci]["retention_amount"] += row.retention_amount
-            teacher_totals[ci]["final_payment"] += row.final_payment
-            teacher_totals[ci]["designation_count"] += 1
-
-        computed_total = sum(r.final_payment for r in rows)
+        # Compute aggregate totals (gross / retention / net)
+        total_gross = sum(r.calculated_payment for r in rows)
+        total_retention = sum(r.retention_amount for r in rows)
+        total_net = sum(r.final_payment for r in rows)
 
         return {
             "month": month,
             "year": year,
-            "total_teachers": len(teacher_totals),
-            "total_designations": len(detail),
-            "total_payment": computed_total,
-            "detail": detail,
-            "teacher_totals": list(teacher_totals.values()),
+            "rows": row_list,
+            "total_gross": total_gross,
+            "total_retention": total_retention,
+            "total_net": total_net,
+            "total_teachers": len({r.teacher_ci for r in rows}),
             "warnings": warnings,
         }
     except Exception as exc:

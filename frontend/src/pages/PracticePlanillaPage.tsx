@@ -277,7 +277,7 @@ export function PracticePlanillaPage() {
                     Total: Bs {parseFloat(lastResult.total_payment).toFixed(2)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Tarifa por hora: 50 Bs
+                    Tarifa por hora: {detail?.rows?.[0]?.rate_per_hour ?? '50'} Bs
                   </p>
                   {lastResult.warnings.length > 0 && (
                     <div className="mt-2">

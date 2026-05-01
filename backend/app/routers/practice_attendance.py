@@ -297,6 +297,7 @@ def get_practice_attendance_summary(
             data["total_hours_attended"] += log.academic_hours
         elif log.status == "justified":
             data["total_justified"] += 1
+            data["total_hours_attended"] += log.academic_hours  # Justified = paid hours
 
     result = []
     for ci, data in sorted(teacher_data.items(), key=lambda x: x[1]["teacher_name"]):
