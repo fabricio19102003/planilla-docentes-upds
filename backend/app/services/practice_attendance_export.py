@@ -238,8 +238,8 @@ def generate_practice_attendance_pdf(
         ))
         elements.append(Spacer(1, 2 * mm))
 
-        # Table
-        header_cell_style = ParagraphStyle("HeaderCell", fontSize=7, leading=8,
+        # Table — reduced font (6pt data, 6pt headers) + signature column
+        header_cell_style = ParagraphStyle("HeaderCell", fontSize=6, leading=7,
             textColor=colors.white, fontName="Helvetica-Bold", alignment=TA_CENTER)
 
         headers_wrapped = [
@@ -251,8 +251,12 @@ def generate_practice_attendance_pdf(
             Paragraph("Hora<br/>Salida", header_cell_style),
             Paragraph("Hrs<br/>Acad.", header_cell_style),
             Paragraph("Estado", header_cell_style),
-            Paragraph("Observacion", header_cell_style),
+            Paragraph("Obs.", header_cell_style),
+            Paragraph("Firma<br/>Docente", header_cell_style),
         ]
+
+        data_cell_style = ParagraphStyle("DataCell", fontSize=6, leading=7)
+        obs_cell_style = ParagraphStyle("ObsCell", fontSize=5.5, leading=7)
 
         table_data = [headers_wrapped]
         for log in group_logs:
@@ -262,17 +266,19 @@ def generate_practice_attendance_pdf(
 
             table_data.append([
                 log.date.strftime("%d/%m/%Y"),
-                Paragraph(subject, ParagraphStyle("Cell", fontSize=7, leading=8)),
+                Paragraph(subject, data_cell_style),
                 group_code,
-                f"{log.scheduled_start.strftime('%H:%M')} - {log.scheduled_end.strftime('%H:%M')}",
+                f"{log.scheduled_start.strftime('%H:%M')}-{log.scheduled_end.strftime('%H:%M')}",
                 log.actual_start.strftime("%H:%M") if log.actual_start else "—",
                 log.actual_end.strftime("%H:%M") if log.actual_end else "—",
                 str(log.academic_hours),
                 STATUS_LABELS.get(log.status, log.status.upper()),
-                Paragraph(log.observation or "", ParagraphStyle("CellObs", fontSize=7, leading=8)),
+                Paragraph(log.observation or "", obs_cell_style),
+                "",  # Empty signature cell for physical signing when printed
             ])
 
-        col_widths = [52, 85, 30, 62, 42, 42, 28, 55, 95]
+        # Widths: total ~491pt for portrait A4 with 1.5cm margins
+        col_widths = [44, 72, 24, 48, 34, 34, 22, 44, 62, 70]
 
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
 
@@ -280,15 +286,16 @@ def generate_practice_attendance_pdf(
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("FONTSIZE", (0, 0), (-1, 0), 6),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-            ("FONTSIZE", (0, 1), (-1, -1), 8),
+            ("FONTSIZE", (0, 1), (-1, -1), 6),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.gray),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
         ]
 
+        # Status-based cell coloring (column index 7 = Estado)
         for i, log in enumerate(group_logs, start=1):
             bg = STATUS_COLORS.get(log.status, colors.white)
             style_commands.append(("BACKGROUND", (7, i), (7, i), bg))
