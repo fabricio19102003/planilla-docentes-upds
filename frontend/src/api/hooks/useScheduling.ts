@@ -278,3 +278,235 @@ export function useSearchSubjects(query: string, careerId?: number) {
     enabled: query.length >= 2,
   })
 }
+
+// ─── Academic Period types ────────────────────────────────────────────────────
+
+export interface AcademicPeriod {
+  id: number
+  code: string
+  name: string
+  year: number
+  semester_number: number
+  start_date: string
+  end_date: string
+  is_active: boolean
+  status: 'planning' | 'active' | 'closed'
+  group_count: number
+}
+
+export interface Shift {
+  id: number
+  code: string
+  name: string
+  start_time: string
+  end_time: string
+  display_order: number
+}
+
+export interface Group {
+  id: number
+  academic_period_id: number
+  semester_id: number
+  semester_name: string
+  shift_id: number
+  shift_code: string
+  shift_name: string
+  number: number
+  code: string
+  is_special: boolean
+  student_count: number | null
+  is_active: boolean
+}
+
+// ─── Period hooks ─────────────────────────────────────────────────────────────
+
+export function usePeriods(status?: string) {
+  return useQuery<AcademicPeriod[]>({
+    queryKey: ['scheduling', 'periods', status],
+    queryFn: async () => {
+      const params: Record<string, string> = {}
+      if (status) params.status = status
+      const res = await api.get('/scheduling/periods', { params })
+      return res.data
+    },
+  })
+}
+
+export function useActivePeriod() {
+  return useQuery<AcademicPeriod | null>({
+    queryKey: ['scheduling', 'periods', 'active'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/scheduling/periods/active')
+        return res.data
+      } catch (e: unknown) {
+        const axiosErr = e as { response?: { status?: number } }
+        if (axiosErr?.response?.status === 404) return null
+        throw e
+      }
+    },
+  })
+}
+
+export function useCreatePeriod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      code: string
+      name: string
+      year: number
+      semester_number: number
+      start_date: string
+      end_date: string
+    }) => {
+      const res = await api.post('/scheduling/periods', data)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'periods'] })
+    },
+  })
+}
+
+export function useUpdatePeriod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: {
+      id: number
+      name?: string
+      start_date?: string
+      end_date?: string
+    }) => {
+      const res = await api.put(`/scheduling/periods/${id}`, data)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
+
+export function useActivatePeriod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await api.post(`/scheduling/periods/${id}/activate`)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
+
+export function useClosePeriod() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await api.post(`/scheduling/periods/${id}/close`)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
+
+// ─── Shift hooks ──────────────────────────────────────────────────────────────
+
+export function useShifts() {
+  return useQuery<Shift[]>({
+    queryKey: ['scheduling', 'shifts'],
+    queryFn: async () => {
+      const res = await api.get('/scheduling/shifts')
+      return res.data
+    },
+  })
+}
+
+// ─── Group hooks ──────────────────────────────────────────────────────────────
+
+export function useGroups(periodId: number, semesterId?: number) {
+  return useQuery<Group[]>({
+    queryKey: ['scheduling', 'groups', periodId, semesterId],
+    queryFn: async () => {
+      const params: Record<string, number> = { period_id: periodId }
+      if (semesterId) params.semester_id = semesterId
+      const res = await api.get('/scheduling/groups', { params })
+      return res.data
+    },
+    enabled: periodId > 0,
+  })
+}
+
+export function useCreateGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      academic_period_id: number
+      semester_id: number
+      shift_id: number
+      number: number
+      is_special?: boolean
+      student_count?: number
+    }) => {
+      const res = await api.post('/scheduling/groups', data)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'groups'] })
+    },
+  })
+}
+
+export function useCreateGroupsBulk() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      academic_period_id: number
+      semester_id: number
+      groups: object[]
+    }) => {
+      const res = await api.post('/scheduling/groups/bulk', data)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'groups'] })
+    },
+  })
+}
+
+export function useUpdateGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: {
+      id: number
+      student_count?: number
+      is_active?: boolean
+    }) => {
+      const res = await api.put(`/scheduling/groups/${id}`, data)
+      return res.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'groups'] })
+    },
+  })
+}
+
+export function useDeleteGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/scheduling/groups/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'groups'] })
+    },
+  })
+}

@@ -54,6 +54,7 @@ const adminNavItems: NavItem[] = [
   { to: '/activity', label: 'Registro de Actividad', icon: Activity },
   { to: '/backup', label: 'Respaldos', icon: Database },
   { to: '/curriculum', label: 'Malla Curricular', icon: GraduationCap },
+  { to: '/periods', label: 'Periodos', icon: Calendar },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]
 

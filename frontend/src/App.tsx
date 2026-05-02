@@ -24,6 +24,7 @@ import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
 import { PracticePlanillaPage } from './pages/PracticePlanillaPage'
 import { CurriculumPage } from './pages/CurriculumPage'
+import { PeriodsPage } from './pages/PeriodsPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -82,6 +83,7 @@ function AppRoutes() {
             <Route path="practice-attendance" element={<PracticeAttendancePage />} />
             <Route path="practice-planilla" element={<PracticePlanillaPage />} />
             <Route path="curriculum" element={<CurriculumPage />} />
+            <Route path="periods" element={<PeriodsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
 

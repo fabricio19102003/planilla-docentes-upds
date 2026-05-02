@@ -25,6 +25,7 @@ from app.routers import (
     practice_planilla_router,
 )
 from app.scheduling.routers.curriculum import router as scheduling_router
+from app.scheduling.routers.scheduling import router as scheduling_v2_router
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to seed app_settings on startup: %s", exc)
 
+    # Seed default shifts (M, T, N) if they don't exist
+    try:
+        from app.scheduling.services.shift_service import ShiftService
+
+        db = SessionLocal()
+        try:
+            shift_svc = ShiftService()
+            shift_svc.seed_defaults(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.exception("Failed to seed shifts on startup: %s", exc)
+
     # Create default admin users if none exist (admin, daniel, pedro)
     try:
         from app.services.auth_service import auth_service
@@ -244,6 +258,7 @@ app.include_router(admin_settings_router)
 app.include_router(practice_attendance_router)
 app.include_router(practice_planilla_router)
 app.include_router(scheduling_router)
+app.include_router(scheduling_v2_router)
 
 
 @app.get("/health", tags=["system"])

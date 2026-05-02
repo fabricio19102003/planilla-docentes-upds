@@ -17,6 +17,21 @@ from app.scheduling.schemas.subject import (
     SubjectUpdate,
     SubjectResponse,
 )
+from app.scheduling.schemas.academic_period import (
+    AcademicPeriodCreate,
+    AcademicPeriodUpdate,
+    AcademicPeriodResponse,
+)
+from app.scheduling.schemas.shift import (
+    ShiftUpdate,
+    ShiftResponse,
+)
+from app.scheduling.schemas.group import (
+    GroupCreate,
+    GroupBulkCreate,
+    GroupUpdate,
+    GroupResponse,
+)
 
 __all__ = [
     "CareerCreate",
@@ -32,4 +47,13 @@ __all__ = [
     "SubjectCreate",
     "SubjectUpdate",
     "SubjectResponse",
+    "AcademicPeriodCreate",
+    "AcademicPeriodUpdate",
+    "AcademicPeriodResponse",
+    "ShiftUpdate",
+    "ShiftResponse",
+    "GroupCreate",
+    "GroupBulkCreate",
+    "GroupUpdate",
+    "GroupResponse",
 ]
