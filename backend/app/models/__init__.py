@@ -14,6 +14,9 @@ from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.practice_planilla import PracticePlanillaOutput
+from app.scheduling.models.career import Career
+from app.scheduling.models.semester import Semester
+from app.scheduling.models.subject import Subject
 
 __all__ = [
     "Teacher",
@@ -31,4 +34,7 @@ __all__ = [
     "AppSetting",
     "PracticeAttendanceLog",
     "PracticePlanillaOutput",
+    "Career",
+    "Semester",
+    "Subject",
 ]

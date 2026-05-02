@@ -22,6 +22,7 @@ import {
   FileSignature,
   Database,
   Settings,
+  GraduationCap,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -52,6 +53,7 @@ const adminNavItems: NavItem[] = [
   { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
   { to: '/activity', label: 'Registro de Actividad', icon: Activity },
   { to: '/backup', label: 'Respaldos', icon: Database },
+  { to: '/curriculum', label: 'Malla Curricular', icon: GraduationCap },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]
 

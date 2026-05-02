@@ -1,0 +1,136 @@
+{
+  "carrera": "Medicina",
+  "universidad": "UPDS",
+  "semestres": [
+    {
+      "semestre": 1,
+      "materias": [
+        { "codigo": "MRF 0100", "nombre": "Anatomía Humana I", "HT": 51, "HP": 51, "CR": 5 },
+        { "codigo": "MRF 0110", "nombre": "Embriología Humana I", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "MRF 0120", "nombre": "Histología y Biología Celular I", "HT": 51, "HP": 34, "CR": 4 },
+        { "codigo": "FUN 0100", "nombre": "Bioquímica y Biología Molecular I", "HT": 68, "HP": 51, "CR": 6 },
+        { "codigo": "SCP 0100", "nombre": "Salud Pública Comunidad I", "HT": 17, "HP": 34, "CR": 3 },
+        { "codigo": "PSI 0135", "nombre": "Introducción a la Salud Mental I", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "CBC 0100", "nombre": "Caso Básico Clínico I", "HT": 0, "HP": 17, "CR": 1 },
+        { "codigo": "LIN 0130", "nombre": "Inglés Técnico I", "HT": 34, "HP": 34, "CR": 3 }
+      ]
+    },
+    {
+      "semestre": 2,
+      "materias": [
+        { "codigo": "MRF 0200", "nombre": "Anatomía Humana II", "HT": 51, "HP": 51, "CR": 5 },
+        { "codigo": "MRF 0210", "nombre": "Embriología Humana II", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "MRF 0220", "nombre": "Histología y Biología Celular II", "HT": 51, "HP": 34, "CR": 4 },
+        { "codigo": "FUN 0200", "nombre": "Bioquímica y Biología Molecular II", "HT": 68, "HP": 51, "CR": 6 },
+        { "codigo": "SCP 0200", "nombre": "Salud Pública Comunidad II", "HT": 17, "HP": 34, "CR": 3 },
+        { "codigo": "PSI 0200", "nombre": "Introducción a la Salud Mental II", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "CBC 0200", "nombre": "Caso Básico Clínico II", "HT": 0, "HP": 17, "CR": 1 },
+        { "codigo": "LIN 0230", "nombre": "Inglés Técnico II", "HT": 34, "HP": 34, "CR": 3 }
+      ]
+    },
+    {
+      "semestre": 3,
+      "materias": [
+        { "codigo": "FUN 0300", "nombre": "Farmacología I", "HT": 68, "HP": 68, "CR": 7 },
+        { "codigo": "FUN 0310", "nombre": "Fisiología I", "HT": 68, "HP": 68, "CR": 7 },
+        { "codigo": "CIR 0300", "nombre": "Introducción a la Cirugía I", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "SCP 0300", "nombre": "Promoción de la Salud en el Ciclo de Vida I", "HT": 17, "HP": 51, "CR": 3 },
+        { "codigo": "INF 0310", "nombre": "Informática Biomédica I", "HT": 17, "HP": 17, "CR": 2 },
+        { "codigo": "CBC 0300", "nombre": "Caso Básico Clínico III", "HT": 0, "HP": 17, "CR": 1 },
+        { "codigo": "LIN 0330", "nombre": "Inglés Técnico III", "HT": 34, "HP": 34, "CR": 3 }
+      ]
+    },
+    {
+      "semestre": 4,
+      "materias": [
+        { "codigo": "FUN 0400", "nombre": "Farmacología II", "HT": 68, "HP": 68, "CR": 7 },
+        { "codigo": "FUN 0410", "nombre": "Fisiología II", "HT": 68, "HP": 68, "CR": 7 },
+        { "codigo": "CIR 0400", "nombre": "Introducción a la Cirugía II", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "FUN 0420", "nombre": "Microbiología y Parasitología", "HT": 102, "HP": 102, "CR": 10 },
+        { "codigo": "SCP 0400", "nombre": "Promoción de la Salud en el Ciclo de Vida II", "HT": 17, "HP": 51, "CR": 3 },
+        { "codigo": "INF 0410", "nombre": "Informática Biomédica II", "HT": 17, "HP": 17, "CR": 2 },
+        { "codigo": "CBC 0400", "nombre": "Caso Básico Clínico IV", "HT": 0, "HP": 17, "CR": 1 },
+        { "codigo": "LIN 0430", "nombre": "Inglés Técnico IV", "HT": 34, "HP": 34, "CR": 3 }
+      ]
+    },
+    {
+      "semestre": 5,
+      "materias": [
+        { "codigo": "MED 0500", "nombre": "Propedéutica Médica y Fisiopatología", "HT": 200, "HP": 400, "CR": 30 },
+        { "codigo": "MED 0510", "nombre": "Laboratorio Clínico", "HT": 14, "HP": 6, "CR": 1 },
+        { "codigo": "MED 0520", "nombre": "Imagenología", "HT": 14, "HP": 14, "CR": 1 },
+        { "codigo": "PSI 0500", "nombre": "Medicina Psicológica y Comunicación", "HT": 40, "HP": 40, "CR": 4 },
+        { "codigo": "SCP 0500", "nombre": "Epidemiología Clínica y Medicina Basada en Evidencia", "HT": 60, "HP": 60, "CR": 6 },
+        { "codigo": "SVB 0500", "nombre": "Soporte Vital Básico", "HT": 20, "HP": 20, "CR": 2 }
+      ]
+    },
+    {
+      "semestre": 6,
+      "materias": [
+        { "codigo": "ANP 0600", "nombre": "Anatomía Patológica I", "HT": 40, "HP": 60, "CR": 5 },
+        { "codigo": "MED 0600", "nombre": "Cardiología", "HT": 80, "HP": 120, "CR": 9 },
+        { "codigo": "MED 0610", "nombre": "Neumología", "HT": 50, "HP": 100, "CR": 7 },
+        { "codigo": "MED 0620", "nombre": "Otorrinolaringología", "HT": 30, "HP": 60, "CR": 4 },
+        { "codigo": "MED 0630", "nombre": "Urología", "HT": 30, "HP": 60, "CR": 4 },
+        { "codigo": "MED 0670", "nombre": "Farmacología Terapéutica", "HT": 24, "HP": 24, "CR": 2 },
+        { "codigo": "MED 0640", "nombre": "Psiquiatría", "HT": 40, "HP": 80, "CR": 6 },
+        { "codigo": "MED 0650", "nombre": "Nefrología", "HT": 8, "HP": 8, "CR": 1 },
+        { "codigo": "MED 0660", "nombre": "Hematología", "HT": 8, "HP": 8, "CR": 1 }
+      ]
+    },
+    {
+      "semestre": 7,
+      "materias": [
+        { "codigo": "ANP 0700", "nombre": "Anatomía Patológica II", "HT": 40, "HP": 60, "CR": 5 },
+        { "codigo": "MED 0710", "nombre": "Gastroenterología", "HT": 50, "HP": 100, "CR": 7 },
+        { "codigo": "MED 0720", "nombre": "Endocrinología", "HT": 50, "HP": 120, "CR": 8 },
+        { "codigo": "MED 0730", "nombre": "Dermatología", "HT": 30, "HP": 60, "CR": 4 },
+        { "codigo": "MED 0740", "nombre": "Neurología", "HT": 40, "HP": 80, "CR": 6 },
+        { "codigo": "MED 0750", "nombre": "Oftalmología", "HT": 30, "HP": 60, "CR": 4 },
+        { "codigo": "MED 0760", "nombre": "Nutrición Humana", "HT": 8, "HP": 8, "CR": 1 },
+        { "codigo": "MED 0770", "nombre": "Genética Clínica", "HT": 28, "HP": 28, "CR": 3 },
+        { "codigo": "SCP 0700", "nombre": "Antropología Médica e Interculturalidad", "HT": 8, "HP": 12, "CR": 1 }
+      ]
+    },
+    {
+      "semestre": 8,
+      "materias": [
+        { "codigo": "MED 0800", "nombre": "Ginecología y Obstetricia", "HT": 100, "HP": 250, "CR": 17 },
+        { "codigo": "MED 0810", "nombre": "Pediatría", "HT": 100, "HP": 250, "CR": 17 },
+        { "codigo": "MED 0820", "nombre": "Rehabilitación", "HT": 12, "HP": 12, "CR": 1 },
+        { "codigo": "SCP 0800", "nombre": "Medicina del Trabajo", "HT": 10, "HP": 16, "CR": 2 },
+        { "codigo": "MED 0850", "nombre": "Bioética Médica y Profesionalismo", "HT": 8, "HP": 12, "CR": 1 },
+        { "codigo": null, "nombre": "Electiva I", "HT": 40, "HP": 40, "CR": 4 },
+        { "codigo": "CVB 0800", "nombre": "Soporte Vital Avanzado", "HT": 20, "HP": 20, "CR": 2 },
+        { "codigo": "GUA 0800", "nombre": "Guaraní I", "HT": 20, "HP": 20, "CR": 2 }
+      ]
+    },
+    {
+      "semestre": 9,
+      "materias": [
+        { "codigo": "MED 0950", "nombre": "Medicina Legal", "HT": 20, "HP": 10, "CR": 2 },
+        { "codigo": "MED 0920", "nombre": "Geriatría", "HT": 80, "HP": 200, "CR": 14 },
+        { "codigo": "CIR 0900", "nombre": "Cirugía y Urgencias Médicas", "HT": 90, "HP": 225, "CR": 15 },
+        { "codigo": "MED 0910", "nombre": "Ortopedia y Traumatología", "HT": 30, "HP": 75, "CR": 5 },
+        { "codigo": "MED 0930", "nombre": "Infectología", "HT": 20, "HP": 20, "CR": 2 },
+        { "codigo": "MED 0940", "nombre": "Medicina del Dolor", "HT": 10, "HP": 10, "CR": 1 },
+        { "codigo": "MED 0960", "nombre": "Reumatología", "HT": 14, "HP": 14, "CR": 2 },
+        { "codigo": "MED 0970", "nombre": "Inmunología", "HT": 34, "HP": 51, "CR": 4 },
+        { "codigo": "GUA 0900", "nombre": "Guaraní II", "HT": 20, "HP": 20, "CR": 2 }
+      ]
+    },
+    {
+      "semestre": 10,
+      "materias": [
+        { "codigo": "CIR 0905", "nombre": "Urgencias Médico Quirúrgicas", "HT": 51, "HP": 51, "CR": 5 },
+        { "codigo": "SCP 1000", "nombre": "Medicina Familiar y Comunitaria", "HT": 28, "HP": 40, "CR": 3 },
+        { "codigo": "MED 0935", "nombre": "Medicina Tropical", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": "SVB 0900", "nombre": "ATLS", "HT": 0, "HP": 30, "CR": 1 },
+        { "codigo": "SCP 0915", "nombre": "Gerencia Hospitalaria", "HT": 34, "HP": 34, "CR": 3 },
+        { "codigo": null, "nombre": "Electiva 3", "HT": 40, "HP": 40, "CR": 4 },
+        { "codigo": null, "nombre": "Electiva 4", "HT": 40, "HP": 40, "CR": 4 },
+        { "codigo": null, "nombre": "Electiva 2", "HT": 40, "HP": 40, "CR": 4 }
+      ]
+    }
+  ]
+}

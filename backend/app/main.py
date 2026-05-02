@@ -24,6 +24,7 @@ from app.routers import (
     practice_attendance_router,
     practice_planilla_router,
 )
+from app.scheduling.routers.curriculum import router as scheduling_router
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,7 @@ app.include_router(admin_router)
 app.include_router(admin_settings_router)
 app.include_router(practice_attendance_router)
 app.include_router(practice_planilla_router)
+app.include_router(scheduling_router)
 
 
 @app.get("/health", tags=["system"])
