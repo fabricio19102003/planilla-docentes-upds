@@ -59,6 +59,13 @@ from app.scheduling.schemas.room import (
     RoomEquipmentCreate,
     RoomEquipmentResponse,
 )
+from app.scheduling.schemas.designation import (
+    DesignationSchedulingCreate,
+    DesignationSchedulingUpdate,
+    DesignationSchedulingResponse,
+    SlotInput,
+    MigrationResult,
+)
 
 __all__ = [
     "CareerCreate",
@@ -104,4 +111,9 @@ __all__ = [
     "SetAvailabilityRequest",
     "AvailabilitySlotResponse",
     "TeacherAvailabilityResponse",
+    "DesignationSchedulingCreate",
+    "DesignationSchedulingUpdate",
+    "DesignationSchedulingResponse",
+    "SlotInput",
+    "MigrationResult",
 ]

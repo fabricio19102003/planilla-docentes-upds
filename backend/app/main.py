@@ -28,6 +28,7 @@ from app.scheduling.routers.curriculum import router as scheduling_router
 from app.scheduling.routers.scheduling import router as scheduling_v2_router
 from app.scheduling.routers.rooms import router as rooms_router
 from app.scheduling.routers.slots import router as slots_router
+from app.scheduling.routers.designations import router as scheduling_designations_router
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,44 @@ def _run_column_migrations() -> None:
                         logger.info("Updated designations unique constraint to include academic_period")
                     except Exception as constraint_exc:
                         logger.warning("Could not update designations constraint: %s", constraint_exc)
+
+                # ─── E6: Scheduling FK columns on designations ────────────
+                if "source" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'legacy_import'"
+                    ))
+                    logger.info("Added column designations.source")
+                if "status" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'confirmed'"
+                    ))
+                    logger.info("Added column designations.status")
+                if "academic_period_id" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN academic_period_id INTEGER REFERENCES academic_periods(id) ON DELETE RESTRICT"
+                    ))
+                    logger.info("Added column designations.academic_period_id")
+                if "subject_id" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN subject_id INTEGER REFERENCES subjects(id) ON DELETE RESTRICT"
+                    ))
+                    logger.info("Added column designations.subject_id")
+                if "group_id" not in desig_cols:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE RESTRICT"
+                    ))
+                    logger.info("Added column designations.group_id")
+
+                # FK-based unique constraint (E6)
+                try:
+                    conn.execute(text(
+                        "ALTER TABLE designations ADD CONSTRAINT "
+                        "uq_designation_teacher_period_subject_group_fk "
+                        "UNIQUE (teacher_ci, academic_period_id, subject_id, group_id)"
+                    ))
+                    logger.info("Added FK-based unique constraint on designations")
+                except Exception:
+                    pass  # Already exists or NULLable columns — OK
 
             conn.commit()
     except Exception as exc:
@@ -263,6 +302,7 @@ app.include_router(scheduling_router)
 app.include_router(scheduling_v2_router)
 app.include_router(rooms_router)
 app.include_router(slots_router)
+app.include_router(scheduling_designations_router)
 
 
 @app.get("/health", tags=["system"])

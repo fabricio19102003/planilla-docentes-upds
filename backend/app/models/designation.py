@@ -2,9 +2,14 @@ from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, UniqueConstr
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSON
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.scheduling.models.academic_period import AcademicPeriod
+    from app.scheduling.models.subject import Subject
+    from app.scheduling.models.group import Group
 
 
 class Designation(Base):
@@ -18,6 +23,13 @@ class Designation(Base):
             "group_code",
             "academic_period",
             name="uq_designation_teacher_subject_semester_group_period",
+        ),
+        UniqueConstraint(
+            "teacher_ci",
+            "academic_period_id",
+            "subject_id",
+            "group_id",
+            name="uq_designation_teacher_period_subject_group_fk",
         ),
     )
 
@@ -44,6 +56,26 @@ class Designation(Base):
     designation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="regular", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
+    # ─── Scheduling FK columns (Phase 2 — nullable during transition) ────
+    # These provide relational links to the scheduling module entities.
+    # The string columns above (subject, semester, group_code, academic_period)
+    # are maintained in parallel by CompatibilityAdapter during the transition.
+    academic_period_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("academic_periods.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    subject_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    group_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("groups.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="legacy_import"
+    )  # "manual" | "legacy_import"
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="confirmed"
+    )  # "draft" | "confirmed" | "cancelled"
+
     # Relationships
     teacher: Mapped["Teacher"] = relationship(  # noqa: F821
         "Teacher", back_populates="designations"
@@ -51,6 +83,11 @@ class Designation(Base):
     attendance_records: Mapped[list["AttendanceRecord"]] = relationship(  # noqa: F821
         "AttendanceRecord", back_populates="designation"
     )
+
+    # Scheduling relationships (optional during transition)
+    period_rel: Mapped[Optional["AcademicPeriod"]] = relationship("AcademicPeriod")
+    subject_rel: Mapped[Optional["Subject"]] = relationship("Subject")
+    group_rel: Mapped[Optional["Group"]] = relationship("Group")
 
     def __repr__(self) -> str:
         return f"<Designation id={self.id} ci={self.teacher_ci} subject={self.subject} group={self.group_code}>"

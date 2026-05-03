@@ -10,6 +10,7 @@ from app.scheduling.services.availability_service import AvailabilityService
 from app.scheduling.services.slot_service import SlotService
 from app.scheduling.services.compatibility_adapter import CompatibilityAdapter
 from app.scheduling.services.slot_read_service import SlotReadService
+from app.scheduling.services.designation_service import DesignationService
 
 __all__ = [
     "CareerService",
@@ -24,4 +25,5 @@ __all__ = [
     "SlotService",
     "CompatibilityAdapter",
     "SlotReadService",
+    "DesignationService",
 ]
