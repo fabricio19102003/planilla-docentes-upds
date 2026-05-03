@@ -32,6 +32,19 @@ from app.scheduling.schemas.group import (
     GroupUpdate,
     GroupResponse,
 )
+from app.scheduling.schemas.room import (
+    RoomTypeCreate,
+    RoomTypeUpdate,
+    RoomTypeResponse,
+    EquipmentCreate,
+    EquipmentUpdate,
+    EquipmentResponse,
+    RoomCreate,
+    RoomUpdate,
+    RoomResponse,
+    RoomEquipmentCreate,
+    RoomEquipmentResponse,
+)
 
 __all__ = [
     "CareerCreate",
@@ -56,4 +69,15 @@ __all__ = [
     "GroupBulkCreate",
     "GroupUpdate",
     "GroupResponse",
+    "RoomTypeCreate",
+    "RoomTypeUpdate",
+    "RoomTypeResponse",
+    "EquipmentCreate",
+    "EquipmentUpdate",
+    "EquipmentResponse",
+    "RoomCreate",
+    "RoomUpdate",
+    "RoomResponse",
+    "RoomEquipmentCreate",
+    "RoomEquipmentResponse",
 ]

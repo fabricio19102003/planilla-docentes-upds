@@ -23,6 +23,7 @@ import {
   Database,
   Settings,
   GraduationCap,
+  Building2,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -55,6 +56,7 @@ const adminNavItems: NavItem[] = [
   { to: '/backup', label: 'Respaldos', icon: Database },
   { to: '/curriculum', label: 'Malla Curricular', icon: GraduationCap },
   { to: '/periods', label: 'Periodos', icon: Calendar },
+  { to: '/rooms', label: 'Salas', icon: Building2 },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]
 

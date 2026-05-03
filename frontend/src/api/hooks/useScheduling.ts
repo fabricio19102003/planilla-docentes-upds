@@ -510,3 +510,248 @@ export function useDeleteGroup() {
     },
   })
 }
+
+// ─── Room Type types & hooks ──────────────────────────────────────────────────
+
+export interface RoomType {
+  id: number
+  code: string
+  name: string
+  description: string | null
+  room_count: number
+}
+
+export interface EquipmentItem {
+  id: number
+  code: string
+  name: string
+  description: string | null
+}
+
+export interface RoomEquipment {
+  id: number
+  equipment_id: number
+  equipment_code: string
+  equipment_name: string
+  quantity: number
+  notes: string | null
+}
+
+export interface Room {
+  id: number
+  code: string
+  name: string
+  building: string
+  floor: string
+  capacity: number
+  room_type_id: number
+  room_type_name: string
+  is_active: boolean
+  description: string | null
+  equipment_items: RoomEquipment[]
+}
+
+// Room Types
+export function useRoomTypes() {
+  return useQuery<RoomType[]>({
+    queryKey: ['scheduling', 'room-types'],
+    queryFn: async () => {
+      const r = await api.get('/scheduling/room-types')
+      return r.data
+    },
+  })
+}
+
+export function useCreateRoomType() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { code: string; name: string; description?: string }) => {
+      const r = await api.post('/scheduling/room-types', data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'room-types'] })
+    },
+  })
+}
+
+export function useUpdateRoomType() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; name?: string; description?: string }) => {
+      const r = await api.put(`/scheduling/room-types/${id}`, data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'room-types'] })
+    },
+  })
+}
+
+export function useDeleteRoomType() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/scheduling/room-types/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'room-types'] })
+    },
+  })
+}
+
+// Equipment
+export function useEquipment() {
+  return useQuery<EquipmentItem[]>({
+    queryKey: ['scheduling', 'equipment'],
+    queryFn: async () => {
+      const r = await api.get('/scheduling/equipment')
+      return r.data
+    },
+  })
+}
+
+export function useCreateEquipment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { code: string; name: string; description?: string }) => {
+      const r = await api.post('/scheduling/equipment', data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'equipment'] })
+    },
+  })
+}
+
+export function useUpdateEquipment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; name?: string; description?: string }) => {
+      const r = await api.put(`/scheduling/equipment/${id}`, data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'equipment'] })
+    },
+  })
+}
+
+export function useDeleteEquipment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/scheduling/equipment/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'equipment'] })
+    },
+  })
+}
+
+// Rooms
+export function useRooms(params?: {
+  building?: string
+  floor?: string
+  room_type_id?: number
+  active_only?: boolean
+}) {
+  return useQuery<Room[]>({
+    queryKey: ['scheduling', 'rooms', params],
+    queryFn: async () => {
+      const r = await api.get('/scheduling/rooms', { params })
+      return r.data
+    },
+  })
+}
+
+export function useRoom(id: number, enabled = true) {
+  return useQuery<Room>({
+    queryKey: ['scheduling', 'room', id],
+    queryFn: async () => {
+      const r = await api.get(`/scheduling/rooms/${id}`)
+      return r.data
+    },
+    enabled,
+  })
+}
+
+export function useCreateRoom() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      code: string
+      name: string
+      building: string
+      floor: string
+      capacity: number
+      room_type_id: number
+      description?: string
+      equipment?: { equipment_id: number; quantity: number; notes?: string }[]
+    }) => {
+      const r = await api.post('/scheduling/rooms', data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'rooms'] })
+    },
+  })
+}
+
+export function useUpdateRoom() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; [key: string]: unknown }) => {
+      const r = await api.put(`/scheduling/rooms/${id}`, data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
+
+export function useDeleteRoom() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/scheduling/rooms/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'rooms'] })
+    },
+  })
+}
+
+export function useAddRoomEquipment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      roomId,
+      ...data
+    }: {
+      roomId: number
+      equipment_id: number
+      quantity: number
+      notes?: string
+    }) => {
+      const r = await api.post(`/scheduling/rooms/${roomId}/equipment`, data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
+
+export function useRemoveRoomEquipment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ roomId, equipmentId }: { roomId: number; equipmentId: number }) => {
+      await api.delete(`/scheduling/rooms/${roomId}/equipment/${equipmentId}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}

@@ -25,6 +25,7 @@ import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
 import { PracticePlanillaPage } from './pages/PracticePlanillaPage'
 import { CurriculumPage } from './pages/CurriculumPage'
 import { PeriodsPage } from './pages/PeriodsPage'
+import { RoomsPage } from './pages/RoomsPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -84,6 +85,7 @@ function AppRoutes() {
             <Route path="practice-planilla" element={<PracticePlanillaPage />} />
             <Route path="curriculum" element={<CurriculumPage />} />
             <Route path="periods" element={<PeriodsPage />} />
+            <Route path="rooms" element={<RoomsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
 

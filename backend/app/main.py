@@ -26,6 +26,7 @@ from app.routers import (
 )
 from app.scheduling.routers.curriculum import router as scheduling_router
 from app.scheduling.routers.scheduling import router as scheduling_v2_router
+from app.scheduling.routers.rooms import router as rooms_router
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,7 @@ app.include_router(practice_attendance_router)
 app.include_router(practice_planilla_router)
 app.include_router(scheduling_router)
 app.include_router(scheduling_v2_router)
+app.include_router(rooms_router)
 
 
 @app.get("/health", tags=["system"])
