@@ -8,6 +8,9 @@ from app.scheduling.models.room_type import RoomType
 from app.scheduling.models.equipment import Equipment
 from app.scheduling.models.room import Room
 from app.scheduling.models.room_equipment import RoomEquipment
+from app.scheduling.models.designation_slot import DesignationSlot
+from app.scheduling.models.teacher_availability import TeacherAvailability
+from app.scheduling.models.availability_slot import AvailabilitySlot
 
 __all__ = [
     "Career",
@@ -20,4 +23,7 @@ __all__ = [
     "Equipment",
     "Room",
     "RoomEquipment",
+    "DesignationSlot",
+    "TeacherAvailability",
+    "AvailabilitySlot",
 ]

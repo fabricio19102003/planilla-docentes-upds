@@ -32,6 +32,20 @@ from app.scheduling.schemas.group import (
     GroupUpdate,
     GroupResponse,
 )
+from app.scheduling.schemas.slot import (
+    SlotCreate,
+    SlotUpdate,
+    SlotResponse,
+    SlotValidateRequest,
+    RoomAssignRequest,
+    ConflictResponse,
+)
+from app.scheduling.schemas.availability import (
+    AvailabilitySlotInput,
+    SetAvailabilityRequest,
+    AvailabilitySlotResponse,
+    TeacherAvailabilityResponse,
+)
 from app.scheduling.schemas.room import (
     RoomTypeCreate,
     RoomTypeUpdate,
@@ -80,4 +94,14 @@ __all__ = [
     "RoomResponse",
     "RoomEquipmentCreate",
     "RoomEquipmentResponse",
+    "SlotCreate",
+    "SlotUpdate",
+    "SlotResponse",
+    "SlotValidateRequest",
+    "RoomAssignRequest",
+    "ConflictResponse",
+    "AvailabilitySlotInput",
+    "SetAvailabilityRequest",
+    "AvailabilitySlotResponse",
+    "TeacherAvailabilityResponse",
 ]

@@ -24,6 +24,7 @@ import {
   Settings,
   GraduationCap,
   Building2,
+  Clock,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -57,6 +58,7 @@ const adminNavItems: NavItem[] = [
   { to: '/curriculum', label: 'Malla Curricular', icon: GraduationCap },
   { to: '/periods', label: 'Periodos', icon: Calendar },
   { to: '/rooms', label: 'Salas', icon: Building2 },
+  { to: '/scheduling', label: 'Horarios', icon: Clock },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]
 

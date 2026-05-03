@@ -86,8 +86,192 @@ export function useCreateCareer() {
       return res.data
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['scheduling', 'careers'] })
+      void qc.invalidateQueries({ queryKey: ['scheduling'] })
     },
+  })
+}
+
+// ─── Slot types & hooks ───────────────────────────────────────────────────────
+
+export interface DesignationSlot {
+  id: number
+  designation_id: number
+  room_id: number | null
+  room_code: string
+  day_of_week: number
+  day_name: string
+  start_time: string
+  end_time: string
+  duration_minutes: number
+  academic_hours: number
+}
+
+export interface SlotConflict {
+  type: string
+  severity: string
+  message: string
+  conflicting_slot_id: number | null
+  details: Record<string, unknown>
+}
+
+export interface AvailabilitySlot {
+  id: number
+  day_of_week: number
+  day_name: string
+  start_time: string
+  end_time: string
+}
+
+export interface TeacherAvailability {
+  id: number
+  teacher_ci: string
+  teacher_name: string
+  academic_period_id: number
+  slots: AvailabilitySlot[]
+}
+
+// Slots
+export function useDesignationSlots(designationId: number, enabled = true) {
+  return useQuery<DesignationSlot[]>({
+    queryKey: ['scheduling', 'slots', designationId],
+    queryFn: async () => {
+      const r = await api.get('/scheduling/slots', { params: { designation_id: designationId } })
+      return r.data
+    },
+    enabled,
+  })
+}
+
+export function useCreateSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      designation_id: number
+      day_of_week: number
+      start_time: string
+      end_time: string
+      room_id?: number
+    }) => {
+      const r = await api.post('/scheduling/slots', data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'slots'] })
+    },
+  })
+}
+
+export function useUpdateSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: {
+      id: number
+      day_of_week?: number
+      start_time?: string
+      end_time?: string
+      room_id?: number
+    }) => {
+      const r = await api.put(`/scheduling/slots/${id}`, data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'slots'] })
+    },
+  })
+}
+
+export function useDeleteSlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/scheduling/slots/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'slots'] })
+    },
+  })
+}
+
+export function useAssignRoom() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ slotId, roomId }: { slotId: number; roomId: number }) => {
+      const r = await api.post(`/scheduling/slots/${slotId}/assign-room`, { room_id: roomId })
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'slots'] })
+    },
+  })
+}
+
+export function useValidateSlot() {
+  return useMutation<
+    SlotConflict[],
+    Error,
+    {
+      designation_id: number
+      day_of_week: number
+      start_time: string
+      end_time: string
+      room_id?: number
+    }
+  >({
+    mutationFn: async (data) => {
+      const r = await api.post('/scheduling/slots/validate', data)
+      return r.data
+    },
+  })
+}
+
+// Availability
+export function useTeacherAvailability(teacherCi: string, periodId: number, enabled = true) {
+  return useQuery<TeacherAvailability | null>({
+    queryKey: ['scheduling', 'availability', teacherCi, periodId],
+    queryFn: async () => {
+      try {
+        const r = await api.get('/scheduling/availability', {
+          params: { teacher_ci: teacherCi, period_id: periodId },
+        })
+        return r.data
+      } catch (e: unknown) {
+        const axiosErr = e as { response?: { status?: number } }
+        if (axiosErr?.response?.status === 404) return null
+        throw e
+      }
+    },
+    enabled: !!teacherCi && periodId > 0,
+  })
+}
+
+export function useSetAvailability() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: {
+      teacher_ci: string
+      period_id: number
+      slots: { day_of_week: number; start_time: string; end_time: string }[]
+    }) => {
+      const r = await api.post('/scheduling/availability', data)
+      return r.data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['scheduling', 'availability'] })
+    },
+  })
+}
+
+export function usePeriodAvailabilities(periodId: number, enabled = true) {
+  return useQuery<TeacherAvailability[]>({
+    queryKey: ['scheduling', 'availability', 'period', periodId],
+    queryFn: async () => {
+      const r = await api.get(`/scheduling/availability/period/${periodId}`)
+      return r.data
+    },
+    enabled: periodId > 0,
   })
 }
 
