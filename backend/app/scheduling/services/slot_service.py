@@ -15,11 +15,13 @@ from app.scheduling.models.designation_slot import DesignationSlot
 from app.scheduling.models.group import Group
 from app.scheduling.models.room import Room
 from app.scheduling.schemas.slot import DAY_NAMES
+from app.scheduling.services.compatibility_adapter import CompatibilityAdapter
 from app.scheduling.services.conflict_service import ConflictService
 
 logger = logging.getLogger(__name__)
 
 conflict_svc = ConflictService()
+_compat = CompatibilityAdapter()
 
 
 class SlotService:
@@ -95,6 +97,7 @@ class SlotService:
         )
         db.add(slot)
         db.flush()
+        _compat.sync_designation_json(db, designation_id)
 
         logger.info("Created slot %d for designation %d", slot.id, designation_id)
 
@@ -161,6 +164,7 @@ class SlotService:
         slot.academic_hours = max(1, round(slot.duration_minutes / 45))
 
         db.flush()
+        _compat.sync_designation_json(db, slot.designation_id)
         logger.info("Updated slot %d", slot_id)
 
         soft_conflicts = [c for c in conflicts if c.severity == "SOFT"]
@@ -176,8 +180,10 @@ class SlotService:
         slot = db.query(DesignationSlot).filter(DesignationSlot.id == slot_id).first()
         if not slot:
             raise HTTPException(status_code=404, detail="Slot no encontrado")
+        designation_id = slot.designation_id
         db.delete(slot)
         db.flush()
+        _compat.sync_designation_json(db, designation_id)
         logger.info("Deleted slot %d", slot_id)
         return {"detail": f"Slot {slot_id} eliminado"}
 

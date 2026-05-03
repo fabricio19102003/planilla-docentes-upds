@@ -8,6 +8,8 @@ from app.scheduling.services.room_service import RoomService
 from app.scheduling.services.conflict_service import ConflictService
 from app.scheduling.services.availability_service import AvailabilityService
 from app.scheduling.services.slot_service import SlotService
+from app.scheduling.services.compatibility_adapter import CompatibilityAdapter
+from app.scheduling.services.slot_read_service import SlotReadService
 
 __all__ = [
     "CareerService",
@@ -20,4 +22,6 @@ __all__ = [
     "ConflictService",
     "AvailabilityService",
     "SlotService",
+    "CompatibilityAdapter",
+    "SlotReadService",
 ]
