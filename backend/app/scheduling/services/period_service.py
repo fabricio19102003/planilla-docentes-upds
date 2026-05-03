@@ -90,10 +90,12 @@ class PeriodService:
                 detail="Cannot activate a closed period",
             )
 
-        # Deactivate current active period
+        # Deactivate current active period — use FOR UPDATE to prevent race condition
+        # where two concurrent activate calls could both succeed (BR-AP-1)
         current_active = (
             db.query(AcademicPeriod)
             .filter(AcademicPeriod.is_active.is_(True), AcademicPeriod.id != period_id)
+            .with_for_update()
             .first()
         )
         if current_active:

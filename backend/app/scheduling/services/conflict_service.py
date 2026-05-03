@@ -247,6 +247,11 @@ class ConflictService:
         # Get group code from Group model
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
+            # group_id=0 or group not found in scheduling module — can't validate
+            logger.debug(
+                "check_group_overlap: group_id=%d not found, skipping group overlap check",
+                group_id,
+            )
             return []
         group_code = group.code
 

@@ -222,7 +222,8 @@ export function useValidateSlot() {
   >({
     mutationFn: async (data) => {
       const r = await api.post('/scheduling/slots/validate', data)
-      return r.data
+      // Backend returns { conflicts: [...], blocked: bool } — extract the array
+      return r.data.conflicts ?? r.data
     },
   })
 }

@@ -159,10 +159,26 @@ class CareerService:
         career_name = curriculum.carrera.strip()
         code = _generate_code(career_name)
 
-        career = db.query(Career).filter(Career.code == code).first()
+        # First try by name (most reliable — avoids code collisions like
+        # "Medicina" and "Medio Ambiente" both generating "MED")
+        career = db.query(Career).filter(Career.name == career_name).first()
         if not career:
-            # Check by name as fallback
-            career = db.query(Career).filter(Career.name == career_name).first()
+            # Then try by code, but verify the name matches
+            career_by_code = db.query(Career).filter(Career.code == code).first()
+            if career_by_code:
+                if career_by_code.name.strip().lower() == career_name.lower():
+                    career = career_by_code
+                else:
+                    # Code collision: different career with same generated code
+                    # Generate a disambiguated code
+                    suffix = 2
+                    while db.query(Career).filter(Career.code == f"{code}{suffix}").first():
+                        suffix += 1
+                    code = f"{code}{suffix}"
+                    warnings.append(
+                        f"Código '{_generate_code(career_name)}' ya existe para otra carrera "
+                        f"('{career_by_code.name}'). Se usó código alternativo: '{code}'"
+                    )
 
         if career:
             logger.info("Found existing career: %s (%s)", career.name, career.code)

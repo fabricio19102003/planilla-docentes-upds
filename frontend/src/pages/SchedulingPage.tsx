@@ -50,21 +50,21 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WEEKDAYS = [
-  { value: 1, label: 'Lunes' },
-  { value: 2, label: 'Martes' },
-  { value: 3, label: 'Miércoles' },
-  { value: 4, label: 'Jueves' },
-  { value: 5, label: 'Viernes' },
-  { value: 6, label: 'Sábado' },
+  { value: 0, label: 'Lunes' },
+  { value: 1, label: 'Martes' },
+  { value: 2, label: 'Miércoles' },
+  { value: 3, label: 'Jueves' },
+  { value: 4, label: 'Viernes' },
+  { value: 5, label: 'Sábado' },
 ]
 
 const DAY_COLORS: Record<number, string> = {
-  1: '#003366',
-  2: '#0066CC',
-  3: '#4DA8DA',
-  4: '#16a34a',
-  5: '#7c3aed',
-  6: '#d97706',
+  0: '#003366',
+  1: '#0066CC',
+  2: '#4DA8DA',
+  3: '#16a34a',
+  4: '#7c3aed',
+  5: '#d97706',
 }
 
 const TIME_SLOTS: string[] = []

@@ -133,6 +133,12 @@ class SlotService:
             raise HTTPException(status_code=404, detail="Designación no encontrada")
 
         period_id, group_id = self._resolve_context(db, designation)
+        if not period_id:
+            logger.warning(
+                "update_slot: could not resolve period for designation %d (academic_period=%s) — "
+                "conflict checks will be skipped",
+                slot.designation_id, designation.academic_period,
+            )
 
         conflicts = conflict_svc.validate_slot(
             db,
@@ -211,6 +217,12 @@ class SlotService:
             raise HTTPException(status_code=404, detail="Designación no encontrada")
 
         period_id, _ = self._resolve_context(db, designation)
+        if not period_id:
+            logger.warning(
+                "assign_room: could not resolve period for designation %d — "
+                "room conflict checks may be incomplete",
+                slot.designation_id,
+            )
 
         # Check room-specific conflicts only
         conflicts: list = []

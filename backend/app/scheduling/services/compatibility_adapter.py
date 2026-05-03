@@ -62,8 +62,12 @@ class CompatibilityAdapter:
         """
         designation = db.query(Designation).filter(Designation.id == designation_id).first()
         if not designation:
-            logger.warning("sync_designation_json: designation %d not found", designation_id)
-            return
+            logger.error(
+                "sync_designation_json: designation %d not found — cannot sync schedule_json. "
+                "This likely indicates a data integrity issue (slot references deleted designation).",
+                designation_id,
+            )
+            raise ValueError(f"Designation {designation_id} not found — cannot sync schedule_json")
 
         slots = (
             db.query(DesignationSlot)
