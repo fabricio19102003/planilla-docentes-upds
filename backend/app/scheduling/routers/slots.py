@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -34,9 +34,10 @@ avail_svc = AvailabilityService()
 # ─── Designation Slot endpoints ──────────────────────────────────────
 
 
-@router.post("/slots", status_code=201)
+@router.post("/slots")
 def create_slot(
     data: SlotCreate,
+    response: Response,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -52,18 +53,32 @@ def create_slot(
         end_time=data.end_time,
         room_id=data.room_id,
     )
+    if result["blocked"]:
+        response.status_code = status.HTTP_409_CONFLICT
+        return result
+
     if not result["blocked"]:
         db.commit()
+        response.status_code = status.HTTP_201_CREATED
     return result
 
 
 @router.get("/slots")
 def list_slots(
-    designation_id: int = Query(..., description="Filter by designation"),
+    designation_id: int | None = Query(None, description="Filter by designation"),
+    room_id: int | None = Query(None, description="Filter by room"),
+    period_id: int | None = Query(None, description="Filter room slots by academic period"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    return slot_svc.list_by_designation(db, designation_id)
+    if room_id is not None:
+        return slot_svc.list_by_room(db, room_id, period_id)
+    if designation_id is not None:
+        return slot_svc.list_by_designation(db, designation_id)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="designation_id or room_id is required",
+    )
 
 
 @router.put("/slots/{slot_id}")
@@ -128,13 +143,19 @@ def validate_slot(
     from app.models.designation import Designation
     from app.scheduling.services.conflict_service import ConflictService
 
+    if data.start_time >= data.end_time:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"start_time ({data.start_time}) debe ser menor que end_time ({data.end_time})",
+        )
+
     designation = db.query(Designation).filter(Designation.id == data.designation_id).first()
     if not designation:
-        return {"conflicts": [], "blocked": False, "error": "Designación no encontrada"}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Designación no encontrada")
 
     period_id, group_id = SlotService._resolve_context(db, designation)
     if not period_id:
-        return {"conflicts": [], "blocked": False, "error": "Periodo no encontrado"}
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Periodo no encontrado")
 
     svc = ConflictService()
     conflicts = svc.validate_slot(

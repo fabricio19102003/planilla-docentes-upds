@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import time
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.designation import Designation
@@ -124,7 +125,8 @@ class ConflictService:
             .join(Designation, DesignationSlot.designation_id == Designation.id)
             .filter(
                 Designation.teacher_ci == teacher_ci,
-                Designation.academic_period == period_code,
+                or_(Designation.academic_period_id == period_id, Designation.academic_period == period_code),
+                Designation.status != "cancelled",
                 DesignationSlot.day_of_week == day_of_week,
                 DesignationSlot.start_time < end_time,
                 start_time < DesignationSlot.end_time,
@@ -176,7 +178,8 @@ class ConflictService:
             .join(Designation, DesignationSlot.designation_id == Designation.id)
             .filter(
                 DesignationSlot.room_id == room_id,
-                Designation.academic_period == period_code,
+                or_(Designation.academic_period_id == period_id, Designation.academic_period == period_code),
+                Designation.status != "cancelled",
                 DesignationSlot.day_of_week == day_of_week,
                 DesignationSlot.start_time < end_time,
                 start_time < DesignationSlot.end_time,
@@ -244,7 +247,6 @@ class ConflictService:
         exclude_slot_id: int | None = None,
     ) -> list[Conflict]:
         """Same group, same period, same day, overlapping times. HARD conflict."""
-        # Get group code from Group model
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             # group_id=0 or group not found in scheduling module — can't validate
@@ -253,8 +255,6 @@ class ConflictService:
                 group_id,
             )
             return []
-        group_code = group.code
-
         period_code = self._get_period_code(db, period_id)
         if not period_code:
             return []
@@ -263,8 +263,17 @@ class ConflictService:
             db.query(DesignationSlot)
             .join(Designation, DesignationSlot.designation_id == Designation.id)
             .filter(
-                Designation.group_code == group_code,
-                Designation.academic_period == period_code,
+                or_(
+                    Designation.group_id == group_id,
+                    (
+                        (Designation.group_id.is_(None))
+                        & (Designation.group_code == group.code)
+                        & (Designation.semester == group.semester.name)
+                        & (Designation.academic_period == period_code)
+                    ),
+                ),
+                or_(Designation.academic_period_id == period_id, Designation.academic_period == period_code),
+                Designation.status != "cancelled",
                 DesignationSlot.day_of_week == day_of_week,
                 DesignationSlot.start_time < end_time,
                 start_time < DesignationSlot.end_time,
@@ -280,13 +289,14 @@ class ConflictService:
                     type="GROUP_OVERLAP",
                     severity="HARD",
                     message=(
-                        f"Grupo {group_code} ya tiene clase "
+                        f"Grupo {group.code} ya tiene clase "
                         f"{slot.start_time.strftime('%H:%M')}-{slot.end_time.strftime('%H:%M')} "
                         f"el mismo día"
                     ),
                     conflicting_slot_id=slot.id,
                     details={
-                        "group_code": group_code,
+                        "group_id": group_id,
+                        "group_code": group.code,
                         "existing_designation_id": slot.designation_id,
                         "existing_start": str(slot.start_time),
                         "existing_end": str(slot.end_time),

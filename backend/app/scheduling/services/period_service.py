@@ -192,7 +192,10 @@ class PeriodService:
         return period
 
     def close_period(self, db: Session, period_id: int) -> AcademicPeriod:
-        """Close a period. BR-AP-4: validates no draft designations exist (future check)."""
+        """Close a period. BR-AP-4: validates no draft designations exist."""
+        from app.models.designation import Designation
+        from sqlalchemy import or_
+
         period = db.query(AcademicPeriod).filter(AcademicPeriod.id == period_id).first()
         if not period:
             raise HTTPException(status_code=404, detail="Academic period not found")
@@ -203,8 +206,20 @@ class PeriodService:
                 detail="Period is already closed",
             )
 
-        # BR-AP-4: In the future, check for draft designations
-        # For now, just close the period
+        draft_count = (
+            db.query(Designation)
+            .filter(
+                or_(Designation.academic_period_id == period_id, Designation.academic_period == period.code),
+                Designation.status == "draft",
+            )
+            .count()
+        )
+        if draft_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot close period '{period.code}': {draft_count} draft designation(s) remain",
+            )
+
         period.status = "closed"
         period.is_active = False
         db.flush()

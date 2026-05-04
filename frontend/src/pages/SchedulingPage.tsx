@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Clock,
   Plus,
@@ -18,6 +18,7 @@ import {
   useActivePeriod,
   useRooms,
   useDesignationSlots,
+  useRoomSlots,
   useCreateSlot,
   useDeleteSlot,
   useValidateSlot,
@@ -26,7 +27,6 @@ import {
   usePeriodAvailabilities,
 } from '@/api/hooks/useScheduling'
 import type {
-  AcademicPeriod,
   Room,
   DesignationSlot,
   SlotConflict,
@@ -67,12 +67,6 @@ const DAY_COLORS: Record<number, string> = {
   5: '#d97706',
 }
 
-const TIME_SLOTS: string[] = []
-for (let h = 6; h <= 22; h++) {
-  TIME_SLOTS.push(`${String(h).padStart(2, '0')}:00`)
-  if (h < 22) TIME_SLOTS.push(`${String(h).padStart(2, '0')}:30`)
-}
-
 type ViewMode = 'teacher' | 'room' | 'weekly'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,13 +80,25 @@ function ErrorBanner({ error }: { error: string }) {
   )
 }
 
-function extractAxiosError(err: unknown, fallback: string): string {
-  const axiosErr = err as { response?: { data?: { detail?: string } } }
-  return axiosErr?.response?.data?.detail ?? fallback
+interface AxiosErrorData {
+  detail?: string
+  blocked?: boolean
+  conflicts?: SlotConflict[]
 }
 
-function dayLabel(day: number): string {
-  return WEEKDAYS.find((d) => d.value === day)?.label ?? `Día ${day}`
+function getAxiosErrorResponse(err: unknown): { status?: number; data?: AxiosErrorData } | undefined {
+  return (err as { response?: { status?: number; data?: AxiosErrorData } })?.response
+}
+
+function extractAxiosError(err: unknown, fallback: string): string {
+  return getAxiosErrorResponse(err)?.data?.detail ?? fallback
+}
+
+function extractBlockedSlotPayload(err: unknown): AxiosErrorData | null {
+  const response = getAxiosErrorResponse(err)
+  const data = response?.data
+  if (response?.status === 409 || data?.blocked) return data ?? {}
+  return null
 }
 
 function timeToMinutes(time: string): number {
@@ -166,6 +172,7 @@ interface CreateSlotDialogProps {
   rooms: Room[]
   defaultDay?: number
   defaultTime?: string
+  defaultRoomId?: number
   designationId?: number
 }
 
@@ -175,6 +182,7 @@ function CreateSlotDialog({
   rooms,
   defaultDay,
   defaultTime,
+  defaultRoomId,
   designationId,
 }: CreateSlotDialogProps) {
   const createSlot = useCreateSlot()
@@ -182,10 +190,10 @@ function CreateSlotDialog({
 
   const [form, setForm] = useState({
     designation_id: designationId ? String(designationId) : '',
-    day_of_week: defaultDay ? String(defaultDay) : '',
+    day_of_week: defaultDay !== undefined ? String(defaultDay) : '',
     start_time: defaultTime ?? '',
     end_time: defaultTime ? minutesToTime(timeToMinutes(defaultTime) + 90) : '',
-    room_id: '',
+    room_id: defaultRoomId ? String(defaultRoomId) : '',
   })
   const [conflicts, setConflicts] = useState<SlotConflict[]>([])
   const [validated, setValidated] = useState(false)
@@ -194,7 +202,7 @@ function CreateSlotDialog({
   const hasHardConflicts = conflicts.some((c) => c.severity === 'HARD')
 
   const handleValidate = async () => {
-    if (!form.designation_id || !form.day_of_week || !form.start_time || !form.end_time) {
+    if (!form.designation_id || form.day_of_week === '' || !form.start_time || !form.end_time) {
       setError('Completá designación, día, hora inicio y hora fin.')
       return
     }
@@ -216,7 +224,7 @@ function CreateSlotDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.designation_id || !form.day_of_week || !form.start_time || !form.end_time) {
+    if (!form.designation_id || form.day_of_week === '' || !form.start_time || !form.end_time) {
       setError('Completá designación, día, hora inicio y hora fin.')
       return
     }
@@ -230,15 +238,33 @@ function CreateSlotDialog({
     }
     setError(null)
     try {
-      await createSlot.mutateAsync({
+      const result = await createSlot.mutateAsync({
         designation_id: Number(form.designation_id),
         day_of_week: Number(form.day_of_week),
         start_time: form.start_time,
         end_time: form.end_time,
         room_id: form.room_id ? Number(form.room_id) : undefined,
       })
+      if (result?.blocked) {
+        setConflicts(result.conflicts ?? [])
+        setValidated(true)
+        setError('El backend bloqueó el slot por conflictos. Revisá y volvé a validar.')
+        return
+      }
       onClose()
     } catch (err) {
+      const blockedPayload = extractBlockedSlotPayload(err)
+      if (blockedPayload) {
+        if (Array.isArray(blockedPayload.conflicts)) {
+          setConflicts(blockedPayload.conflicts)
+        }
+        setValidated(true)
+        setError(
+          blockedPayload.detail ??
+            'El backend bloqueó el slot por conflictos. Revisá los detalles y volvé a validar.'
+        )
+        return
+      }
       setError(extractAxiosError(err, 'No se pudo crear el slot.'))
     }
   }
@@ -451,21 +477,21 @@ function AvailabilityDialog({
   const [isDragging, setIsDragging] = useState(false)
   const [dragMode, setDragMode] = useState<'add' | 'remove'>('add')
 
-  const toggleCell = useCallback(
-    (day: number, time: string) => {
-      const key = `${day}-${time}`
-      setSelected((prev) => {
-        const next = new Set(prev)
-        if (next.has(key)) {
-          next.delete(key)
-        } else {
-          next.add(key)
+  useEffect(() => {
+    if (!open) return
+    const next = new Set<string>()
+    if (existing?.slots) {
+      for (const slot of existing.slots) {
+        const startMin = timeToMinutes(slot.start_time)
+        const endMin = timeToMinutes(slot.end_time)
+        for (let m = startMin; m < endMin; m += 30) {
+          next.add(`${slot.day_of_week}-${minutesToTime(m)}`)
         }
-        return next
-      })
-    },
-    [],
-  )
+      }
+    }
+    setSelected(next)
+  }, [open, existing])
+
 
   const handleMouseDown = useCallback(
     (day: number, time: string) => {
@@ -1079,15 +1105,10 @@ function RoomView({ periodId, rooms }: { periodId: number; rooms: Room[] }) {
   const [createSlotOpen, setCreateSlotOpen] = useState(false)
 
   const numDesigId = designationId ? Number(designationId) : 0
-  const { data: slots, isLoading } = useDesignationSlots(numDesigId, numDesigId > 0)
+  const numRoomId = selectedRoomId ? Number(selectedRoomId) : 0
+  const { data: roomSlots, isLoading } = useRoomSlots(numRoomId, periodId, numRoomId > 0)
   const deleteSlot = useDeleteSlot()
   const [deletingSlotId, setDeletingSlotId] = useState<number | null>(null)
-
-  // Filter slots for selected room
-  const roomSlots = useMemo(() => {
-    if (!slots || !selectedRoomId) return []
-    return slots.filter((s) => s.room_id === Number(selectedRoomId))
-  }, [slots, selectedRoomId])
 
   const selectedRoom = rooms.find((r) => r.id === Number(selectedRoomId))
 
@@ -1171,7 +1192,7 @@ function RoomView({ periodId, rooms }: { periodId: number; rooms: Room[] }) {
           </div>
         )}
 
-        {selectedRoom && numDesigId > 0 && (
+        {selectedRoom && (
           <div>
             {isLoading ? (
               <LoadingPage />
@@ -1179,7 +1200,7 @@ function RoomView({ periodId, rooms }: { periodId: number; rooms: Room[] }) {
               <div className="py-8 text-center">
                 <Clock size={32} className="mx-auto text-gray-300 mb-2" />
                 <p className="text-sm text-gray-400">
-                  No hay slots de la designación #{designationId} asignados a esta sala
+                  No hay slots asignados a esta sala en el período seleccionado
                 </p>
               </div>
             ) : (
@@ -1202,6 +1223,7 @@ function RoomView({ periodId, rooms }: { periodId: number; rooms: Room[] }) {
           onClose={() => setCreateSlotOpen(false)}
           rooms={rooms}
           designationId={numDesigId > 0 ? numDesigId : undefined}
+          defaultRoomId={numRoomId > 0 ? numRoomId : undefined}
         />
       )}
     </div>

@@ -8,6 +8,7 @@ from datetime import time
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.designation import Designation
@@ -204,6 +205,26 @@ class SlotService:
         )
         return [self._slot_to_dict(db, s) for s in slots]
 
+    def list_by_room(self, db: Session, room_id: int, period_id: int | None = None) -> list[dict[str, Any]]:
+        query = (
+            db.query(DesignationSlot)
+            .join(Designation, DesignationSlot.designation_id == Designation.id)
+            .filter(
+                DesignationSlot.room_id == room_id,
+                Designation.status != "cancelled",
+            )
+        )
+        if period_id:
+            from app.scheduling.models.academic_period import AcademicPeriod
+
+            period = db.query(AcademicPeriod).filter(AcademicPeriod.id == period_id).first()
+            if not period:
+                raise HTTPException(status_code=404, detail="Periodo no encontrado")
+            query = query.filter(or_(Designation.academic_period_id == period_id, Designation.academic_period == period.code))
+
+        slots = query.order_by(DesignationSlot.day_of_week, DesignationSlot.start_time).all()
+        return [self._slot_to_dict(db, s) for s in slots]
+
     # ─── Room assignment ──────────────────────────────────────────────
 
     def assign_room(self, db: Session, slot_id: int, room_id: int) -> dict[str, Any]:
@@ -305,26 +326,38 @@ class SlotService:
 
     @staticmethod
     def _resolve_context(db: Session, designation: Designation) -> tuple[int | None, int | None]:
-        """Resolve period_id and group_id from Designation string fields."""
+        """Resolve period_id and group_id, preferring relational FK context."""
         from app.scheduling.models.academic_period import AcademicPeriod
+        from app.scheduling.models.semester import Semester
 
-        period = (
-            db.query(AcademicPeriod)
-            .filter(AcademicPeriod.code == designation.academic_period)
-            .first()
-        )
-        period_id = period.id if period else None
-
-        group_id = None
-        if period_id:
-            group = (
-                db.query(Group)
-                .filter(
-                    Group.code == designation.group_code,
-                    Group.academic_period_id == period_id,
-                )
+        period = None
+        if designation.academic_period_id:
+            period = db.query(AcademicPeriod).filter(AcademicPeriod.id == designation.academic_period_id).first()
+        if not period:
+            period = (
+                db.query(AcademicPeriod)
+                .filter(AcademicPeriod.code == designation.academic_period)
                 .first()
             )
-            group_id = group.id if group else None
+        period_id = period.id if period else None
+
+        group_id = designation.group_id
+        if period_id:
+            if group_id:
+                group = db.query(Group).filter(Group.id == group_id).first()
+                if not group or group.academic_period_id != period_id:
+                    group_id = None
+            if not group_id:
+                group = (
+                    db.query(Group)
+                    .join(Semester, Group.semester_id == Semester.id)
+                    .filter(
+                        Group.code == designation.group_code,
+                        Group.academic_period_id == period_id,
+                        Semester.name == designation.semester,
+                    )
+                    .first()
+                )
+                group_id = group.id if group else None
 
         return period_id, group_id

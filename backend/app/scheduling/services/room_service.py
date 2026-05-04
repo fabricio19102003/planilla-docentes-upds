@@ -6,10 +6,12 @@ import logging
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.scheduling.models.equipment import Equipment
+from app.scheduling.models.academic_period import AcademicPeriod
+from app.scheduling.models.designation_slot import DesignationSlot
 from app.scheduling.models.room import Room
 from app.scheduling.models.room_equipment import RoomEquipment
 from app.scheduling.models.room_type import RoomType
@@ -255,10 +257,33 @@ class RoomService:
 
     def deactivate_room(self, db: Session, room_id: int) -> Room:
         """BR-RM-2: Rooms are never hard-deleted, use is_active=False."""
+        from app.models.designation import Designation
+
         room = db.query(Room).filter(Room.id == room_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        # BR-RM-1: future — check DesignationSlot in non-closed period
+        blocking_slots = (
+            db.query(func.count(DesignationSlot.id))
+            .join(Designation, DesignationSlot.designation_id == Designation.id)
+            .join(
+                AcademicPeriod,
+                or_(
+                    Designation.academic_period_id == AcademicPeriod.id,
+                    Designation.academic_period == AcademicPeriod.code,
+                ),
+            )
+            .filter(
+                DesignationSlot.room_id == room_id,
+                Designation.status != "cancelled",
+                AcademicPeriod.status != "closed",
+            )
+            .scalar()
+        )
+        if blocking_slots:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot deactivate room '{room.code}': {blocking_slots} active schedule slot(s) still reference it",
+            )
         room.is_active = False
         db.flush()
         logger.info("Deactivated room: %s (id=%d)", room.code, room_id)

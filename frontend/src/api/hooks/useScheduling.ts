@@ -142,6 +142,19 @@ export function useDesignationSlots(designationId: number, enabled = true) {
   })
 }
 
+export function useRoomSlots(roomId: number, periodId: number, enabled = true) {
+  return useQuery<DesignationSlot[]>({
+    queryKey: ['scheduling', 'slots', 'room', roomId, periodId],
+    queryFn: async () => {
+      const r = await api.get('/scheduling/slots', {
+        params: { room_id: roomId, period_id: periodId },
+      })
+      return r.data
+    },
+    enabled: enabled && roomId > 0 && periodId > 0,
+  })
+}
+
 export function useCreateSlot() {
   const qc = useQueryClient()
   return useMutation({
@@ -244,7 +257,7 @@ export function useTeacherAvailability(teacherCi: string, periodId: number, enab
         throw e
       }
     },
-    enabled: !!teacherCi && periodId > 0,
+    enabled: enabled && !!teacherCi && periodId > 0,
   })
 }
 
@@ -272,7 +285,7 @@ export function usePeriodAvailabilities(periodId: number, enabled = true) {
       const r = await api.get(`/scheduling/availability/period/${periodId}`)
       return r.data
     },
-    enabled: periodId > 0,
+    enabled: enabled && periodId > 0,
   })
 }
 
