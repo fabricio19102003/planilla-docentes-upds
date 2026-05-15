@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Any
 
 
@@ -16,6 +16,8 @@ class DesignationBase(BaseModel):
     weekly_hours: Optional[int] = None
     weekly_hours_calculated: Optional[int] = None
     schedule_raw: Optional[str] = None
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
 
 
 class DesignationCreate(DesignationBase):
@@ -27,6 +29,11 @@ class DesignationResponse(DesignationBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DesignationContractDatesUpdate(BaseModel):
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
 
 
 class DesignationUploadResponse(BaseModel):

@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
+from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.models.user import User
+from app.schemas.designation import DesignationContractDatesUpdate, DesignationResponse
 from app.schemas.teacher import (
     PaginatedTeachersResponse,
     TeacherAttendanceSummary,
@@ -236,6 +238,60 @@ def update_teacher(
         db.rollback()
         logger.exception("Failed to update teacher %s: %s", ci, exc)
         raise HTTPException(status_code=500, detail="No se pudo actualizar el docente") from exc
+
+
+@router.put("/designations/{designation_id}/contract-dates", response_model=DesignationResponse)
+def update_designation_contract_dates(
+    request: Request,
+    designation_id: int,
+    payload: DesignationContractDatesUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DesignationResponse:
+    """Update contract dates for one assignment/designation."""
+    try:
+        designation = db.query(Designation).filter(Designation.id == designation_id).first()
+        if designation is None:
+            raise HTTPException(status_code=404, detail="Designación no encontrada")
+
+        if (
+            payload.contract_start_date is not None
+            and payload.contract_end_date is not None
+            and payload.contract_end_date < payload.contract_start_date
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La fecha de fin no puede ser anterior a la fecha de inicio",
+            )
+
+        designation.contract_start_date = payload.contract_start_date
+        designation.contract_end_date = payload.contract_end_date
+
+        log_activity(
+            db,
+            "update_designation_contract_dates",
+            "teachers",
+            f"Fechas de contrato actualizadas: {designation.subject} {designation.group_code}",
+            user=current_user,
+            details={
+                "designation_id": designation.id,
+                "teacher_ci": designation.teacher_ci,
+                "contract_start_date": str(designation.contract_start_date) if designation.contract_start_date else None,
+                "contract_end_date": str(designation.contract_end_date) if designation.contract_end_date else None,
+            },
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(designation)
+        return DesignationResponse.model_validate(designation)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to update designation %s contract dates: %s", designation_id, exc)
+        raise HTTPException(status_code=500, detail="No se pudieron actualizar las fechas de contrato") from exc
 
 
 def _normalize_teacher_data(raw: dict) -> dict:

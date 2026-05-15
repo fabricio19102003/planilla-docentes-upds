@@ -53,6 +53,7 @@ export function Header() {
 
   // Debounced search
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear stale search results immediately when the query is too short.
     if (searchQuery.length < 2) { setSearchResults(null); return }
     const timer = setTimeout(async () => {
       try {

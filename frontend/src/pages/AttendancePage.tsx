@@ -96,12 +96,14 @@ export function AttendancePage() {
 
   // Reset manual flag when month/year changes so auto-fill can run again
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Month/year changes intentionally reset the manual override flag.
     setDatesManuallySet(false)
   }, [month, year])
 
   // Auto-fill dates from biometric range when available
   useEffect(() => {
     if (!datesManuallySet && bioRange?.has_data && bioRange.suggested_start && bioRange.suggested_end) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Form defaults are derived from async biometric coverage data.
       setStartDate(bioRange.suggested_start)
       setEndDate(bioRange.suggested_end)
     } else if (!datesManuallySet && bioRange !== undefined && !bioRange.has_data) {

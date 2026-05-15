@@ -29,6 +29,43 @@ function formatLocalDate(dateStr: string): string {
   return `${day}/${month}/${year}`
 }
 
+interface AuditScheduleSlot {
+  dia: string
+  hora_inicio: string
+  hora_fin: string
+}
+
+interface AuditSchedule {
+  designation_id: number
+  subject: string
+  group_code: string
+  semester: string
+  slots?: AuditScheduleSlot[]
+}
+
+interface AuditAttendanceRow {
+  date: string
+  day_name: string
+  subject: string
+  group_code: string
+  scheduled_start: string
+  scheduled_end: string
+  actual_entry: string | null
+  actual_exit: string | null
+  status: string
+  late_minutes: number
+  academic_hours: number
+  has_biometric_link: boolean
+  explanation: string
+}
+
+interface AuditBiometricRow {
+  date: string
+  entry_time: string | null
+  exit_time: string | null
+  worked_minutes: number | null
+}
+
 export function AttendanceAuditPage() {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -297,7 +334,11 @@ export function AttendanceAuditPage() {
                         checked={batchSelected.has(t.ci)}
                         onChange={(e) => {
                           const next = new Set(batchSelected)
-                          e.target.checked ? next.add(t.ci) : next.delete(t.ci)
+                          if (e.target.checked) {
+                            next.add(t.ci)
+                          } else {
+                            next.delete(t.ci)
+                          }
                           setBatchSelected(next)
                         }}
                       />
@@ -455,13 +496,13 @@ export function AttendanceAuditPage() {
                 </h4>
               </div>
               <div className="p-4 space-y-2">
-                {data.schedule.map((s: any) => (
+                {data.schedule.map((s: AuditSchedule) => (
                   <div key={s.designation_id} className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-medium text-gray-800">{s.subject}</span>
                     <Badge className="bg-gray-100 text-gray-600 text-xs">{s.group_code}</Badge>
                     <Badge className="bg-blue-50 text-blue-600 text-xs">{s.semester}</Badge>
                     <div className="flex flex-wrap gap-1 ml-auto">
-                      {(s.slots ?? []).map((slot: any, i: number) => (
+                      {(s.slots ?? []).map((slot: AuditScheduleSlot, i: number) => (
                         <span
                           key={i}
                           className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700"
@@ -527,7 +568,7 @@ export function AttendanceAuditPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.attendance_detail.map((row: any, i: number) => (
+                    {data.attendance_detail.map((row: AuditAttendanceRow, i: number) => (
                       <tr
                         key={i}
                         className={`border-b hover:bg-blue-50/50 transition-colors ${
@@ -650,7 +691,7 @@ export function AttendanceAuditPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.biometric_raw.map((bio: any, i: number) => (
+                    {data.biometric_raw.map((bio: AuditBiometricRow, i: number) => (
                       <tr
                         key={i}
                         className={`border-b last:border-0 hover:bg-gray-50 ${i % 2 === 1 ? 'bg-gray-50/50' : ''}`}

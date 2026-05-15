@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const savedToken = localStorage.getItem(TOKEN_KEY)
     if (!savedToken) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Mount-time localStorage hydration controls the auth loading gate.
       setIsLoading(false)
       return
     }
@@ -53,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setIsLoading(false)
       })
-  }, [])
+  }, [navigate])
 
   const login = useCallback(async (ci: string, password: string) => {
     const res = await api.post<LoginResponse>('/auth/login', { ci, password })

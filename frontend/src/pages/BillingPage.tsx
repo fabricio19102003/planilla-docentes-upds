@@ -19,7 +19,7 @@ export function BillingPage() {
   }
 
   if (error) {
-    const status = (error as any)?.response?.status
+    const status = (error as { response?: { status?: number } })?.response?.status
     if (status === 404) {
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">

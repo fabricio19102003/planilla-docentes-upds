@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMyProfile, useChangePassword, useUpdateProfile, useMySchedule } from '@/api/hooks/useAuth'
 import { useAuth } from '@/context/AuthContext'
@@ -41,6 +41,22 @@ interface ProfileData {
   bank: string | null
   account_number: string | null
   designation_count: number
+}
+
+interface ProfileForm {
+  email: string
+  phone: string
+  bank: string
+  account_number: string
+}
+
+function toProfileForm(profile: ProfileData): ProfileForm {
+  return {
+    email: profile.email ?? '',
+    phone: profile.phone ?? '',
+    bank: profile.bank ?? '',
+    account_number: profile.account_number ?? '',
+  }
 }
 
 // ─── Shared display components ────────────────────────────────────────────────
@@ -124,23 +140,10 @@ function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
 function PersonalDataCard({ p }: { p: ProfileData }) {
   const updateProfile = useUpdateProfile()
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({
-    email: '',
-    phone: '',
-    bank: '',
-    account_number: '',
-  })
+  const [editFormOverride, setEditFormOverride] = useState<Partial<ProfileForm> | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setEditForm({
-      email: p.email ?? '',
-      phone: p.phone ?? '',
-      bank: p.bank ?? '',
-      account_number: p.account_number ?? '',
-    })
-  }, [p])
+  const editForm = { ...toProfileForm(p), ...editFormOverride }
 
   const handleSave = async () => {
     setSaveError(null)
@@ -151,6 +154,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
         bank: editForm.bank || undefined,
         account_number: editForm.account_number || undefined,
       })
+      setEditFormOverride(null)
       setSaveSuccess(true)
       setEditMode(false)
       setTimeout(() => setSaveSuccess(false), 3000)
@@ -161,12 +165,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
   }
 
   const handleCancel = () => {
-    setEditForm({
-      email: p.email ?? '',
-      phone: p.phone ?? '',
-      bank: p.bank ?? '',
-      account_number: p.account_number ?? '',
-    })
+    setEditFormOverride(null)
     setSaveError(null)
     setEditMode(false)
   }
@@ -252,7 +251,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
               <Input
                 type="email"
                 value={editForm.email}
-                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                onChange={(e) => setEditFormOverride((f) => ({ ...f, email: e.target.value }))}
                 placeholder="tu@email.com"
                 className="h-9 text-sm"
               />
@@ -266,7 +265,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
               <Input
                 type="text"
                 value={editForm.phone}
-                onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) => setEditFormOverride((f) => ({ ...f, phone: e.target.value }))}
                 placeholder="Ej: 70012345"
                 className="h-9 text-sm"
               />
@@ -280,7 +279,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
               <Input
                 type="text"
                 value={editForm.bank}
-                onChange={(e) => setEditForm((f) => ({ ...f, bank: e.target.value }))}
+                onChange={(e) => setEditFormOverride((f) => ({ ...f, bank: e.target.value }))}
                 placeholder="Ej: Banco Unión"
                 className="h-9 text-sm"
               />
@@ -294,7 +293,7 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
               <Input
                 type="text"
                 value={editForm.account_number}
-                onChange={(e) => setEditForm((f) => ({ ...f, account_number: e.target.value }))}
+                onChange={(e) => setEditFormOverride((f) => ({ ...f, account_number: e.target.value }))}
                 placeholder="Ej: 1234567890"
                 className="h-9 text-sm"
               />

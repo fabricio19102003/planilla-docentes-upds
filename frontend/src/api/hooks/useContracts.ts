@@ -5,11 +5,6 @@ import { api } from '@/api/client'
 
 export interface ContractRequest {
   department: string
-  duration_text: string
-  start_date: string
-  end_date: string
-  hourly_rate: string
-  hourly_rate_literal: string
 }
 
 export interface BatchContractRequest extends ContractRequest {
@@ -27,6 +22,7 @@ export interface BatchContractResponse {
   total_generated: number
   contracts: ContractFileInfo[]
   zip_filename: string
+  errors: string[]
 }
 
 export interface ContractListItem {

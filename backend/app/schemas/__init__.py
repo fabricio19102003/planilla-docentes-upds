@@ -11,6 +11,7 @@ from app.schemas.teacher import (
 from app.schemas.designation import (
     DesignationBase,
     DesignationCreate,
+    DesignationContractDatesUpdate,
     DesignationResponse,
     DesignationUploadResponse,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "TeacherDetailResponse",
     "DesignationBase",
     "DesignationCreate",
+    "DesignationContractDatesUpdate",
     "DesignationResponse",
     "DesignationUploadResponse",
     "BiometricUploadResponse",

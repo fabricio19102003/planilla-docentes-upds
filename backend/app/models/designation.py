@@ -1,7 +1,7 @@
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSON
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Any
 
 from app.database import Base
@@ -42,6 +42,8 @@ class Designation(Base):
     # "regular" = docente de teoría (tarifa HOURLY_RATE)
     # "practice" = docente asistencial / prácticas internas (tarifa PRACTICE_HOURLY_RATE)
     designation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="regular", index=True)
+    contract_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    contract_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
     # Relationships

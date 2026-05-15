@@ -619,7 +619,6 @@ export function PlanillaPage() {
                                   value={overrideValue}
                                   onChange={e => setOverrideValue(e.target.value)}
                                   className="w-24 border border-[#0066CC] rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#0066CC]"
-                                  // eslint-disable-next-line jsx-a11y/no-autofocus
                                   autoFocus
                                 />
                                 <button

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -12,7 +12,7 @@ import {
   GraduationCap,
   CreditCard,
 } from 'lucide-react'
-import { useTeacherDetail, useUpdateTeacher, useDeleteTeacher } from '@/api/hooks/useTeachers'
+import { useTeacherDetail, useUpdateTeacher, useDeleteTeacher, useUpdateDesignationContractDates } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { DataTable } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Designation, ScheduleSlot } from '@/api/types'
+import type { Designation, ScheduleSlot, TeacherDetail } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 function formatSchedule(schedule: ScheduleSlot[]): string {
@@ -50,6 +50,52 @@ function formatSchedule(schedule: ScheduleSlot[]): string {
     })
     .filter(Boolean)
     .join('; ')
+}
+
+function ContractDateEditor({ designation }: { designation: Designation }) {
+  const updateDates = useUpdateDesignationContractDates()
+  const [startDate, setStartDate] = useState(designation.contract_start_date ?? '')
+  const [endDate, setEndDate] = useState(designation.contract_end_date ?? '')
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async () => {
+    setError(null)
+    try {
+      await updateDates.mutateAsync({
+        designationId: designation.id,
+        contract_start_date: startDate || null,
+        contract_end_date: endDate || null,
+      })
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setError(axiosErr?.response?.data?.detail ?? 'No se pudieron guardar las fechas')
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-col gap-1 min-w-36">
+        <Input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          onBlur={() => void save()}
+          className="h-8 text-xs"
+          aria-label="Fecha de inicio de contrato"
+        />
+        <Input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          onBlur={() => void save()}
+          className="h-8 text-xs"
+          aria-label="Fecha de fin de contrato"
+        />
+      </div>
+      {updateDates.isPending && <p className="text-[11px] text-gray-400">Guardando...</p>}
+      {error && <p className="text-[11px] text-red-600">{error}</p>}
+    </div>
+  )
 }
 
 const designationColumns: Column<Designation>[] = [
@@ -80,6 +126,11 @@ const designationColumns: Column<Designation>[] = [
     header: 'Hs Mensuales',
     render: (item) => (item.monthly_hours != null ? `${item.monthly_hours}h` : '—'),
   },
+  {
+    key: 'contract_dates',
+    header: 'Contrato inicio / fin',
+    render: (item) => <ContractDateEditor designation={item} />,
+  },
 ]
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
@@ -89,6 +140,24 @@ function InfoRow({ label, value }: { label: string; value?: string | null }) {
       <dd className="mt-0.5 text-sm text-gray-800 font-medium">{value ?? '—'}</dd>
     </div>
   )
+}
+
+function toEditForm(teacher: TeacherDetail): Record<string, string> {
+  return {
+    ci: teacher.ci ?? '',
+    full_name: teacher.full_name ?? '',
+    email: teacher.email ?? '',
+    phone: teacher.phone ?? '',
+    gender: teacher.gender ?? '',
+    external_permanent: teacher.external_permanent ?? '',
+    academic_level: teacher.academic_level ?? '',
+    profession: teacher.profession ?? '',
+    specialty: teacher.specialty ?? '',
+    bank: teacher.bank ?? '',
+    account_number: teacher.account_number ?? '',
+    sap_code: teacher.sap_code ?? '',
+    invoice_retention: teacher.invoice_retention ?? '',
+  }
 }
 
 // ─── Delete Confirmation Dialog ───────────────────────────────────────────────
@@ -204,32 +273,14 @@ export function TeacherDetailPage() {
   const updateTeacher = useUpdateTeacher()
 
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [editFormOverride, setEditFormOverride] = useState<Record<string, string> | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
-
-  useEffect(() => {
-    if (teacher) {
-      setEditForm({
-        ci: teacher.ci ?? '',
-        full_name: teacher.full_name ?? '',
-        email: teacher.email ?? '',
-        phone: teacher.phone ?? '',
-        gender: teacher.gender ?? '',
-        external_permanent: teacher.external_permanent ?? '',
-        academic_level: teacher.academic_level ?? '',
-        profession: teacher.profession ?? '',
-        specialty: teacher.specialty ?? '',
-        bank: teacher.bank ?? '',
-        account_number: teacher.account_number ?? '',
-        sap_code: teacher.sap_code ?? '',
-        invoice_retention: teacher.invoice_retention ?? '',
-      })
-    }
-  }, [teacher])
+  const editForm = teacher ? (editFormOverride ?? toEditForm(teacher)) : {}
 
   const handleFieldChange = (field: string, value: string) => {
-    setEditForm((f) => ({ ...f, [field]: value }))
+    if (!teacher) return
+    setEditFormOverride((f) => ({ ...(f ?? toEditForm(teacher)), [field]: value }))
   }
 
   const handleSave = async () => {
@@ -241,6 +292,7 @@ export function TeacherDetailPage() {
         payload[k] = v === '' ? null : v
       }
       await updateTeacher.mutateAsync({ ci, data: payload })
+      setEditFormOverride(null)
       setEditMode(false)
       // If CI changed, redirect to the new URL
       if (editForm.ci && editForm.ci !== ci) {
@@ -253,23 +305,7 @@ export function TeacherDetailPage() {
   }
 
   const handleCancelEdit = () => {
-    if (teacher) {
-      setEditForm({
-        ci: teacher.ci ?? '',
-        full_name: teacher.full_name ?? '',
-        email: teacher.email ?? '',
-        phone: teacher.phone ?? '',
-        gender: teacher.gender ?? '',
-        external_permanent: teacher.external_permanent ?? '',
-        academic_level: teacher.academic_level ?? '',
-        profession: teacher.profession ?? '',
-        specialty: teacher.specialty ?? '',
-        bank: teacher.bank ?? '',
-        account_number: teacher.account_number ?? '',
-        sap_code: teacher.sap_code ?? '',
-        invoice_retention: teacher.invoice_retention ?? '',
-      })
-    }
+    setEditFormOverride(null)
     setEditError(null)
     setEditMode(false)
   }

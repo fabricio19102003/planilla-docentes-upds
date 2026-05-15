@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { PaginatedResponse, Teacher, TeacherDetail } from '@/api/types'
+import type { Designation, PaginatedResponse, Teacher, TeacherDetail } from '@/api/types'
 
 interface TeachersParams {
   search?: string
@@ -78,6 +78,30 @@ export function useUpdateTeacher() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['teachers'] })
+      void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
+    },
+  })
+}
+
+export function useUpdateDesignationContractDates() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      designationId,
+      contract_start_date,
+      contract_end_date,
+    }: {
+      designationId: number
+      contract_start_date: string | null
+      contract_end_date: string | null
+    }) => {
+      const res = await api.put<Designation>(`/teachers/designations/${designationId}/contract-dates`, {
+        contract_start_date,
+        contract_end_date,
+      })
+      return res.data
+    },
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
     },
   })

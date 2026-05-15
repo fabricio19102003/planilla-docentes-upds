@@ -21,8 +21,9 @@ export function usePublicationStatus(month: number, year: number) {
       try {
         const res = await api.get<BillingPublication>(`/billing/publication/${month}/${year}`)
         return res.data
-      } catch (e: any) {
-        if (e.response?.status === 404) return null
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status
+        if (status === 404) return null
         throw e
       }
     },

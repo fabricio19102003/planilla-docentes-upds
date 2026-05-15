@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTeachers } from '@/api/hooks/useTeachers'
+import { useAppSettings } from '@/api/hooks/useAppSettings'
 import {
   useGenerateBatchContracts,
   downloadContract,
@@ -32,16 +33,16 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function getContractErrorMessage(error: unknown): string {
+  const axiosError = error as { response?: { data?: { detail?: string } } }
+  return axiosError.response?.data?.detail ?? 'Error al generar contratos. Verificá que cada designación tenga fecha de inicio y fin de contrato.'
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ContractsPage() {
   // Config
   const [department, setDepartment] = useState('Pando')
-  const [durationText, setDurationText] = useState('4 meses y 13 días')
-  const [startDate, setStartDate] = useState('05 de marzo de 2026')
-  const [endDate, setEndDate] = useState('18 de julio de 2026')
-  const [hourlyRate, setHourlyRate] = useState('70,00')
-  const [hourlyRateLiteral, setHourlyRateLiteral] = useState('Setenta bolivianos 00/100')
 
   // Teacher selection
   const [selectMode, setSelectMode] = useState<'all' | 'select'>('all')
@@ -50,10 +51,12 @@ export function ContractsPage() {
 
   // Results
   const [generatedContracts, setGeneratedContracts] = useState<ContractFileInfo[]>([])
+  const [generationErrors, setGenerationErrors] = useState<string[]>([])
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
 
   const { data: teachersData } = useTeachers({ page: 1, perPage: 500 })
+  const { data: settings } = useAppSettings()
   // Exclude placeholder TEMP teachers — they have no real CI and should not get contracts
   const teachers = (teachersData?.items ?? []).filter((t) => !t.ci.startsWith('TEMP-'))
   const generateBatch = useGenerateBatchContracts()
@@ -76,13 +79,7 @@ export function ContractsPage() {
     })
   }
 
-  const isConfigValid =
-    department.trim() !== '' &&
-    durationText.trim() !== '' &&
-    startDate.trim() !== '' &&
-    endDate.trim() !== '' &&
-    hourlyRate.trim() !== '' &&
-    hourlyRateLiteral.trim() !== ''
+  const isConfigValid = department.trim() !== ''
 
   const canGenerate =
     isConfigValid &&
@@ -90,18 +87,15 @@ export function ContractsPage() {
 
   const handleGenerate = () => {
     setGeneratedContracts([])
+    setGenerationErrors([])
     const payload: BatchContractRequest = {
       department,
-      duration_text: durationText,
-      start_date: startDate,
-      end_date: endDate,
-      hourly_rate: hourlyRate,
-      hourly_rate_literal: hourlyRateLiteral,
       teacher_cis: selectMode === 'select' ? [...selectedCis] : null,
     }
     generateBatch.mutate(payload, {
       onSuccess: (data) => {
         setGeneratedContracts(data.contracts)
+        setGenerationErrors(data.errors ?? [])
       },
     })
   }
@@ -172,74 +166,8 @@ export function ContractsPage() {
               </select>
             </div>
 
-            {/* Duration */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Duración del contrato
-              </label>
-              <input
-                type="text"
-                value={durationText}
-                onChange={(e) => setDurationText(e.target.value)}
-                placeholder="ej: 4 meses y 13 días"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-
-            {/* Hourly rate */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Tarifa por hora (Bs)
-              </label>
-              <input
-                type="text"
-                value={hourlyRate}
-                onChange={(e) => setHourlyRate(e.target.value)}
-                placeholder="ej: 70,00"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-
-            {/* Start date */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Fecha de inicio
-              </label>
-              <input
-                type="text"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                placeholder="ej: 05 de marzo de 2026"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-
-            {/* End date */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Fecha de fin
-              </label>
-              <input
-                type="text"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                placeholder="ej: 18 de julio de 2026"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-
-            {/* Hourly rate literal */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Tarifa en letras
-              </label>
-              <input
-                type="text"
-                value={hourlyRateLiteral}
-                onChange={(e) => setHourlyRateLiteral(e.target.value)}
-                placeholder="ej: Setenta bolivianos 00/100"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 lg:col-span-3">
+              Las fechas y la duración se calculan automáticamente desde cada designación del docente. Cargalas en el detalle del docente, en la tabla de designaciones. Las tarifas se toman automáticamente de Configuración: prácticas Bs {settings?.practice_hourly_rate ?? '—'}; teoría/mixtas Bs {settings?.hourly_rate ?? '—'}.
             </div>
           </div>
         </div>
@@ -371,7 +299,7 @@ export function ContractsPage() {
         {!canGenerate && !generateBatch.isPending && (
           <p className="text-xs text-gray-400">
             {!isConfigValid
-              ? 'Completá todos los campos de configuración'
+              ? 'Completá el departamento'
               : 'Seleccioná al menos un docente'}
           </p>
         )}
@@ -381,8 +309,19 @@ export function ContractsPage() {
       {generateBatch.isError && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-sm text-red-600">
-            Error al generar contratos. Verificá la configuración y volvé a intentarlo.
+            {getContractErrorMessage(generateBatch.error)}
           </p>
+        </div>
+      )}
+
+      {generationErrors.length > 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm font-medium text-amber-800">Algunos docentes se omitieron:</p>
+          <ul className="mt-2 list-disc pl-5 text-xs text-amber-700 space-y-1">
+            {generationErrors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
         </div>
       )}
 

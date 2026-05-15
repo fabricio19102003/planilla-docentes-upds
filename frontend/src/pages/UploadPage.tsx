@@ -24,6 +24,11 @@ function formatDate(dateStr: string): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
+function getUploadErrorDetail(error: unknown): string {
+  return (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ?? 'Verificá el formato e intentá de nuevo.'
+}
+
 const uploadHistoryColumns: Column<BiometricUpload>[] = [
   { key: 'filename', header: 'Archivo' },
   {
@@ -190,8 +195,7 @@ export function UploadPage() {
                 <div>
                   <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
                   <p className="text-xs text-red-500 mt-0.5">
-                    {(uploadBiometric.error as any)?.response?.data?.detail
-                      ?? 'Verificá el formato e intentá de nuevo.'}
+                    {getUploadErrorDetail(uploadBiometric.error)}
                   </p>
                 </div>
               </div>
@@ -263,8 +267,7 @@ export function UploadPage() {
                 <div>
                   <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
                   <p className="text-xs text-red-500 mt-0.5">
-                    {(uploadDesignations.error as any)?.response?.data?.detail
-                      ?? 'Verificá el formato e intentá de nuevo.'}
+                    {getUploadErrorDetail(uploadDesignations.error)}
                   </p>
                 </div>
               </div>
@@ -346,8 +349,7 @@ export function UploadPage() {
                 <div>
                   <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
                   <p className="text-xs text-red-500 mt-0.5">
-                    {(uploadTeacherList.error as any)?.response?.data?.detail
-                      ?? 'Verificá el formato e intentá de nuevo.'}
+                    {getUploadErrorDetail(uploadTeacherList.error)}
                   </p>
                 </div>
               </div>

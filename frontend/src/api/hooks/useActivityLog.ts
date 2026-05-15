@@ -10,7 +10,7 @@ export interface ActivityLogEntry {
   action: string
   category: string
   description: string
-  details: Record<string, any> | null
+  details: Record<string, unknown> | null
   status: string
   ip_address: string | null
   created_at: string

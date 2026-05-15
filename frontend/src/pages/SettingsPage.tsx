@@ -77,6 +77,7 @@ export function SettingsPage() {
   // Sync form state when server data arrives (initial load) or after a save.
   useEffect(() => {
     if (settings) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Settings form is intentionally hydrated from server data.
       setForm(toFormState(settings))
     }
   }, [settings])

@@ -108,6 +108,8 @@ export interface Designation {
   weekly_hours: number | null
   weekly_hours_calculated: number | null
   schedule_raw: string | null
+  contract_start_date: string | null
+  contract_end_date: string | null
   created_at: string
 }
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Report preview payloads are heterogeneous by report type; preserving current runtime shapes is safer than a broad typing refactor here. */
 import { useState, useEffect } from 'react'
 import {
   FileText,
@@ -578,6 +579,7 @@ export function ReportsPage() {
   useEffect(() => {
     const isRoster = reportType === 'roster'
     const isSimple = reportType === 'incidence' || reportType === 'reconciliation'
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Filters are intentionally synchronized from report controls before preview/generation.
     setFilters(f => ({
       ...f,
       report_type: reportType,

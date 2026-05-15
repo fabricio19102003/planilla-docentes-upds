@@ -112,6 +112,12 @@ def _run_column_migrations() -> None:
                         logger.info("Updated designations unique constraint to include academic_period")
                     except Exception as constraint_exc:
                         logger.warning("Could not update designations constraint: %s", constraint_exc)
+                if "contract_start_date" not in desig_cols:
+                    conn.execute(text("ALTER TABLE designations ADD COLUMN contract_start_date DATE"))
+                    logger.info("Added column designations.contract_start_date")
+                if "contract_end_date" not in desig_cols:
+                    conn.execute(text("ALTER TABLE designations ADD COLUMN contract_end_date DATE"))
+                    logger.info("Added column designations.contract_end_date")
 
             conn.commit()
     except Exception as exc:

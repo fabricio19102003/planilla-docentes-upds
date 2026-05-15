@@ -8,12 +8,15 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
+from calendar import monthrange
+from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -41,11 +44,6 @@ DEPARTMENTS = [
 
 class ContractRequest(BaseModel):
     department: str = "Pando"
-    duration_text: str = "4 meses y 13 días"
-    start_date: str = ""
-    end_date: str = ""
-    hourly_rate: str = "70,00"
-    hourly_rate_literal: str = "Setenta bolivianos 00/100"
 
 
 class BatchContractRequest(ContractRequest):
@@ -63,6 +61,7 @@ class BatchContractResponse(BaseModel):
     total_generated: int
     contracts: list[ContractFileInfo]
     zip_filename: str
+    errors: list[str] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------
@@ -102,6 +101,137 @@ def _get_teacher_designations(teacher_ci: str, db: Session) -> tuple[Teacher, li
     return teacher, designations
 
 
+def _number_to_spanish(value: int) -> str:
+    """Return a compact Spanish literal for integers from 0 to 10000."""
+    if value < 0 or value > 10000:
+        raise ValueError("Solo se soportan montos entre 0 y 10000")
+
+    units = {
+        0: "cero", 1: "un", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
+        6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez",
+        11: "once", 12: "doce", 13: "trece", 14: "catorce", 15: "quince",
+        16: "dieciséis", 17: "diecisiete", 18: "dieciocho", 19: "diecinueve",
+        20: "veinte", 21: "veintiún", 22: "veintidós", 23: "veintitrés",
+        24: "veinticuatro", 25: "veinticinco", 26: "veintiséis", 27: "veintisiete",
+        28: "veintiocho", 29: "veintinueve",
+    }
+    tens = {
+        30: "treinta", 40: "cuarenta", 50: "cincuenta", 60: "sesenta",
+        70: "setenta", 80: "ochenta", 90: "noventa",
+    }
+    hundreds = {
+        100: "cien", 200: "doscientos", 300: "trescientos", 400: "cuatrocientos",
+        500: "quinientos", 600: "seiscientos", 700: "setecientos", 800: "ochocientos",
+        900: "novecientos",
+    }
+
+    if value < 30:
+        return units[value]
+    if value < 100:
+        ten = (value // 10) * 10
+        rest = value % 10
+        return tens[ten] if rest == 0 else f"{tens[ten]} y {units[rest]}"
+    if value < 1000:
+        hundred = (value // 100) * 100
+        rest = value % 100
+        if rest == 0:
+            return hundreds[hundred]
+        prefix = "ciento" if hundred == 100 else hundreds[hundred]
+        return f"{prefix} {_number_to_spanish(rest)}"
+    if value == 1000:
+        return "mil"
+    if value < 10000:
+        thousands = value // 1000
+        rest = value % 1000
+        prefix = "mil" if thousands == 1 else f"{_number_to_spanish(thousands)} mil"
+        return prefix if rest == 0 else f"{prefix} {_number_to_spanish(rest)}"
+    return "diez mil"
+
+
+def _format_contract_rate(rate: float) -> tuple[str, str]:
+    amount = Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount < 0 or amount > Decimal("10000.00"):
+        raise ValueError("La tarifa por hora debe estar entre 0 y 10000 Bs")
+
+    integer_part = int(amount)
+    cents = int((amount - Decimal(integer_part)) * 100)
+    numeric = f"{integer_part},{cents:02d}"
+    currency = "boliviano" if integer_part == 1 else "bolivianos"
+    literal = f"{_number_to_spanish(integer_part).capitalize()} {currency} {cents:02d}/100"
+    return numeric, literal
+
+
+def _resolve_contract_rate(designations: list[Designation], db: Session) -> tuple[str, str]:
+    """Pick the contract rate for one teacher's active-period designations."""
+    all_practice = bool(designations) and all(
+        designation.designation_type == "practice" for designation in designations
+    )
+    rate = (
+        app_settings_service.get_practice_hourly_rate(db)
+        if all_practice
+        else app_settings_service.get_hourly_rate(db)
+    )
+    return _format_contract_rate(rate)
+
+
+MONTH_NAMES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+
+def _format_spanish_date(value: date) -> str:
+    return f"{value.day:02d} de {MONTH_NAMES[value.month]} de {value.year}"
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _format_duration_text(start: date, end: date) -> str:
+    if end < start:
+        raise ValueError("La fecha de fin del contrato no puede ser anterior a la fecha de inicio")
+
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+
+    anchor = _add_months(start, months)
+    days = (end - anchor).days
+
+    parts: list[str] = []
+    if months:
+        parts.append(f"{months} mes{'es' if months != 1 else ''}")
+    if days:
+        parts.append(f"{days} día{'s' if days != 1 else ''}")
+    return " y ".join(parts) if parts else "0 días"
+
+
+def _resolve_contract_dates(designations: list[Designation]) -> tuple[str, str, str]:
+    if not designations:
+        raise ValueError("El docente no tiene designaciones en el período académico activo")
+
+    missing = [
+        f"{designation.subject} ({designation.group_code})"
+        for designation in designations
+        if designation.contract_start_date is None or designation.contract_end_date is None
+    ]
+    if missing:
+        raise ValueError(
+            "Faltan fechas de contrato en las siguientes designaciones: "
+            + "; ".join(missing)
+        )
+
+    start = min(designation.contract_start_date for designation in designations if designation.contract_start_date)
+    end = max(designation.contract_end_date for designation in designations if designation.contract_end_date)
+    return _format_duration_text(start, end), _format_spanish_date(start), _format_spanish_date(end)
+
+
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
@@ -129,16 +259,20 @@ def generate_single_contract(
         )
 
     try:
+        hourly_rate, hourly_rate_literal = _resolve_contract_rate(designations, db)
+        duration_text, start_date, end_date = _resolve_contract_dates(designations)
         pdf_path = generate_contract_pdf(
             teacher=teacher,
             designations=designations,
             department=payload.department,
-            duration_text=payload.duration_text,
-            start_date=payload.start_date,
-            end_date=payload.end_date,
-            hourly_rate=payload.hourly_rate,
-            hourly_rate_literal=payload.hourly_rate_literal,
+            duration_text=duration_text,
+            start_date=start_date,
+            end_date=end_date,
+            hourly_rate=hourly_rate,
+            hourly_rate_literal=hourly_rate_literal,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to generate contract for teacher %s: %s", teacher_ci, exc)
         raise HTTPException(
@@ -226,15 +360,17 @@ def generate_batch_contracts(
         if not designations:
             continue
         try:
+            hourly_rate, hourly_rate_literal = _resolve_contract_rate(designations, db)
+            duration_text, start_date, end_date = _resolve_contract_dates(designations)
             pdf_path_str = generate_contract_pdf(
                 teacher=teacher,
                 designations=designations,
                 department=payload.department,
-                duration_text=payload.duration_text,
-                start_date=payload.start_date,
-                end_date=payload.end_date,
-                hourly_rate=payload.hourly_rate,
-                hourly_rate_literal=payload.hourly_rate_literal,
+                duration_text=duration_text,
+                start_date=start_date,
+                end_date=end_date,
+                hourly_rate=hourly_rate,
+                hourly_rate_literal=hourly_rate_literal,
             )
             pdf_path = Path(pdf_path_str)
             contracts.append(ContractFileInfo(
@@ -249,8 +385,8 @@ def generate_batch_contracts(
 
     if not contracts:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo generar ningún contrato PDF",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pudo generar ningún contrato PDF. " + " | ".join(errors),
         )
 
     from datetime import datetime
@@ -275,6 +411,7 @@ def generate_batch_contracts(
         total_generated=len(contracts),
         contracts=contracts,
         zip_filename=zip_filename,
+        errors=errors,
     )
 
 
