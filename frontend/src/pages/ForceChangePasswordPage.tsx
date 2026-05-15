@@ -87,7 +87,7 @@ function UPDSLogo() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ForceChangePasswordPage() {
-  const { user } = useAuth()
+  const { refreshUser } = useAuth()
   const navigate = useNavigate()
   const changePwd = useChangePassword()
 
@@ -118,10 +118,11 @@ export function ForceChangePasswordPage() {
         current_password: form.current,
         new_password: form.newPwd,
       })
+      const nextUser = await refreshUser()
       setSuccess(true)
       // Redirect after short delay
       setTimeout(() => {
-        if (user?.role === 'admin') {
+        if (nextUser.role === 'admin') {
           navigate('/')
         } else {
           navigate('/portal')

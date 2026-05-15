@@ -11,6 +11,7 @@ interface AuthContextType {
   isDocente: boolean
   mustChangePassword: boolean
   login: (ci: string, password: string) => Promise<void>
+  refreshUser: () => Promise<AuthUser>
   logout: () => void
   isLoading: boolean
 }
@@ -78,6 +79,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [navigate])
 
+  const refreshUser = useCallback(async () => {
+    const res = await api.get<AuthUser>('/auth/me')
+    setUser(res.data)
+    return res.data
+  }, [])
+
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY)
     setToken(null)
@@ -95,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isDocente: user?.role === 'docente',
     mustChangePassword,
     login,
+    refreshUser,
     logout,
     isLoading,
   }
