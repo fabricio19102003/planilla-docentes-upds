@@ -353,10 +353,15 @@ export interface UploadDesignationsPayload {
 
 // ─── Portal Profile Update ────────────────────────────────────────────────────
 export interface ProfileUpdatePayload {
-  email?: string
-  phone?: string
-  bank?: string
-  account_number?: string
+  email?: string | null
+  phone?: string | null
+  gender?: string | null
+  external_permanent?: string | null
+  academic_level?: string | null
+  profession?: string | null
+  specialty?: string | null
+  bank?: string | null
+  account_number?: string | null
 }
 
 // ─── Portal Schedule ──────────────────────────────────────────────────────────

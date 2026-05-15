@@ -46,6 +46,11 @@ interface ProfileData {
 interface ProfileForm {
   email: string
   phone: string
+  gender: string
+  external_permanent: string
+  academic_level: string
+  profession: string
+  specialty: string
   bank: string
   account_number: string
 }
@@ -54,9 +59,19 @@ function toProfileForm(profile: ProfileData): ProfileForm {
   return {
     email: profile.email ?? '',
     phone: profile.phone ?? '',
+    gender: profile.gender ?? '',
+    external_permanent: profile.external_permanent ?? '',
+    academic_level: profile.academic_level ?? '',
+    profession: profile.profession ?? '',
+    specialty: profile.specialty ?? '',
     bank: profile.bank ?? '',
     account_number: profile.account_number ?? '',
   }
+}
+
+function nullableText(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
 }
 
 // ─── Shared display components ────────────────────────────────────────────────
@@ -149,10 +164,15 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
     setSaveError(null)
     try {
       await updateProfile.mutateAsync({
-        email: editForm.email || undefined,
-        phone: editForm.phone || undefined,
-        bank: editForm.bank || undefined,
-        account_number: editForm.account_number || undefined,
+        email: nullableText(editForm.email),
+        phone: nullableText(editForm.phone),
+        gender: nullableText(editForm.gender),
+        external_permanent: nullableText(editForm.external_permanent),
+        academic_level: nullableText(editForm.academic_level),
+        profession: nullableText(editForm.profession),
+        specialty: nullableText(editForm.specialty),
+        bank: nullableText(editForm.bank),
+        account_number: nullableText(editForm.account_number),
       })
       setEditFormOverride(null)
       setSaveSuccess(true)
@@ -223,17 +243,18 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
           </div>
         )}
 
-        {/* Read-only fields */}
+        {/* Read-only identity fields */}
         <InfoRow icon={User} label="Nombre Completo" value={p.full_name} />
         <InfoRow icon={User} label="Cédula de Identidad" value={p.ci} />
-        <InfoRow icon={User} label="Género" value={p.gender} />
-        <InfoRow icon={BookOpen} label="Nivel Académico" value={p.academic_level} />
-        <InfoRow icon={BookOpen} label="Profesión" value={p.profession} />
-        <InfoRow icon={BookOpen} label="Especialidad" value={p.specialty} />
 
         {/* Editable fields */}
         {!editMode ? (
           <>
+            <InfoRow icon={User} label="Género" value={p.gender} />
+            <InfoRow icon={BookOpen} label="Nivel Académico" value={p.academic_level} />
+            <InfoRow icon={BookOpen} label="Profesión" value={p.profession} />
+            <InfoRow icon={BookOpen} label="Especialidad" value={p.specialty} />
+            <InfoRow icon={User} label="Externo/Permanente" value={p.external_permanent} />
             <InfoRow icon={Mail} label="Email" value={p.email} />
             <InfoRow icon={Phone} label="Teléfono" value={p.phone} />
             <InfoRow icon={CreditCard} label="Banco" value={p.bank} />
@@ -242,6 +263,63 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
         ) : (
           <div className="pt-2 space-y-3 border-t border-dashed border-gray-200 mt-1">
             <p className="text-xs text-gray-400 font-medium">Campos editables:</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-500">Género</Label>
+                <Input
+                  type="text"
+                  value={editForm.gender}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, gender: e.target.value }))}
+                  placeholder="Ej: Femenino / Masculino"
+                  className="h-9 text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-500">Externo/Permanente</Label>
+                <Input
+                  type="text"
+                  value={editForm.external_permanent}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, external_permanent: e.target.value }))}
+                  placeholder="Ej: Externo"
+                  className="h-9 text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-500">Nivel Académico</Label>
+                <Input
+                  type="text"
+                  value={editForm.academic_level}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, academic_level: e.target.value }))}
+                  placeholder="Ej: Licenciatura, Maestría"
+                  className="h-9 text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-500">Profesión</Label>
+                <Input
+                  type="text"
+                  value={editForm.profession}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, profession: e.target.value }))}
+                  placeholder="Ej: Médico Cirujano"
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Especialidad</Label>
+              <Input
+                type="text"
+                value={editForm.specialty}
+                onChange={(e) => setEditFormOverride((f) => ({ ...f, specialty: e.target.value }))}
+                placeholder="Ej: Cirugía General"
+                className="h-9 text-sm"
+              />
+            </div>
 
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">
@@ -406,7 +484,7 @@ function ChangePasswordCard() {
             <p className="text-green-700 font-medium text-sm">¡Contraseña actualizada correctamente!</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 max-w-sm">
+          <form onSubmit={handleSubmit} className="space-y-4 max-w-sm" autoComplete="off">
             {/* Current password */}
             <div className="space-y-1.5">
               <Label className="text-sm">Contraseña actual *</Label>
@@ -415,7 +493,8 @@ function ChangePasswordCard() {
                   type={showCurrent ? 'text' : 'password'}
                   value={form.current}
                   onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
-                  placeholder="••••••••"
+                  placeholder=""
+                  autoComplete="off"
                   className="pr-10"
                 />
                 <button

@@ -95,8 +95,20 @@ class ProfileResponse(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
+    gender: Optional[str] = None
+    external_permanent: Optional[str] = None
+    academic_level: Optional[str] = None
+    profession: Optional[str] = None
+    specialty: Optional[str] = None
     bank: Optional[str] = None
     account_number: Optional[str] = None
+
+
+def _clean_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 class RetentionLetterRequest(BaseModel):
@@ -523,22 +535,38 @@ def update_profile(
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Update docente's personal information (email, phone, bank, account_number)."""
+    """Update docente's personal information."""
     teacher = _get_teacher_or_raise(current_user, db)
 
     updated_fields = []
-    if payload.email is not None:
-        teacher.email = payload.email
-        current_user.email = payload.email
+    update_data = payload.model_dump(exclude_unset=True)
+    if "email" in update_data:
+        teacher.email = _clean_optional_text(payload.email)
+        current_user.email = teacher.email
         updated_fields.append("email")
-    if payload.phone is not None:
-        teacher.phone = payload.phone
+    if "phone" in update_data:
+        teacher.phone = _clean_optional_text(payload.phone)
         updated_fields.append("phone")
-    if payload.bank is not None:
-        teacher.bank = payload.bank
+    if "gender" in update_data:
+        teacher.gender = _clean_optional_text(payload.gender)
+        updated_fields.append("gender")
+    if "external_permanent" in update_data:
+        teacher.external_permanent = _clean_optional_text(payload.external_permanent)
+        updated_fields.append("external_permanent")
+    if "academic_level" in update_data:
+        teacher.academic_level = _clean_optional_text(payload.academic_level)
+        updated_fields.append("academic_level")
+    if "profession" in update_data:
+        teacher.profession = _clean_optional_text(payload.profession)
+        updated_fields.append("profession")
+    if "specialty" in update_data:
+        teacher.specialty = _clean_optional_text(payload.specialty)
+        updated_fields.append("specialty")
+    if "bank" in update_data:
+        teacher.bank = _clean_optional_text(payload.bank)
         updated_fields.append("bank")
-    if payload.account_number is not None:
-        teacher.account_number = payload.account_number
+    if "account_number" in update_data:
+        teacher.account_number = _clean_optional_text(payload.account_number)
         updated_fields.append("account_number")
 
     log_activity(
