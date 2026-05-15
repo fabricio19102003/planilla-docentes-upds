@@ -3,15 +3,14 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-import secrets
 import shutil
-import string
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -31,23 +30,6 @@ def _uploads_dir() -> Path:
     path = Path(__file__).resolve().parents[2] / "data" / "uploads"
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _generate_compliant_password() -> str:
-    """Generate a random 12-char password that always meets the strength policy.
-
-    Guarantees at least one uppercase letter, one lowercase letter, and one digit
-    (avoids the weakness of secrets.token_urlsafe which may lack any of these).
-    """
-    chars = string.ascii_letters + string.digits
-    while True:
-        pwd = "".join(secrets.choice(chars) for _ in range(12))
-        if (
-            any(c.isupper() for c in pwd)
-            and any(c.islower() for c in pwd)
-            and any(c.isdigit() for c in pwd)
-        ):
-            return pwd
 
 
 def _save_upload_file(upload: UploadFile) -> tuple[Path, str]:
@@ -137,9 +119,8 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
     """Create user accounts for all teachers that don't have one yet,
     and fix existing docente users that have ``teacher_ci=None``.
 
-    Each new user receives a unique random password via secrets.token_urlsafe(8).
-    Passwords are NOT stored in plaintext, NOT returned in responses, NOT logged.
-    Admins must use the password reset flow to provide credentials to teachers.
+    Each new user receives the configured temporary password and is forced to
+    change it on first login via ``must_change_password=True``.
 
     Returns ``(created, skipped)`` counts.
     """
@@ -189,12 +170,10 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
             continue
 
         try:
-            # Each teacher gets a unique random password — never reused across accounts
-            password = _generate_compliant_password()
             user = User(
                 ci=teacher.ci,
                 full_name=teacher.full_name,
-                password_hash=auth_service.hash_password(password),
+                password_hash=auth_service.hash_password(settings.DOCENTE_DEFAULT_PASSWORD),
                 role="docente",
                 teacher_ci=teacher.ci,
                 is_active=True,
@@ -208,7 +187,8 @@ def _auto_create_docente_users(db: Session) -> tuple[int, int]:
             skipped += 1
             logger.warning("Could not create user for teacher CI=%s", teacher.ci)
 
-    # NOTE: passwords are NOT logged — admin must use password reset flow
+    # NOTE: temporary password is configured via DOCENTE_DEFAULT_PASSWORD and
+    # docentes must change it on first login.
     logger.info("Auto-created %d docente users (%d skipped)", created, skipped)
     return created, skipped
 

@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Admin bootstrap — password for seed admin accounts (read by auth_service)
     ADMIN_DEFAULT_PASSWORD: Optional[str] = None
 
+    # Docente bootstrap — temporary password for docente accounts created from designation uploads.
+    # Users are forced to change it on first login via must_change_password=True.
+    DOCENTE_DEFAULT_PASSWORD: str = "upds*2026"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
