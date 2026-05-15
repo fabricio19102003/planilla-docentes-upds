@@ -27,7 +27,10 @@ from app.schemas.practice_planilla import (
     PracticePlanillaOutputResponse,
 )
 from app.services import app_settings_service
-from app.services.practice_planilla_generator import PracticePlanillaGenerator
+from app.services.practice_planilla_generator import (
+    PracticePlanillaCoverageError,
+    PracticePlanillaGenerator,
+)
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -114,6 +117,16 @@ def generate_practice_planilla(
     except HTTPException:
         db.rollback()
         raise
+    except PracticePlanillaCoverageError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": str(exc),
+                "missing_count": exc.missing_count,
+                "sample": exc.sample,
+            },
+        ) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Practice planilla generation failed: %s", exc)

@@ -39,6 +39,22 @@ function formatShortDate(dateStr: string | null): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+function getPlanillaErrorMessage(error: unknown): string {
+  const fallback = 'Error al generar la planilla. Verifica que la asistencia este procesada para el periodo seleccionado.'
+  if (!error || typeof error !== 'object') return fallback
+
+  const response = (error as { response?: { data?: { detail?: unknown } } }).response
+  const detail = response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string') return message
+  }
+
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string' ? message : fallback
+}
+
 export function PracticePlanillaPage() {
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -249,7 +265,7 @@ export function PracticePlanillaPage() {
           {generatePlanilla.isError && (
             <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-sm text-red-600">
-                Error al generar la planilla. Verifica que la asistencia este procesada para el periodo seleccionado.
+                {getPlanillaErrorMessage(generatePlanilla.error)}
               </p>
             </div>
           )}

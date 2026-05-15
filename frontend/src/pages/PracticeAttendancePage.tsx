@@ -110,12 +110,23 @@ export function PracticeAttendancePage() {
     startDate || undefined,
     endDate || undefined,
   )
+  const { data: teacherSummaries } = usePracticeAttendanceSummary(
+    month, year,
+    undefined,
+    startDate || undefined,
+    endDate || undefined,
+  )
   const generateMutation = useGeneratePracticeAttendance()
   const updateMutation = useUpdatePracticeAttendance()
   const deleteMutation = useDeletePracticeAttendance()
 
   // Unique teachers for filter dropdown
   const teachers = useMemo(() => {
+    if (teacherSummaries?.length) {
+      return teacherSummaries
+        .map((s) => ({ ci: s.teacher_ci, name: s.teacher_name ?? s.teacher_ci }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    }
     if (!entries) return []
     const map = new Map<string, string>()
     for (const e of entries) {
@@ -126,7 +137,12 @@ export function PracticeAttendancePage() {
     return Array.from(map.entries())
       .map(([ci, name]) => ({ ci, name }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [entries])
+  }, [entries, teacherSummaries])
+
+  const exportDateRange = useMemo(() => ({
+    start_date: selectedDate || startDate || undefined,
+    end_date: selectedDate || endDate || undefined,
+  }), [selectedDate, startDate, endDate])
 
   // Filter entries by selected date
   const filteredEntries = useMemo(() => {
@@ -341,8 +357,7 @@ export function PracticeAttendancePage() {
                 try {
                   await downloadPracticeAttendancePdf({
                     month, year,
-                    start_date: startDate || undefined,
-                    end_date: endDate || undefined,
+                    ...exportDateRange,
                     teacher_ci: teacherFilter || undefined,
                   })
                 } finally { setPdfLoading(false) }
@@ -359,8 +374,7 @@ export function PracticeAttendancePage() {
                 try {
                   await downloadPracticeAttendanceExcel({
                     month, year,
-                    start_date: startDate || undefined,
-                    end_date: endDate || undefined,
+                    ...exportDateRange,
                     teacher_ci: teacherFilter || undefined,
                   })
                 } finally { setExcelLoading(false) }
