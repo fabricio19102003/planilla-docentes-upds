@@ -73,13 +73,20 @@ export function usePracticeAttendance(
 }
 
 // Summary
-export function usePracticeAttendanceSummary(month: number, year: number, startDate?: string, endDate?: string) {
+export function usePracticeAttendanceSummary(
+  month: number,
+  year: number,
+  teacherCi?: string,
+  startDate?: string,
+  endDate?: string,
+) {
   const params = new URLSearchParams()
+  if (teacherCi) params.set('teacher_ci', teacherCi)
   if (startDate) params.set('start_date', startDate)
   if (endDate) params.set('end_date', endDate)
   const qs = params.toString()
   return useQuery<PracticeAttendanceSummary[]>({
-    queryKey: ['practice-attendance-summary', month, year, startDate, endDate],
+    queryKey: ['practice-attendance-summary', month, year, teacherCi, startDate, endDate],
     queryFn: async () => {
       const res = await api.get(`/practice-attendance/${month}/${year}/summary${qs ? '?' + qs : ''}`)
       return res.data
@@ -97,9 +104,9 @@ export function useUpdatePracticeAttendance() {
     }: {
       id: number
       status?: string
-      actual_start?: string
-      actual_end?: string
-      observation?: string
+      actual_start?: string | null
+      actual_end?: string | null
+      observation?: string | null
     }) => {
       const res = await api.put(`/practice-attendance/${id}`, data)
       return res.data

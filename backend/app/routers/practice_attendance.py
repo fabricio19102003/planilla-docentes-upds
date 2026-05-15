@@ -60,6 +60,21 @@ def _parse_time(t: str) -> time_type | None:
         return None
 
 
+def _resolve_period(month: int, year: int, start_date: date | None, end_date: date | None) -> tuple[date, date]:
+    """Resolve optional date bounds against the selected month."""
+    month_start = date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    month_end = date(year, month, last_day)
+
+    period_start = start_date or month_start
+    period_end = end_date or month_end
+
+    if period_start > period_end:
+        raise HTTPException(400, detail="start_date no puede ser posterior a end_date")
+
+    return period_start, period_end
+
+
 @router.post("/generate")
 def generate_practice_attendance(
     payload: PracticeAttendanceBulkCreate,
@@ -76,17 +91,7 @@ def generate_practice_attendance(
     month = payload.month
     year = payload.year
 
-    # Determine date range
-    if payload.start_date and payload.end_date:
-        period_start = payload.start_date
-        period_end = payload.end_date
-    else:
-        period_start = date(year, month, 1)
-        _, last_day = monthrange(year, month)
-        period_end = date(year, month, last_day)
-
-    if period_start > period_end:
-        raise HTTPException(400, detail="start_date no puede ser posterior a end_date")
+    period_start, period_end = _resolve_period(month, year, payload.start_date, payload.end_date)
 
     academic_period = app_settings_service.get_active_academic_period(db)
 
@@ -200,20 +205,15 @@ def list_practice_attendance(
     db: Session = Depends(get_db),
 ):
     """List all practice attendance entries for a month/year with optional filters."""
-    # Default date range = full month
-    if start_date is None:
-        start_date = date(year, month, 1)
-    if end_date is None:
-        _, last_day = monthrange(year, month)
-        end_date = date(year, month, last_day)
+    period_start, period_end = _resolve_period(month, year, start_date, end_date)
 
     query = (
         db.query(PracticeAttendanceLog, Teacher.full_name, Designation.subject, Designation.group_code, Designation.semester)
         .join(Teacher, Teacher.ci == PracticeAttendanceLog.teacher_ci)
         .join(Designation, Designation.id == PracticeAttendanceLog.designation_id)
         .filter(
-            PracticeAttendanceLog.date >= start_date,
-            PracticeAttendanceLog.date <= end_date,
+            PracticeAttendanceLog.date >= period_start,
+            PracticeAttendanceLog.date <= period_end,
         )
     )
 
@@ -253,32 +253,28 @@ def list_practice_attendance(
 def get_practice_attendance_summary(
     month: int,
     year: int,
+    teacher_ci: str | None = Query(default=None),
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Calculate attendance summary per teacher for the given period."""
-    if start_date and end_date:
-        period_start = start_date
-        period_end = end_date
-    else:
-        period_start = date(year, month, 1)
-        _, last_day = monthrange(year, month)
-        period_end = date(year, month, last_day)
+    period_start, period_end = _resolve_period(month, year, start_date, end_date)
 
-    rows = (
+    query = (
         db.query(PracticeAttendanceLog, Teacher.full_name)
         .join(Teacher, Teacher.ci == PracticeAttendanceLog.teacher_ci)
         .filter(
             PracticeAttendanceLog.date >= period_start,
             PracticeAttendanceLog.date <= period_end,
         )
-        .all()
     )
 
-    # Group by teacher
-    from collections import defaultdict
+    if teacher_ci:
+        query = query.filter(PracticeAttendanceLog.teacher_ci == teacher_ci)
+
+    rows = query.all()
 
     teacher_data: dict[str, dict] = {}
     for log, teacher_name in rows:
@@ -337,9 +333,14 @@ def update_practice_attendance(
     if not entry:
         raise HTTPException(404, detail="Entrada de asistencia no encontrada")
 
-    update_data = payload.model_dump(exclude_none=True)
+    update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(400, detail="No se proporcionaron campos para actualizar")
+
+    if "observation" in update_data and (
+        update_data["observation"] is None or update_data["observation"].strip() == ""
+    ):
+        update_data["observation"] = None
 
     old_status = entry.status
     for field, value in update_data.items():
@@ -431,11 +432,12 @@ def export_practice_attendance_pdf(
     db: Session = Depends(get_db),
 ) -> FileResponse:
     """Export practice attendance as PDF."""
+    period_start, period_end = _resolve_period(month, year, start_date, end_date)
     try:
         client_ip = request.client.host if request.client else "unknown"
         filepath = generate_practice_attendance_pdf(
             db, month, year,
-            start_date=start_date, end_date=end_date,
+            start_date=period_start, end_date=period_end,
             teacher_ci=teacher_ci,
             generated_by=current_user.full_name or current_user.ci,
             generated_by_ci=current_user.ci,
@@ -462,10 +464,11 @@ def export_practice_attendance_excel(
     db: Session = Depends(get_db),
 ) -> FileResponse:
     """Export practice attendance as Excel."""
+    period_start, period_end = _resolve_period(month, year, start_date, end_date)
     try:
         filepath = generate_practice_attendance_excel(
             db, month, year,
-            start_date=start_date, end_date=end_date,
+            start_date=period_start, end_date=period_end,
             teacher_ci=teacher_ci,
         )
         return FileResponse(

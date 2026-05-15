@@ -66,23 +66,25 @@ def _query_logs(
     teacher_ci: Optional[str] = None,
 ) -> list[PracticeAttendanceLog]:
     """Query attendance logs with shared filter logic."""
+    month_start = date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    month_end = date(year, month, last_day)
+    period_start = start_date or month_start
+    period_end = end_date or month_end
+
+    if period_start > period_end:
+        raise ValueError("start_date no puede ser posterior a end_date")
+
     query = db.query(PracticeAttendanceLog).join(
         Teacher, PracticeAttendanceLog.teacher_ci == Teacher.ci
     ).join(
         Designation, PracticeAttendanceLog.designation_id == Designation.id
     )
 
-    if start_date and end_date:
-        query = query.filter(
-            PracticeAttendanceLog.date >= start_date,
-            PracticeAttendanceLog.date <= end_date,
-        )
-    else:
-        _, last_day = monthrange(year, month)
-        query = query.filter(
-            PracticeAttendanceLog.date >= date(year, month, 1),
-            PracticeAttendanceLog.date <= date(year, month, last_day),
-        )
+    query = query.filter(
+        PracticeAttendanceLog.date >= period_start,
+        PracticeAttendanceLog.date <= period_end,
+    )
 
     if teacher_ci:
         query = query.filter(PracticeAttendanceLog.teacher_ci == teacher_ci)
@@ -100,9 +102,15 @@ def _date_range_str(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> str:
-    if start_date and end_date:
-        return f"{start_date.strftime('%d/%m/%Y')} — {end_date.strftime('%d/%m/%Y')}"
-    return f"{MONTH_NAMES.get(month, '')} {year}"
+    month_start = date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    month_end = date(year, month, last_day)
+    period_start = start_date or month_start
+    period_end = end_date or month_end
+
+    if period_start == month_start and period_end == month_end:
+        return f"{MONTH_NAMES.get(month, '')} {year}"
+    return f"{period_start.strftime('%d/%m/%Y')} — {period_end.strftime('%d/%m/%Y')}"
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────

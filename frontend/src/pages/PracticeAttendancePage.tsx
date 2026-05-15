@@ -104,7 +104,12 @@ export function PracticeAttendancePage() {
     startDate || undefined,
     endDate || undefined,
   )
-  const { data: summaries } = usePracticeAttendanceSummary(month, year, startDate || undefined, endDate || undefined)
+  const { data: summaries } = usePracticeAttendanceSummary(
+    month, year,
+    teacherFilter || undefined,
+    startDate || undefined,
+    endDate || undefined,
+  )
   const generateMutation = useGeneratePracticeAttendance()
   const updateMutation = useUpdatePracticeAttendance()
   const deleteMutation = useDeletePracticeAttendance()
@@ -167,7 +172,7 @@ export function PracticeAttendancePage() {
   }
 
   function handleObsSave(entryId: number) {
-    updateMutation.mutate({ id: entryId, observation: obsValue || undefined })
+    updateMutation.mutate({ id: entryId, observation: obsValue.trim() === '' ? null : obsValue })
     setEditingObs(null)
     setObsValue('')
   }
@@ -550,7 +555,7 @@ export function PracticeAttendancePage() {
                               className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                               value={entry.actual_start?.slice(0, 5) ?? ''}
                               onChange={(e) => {
-                                const newStart = e.target.value || undefined
+                                const newStart = e.target.value || null
                                 updateMutation.mutate({ id: entry.id, actual_start: newStart })
                                 if (newStart && entry.scheduled_start) {
                                   const newStatus = autoSetStatus(entry.scheduled_start, newStart)
@@ -567,7 +572,7 @@ export function PracticeAttendancePage() {
                               step="60"
                               className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                               value={entry.actual_end?.slice(0, 5) ?? ''}
-                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
+                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || null })}
                             />
                           </td>
                           <td className="px-3 py-2.5">
@@ -703,7 +708,7 @@ export function PracticeAttendancePage() {
                               className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                               value={entry.actual_start?.slice(0, 5) ?? ''}
                               onChange={(e) => {
-                                const newStart = e.target.value || undefined
+                                const newStart = e.target.value || null
                                 updateMutation.mutate({ id: entry.id, actual_start: newStart })
                                 if (newStart && entry.scheduled_start) {
                                   const newStatus = autoSetStatus(entry.scheduled_start, newStart)
@@ -721,7 +726,7 @@ export function PracticeAttendancePage() {
                               placeholder="HH:MM"
                               className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
                               value={entry.actual_end?.slice(0, 5) ?? ''}
-                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || undefined })}
+                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || null })}
                             />
                           </td>
                           <td className="text-center px-3 py-2 text-gray-600">{entry.academic_hours}h</td>
