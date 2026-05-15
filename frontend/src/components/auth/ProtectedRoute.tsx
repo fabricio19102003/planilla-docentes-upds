@@ -7,7 +7,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, user } = useAuth()
+  const { isAuthenticated, isLoading, mustChangePassword, user } = useAuth()
 
   // While checking token on mount, show nothing (avoids flash)
   if (isLoading) {
@@ -23,6 +23,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+
+  if (mustChangePassword) {
+    return <Navigate to="/change-password" replace />
   }
 
   if (requiredRole && user?.role !== requiredRole) {
