@@ -75,6 +75,15 @@ class DesignationLoadResult:
         )
 
 
+@dataclass(frozen=True)
+class _ParsedContractDate:
+    """Parsed UPDS contract date plus whether the source field was supplied."""
+
+    provided: bool
+    value: date | None = None
+    invalid: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Name normalisation helpers
 # ---------------------------------------------------------------------------
@@ -175,22 +184,29 @@ def _calc_duration(hora_inicio: str, hora_fin: str) -> int:
         return 0
 
 
-def _parse_contract_date(value: Any, field_name: str, result: DesignationLoadResult) -> date | None:
-    """Parse an optional UPDS ISO contract date into a Python date."""
+def _parse_contract_date(
+    value: Any,
+    field_name: str,
+    result: DesignationLoadResult,
+) -> _ParsedContractDate:
+    """Parse an optional UPDS ISO contract date without conflating blank and invalid values."""
     if value is None:
-        return None
+        return _ParsedContractDate(provided=False)
 
     raw = str(value).strip()
     if not raw:
-        return None
+        return _ParsedContractDate(provided=False)
 
     try:
-        return date.fromisoformat(raw)
+        return _ParsedContractDate(provided=True, value=date.fromisoformat(raw))
     except ValueError:
-        warning = f"Fecha de contrato inválida en '{field_name}': {raw!r} — se importará como vacía"
+        warning = (
+            f"Fecha de contrato inválida en '{field_name}': {raw!r} — "
+            "se conservará la fecha existente si la hay"
+        )
         logger.warning(warning)
         result.warnings.append(warning)
-        return None
+        return _ParsedContractDate(provided=True, invalid=True)
 
 
 # ---------------------------------------------------------------------------
@@ -281,8 +297,8 @@ class DesignationLoader:
             teacher_account: str | None = None
             teacher_nit: str | None = None
             teacher_retention: str | None = None
-            contract_start_date: date | None = None
-            contract_end_date: date | None = None
+            contract_start_date = _ParsedContractDate(provided=False)
+            contract_end_date = _ParsedContractDate(provided=False)
 
             # ── Field extraction by format ──
             if format_type == "upds_official":
@@ -306,19 +322,26 @@ class DesignationLoader:
                     result,
                 )
                 if (
-                    contract_start_date is not None
-                    and contract_end_date is not None
-                    and contract_end_date < contract_start_date
+                    contract_start_date.value is not None
+                    and contract_end_date.value is not None
+                    and contract_end_date.value < contract_start_date.value
                 ):
                     warning = (
                         "Rango de contrato inválido para "
-                        f"'{docente_raw or 'sin docente'}' — FECHA FIN {contract_end_date} "
-                        f"es anterior a FECHA INICIO {contract_start_date}; se importarán vacías"
+                        f"'{docente_raw or 'sin docente'}' — FECHA FIN {contract_end_date.value} "
+                        f"es anterior a FECHA INICIO {contract_start_date.value}; "
+                        "se conservarán las fechas existentes si las hay"
                     )
                     logger.warning(warning)
                     result.warnings.append(warning)
-                    contract_start_date = None
-                    contract_end_date = None
+                    contract_start_date = _ParsedContractDate(
+                        provided=contract_start_date.provided,
+                        invalid=True,
+                    )
+                    contract_end_date = _ParsedContractDate(
+                        provided=contract_end_date.provided,
+                        invalid=True,
+                    )
 
                 # Parse HORARIO string into schedule_json
                 schedule_json = self._parse_horario_string(schedule_raw or "")
@@ -480,21 +503,49 @@ class DesignationLoader:
                     weekly_hours=weekly_hours,
                     weekly_hours_calculated=weekly_hours_calculated,
                     schedule_raw=schedule_raw,
-                    contract_start_date=contract_start_date,
-                    contract_end_date=contract_end_date,
+                    contract_start_date=contract_start_date.value,
+                    contract_end_date=contract_end_date.value,
                     designation_type=self._detect_designation_type(subject),
                 )
                 db.add(designation)
             else:
+                contract_start_replacement = designation.contract_start_date
+                contract_end_replacement = designation.contract_end_date
+                should_update_contract_dates = False
+
+                if format_type == "upds_official":
+                    if contract_start_date.value is not None:
+                        contract_start_replacement = contract_start_date.value
+                        should_update_contract_dates = True
+                    if contract_end_date.value is not None:
+                        contract_end_replacement = contract_end_date.value
+                        should_update_contract_dates = True
+
+                    if (
+                        should_update_contract_dates
+                        and contract_start_replacement is not None
+                        and contract_end_replacement is not None
+                        and contract_end_replacement < contract_start_replacement
+                    ):
+                        warning = (
+                            "Rango de contrato inválido para "
+                            f"'{docente_raw or 'sin docente'}' — FECHA FIN {contract_end_replacement} "
+                            f"es anterior a FECHA INICIO {contract_start_replacement}; "
+                            "se conservarán las fechas existentes"
+                        )
+                        logger.warning(warning)
+                        result.warnings.append(warning)
+                        should_update_contract_dates = False
+
                 designation.schedule_json = schedule_json
                 designation.semester_hours = semester_hours
                 designation.monthly_hours = monthly_hours
                 designation.weekly_hours = weekly_hours
                 designation.weekly_hours_calculated = weekly_hours_calculated
                 designation.schedule_raw = schedule_raw
-                if format_type == "upds_official":
-                    designation.contract_start_date = contract_start_date
-                    designation.contract_end_date = contract_end_date
+                if should_update_contract_dates:
+                    designation.contract_start_date = contract_start_replacement
+                    designation.contract_end_date = contract_end_replacement
                 designation.designation_type = self._detect_designation_type(subject)
 
             result.designations_loaded += 1
