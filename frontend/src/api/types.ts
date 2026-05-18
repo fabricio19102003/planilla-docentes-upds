@@ -9,6 +9,7 @@ export interface AuthUser {
   is_active: boolean
   last_login: string | null
   must_change_password?: boolean
+  avatar_url?: string | null
 }
 
 export interface LoginResponse {
@@ -130,6 +131,16 @@ export interface Teacher {
   invoice_retention: string | null
   created_at: string
   updated_at: string | null
+  avatar_url: string | null
+}
+
+export interface TeacherPhotoPayload {
+  ci: string
+  file: File
+}
+
+export interface PortalPhotoPayload {
+  file: File
 }
 
 export interface TeacherUploadResponse {
@@ -364,6 +375,17 @@ export interface ProfileUpdatePayload {
   account_number?: string | null
 }
 
+export interface PortalProfile extends ProfileUpdatePayload {
+  ci: string
+  full_name: string
+  avatar_url: string | null
+  docente_can_edit_profile: boolean
+  docente_can_edit_photo: boolean
+  designation_count: number
+  subject_count?: number
+  group_count?: number
+}
+
 // ─── Portal Schedule ──────────────────────────────────────────────────────────
 export interface PortalScheduleSlot {
   dia: string
@@ -471,6 +493,8 @@ export interface AppSettings {
   company_nit: string
   hourly_rate: number
   practice_hourly_rate: number
+  docente_can_edit_profile: boolean
+  docente_can_edit_photo: boolean
 }
 
 export interface AppSettingsUpdate {
@@ -479,4 +503,6 @@ export interface AppSettingsUpdate {
   company_nit?: string
   hourly_rate?: number
   practice_hourly_rate?: number
+  docente_can_edit_profile?: boolean
+  docente_can_edit_photo?: boolean
 }

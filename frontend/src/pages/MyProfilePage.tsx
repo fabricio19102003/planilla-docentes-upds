@@ -1,6 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMyProfile, useChangePassword, useUpdateProfile, useMySchedule } from '@/api/hooks/useAuth'
+import {
+  useMyProfile,
+  useChangePassword,
+  useUpdateProfile,
+  useMySchedule,
+  useUploadOwnProfilePhoto,
+  useDeleteOwnProfilePhoto,
+} from '@/api/hooks/useAuth'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +32,10 @@ import {
   Eye,
   EyeOff,
   ChevronRight,
+  Camera,
+  Upload,
+  Trash2,
+  ShieldCheck,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,6 +52,9 @@ interface ProfileData {
   specialty: string | null
   bank: string | null
   account_number: string | null
+  avatar_url: string | null
+  docente_can_edit_profile: boolean
+  docente_can_edit_photo: boolean
   designation_count: number
   subject_count?: number
   group_count?: number
@@ -201,7 +215,7 @@ function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
 
 // ─── Editable personal data card ──────────────────────────────────────────────
 
-function PersonalDataCard({ p }: { p: ProfileData }) {
+function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) {
   const updateProfile = useUpdateProfile()
   const [editMode, setEditMode] = useState(false)
   const [editFormOverride, setEditFormOverride] = useState<Partial<ProfileForm> | null>(null)
@@ -247,13 +261,17 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
           Datos Personales
         </h3>
         {!editMode ? (
-          <button
-            onClick={() => setEditMode(true)}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#003366] transition-colors px-2 py-1 rounded hover:bg-gray-100"
-          >
-            <Pencil size={12} />
-            Editar
-          </button>
+          canEdit ? (
+            <button
+              onClick={() => setEditMode(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#003366] transition-colors px-2 py-1 rounded hover:bg-gray-100"
+            >
+              <Pencil size={12} />
+              Editar
+            </button>
+          ) : (
+            <Badge className="border-amber-200 bg-amber-50 text-amber-700 shadow-none">Solo lectura</Badge>
+          )
         ) : (
           <div className="flex items-center gap-1.5">
             <button
@@ -278,6 +296,14 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
       </div>
 
       <div className="p-5 space-y-1">
+        {!canEdit && (
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <ShieldCheck size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
+            <p className="text-sm text-amber-800">
+              La edición de datos está deshabilitada por administración. Podés revisar tu información y solicitar cambios por los canales institucionales.
+            </p>
+          </div>
+        )}
         {/* Success toast */}
         {saveSuccess && (
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 mb-3">
@@ -466,6 +492,128 @@ function ScheduleSummaryCard() {
   )
 }
 
+function ProfilePhotoCard({ profile, initials }: { profile: ProfileData; initials: string }) {
+  const uploadPhoto = useUploadOwnProfilePhoto()
+  const deletePhoto = useDeleteOwnProfilePhoto()
+  const { refreshUser } = useAuth()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [imageError, setImageError] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const canEditPhoto = profile.docente_can_edit_photo
+  const avatarUrl = profile.avatar_url
+  const showImage = Boolean(avatarUrl) && !imageError
+
+  const handleUpload = async (file: File) => {
+    setError(null)
+    setMessage(null)
+    try {
+      await uploadPhoto.mutateAsync({ file })
+      await refreshUser()
+      setImageError(false)
+      setMessage('Foto de perfil actualizada correctamente.')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setError(axiosErr?.response?.data?.detail ?? 'No se pudo actualizar la foto de perfil.')
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleDelete = async () => {
+    setError(null)
+    setMessage(null)
+    try {
+      await deletePhoto.mutateAsync()
+      await refreshUser()
+      setImageError(false)
+      setMessage('Foto de perfil eliminada. Se mostrará el avatar con iniciales.')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setError(axiosErr?.response?.data?.detail ?? 'No se pudo eliminar la foto de perfil.')
+    }
+  }
+
+  const busy = uploadPhoto.isPending || deletePhoto.isPending
+
+  return (
+    <div className="card-3d-static overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+        <Camera size={16} style={{ color: '#003366' }} />
+        <h3 className="text-base font-semibold flex-1" style={{ color: '#003366' }}>
+          Foto de Perfil
+        </h3>
+        <Badge className={canEditPhoto ? 'border-[#0066CC]/20 bg-[#0066CC]/10 text-[#003366] shadow-none' : 'border-amber-200 bg-amber-50 text-amber-700 shadow-none'}>
+          {canEditPhoto ? 'Editable' : 'Solo lectura'}
+        </Badge>
+      </div>
+      <div className="p-5">
+        <div className="rounded-2xl border border-[#003366]/10 bg-[#F8FBFF] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="h-24 w-24 overflow-hidden rounded-2xl bg-[#003366] flex items-center justify-center text-3xl font-black text-white ring-4 ring-white shadow-sm">
+              {showImage ? (
+                <img
+                  src={avatarUrl ?? undefined}
+                  alt={`Foto de perfil de ${profile.full_name}`}
+                  className="h-full w-full object-cover"
+                  onError={() => setImageError(true)}
+                />
+              ) : (
+                <span>{initials}</span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-[#003366]">Avatar institucional docente</p>
+              <p className="mt-1 text-sm text-gray-500">
+                {canEditPhoto
+                  ? 'Podés subir JPG, PNG o WEBP hasta 2 MB. Si no hay foto, el sistema usa tus iniciales.'
+                  : 'La carga o eliminación de foto está deshabilitada por administración. Tu avatar seguirá usando la foto actual o iniciales.'}
+              </p>
+              {message && <p className="mt-2 text-sm font-medium text-green-700">{message}</p>}
+              {error && <p className="mt-2 text-sm font-medium text-red-600">{error}</p>}
+            </div>
+          </div>
+
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleUpload(file)
+            }}
+            disabled={!canEditPhoto || busy}
+          />
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={!canEditPhoto || busy}
+              className="gap-2 text-white disabled:opacity-40"
+              style={{ backgroundColor: '#003366' }}
+            >
+              <Upload size={14} />
+              {uploadPhoto.isPending ? 'Subiendo...' : avatarUrl ? 'Cambiar foto' : 'Subir foto'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleDelete()}
+              disabled={!canEditPhoto || busy || !avatarUrl}
+              className="gap-2 text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-40"
+            >
+              <Trash2 size={14} />
+              Eliminar foto
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Change password card ─────────────────────────────────────────────────────
 
 function ChangePasswordCard() {
@@ -639,6 +787,17 @@ function ChangePasswordCard() {
 export function MyProfilePage() {
   const { user } = useAuth()
   const { data: profile, isLoading } = useMyProfile()
+  const [failedHeroAvatarUrl, setFailedHeroAvatarUrl] = useState<string | null>(null)
+  const p = profile as ProfileData | undefined
+  const subjectCount = p?.subject_count ?? p?.designation_count ?? 0
+  const groupCount = p?.group_count ?? p?.designation_count ?? 0
+  const initials = (p?.full_name ?? user?.full_name ?? 'D')
+    .split(' ')
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+  const showHeroImage = Boolean(p?.avatar_url) && failedHeroAvatarUrl !== p?.avatar_url
 
   if (isLoading) {
     return (
@@ -648,10 +807,6 @@ export function MyProfilePage() {
     )
   }
 
-  const p = profile as ProfileData | undefined
-  const subjectCount = p?.subject_count ?? p?.designation_count ?? 0
-  const groupCount = p?.group_count ?? p?.designation_count ?? 0
-
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Profile header */}
@@ -660,11 +815,17 @@ export function MyProfilePage() {
         style={{ background: 'linear-gradient(135deg, #003366 0%, #0066CC 100%)' }}
       >
         <div className="flex items-center gap-5">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black flex-shrink-0"
-            style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}
-          >
-            {user?.full_name?.charAt(0).toUpperCase() ?? 'D'}
+          <div className="w-16 h-16 rounded-full bg-white/15 flex items-center justify-center text-2xl font-black flex-shrink-0 overflow-hidden ring-2 ring-white/20">
+            {showHeroImage ? (
+              <img
+                src={p?.avatar_url ?? undefined}
+                alt={`Foto de perfil de ${p?.full_name ?? user?.full_name ?? 'docente'}`}
+                className="h-full w-full object-cover"
+                onError={() => setFailedHeroAvatarUrl(p?.avatar_url ?? null)}
+              />
+            ) : (
+              initials
+            )}
           </div>
           <div>
             <h2 className="text-xl font-bold">{p?.full_name ?? user?.full_name}</h2>
@@ -680,7 +841,10 @@ export function MyProfilePage() {
       </div>
 
       {/* Personal data — editable */}
-      {p && <PersonalDataCard p={p} />}
+      {p && <PersonalDataCard p={p} canEdit={p.docente_can_edit_profile} />}
+
+      {/* Profile photo permissions */}
+      {p && <ProfilePhotoCard profile={p} initials={initials} />}
 
       {/* Weekly schedule — compact link to dedicated page */}
       <ScheduleSummaryCard />

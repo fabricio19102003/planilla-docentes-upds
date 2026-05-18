@@ -41,16 +41,16 @@ Chain strategy: pending
 
 ## Phase 3: Integration and Frontend Wiring
 
-- [ ] 3.1 Update `frontend/src/api/types.ts` for `avatar_url`, docente permission settings, and photo upload payload/response shapes.
-- [ ] 3.2 Extend `frontend/src/api/hooks/useTeachers.ts`, `useAppSettings.ts`, and `useAuth.ts` with photo/settings mutations plus query invalidation.
-- [ ] 3.3 Update `frontend/src/components/layout/Header.tsx` to render uploaded avatar image with initials fallback on missing/error.
-- [ ] 3.4 Update `frontend/src/pages/MyProfilePage.tsx` to conditionally allow profile edits/photo actions from settings and show disabled-state messaging.
-- [ ] 3.5 Update `frontend/src/pages/TeacherDetailPage.tsx` for admin upload/change/remove docente photo controls.
-- [ ] 3.6 Update `frontend/src/pages/SettingsPage.tsx` to manage both docente permission toggles with helper text.
+- [x] 3.1 Update `frontend/src/api/types.ts` for `avatar_url`, docente permission settings, and photo upload payload/response shapes.
+- [x] 3.2 Extend `frontend/src/api/hooks/useTeachers.ts`, `useAppSettings.ts`, and `useAuth.ts` with photo/settings mutations plus query invalidation.
+- [x] 3.3 Update `frontend/src/components/layout/Header.tsx` to render uploaded avatar image with initials fallback on missing/error.
+- [x] 3.4 Update `frontend/src/pages/MyProfilePage.tsx` to conditionally allow profile edits/photo actions from settings and show disabled-state messaging.
+- [x] 3.5 Update `frontend/src/pages/TeacherDetailPage.tsx` for admin upload/change/remove docente photo controls.
+- [x] 3.6 Update `frontend/src/pages/SettingsPage.tsx` to manage both docente permission toggles with helper text.
 
 ## Phase 4: Testing and Verification
 
 - [x] 4.1 Add backend unit tests for photo validation and service lifecycle paths in `backend/tests/services/test_teacher_photo_service.py`.
 - [x] 4.2 Add backend integration tests for admin upload/replace/remove, invalid type/size 400, and avatar URL presence in `backend/tests/routers/test_teachers_photo_routes.py`.
 - [x] 4.3 Add backend integration tests for docente permission enforcement (`DOCENTE_CAN_EDIT_PROFILE`, `DOCENTE_CAN_EDIT_PHOTO`) in `backend/tests/routers/test_docente_portal_permissions.py`.
-- [ ] 4.4 Run `pytest` (backend), `tsc -b`, and `vite build` (frontend); record manual smoke checks for avatar fallback and toggle behavior.
+- [ ] 4.4 Run `pytest` (backend), `tsc -b`, and `vite build` (frontend); record manual smoke checks for avatar fallback and toggle behavior. (`tsc -b`/`vite build` passed via `npm run build`; backend pytest and manual smoke remain for verify.)

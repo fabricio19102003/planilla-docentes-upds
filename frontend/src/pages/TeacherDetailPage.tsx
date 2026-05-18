@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,8 +11,17 @@ import {
   IdCard,
   GraduationCap,
   CreditCard,
+  Camera,
+  Upload,
 } from 'lucide-react'
-import { useTeacherDetail, useUpdateTeacher, useDeleteTeacher, useUpdateDesignationContractDates } from '@/api/hooks/useTeachers'
+import {
+  useTeacherDetail,
+  useUpdateTeacher,
+  useDeleteTeacher,
+  useUpdateDesignationContractDates,
+  useUploadTeacherPhoto,
+  useDeleteTeacherPhoto,
+} from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { DataTable } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -236,6 +245,106 @@ function DeleteConfirmDialog({
   )
 }
 
+function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
+  const uploadPhoto = useUploadTeacherPhoto()
+  const deletePhoto = useDeleteTeacherPhoto()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [imageError, setImageError] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const initials = teacher.full_name
+    .split(' ')
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+  const showImage = Boolean(teacher.avatar_url) && !imageError
+  const busy = uploadPhoto.isPending || deletePhoto.isPending
+
+  const handleUpload = async (file: File) => {
+    setMessage(null)
+    setError(null)
+    try {
+      await uploadPhoto.mutateAsync({ ci: teacher.ci, file })
+      setImageError(false)
+      setMessage('Foto actualizada para este docente.')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setError(axiosErr?.response?.data?.detail ?? 'No se pudo actualizar la foto del docente.')
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleDelete = async () => {
+    setMessage(null)
+    setError(null)
+    try {
+      await deletePhoto.mutateAsync(teacher.ci)
+      setImageError(false)
+      setMessage('Foto eliminada. El docente verá sus iniciales como avatar.')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      setError(axiosErr?.response?.data?.detail ?? 'No se pudo eliminar la foto del docente.')
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/15 bg-white/10 p-3 backdrop-blur-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="h-20 w-20 overflow-hidden rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-black text-white ring-2 ring-white/20">
+          {showImage ? (
+            <img
+              src={teacher.avatar_url ?? undefined}
+              alt={`Foto de perfil de ${teacher.full_name}`}
+              className="h-full w-full object-cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            initials
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-white">
+            <Camera size={15} />
+            <p className="text-sm font-semibold">Foto institucional</p>
+          </div>
+          <p className="mt-1 text-xs text-white/70">JPG, PNG o WEBP hasta 2 MB. El cambio impacta el portal y el encabezado del docente.</p>
+          {message && <p className="mt-2 text-xs font-medium text-green-100">{message}</p>}
+          {error && <p className="mt-2 text-xs font-medium text-red-100">{error}</p>}
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) void handleUpload(file)
+        }}
+        disabled={busy}
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} className="gap-2">
+          <Upload size={14} />
+          {uploadPhoto.isPending ? 'Subiendo...' : teacher.avatar_url ? 'Cambiar foto' : 'Subir foto'}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void handleDelete()}
+          disabled={busy || !teacher.avatar_url}
+          className="gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20"
+        >
+          <Trash2 size={14} />
+          Eliminar foto
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Edit Form Field helper ───────────────────────────────────────────────────
 function EditField({
   label,
@@ -394,11 +503,12 @@ export function TeacherDetailPage() {
       <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
         {/* Gradient header strip */}
         <div className="gradient-navy px-6 py-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-              <User size={26} className="text-white" />
-            </div>
-            <div>
+          <div className="grid gap-4 lg:grid-cols-[1fr_420px] lg:items-center">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                <User size={26} className="text-white" />
+              </div>
+              <div>
               <h2 className="text-xl font-semibold text-white">
                 {editMode ? editForm.full_name || teacher.full_name : teacher.full_name}
               </h2>
@@ -415,7 +525,9 @@ export function TeacherDetailPage() {
                   </Badge>
                 )}
               </div>
+              </div>
             </div>
+            {!editMode && <TeacherPhotoControl teacher={teacher} />}
           </div>
         </div>
 

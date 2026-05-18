@@ -41,9 +41,12 @@ export function Header() {
   const navigate = useNavigate()
   const { user, isAdmin, isDocente, logout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const title = getTitleFromPath(pathname)
   const { data: unreadCount = 0 } = useUnreadCount(isDocente)
+  const avatarUrl = user?.avatar_url ?? null
+  const showAvatarImage = Boolean(avatarUrl) && failedAvatarUrl !== avatarUrl
 
   // Global search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -197,11 +200,17 @@ export function Header() {
           onClick={() => setDropdownOpen((v) => !v)}
           className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
         >
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{ backgroundColor: '#003366' }}
-          >
-            {initials}
+          <div className="relative w-8 h-8 rounded-full bg-[#003366] flex items-center justify-center text-white text-xs font-bold flex-shrink-0 overflow-hidden ring-2 ring-[#003366]/10">
+            {showAvatarImage ? (
+              <img
+                src={avatarUrl ?? undefined}
+                alt={`Foto de perfil de ${user?.full_name ?? 'usuario'}`}
+                className="h-full w-full object-cover"
+                onError={() => setFailedAvatarUrl(avatarUrl)}
+              />
+            ) : (
+              <span>{initials}</span>
+            )}
           </div>
           <div className="text-left hidden sm:block">
             <p className="text-sm font-medium text-gray-700 leading-tight max-w-[150px] truncate">

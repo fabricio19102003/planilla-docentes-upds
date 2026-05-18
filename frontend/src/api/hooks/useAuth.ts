@@ -9,6 +9,8 @@ import type {
   UserCreate,
   UserUpdate,
   ProfileUpdatePayload,
+  PortalPhotoPayload,
+  PortalProfile,
   PortalScheduleResponse,
 } from '@/api/types'
 
@@ -90,7 +92,7 @@ export function useMyProfile() {
   return useQuery({
     queryKey: ['portal', 'profile'],
     queryFn: async () => {
-      const res = await api.get('/portal/profile')
+      const res = await api.get<PortalProfile>('/portal/profile')
       return res.data
     },
   })
@@ -166,6 +168,38 @@ export function useUpdateProfile() {
       await api.put('/portal/profile', data)
     },
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal', 'profile'] })
+    },
+  })
+}
+
+export function useUploadOwnProfilePhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ file }: PortalPhotoPayload) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.put<PortalProfile>('/portal/profile/photo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return res.data
+    },
+    onSuccess: (profile) => {
+      qc.setQueryData(['portal', 'profile'], profile)
+      void qc.invalidateQueries({ queryKey: ['portal', 'profile'] })
+    },
+  })
+}
+
+export function useDeleteOwnProfilePhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.delete<PortalProfile>('/portal/profile/photo')
+      return res.data
+    },
+    onSuccess: (profile) => {
+      qc.setQueryData(['portal', 'profile'], profile)
       void qc.invalidateQueries({ queryKey: ['portal', 'profile'] })
     },
   })

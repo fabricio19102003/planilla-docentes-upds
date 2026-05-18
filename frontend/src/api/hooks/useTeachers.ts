@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { Designation, PaginatedResponse, Teacher, TeacherDetail } from '@/api/types'
+import type { Designation, PaginatedResponse, Teacher, TeacherDetail, TeacherPhotoPayload } from '@/api/types'
 
 interface TeachersParams {
   search?: string
@@ -78,6 +78,40 @@ export function useUpdateTeacher() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['teachers'] })
+      void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
+    },
+  })
+}
+
+export function useUploadTeacherPhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ci, file }: TeacherPhotoPayload) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.put<Teacher>(`/teachers/${ci}/photo`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return res.data
+    },
+    onSuccess: (teacher) => {
+      void qc.invalidateQueries({ queryKey: ['teachers'] })
+      void qc.invalidateQueries({ queryKey: ['teacher-detail', teacher.ci] })
+      void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
+    },
+  })
+}
+
+export function useDeleteTeacherPhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ci: string) => {
+      const res = await api.delete<Teacher>(`/teachers/${ci}/photo`)
+      return res.data
+    },
+    onSuccess: (teacher) => {
+      void qc.invalidateQueries({ queryKey: ['teachers'] })
+      void qc.invalidateQueries({ queryKey: ['teacher-detail', teacher.ci] })
       void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
     },
   })

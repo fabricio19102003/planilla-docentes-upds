@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Settings, Save, Loader2, Info, AlertCircle } from 'lucide-react'
+import { Settings, Save, Loader2, Info, AlertCircle, ShieldCheck } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,8 @@ interface FormState {
   company_nit: string
   hourly_rate: string // keep as string to allow empty input; parsed on save
   practice_hourly_rate: string
+  docente_can_edit_profile: boolean
+  docente_can_edit_photo: boolean
 }
 
 function toFormState(s: AppSettings): FormState {
@@ -22,6 +24,8 @@ function toFormState(s: AppSettings): FormState {
     company_nit: s.company_nit,
     hourly_rate: String(s.hourly_rate),
     practice_hourly_rate: String(s.practice_hourly_rate),
+    docente_can_edit_profile: s.docente_can_edit_profile,
+    docente_can_edit_photo: s.docente_can_edit_photo,
   }
 }
 
@@ -63,7 +67,60 @@ function buildPayload(form: FormState, server: AppSettings): AppSettingsUpdate {
     }
   }
 
+  if (form.docente_can_edit_profile !== server.docente_can_edit_profile) {
+    payload.docente_can_edit_profile = form.docente_can_edit_profile
+  }
+
+  if (form.docente_can_edit_photo !== server.docente_can_edit_photo) {
+    payload.docente_can_edit_photo = form.docente_can_edit_photo
+  }
+
   return payload
+}
+
+function PermissionToggle({
+  checked,
+  title,
+  description,
+  onChange,
+  disabled,
+}: {
+  checked: boolean
+  title: string
+  description: string
+  onChange: (checked: boolean) => void
+  disabled: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      className={`group flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-colors disabled:opacity-60 ${
+        checked
+          ? 'border-[#0066CC]/30 bg-[#EEF6FF]'
+          : 'border-gray-200 bg-white hover:border-[#003366]/20 hover:bg-gray-50'
+      }`}
+    >
+      <span
+        className={`mt-0.5 flex h-6 w-11 flex-shrink-0 items-center rounded-full p-0.5 transition-colors ${
+          checked ? 'bg-[#003366]' : 'bg-gray-300'
+        }`}
+        aria-hidden="true"
+      >
+        <span
+          className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
+        />
+      </span>
+      <span>
+        <span className="block text-sm font-semibold text-[#003366]">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-gray-500">{description}</span>
+        <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${checked ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+          {checked ? 'Habilitado para docentes' : 'Controlado por administración'}
+        </span>
+      </span>
+    </button>
+  )
 }
 
 export function SettingsPage() {
@@ -299,6 +356,37 @@ export function SettingsPage() {
                 <p className="text-xs text-gray-500">
                   NIT de la empresa mostrado en la planilla de salarios.
                 </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#003366]/10 bg-[#F8FBFF] p-4">
+              <div className="mb-4 flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#003366]/10">
+                  <ShieldCheck size={17} className="text-[#003366]" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-[#003366]">Permisos de Mi Perfil docente</h4>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">
+                    Definí qué puede autogestionar un docente desde su portal. El backend mantiene el bloqueo aunque alguien intente llamar la API directamente.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <PermissionToggle
+                  checked={form.docente_can_edit_profile}
+                  title="Editar datos personales y bancarios"
+                  description="Permite actualizar email, teléfono, datos académicos y cuenta bancaria desde Mi Perfil. Si está apagado, la ficha queda visible en modo lectura."
+                  onChange={(checked) => setForm({ ...form, docente_can_edit_profile: checked })}
+                  disabled={updateMutation.isPending}
+                />
+                <PermissionToggle
+                  checked={form.docente_can_edit_photo}
+                  title="Subir o eliminar foto propia"
+                  description="Permite que el docente cambie su avatar institucional. Los administradores siempre pueden gestionar la foto desde el detalle del docente."
+                  onChange={(checked) => setForm({ ...form, docente_can_edit_photo: checked })}
+                  disabled={updateMutation.isPending}
+                />
               </div>
             </div>
 

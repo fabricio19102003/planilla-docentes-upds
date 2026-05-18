@@ -29,6 +29,7 @@ export function useUpdateAppSettings() {
       // reflects the saved values immediately without a round-trip.
       qc.setQueryData(['app-settings'], data)
       void qc.invalidateQueries({ queryKey: ['app-settings'] })
+      void qc.invalidateQueries({ queryKey: ['portal', 'profile'] })
     },
   })
 }
