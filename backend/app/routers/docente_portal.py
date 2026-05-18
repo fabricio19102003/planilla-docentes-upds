@@ -90,6 +90,8 @@ class ProfileResponse(BaseModel):
     bank: Optional[str] = None
     account_number: Optional[str] = None
     designation_count: int = 0
+    subject_count: int = 0
+    group_count: int = 0
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -138,6 +140,8 @@ class DesignationScheduleResponse(BaseModel):
 class MyScheduleResponse(BaseModel):
     teacher_name: str
     designation_count: int
+    subject_count: int
+    group_count: int
     total_weekly_hours: int
     designations: list[DesignationScheduleResponse]
 
@@ -501,16 +505,19 @@ def get_docente_profile(
     """Get authenticated docente's own teacher profile with designation count."""
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Load designations count (scoped to active academic period)
-    designation_count = (
-        db.query(func.count(Designation.id))
+    # Load active academic-period assignments. A designation represents a subject/group
+    # assignment, not a unique subject. Expose both counts so the UI can say
+    # "2 materias · 4 grupos" instead of calling 4 assignments "4 materias".
+    active_designations = (
+        db.query(Designation)
         .filter(
             Designation.teacher_ci == teacher.ci,
             Designation.academic_period == app_settings_service.get_active_academic_period(db),
         )
-        .scalar()
-        or 0
+        .all()
     )
+    subject_count = len({(d.subject or "").strip().casefold() for d in active_designations if (d.subject or "").strip()})
+    group_count = len(active_designations)
 
     return ProfileResponse(
         ci=teacher.ci,
@@ -524,7 +531,9 @@ def get_docente_profile(
         specialty=teacher.specialty,
         bank=teacher.bank,
         account_number=teacher.account_number,
-        designation_count=int(designation_count),
+        designation_count=group_count,
+        subject_count=subject_count,
+        group_count=group_count,
     )
 
 
@@ -737,10 +746,14 @@ def get_my_schedule(
         )
 
     total_weekly_hours = sum(d.weekly_hours or 0 for d in designations)
+    subject_count = len({(d.subject or "").strip().casefold() for d in designations if (d.subject or "").strip()})
+    group_count = len(result)
 
     return MyScheduleResponse(
         teacher_name=teacher.full_name,
-        designation_count=len(result),
+        designation_count=group_count,
+        subject_count=subject_count,
+        group_count=group_count,
         total_weekly_hours=total_weekly_hours,
         designations=result,
     )

@@ -384,6 +384,8 @@ export interface PortalDesignationSchedule {
 export interface PortalScheduleResponse {
   teacher_name: string
   designation_count: number
+  subject_count: number
+  group_count: number
   total_weekly_hours: number
   designations: PortalDesignationSchedule[]
 }

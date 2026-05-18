@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   User,
   Mail,
@@ -41,6 +42,8 @@ interface ProfileData {
   bank: string | null
   account_number: string | null
   designation_count: number
+  subject_count?: number
+  group_count?: number
 }
 
 interface ProfileForm {
@@ -72,6 +75,52 @@ function toProfileForm(profile: ProfileData): ProfileForm {
 function nullableText(value: string): string | null {
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
+}
+
+const SELECT_EMPTY = '__empty__'
+
+const GENDER_OPTIONS = ['Femenino', 'Masculino', 'Otro', 'Prefiero no indicar']
+const EXTERNAL_PERMANENT_OPTIONS = ['Externo', 'Permanente']
+const ACADEMIC_LEVEL_OPTIONS = ['Técnico Superior', 'Licenciatura', 'Especialidad', 'Maestría', 'Doctorado']
+
+function assignmentLabel(subjectCount = 0, groupCount = 0): string {
+  if (subjectCount <= 0 && groupCount <= 0) return 'Sin asignaciones activas'
+  const subjects = `${subjectCount} ${subjectCount === 1 ? 'materia' : 'materias'}`
+  const groups = `${groupCount} ${groupCount === 1 ? 'grupo' : 'grupos'}`
+  return `${subjects} · ${groups} asignados`
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+}) {
+  const normalizedOptions = value && !options.includes(value) ? [value, ...options] : options
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">{label}</Label>
+      <Select value={value || SELECT_EMPTY} onValueChange={(next) => onChange(next === SELECT_EMPTY ? '' : next)}>
+        <SelectTrigger className="h-10 w-full rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20">
+          <SelectValue placeholder="Seleccionar" />
+        </SelectTrigger>
+        <SelectContent position="popper" className="rounded-xl">
+          <SelectItem value={SELECT_EMPTY}>Sin especificar</SelectItem>
+          {normalizedOptions.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 }
 
 // ─── Shared display components ────────────────────────────────────────────────
@@ -261,120 +310,116 @@ function PersonalDataCard({ p }: { p: ProfileData }) {
             <InfoRow icon={CreditCard} label="N° de Cuenta" value={p.account_number} />
           </>
         ) : (
-          <div className="pt-2 space-y-3 border-t border-dashed border-gray-200 mt-1">
-            <p className="text-xs text-gray-400 font-medium">Campos editables:</p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-500">Género</Label>
-                <Input
-                  type="text"
-                  value={editForm.gender}
-                  onChange={(e) => setEditFormOverride((f) => ({ ...f, gender: e.target.value }))}
-                  placeholder="Ej: Femenino / Masculino"
-                  className="h-9 text-sm"
-                />
+          <div className="mt-3 rounded-2xl border border-[#003366]/10 bg-gradient-to-br from-[#F8FBFF] via-white to-[#EEF6FF] p-4 shadow-inner shadow-[#003366]/5">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#003366]">Actualizar perfil</p>
+                <p className="mt-1 text-xs text-gray-500">Mantené tus datos personales y bancarios listos para contratos y pagos.</p>
               </div>
+              <Badge className="border-[#0066CC]/20 bg-[#0066CC]/10 text-[#003366] shadow-none">Editable</Badge>
+            </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-500">Externo/Permanente</Label>
-                <Input
-                  type="text"
-                  value={editForm.external_permanent}
-                  onChange={(e) => setEditFormOverride((f) => ({ ...f, external_permanent: e.target.value }))}
-                  placeholder="Ej: Externo"
-                  className="h-9 text-sm"
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <SelectField
+                label="Género"
+                value={editForm.gender}
+                options={GENDER_OPTIONS}
+                onChange={(gender) => setEditFormOverride((f) => ({ ...f, gender }))}
+              />
+              <SelectField
+                label="Tipo docente"
+                value={editForm.external_permanent}
+                options={EXTERNAL_PERMANENT_OPTIONS}
+                onChange={(external_permanent) => setEditFormOverride((f) => ({ ...f, external_permanent }))}
+              />
+              <SelectField
+                label="Nivel académico"
+                value={editForm.academic_level}
+                options={ACADEMIC_LEVEL_OPTIONS}
+                onChange={(academic_level) => setEditFormOverride((f) => ({ ...f, academic_level }))}
+              />
+            </div>
 
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-gray-500">Nivel Académico</Label>
-                <Input
-                  type="text"
-                  value={editForm.academic_level}
-                  onChange={(e) => setEditFormOverride((f) => ({ ...f, academic_level: e.target.value }))}
-                  placeholder="Ej: Licenciatura, Maestría"
-                  className="h-9 text-sm"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-500">Profesión</Label>
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Profesión</Label>
                 <Input
                   type="text"
                   value={editForm.profession}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, profession: e.target.value }))}
                   placeholder="Ej: Médico Cirujano"
-                  className="h-9 text-sm"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Especialidad</Label>
+                <Input
+                  type="text"
+                  value={editForm.specialty}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, specialty: e.target.value }))}
+                  placeholder="Ej: Cirugía General"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Especialidad</Label>
-              <Input
-                type="text"
-                value={editForm.specialty}
-                onChange={(e) => setEditFormOverride((f) => ({ ...f, specialty: e.target.value }))}
-                placeholder="Ej: Cirugía General"
-                className="h-9 text-sm"
-              />
-            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-white/70 bg-white/70 p-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                  <Mail size={11} className="inline mr-1" />
+                  Email
+                </Label>
+                <Input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="tu@email.com"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">
-                <Mail size={11} className="inline mr-1" />
-                Email
-              </Label>
-              <Input
-                type="email"
-                value={editForm.email}
-                onChange={(e) => setEditFormOverride((f) => ({ ...f, email: e.target.value }))}
-                placeholder="tu@email.com"
-                className="h-9 text-sm"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                  <Phone size={11} className="inline mr-1" />
+                  Teléfono
+                </Label>
+                <Input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="Ej: 70012345"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">
-                <Phone size={11} className="inline mr-1" />
-                Teléfono
-              </Label>
-              <Input
-                type="text"
-                value={editForm.phone}
-                onChange={(e) => setEditFormOverride((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="Ej: 70012345"
-                className="h-9 text-sm"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                  <CreditCard size={11} className="inline mr-1" />
+                  Banco
+                </Label>
+                <Input
+                  type="text"
+                  value={editForm.bank}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, bank: e.target.value }))}
+                  placeholder="Ej: Banco Unión"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">
-                <CreditCard size={11} className="inline mr-1" />
-                Banco
-              </Label>
-              <Input
-                type="text"
-                value={editForm.bank}
-                onChange={(e) => setEditFormOverride((f) => ({ ...f, bank: e.target.value }))}
-                placeholder="Ej: Banco Unión"
-                className="h-9 text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">
-                <CreditCard size={11} className="inline mr-1" />
-                Número de Cuenta
-              </Label>
-              <Input
-                type="text"
-                value={editForm.account_number}
-                onChange={(e) => setEditFormOverride((f) => ({ ...f, account_number: e.target.value }))}
-                placeholder="Ej: 1234567890"
-                className="h-9 text-sm"
-              />
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                  <CreditCard size={11} className="inline mr-1" />
+                  Número de Cuenta
+                </Label>
+                <Input
+                  type="text"
+                  value={editForm.account_number}
+                  onChange={(e) => setEditFormOverride((f) => ({ ...f, account_number: e.target.value }))}
+                  placeholder="Ej: 1234567890"
+                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+                />
+              </div>
             </div>
           </div>
         )}
@@ -407,7 +452,7 @@ function ScheduleSummaryCard() {
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {schedule
-                ? `${schedule.designation_count} materia(s) · ${schedule.total_weekly_hours}h/semana`
+                ? `${assignmentLabel(schedule.subject_count, schedule.group_count)} · ${schedule.total_weekly_hours}h/semana`
                 : 'Cargando...'}
             </p>
           </div>
@@ -604,6 +649,8 @@ export function MyProfilePage() {
   }
 
   const p = profile as ProfileData | undefined
+  const subjectCount = p?.subject_count ?? p?.designation_count ?? 0
+  const groupCount = p?.group_count ?? p?.designation_count ?? 0
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -624,12 +671,9 @@ export function MyProfilePage() {
             <p className="text-white/70 text-sm mt-0.5">CI: {p?.ci ?? user?.ci}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Badge className="bg-white/20 text-white border-white/30 text-xs">Docente</Badge>
-              {p?.designation_count != null && p.designation_count > 0 && (
-                <span className="text-white/60 text-xs">
-                  {p.designation_count}{' '}
-                  {p.designation_count === 1 ? 'materia asignada' : 'materias asignadas'}
-                </span>
-              )}
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/75 ring-1 ring-white/15">
+                {assignmentLabel(subjectCount, groupCount)}
+              </span>
             </div>
           </div>
         </div>
