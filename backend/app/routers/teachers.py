@@ -23,6 +23,12 @@ from app.schemas.teacher import (
     TeacherUpdate,
 )
 from app.services.activity_logger import log_activity
+from app.services.teacher_photo_service import (
+    apply_photo_metadata,
+    clear_photo_metadata,
+    delete_photo_file,
+    save_upload_file,
+)
 from app.utils.auth import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
@@ -238,6 +244,91 @@ def update_teacher(
         db.rollback()
         logger.exception("Failed to update teacher %s: %s", ci, exc)
         raise HTTPException(status_code=500, detail="No se pudo actualizar el docente") from exc
+
+
+@router.put("/{ci}/photo", response_model=TeacherResponse)
+def upload_teacher_photo(
+    request: Request,
+    ci: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TeacherResponse:
+    """Upload or replace a teacher profile photo."""
+    new_filename: str | None = None
+    old_filename: str | None = None
+    try:
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+        if teacher is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+
+        new_filename, content_type = save_upload_file(file)
+        old_filename = apply_photo_metadata(teacher, new_filename, content_type)
+
+        log_activity(
+            db,
+            "upload_teacher_photo",
+            "teachers",
+            f"Foto de docente actualizada: {teacher.full_name} (CI: {teacher.ci})",
+            user=current_user,
+            details={"ci": teacher.ci, "content_type": content_type},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+        delete_photo_file(old_filename)
+        return TeacherResponse.model_validate(teacher)
+    except HTTPException:
+        db.rollback()
+        delete_photo_file(new_filename)
+        raise
+    except Exception as exc:
+        db.rollback()
+        delete_photo_file(new_filename)
+        logger.exception("Failed to upload teacher photo for %s: %s", ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo actualizar la foto del docente") from exc
+    finally:
+        file.file.close()
+
+
+@router.delete("/{ci}/photo", response_model=TeacherResponse)
+def delete_teacher_photo(
+    request: Request,
+    ci: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TeacherResponse:
+    """Remove a teacher profile photo association and delete its file best-effort."""
+    old_filename: str | None = None
+    try:
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+        if teacher is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+
+        old_filename = clear_photo_metadata(teacher)
+
+        log_activity(
+            db,
+            "delete_teacher_photo",
+            "teachers",
+            f"Foto de docente eliminada: {teacher.full_name} (CI: {teacher.ci})",
+            user=current_user,
+            details={"ci": teacher.ci},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+        delete_photo_file(old_filename)
+        return TeacherResponse.model_validate(teacher)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete teacher photo for %s: %s", ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo eliminar la foto del docente") from exc
 
 
 @router.put("/designations/{designation_id}/contract-dates", response_model=DesignationResponse)

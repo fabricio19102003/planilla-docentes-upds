@@ -23,6 +23,9 @@ class Teacher(Base):
     nit: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     sap_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     invoice_retention: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    photo_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    photo_content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    photo_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=func.now(), nullable=True)
 
@@ -36,3 +39,9 @@ class Teacher(Base):
 
     def __repr__(self) -> str:
         return f"<Teacher ci={self.ci} name={self.full_name}>"
+
+    @property
+    def avatar_url(self) -> Optional[str]:
+        if not self.photo_filename:
+            return None
+        return f"/uploads/teacher-photos/{self.photo_filename}"

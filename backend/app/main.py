@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import SessionLocal, create_tables, engine
@@ -26,6 +27,12 @@ from app.routers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_teacher_photo_storage() -> str:
+    from app.services.teacher_photo_service import ensure_teacher_photos_dir
+
+    return str(ensure_teacher_photos_dir())
 
 
 def _run_column_migrations() -> None:
@@ -73,11 +80,21 @@ def _run_column_migrations() -> None:
                     conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN discount_mode VARCHAR(20) NOT NULL DEFAULT 'attendance'"))
                     logger.info("Added column planilla_outputs.discount_mode")
 
-            # teachers.nit
-            teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
-            if "nit" not in teacher_cols:
-                conn.execute(text("ALTER TABLE teachers ADD COLUMN nit VARCHAR(50)"))
-                logger.info("Added column teachers.nit")
+            # teachers nullable profile/photo columns
+            if inspector.has_table("teachers"):
+                teacher_cols = {c["name"] for c in inspector.get_columns("teachers")}
+                if "nit" not in teacher_cols:
+                    conn.execute(text("ALTER TABLE teachers ADD COLUMN nit VARCHAR(50)"))
+                    logger.info("Added column teachers.nit")
+                if "photo_filename" not in teacher_cols:
+                    conn.execute(text("ALTER TABLE teachers ADD COLUMN photo_filename VARCHAR(255)"))
+                    logger.info("Added column teachers.photo_filename")
+                if "photo_content_type" not in teacher_cols:
+                    conn.execute(text("ALTER TABLE teachers ADD COLUMN photo_content_type VARCHAR(100)"))
+                    logger.info("Added column teachers.photo_content_type")
+                if "photo_updated_at" not in teacher_cols:
+                    conn.execute(text("ALTER TABLE teachers ADD COLUMN photo_updated_at TIMESTAMP"))
+                    logger.info("Added column teachers.photo_updated_at")
 
             # designations.academic_period
             # NOTE: we intentionally hardcode the default here instead of
@@ -137,6 +154,9 @@ async def lifespan(app: FastAPI):
 
     # Ensure new columns exist on existing databases (create_all doesn't add columns)
     _run_column_migrations()
+
+    # Ensure local storage for public docente profile photos exists.
+    _ensure_teacher_photo_storage()
 
     # Seed default business settings if the table is empty.
     # This must run AFTER create_tables() so the ``app_settings`` table exists.
@@ -228,6 +248,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+_ensure_teacher_photo_storage()
+app.mount(
+    "/uploads/teacher-photos",
+    StaticFiles(directory=_ensure_teacher_photo_storage()),
+    name="teacher-photos",
 )
 
 # Include routers — auth first, then protected routes
