@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -20,6 +20,12 @@ from app.schemas.teacher import TeacherResponse
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
 from app.services.attendance_engine import WEEKDAY_MAP as _ENGINE_WEEKDAY_MAP, _normalize_day
+from app.services.teacher_photo_service import (
+    apply_photo_metadata,
+    clear_photo_metadata,
+    delete_photo_file,
+    save_upload_file,
+)
 from app.utils.auth import require_docente
 
 # Map Python weekday() index → normalized (accent-free) Spanish lowercase day name.
@@ -89,6 +95,9 @@ class ProfileResponse(BaseModel):
     specialty: Optional[str] = None
     bank: Optional[str] = None
     account_number: Optional[str] = None
+    avatar_url: Optional[str] = None
+    docente_can_edit_profile: bool = False
+    docente_can_edit_photo: bool = False
     designation_count: int = 0
     subject_count: int = 0
     group_count: int = 0
@@ -531,6 +540,9 @@ def get_docente_profile(
         specialty=teacher.specialty,
         bank=teacher.bank,
         account_number=teacher.account_number,
+        avatar_url=teacher.avatar_url,
+        docente_can_edit_profile=app_settings_service.get_docente_can_edit_profile(db),
+        docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
         designation_count=group_count,
         subject_count=subject_count,
         group_count=group_count,
@@ -545,6 +557,12 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> dict:
     """Update docente's personal information."""
+    if not app_settings_service.get_docente_can_edit_profile(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La edición del perfil docente está deshabilitada por administración",
+        )
+
     teacher = _get_teacher_or_raise(current_user, db)
 
     updated_fields = []
@@ -595,6 +613,95 @@ def update_profile(
         "success": True,
         "message": "Perfil actualizado correctamente",
     }
+
+
+@router.put("/profile/photo", response_model=ProfileResponse)
+def upload_own_profile_photo(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> ProfileResponse:
+    """Upload or replace the authenticated docente's own profile photo."""
+    if not app_settings_service.get_docente_can_edit_photo(db):
+        file.file.close()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La edición de foto de perfil docente está deshabilitada por administración",
+        )
+
+    new_filename: str | None = None
+    old_filename: str | None = None
+    try:
+        teacher = _get_teacher_or_raise(current_user, db)
+        new_filename, content_type = save_upload_file(file)
+        old_filename = apply_photo_metadata(teacher, new_filename, content_type)
+
+        log_activity(
+            db,
+            "upload_own_profile_photo",
+            "profile",
+            f"Foto de perfil actualizada por docente: {teacher.full_name}",
+            user=current_user,
+            details={"teacher_ci": teacher.ci, "content_type": content_type},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+        delete_photo_file(old_filename)
+        return get_docente_profile(current_user=current_user, db=db)
+    except HTTPException:
+        db.rollback()
+        delete_photo_file(new_filename)
+        raise
+    except Exception as exc:
+        db.rollback()
+        delete_photo_file(new_filename)
+        logger.exception("Failed to upload own docente profile photo for %s: %s", teacher.ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo actualizar la foto de perfil") from exc
+    finally:
+        file.file.close()
+
+
+@router.delete("/profile/photo", response_model=ProfileResponse)
+def delete_own_profile_photo(
+    request: Request,
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> ProfileResponse:
+    """Remove the authenticated docente's own profile photo."""
+    if not app_settings_service.get_docente_can_edit_photo(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La edición de foto de perfil docente está deshabilitada por administración",
+        )
+
+    teacher = _get_teacher_or_raise(current_user, db)
+    old_filename: str | None = None
+    try:
+        old_filename = clear_photo_metadata(teacher)
+        log_activity(
+            db,
+            "delete_own_profile_photo",
+            "profile",
+            f"Foto de perfil eliminada por docente: {teacher.full_name}",
+            user=current_user,
+            details={"teacher_ci": teacher.ci},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(teacher)
+        delete_photo_file(old_filename)
+        return get_docente_profile(current_user=current_user, db=db)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete own docente profile photo for %s: %s", teacher.ci, exc)
+        raise HTTPException(status_code=500, detail="No se pudo eliminar la foto de perfil") from exc
 
 
 @router.post("/retention-letter")

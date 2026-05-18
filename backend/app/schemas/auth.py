@@ -20,6 +20,7 @@ class UserResponse(BaseModel):
     email: Optional[str] = None
     role: str
     teacher_ci: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_active: bool
     last_login: Optional[datetime] = None
     must_change_password: bool = False

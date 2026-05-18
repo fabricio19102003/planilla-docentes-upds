@@ -38,6 +38,8 @@ class SettingsResponse(BaseModel):
     company_nit: str
     hourly_rate: float
     practice_hourly_rate: float
+    docente_can_edit_profile: bool
+    docente_can_edit_photo: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -48,6 +50,8 @@ class SettingsUpdateRequest(BaseModel):
     company_nit: Optional[str] = Field(default=None, min_length=1, max_length=50)
     hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
     practice_hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
+    docente_can_edit_profile: Optional[bool] = None
+    docente_can_edit_photo: Optional[bool] = None
 
 
 def _current_settings(db: Session) -> SettingsResponse:
@@ -57,6 +61,8 @@ def _current_settings(db: Session) -> SettingsResponse:
         company_nit=app_settings_service.get_company_nit(db),
         hourly_rate=app_settings_service.get_hourly_rate(db),
         practice_hourly_rate=app_settings_service.get_practice_hourly_rate(db),
+        docente_can_edit_profile=app_settings_service.get_docente_can_edit_profile(db),
+        docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
     )
 
 
@@ -119,6 +125,14 @@ def update_settings(
                 str(payload.practice_hourly_rate),
             )
             changes["practice_hourly_rate"] = payload.practice_hourly_rate
+
+        if payload.docente_can_edit_profile is not None:
+            app_settings_service.set_docente_can_edit_profile(db, payload.docente_can_edit_profile)
+            changes["docente_can_edit_profile"] = payload.docente_can_edit_profile
+
+        if payload.docente_can_edit_photo is not None:
+            app_settings_service.set_docente_can_edit_photo(db, payload.docente_can_edit_photo)
+            changes["docente_can_edit_photo"] = payload.docente_can_edit_photo
 
         if changes:
             log_activity(

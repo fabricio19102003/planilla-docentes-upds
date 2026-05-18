@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _user_response_with_avatar(user: User) -> UserResponse:
+    payload = UserResponse.model_validate(user)
+    teacher = getattr(user, "teacher", None)
+    if teacher is not None:
+        payload.avatar_url = teacher.avatar_url
+    return payload
+
+
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
     """Authenticate user and return JWT token."""
@@ -66,7 +74,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     return LoginResponse(
         access_token=token,
         token_type="bearer",
-        user=UserResponse.model_validate(user),
+        user=_user_response_with_avatar(user),
         must_change_password=user.must_change_password,
     )
 
@@ -74,7 +82,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     """Get current authenticated user info."""
-    return UserResponse.model_validate(current_user)
+    return _user_response_with_avatar(current_user)
 
 
 @router.put("/change-password", response_model=UserResponse)

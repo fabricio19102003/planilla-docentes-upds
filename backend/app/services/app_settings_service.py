@@ -33,6 +33,8 @@ KEY_COMPANY_NAME = "COMPANY_NAME"
 KEY_COMPANY_NIT = "COMPANY_NIT"
 KEY_HOURLY_RATE = "HOURLY_RATE"
 KEY_PRACTICE_HOURLY_RATE = "PRACTICE_HOURLY_RATE"
+KEY_DOCENTE_CAN_EDIT_PROFILE = "DOCENTE_CAN_EDIT_PROFILE"
+KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -42,6 +44,8 @@ _DEFAULTS: dict[str, str] = {
     KEY_COMPANY_NIT: "456850023",
     KEY_HOURLY_RATE: "70.0",
     KEY_PRACTICE_HOURLY_RATE: "50.0",
+    KEY_DOCENTE_CAN_EDIT_PROFILE: "false",
+    KEY_DOCENTE_CAN_EDIT_PHOTO: "false",
 }
 
 # ── In-memory cache ────────────────────────────────────────────────────────
@@ -153,3 +157,35 @@ def get_practice_hourly_rate(db: Session) -> float:
     except (TypeError, ValueError):
         logger.warning("Invalid PRACTICE_HOURLY_RATE value in DB: %r — falling back to default", raw)
         return float(_DEFAULTS[KEY_PRACTICE_HOURLY_RATE])
+
+
+def _parse_bool(raw: str, default: bool = False) -> bool:
+    value = (raw or "").strip().lower()
+    if value in {"true", "1", "yes", "y", "on"}:
+        return True
+    if value in {"false", "0", "no", "n", "off"}:
+        return False
+    logger.warning("Invalid boolean app setting value: %r — falling back to %s", raw, default)
+    return default
+
+
+def _format_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def get_docente_can_edit_profile(db: Session) -> bool:
+    raw = get_setting(db, KEY_DOCENTE_CAN_EDIT_PROFILE, _DEFAULTS[KEY_DOCENTE_CAN_EDIT_PROFILE])
+    return _parse_bool(raw, default=False)
+
+
+def get_docente_can_edit_photo(db: Session) -> bool:
+    raw = get_setting(db, KEY_DOCENTE_CAN_EDIT_PHOTO, _DEFAULTS[KEY_DOCENTE_CAN_EDIT_PHOTO])
+    return _parse_bool(raw, default=False)
+
+
+def set_docente_can_edit_profile(db: Session, value: bool) -> AppSetting:
+    return update_setting(db, KEY_DOCENTE_CAN_EDIT_PROFILE, _format_bool(value))
+
+
+def set_docente_can_edit_photo(db: Session, value: bool) -> AppSetting:
+    return update_setting(db, KEY_DOCENTE_CAN_EDIT_PHOTO, _format_bool(value))

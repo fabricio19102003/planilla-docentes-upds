@@ -175,6 +175,8 @@ async def lifespan(app: FastAPI):
                 ("COMPANY_NIT", "456850023", "NIT de la empresa para el encabezado de planilla salarios"),
                 ("HOURLY_RATE", "70.0", "Tarifa por hora académica en Bs (docentes de teoría)"),
                 ("PRACTICE_HOURLY_RATE", "50.0", "Tarifa por hora académica en Bs (docentes asistenciales / prácticas)"),
+                ("DOCENTE_CAN_EDIT_PROFILE", "false", "Permite a docentes editar sus datos de perfil desde el portal"),
+                ("DOCENTE_CAN_EDIT_PHOTO", "false", "Permite a docentes subir o eliminar su propia foto de perfil"),
             ]
             added = 0
             for key, value, desc in defaults_spec:

@@ -34,10 +34,10 @@ Chain strategy: pending
 ## Phase 2: Core Implementation
 
 - [x] 2.1 Add admin photo routes in `backend/app/routers/teachers.py`: `PUT /api/teachers/{ci}/photo` (multipart) and `DELETE /api/teachers/{ci}/photo` with best-effort old-file cleanup.
-- [ ] 2.2 Add `DOCENTE_CAN_EDIT_PROFILE` and `DOCENTE_CAN_EDIT_PHOTO` defaults/getters/setters in `backend/app/services/app_settings_service.py` and expose in `backend/app/routers/admin_settings.py`.
-- [ ] 2.3 Enforce profile edit gate in `backend/app/routers/docente_portal.py` (`PUT /profile` returns 403 when disabled).
-- [ ] 2.4 Add docente own-photo routes in `backend/app/routers/docente_portal.py`: `PUT/DELETE /api/portal/profile/photo`, gated by photo setting.
-- [ ] 2.5 Add `avatar_url` to backend contracts in `backend/app/schemas/teacher.py`, `backend/app/schemas/auth.py`, and `backend/app/routers/auth.py` responses.
+- [x] 2.2 Add `DOCENTE_CAN_EDIT_PROFILE` and `DOCENTE_CAN_EDIT_PHOTO` defaults/getters/setters in `backend/app/services/app_settings_service.py` and expose in `backend/app/routers/admin_settings.py`.
+- [x] 2.3 Enforce profile edit gate in `backend/app/routers/docente_portal.py` (`PUT /profile` returns 403 when disabled).
+- [x] 2.4 Add docente own-photo routes in `backend/app/routers/docente_portal.py`: `PUT/DELETE /api/portal/profile/photo`, gated by photo setting.
+- [x] 2.5 Add `avatar_url` to backend contracts in `backend/app/schemas/teacher.py`, `backend/app/schemas/auth.py`, and `backend/app/routers/auth.py` responses.
 
 ## Phase 3: Integration and Frontend Wiring
 
@@ -52,5 +52,5 @@ Chain strategy: pending
 
 - [x] 4.1 Add backend unit tests for photo validation and service lifecycle paths in `backend/tests/services/test_teacher_photo_service.py`.
 - [x] 4.2 Add backend integration tests for admin upload/replace/remove, invalid type/size 400, and avatar URL presence in `backend/tests/routers/test_teachers_photo_routes.py`.
-- [ ] 4.3 Add backend integration tests for docente permission enforcement (`DOCENTE_CAN_EDIT_PROFILE`, `DOCENTE_CAN_EDIT_PHOTO`) in `backend/tests/routers/test_docente_portal_permissions.py`.
+- [x] 4.3 Add backend integration tests for docente permission enforcement (`DOCENTE_CAN_EDIT_PROFILE`, `DOCENTE_CAN_EDIT_PHOTO`) in `backend/tests/routers/test_docente_portal_permissions.py`.
 - [ ] 4.4 Run `pytest` (backend), `tsc -b`, and `vite build` (frontend); record manual smoke checks for avatar fallback and toggle behavior.
