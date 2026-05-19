@@ -652,7 +652,6 @@ def upload_own_profile_photo(
         delete_photo_file(old_filename)
         return get_docente_profile(current_user=current_user, db=db)
     except HTTPException:
-        db.rollback()
         delete_photo_file(new_filename)
         raise
     except Exception as exc:
@@ -696,7 +695,6 @@ def delete_own_profile_photo(
         delete_photo_file(old_filename)
         return get_docente_profile(current_user=current_user, db=db)
     except HTTPException:
-        db.rollback()
         raise
     except Exception as exc:
         db.rollback()

@@ -280,7 +280,6 @@ def upload_teacher_photo(
         delete_photo_file(old_filename)
         return TeacherResponse.model_validate(teacher)
     except HTTPException:
-        db.rollback()
         delete_photo_file(new_filename)
         raise
     except Exception as exc:
@@ -323,7 +322,6 @@ def delete_teacher_photo(
         delete_photo_file(old_filename)
         return TeacherResponse.model_validate(teacher)
     except HTTPException:
-        db.rollback()
         raise
     except Exception as exc:
         db.rollback()
