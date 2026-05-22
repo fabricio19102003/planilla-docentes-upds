@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.billing_publication import BillingPublication
@@ -17,6 +17,7 @@ from app.models.user import User
 from app.services.planilla_generator import PlanillaGenerator
 from app.services.activity_logger import log_activity
 from app.services import app_settings_service
+from app.services.email_service import EmailService
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -253,8 +254,14 @@ def publish_billing(
         ).delete()
         db.flush()
 
-        # Create notifications for ALL docente users
-        docente_users = db.query(User).filter(User.role == "docente", User.is_active == True).all()
+        # Create notifications for ALL active docente users and keep their linked
+        # Teacher row available for the post-commit email step (email fallback + CI match).
+        docente_users = (
+            db.query(User)
+            .options(joinedload(User.teacher))
+            .filter(User.role == "docente", User.is_active == True)
+            .all()
+        )
         month_name = MONTH_NAMES.get(month, str(month))
 
         for docente in docente_users:
@@ -289,6 +296,25 @@ def publish_billing(
 
         db.commit()
         db.refresh(publication)
+
+        try:
+            email_result = EmailService().send_billing_published(publication, docente_users)
+            logger.info(
+                "Billing publication email step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d",
+                month,
+                year,
+                email_result.eligible,
+                email_result.sent,
+                email_result.failed,
+                email_result.skipped,
+            )
+        except Exception as exc:  # pragma: no cover - defensive best-effort boundary
+            logger.exception(
+                "Billing publication email step failed after commit for %d/%d: %s",
+                month,
+                year,
+                exc,
+            )
 
         logger.info(
             "Billing published for %d/%d by user %d — %d teachers, Bs %.2f",
