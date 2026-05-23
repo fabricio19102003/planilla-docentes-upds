@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -44,6 +44,9 @@ from sqlalchemy.orm import Session
 
 from app.models.teacher import Teacher
 from app.services.planilla_generator import PlanillaGenerator
+
+if TYPE_CHECKING:
+    from app.schemas.planilla import ExcludedDaySchema
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +132,7 @@ class SalaryReportGenerator:
         discount_mode: str = "attendance",
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> Path:
         """
         Build the Excel file and return its path.
@@ -144,6 +148,9 @@ class SalaryReportGenerator:
                 in ``app_settings`` (key ``COMPANY_NIT``).
             discount_mode: "attendance" or "full" — forwarded to PlanillaGenerator.
             start_date / end_date: optional attendance window filter.
+            excluded_days: Optional day exclusions. When None, the generator
+                loads them from the stored ``planilla_outputs.excluded_days_json``
+                so salary-report totals match the original planilla.
         """
         # Import here to avoid circulars at module load time
         from app.services import app_settings_service
@@ -160,6 +167,10 @@ class SalaryReportGenerator:
             month, year, discount_mode,
         )
 
+        # Resolve exclusions: caller overrides → stored planilla → empty list
+        if excluded_days is None:
+            excluded_days = self._load_stored_exclusions(db, month, year)
+
         # Step 1: build planilla rows using the shared generator
         gen = PlanillaGenerator()
         rows, _details, _warnings = gen._build_planilla_data(
@@ -169,6 +180,7 @@ class SalaryReportGenerator:
             start_date=start_date,
             end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=excluded_days,
         )
 
         # Sort rows: teacher_name → subject → group_code (same as planilla)
@@ -204,6 +216,43 @@ class SalaryReportGenerator:
         logger.info("Saved salary report to %s", file_path)
 
         return file_path
+
+    # ------------------------------------------------------------------
+    # Exclusion helpers
+    # ------------------------------------------------------------------
+
+    def _load_stored_exclusions(
+        self,
+        db: Session,
+        month: int,
+        year: int,
+    ) -> "list[ExcludedDaySchema]":
+        """Load exclusions from the stored PlanillaOutput for this month/year.
+
+        When the salary-report caller does not supply exclusions explicitly,
+        this ensures the report totals match the original planilla (which had
+        those exclusions baked in). Returns an empty list when no stored
+        planilla exists or when ``excluded_days_json`` is NULL/empty.
+        """
+        from app.models.planilla import PlanillaOutput
+        from app.schemas.planilla import ExcludedDaySchema
+
+        try:
+            stored = (
+                db.query(PlanillaOutput)
+                .filter(
+                    PlanillaOutput.month == month,
+                    PlanillaOutput.year == year,
+                )
+                .order_by(PlanillaOutput.generated_at.desc())
+                .first()
+            )
+            if stored is None or not stored.excluded_days_json:
+                return []
+            return [ExcludedDaySchema.model_validate(item) for item in stored.excluded_days_json]
+        except Exception as exc:
+            logger.warning("Could not load stored exclusions for %d/%d: %s", month, year, exc)
+            return []
 
     # ------------------------------------------------------------------
     # Column widths

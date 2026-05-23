@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # Users are forced to change it on first login via must_change_password=True.
     DOCENTE_DEFAULT_PASSWORD: str = "upds*2026"
 
+    # Outbound email / Resend integration
+    # Disabled by default so billing publication never requires provider credentials.
+    EMAIL_ENABLED: bool = False
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: Optional[str] = None
+    RESEND_API_URL: str = "https://api.resend.com"
+    EMAIL_TIMEOUT_SECONDS: float = 3.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

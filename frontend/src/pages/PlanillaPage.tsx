@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, Plus, Trash2, CalendarOff } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
@@ -7,7 +7,7 @@ import { LoadingPage } from '@/components/shared/LoadingSpinner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { PlanillaGenerateResponse } from '@/api/types'
+import type { ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -46,6 +46,10 @@ export function PlanillaPage() {
   const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
   const [editingOverride, setEditingOverride] = useState<string | null>(null)
   const [overrideValue, setOverrideValue] = useState('')
+
+  // Exclusion days state
+  const [excludedDays, setExcludedDays] = useState<ExcludedDay[]>([])
+  const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
 
   // Salary report download loading state (keyed by planilla id for history rows,
   // "current" for the main action bar). Using a map lets multiple rows spin
@@ -105,10 +109,37 @@ export function PlanillaPage() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         discount_mode: effectiveDiscountMode,
+        excluded_days: excludedDays.length > 0 ? excludedDays : undefined,
       },
       {
         onSuccess: (data) => setLastResult(data),
       },
+    )
+  }
+
+  const addExclusionRow = () => {
+    const today = new Date().toISOString().slice(0, 10)
+    setExcludedDays(prev => [...prev, { date: today, scope: 'global' }])
+  }
+
+  const removeExclusionRow = (index: number) => {
+    setExcludedDays(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const updateExclusionRow = (index: number, patch: Partial<ExcludedDay>) => {
+    setExcludedDays(prev =>
+      prev.map((row, i) => {
+        if (i !== index) return row
+        const updated = { ...row, ...patch }
+        // Clear scope-specific fields when scope changes
+        if (patch.scope === 'global') {
+          return { date: updated.date, scope: 'global', reason: updated.reason }
+        }
+        if (patch.scope === 'semester') {
+          return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
+        }
+        return updated
+      })
     )
   }
 
@@ -294,6 +325,163 @@ export function PlanillaPage() {
                   <strong>Atención:</strong> En este modo no se aplicarán descuentos por ausencias.
                   Todos los docentes recibirán el monto total correspondiente a sus horas asignadas.
                 </p>
+              </div>
+            )}
+          </div>
+
+          {/* Exclusion Days Section */}
+          <div className="mt-4 bg-gray-50/50 rounded-lg border border-gray-200 overflow-hidden">
+            {/* Collapsible header */}
+            <button
+              type="button"
+              onClick={() => setExclusionPanelOpen(prev => !prev)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-100/50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <CalendarOff size={16} className="text-purple-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-gray-700">
+                    Días excluidos del cálculo
+                    {excludedDays.length > 0 && (
+                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold">
+                        {excludedDays.length}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {excludedDays.length === 0
+                      ? 'Sin exclusiones — todos los días se calculan normalmente'
+                      : `${excludedDays.length} día(s) excluido(s) de la planilla`}
+                  </p>
+                </div>
+              </div>
+              <span className="text-gray-400 text-xs font-medium">
+                {exclusionPanelOpen ? '▲ Cerrar' : '▼ Abrir'}
+              </span>
+            </button>
+
+            {exclusionPanelOpen && (
+              <div className="px-4 pb-4 border-t border-gray-200">
+                {/* Exclusion list */}
+                {excludedDays.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-3 text-center">
+                    No hay días excluidos. Agregá una regla para excluir fechas específicas.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {excludedDays.map((row, index) => (
+                      <div key={index} className="flex flex-wrap items-start gap-2 p-3 bg-white rounded-lg border border-purple-100">
+                        {/* Date */}
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-xs text-gray-500 font-medium">Fecha</label>
+                          <input
+                            type="date"
+                            value={row.date}
+                            onChange={e => updateExclusionRow(index, { date: e.target.value })}
+                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                          />
+                        </div>
+
+                        {/* Scope */}
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-xs text-gray-500 font-medium">Alcance</label>
+                          <select
+                            value={row.scope}
+                            onChange={e => updateExclusionRow(index, { scope: e.target.value as ExcludedDay['scope'] })}
+                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 min-w-[120px]"
+                          >
+                            <option value="global">Global</option>
+                            <option value="semester">Por semestre</option>
+                            <option value="subject">Por materia</option>
+                          </select>
+                        </div>
+
+                        {/* Conditional: semester_id */}
+                        {row.scope === 'semester' && (
+                          <div className="flex flex-col gap-0.5">
+                            <label className="text-xs text-gray-500 font-medium">Semestre <span className="text-red-400">*</span></label>
+                            <input
+                              type="text"
+                              value={row.semester_id ?? ''}
+                              onChange={e => updateExclusionRow(index, { semester_id: e.target.value || undefined })}
+                              placeholder={detail?.detail[0]?.semester ?? 'ej: 2024-I'}
+                              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-28"
+                            />
+                          </div>
+                        )}
+
+                        {/* Conditional: subject_id + group_id */}
+                        {row.scope === 'subject' && (
+                          <>
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-xs text-gray-500 font-medium">Materia <span className="text-red-400">*</span></label>
+                              <input
+                                type="text"
+                                value={row.subject_id ?? ''}
+                                onChange={e => updateExclusionRow(index, { subject_id: e.target.value || undefined })}
+                                placeholder={detail?.detail[0]?.subject ?? 'ej: Matemática I'}
+                                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-36"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-xs text-gray-500 font-medium">Grupo <span className="text-red-400">*</span></label>
+                              <input
+                                type="text"
+                                value={row.group_id ?? ''}
+                                onChange={e => updateExclusionRow(index, { group_id: e.target.value || undefined })}
+                                placeholder={detail?.detail[0]?.group_code ?? 'ej: A'}
+                                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-20"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Optional reason */}
+                        <div className="flex flex-col gap-0.5 flex-1 min-w-[140px]">
+                          <label className="text-xs text-gray-500 font-medium">Motivo <span className="text-gray-300">(opcional)</span></label>
+                          <input
+                            type="text"
+                            value={row.reason ?? ''}
+                            onChange={e => updateExclusionRow(index, { reason: e.target.value || undefined })}
+                            placeholder="ej: Feriado institucional"
+                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                          />
+                        </div>
+
+                        {/* Remove button */}
+                        <div className="flex flex-col justify-end pb-0.5">
+                          <button
+                            type="button"
+                            onClick={() => removeExclusionRow(index)}
+                            className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors mt-auto"
+                            title="Quitar exclusión"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add row button */}
+                <button
+                  type="button"
+                  onClick={addExclusionRow}
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 text-sm font-medium transition-colors"
+                >
+                  <Plus size={14} />
+                  Agregar exclusión
+                </button>
+
+                {excludedDays.length > 0 && (
+                  <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
+                    <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-purple-700">
+                      <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en morado en el Excel.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

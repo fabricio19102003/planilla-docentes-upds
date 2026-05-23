@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -65,6 +65,9 @@ from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
 from app.services import app_settings_service
+
+if TYPE_CHECKING:
+    from app.schemas.planilla import ExcludedDaySchema
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +159,7 @@ COLOR_DAY_CLASS = "E2EFDA"          # Light green — day with classes
 COLOR_DAY_ABSENT = "FCE4D6"         # Light red/orange — absent day
 COLOR_DAY_LATE = "FFF2CC"           # Light yellow — late day
 COLOR_DAY_WEEKEND = "F2F2F2"        # Light gray — weekend/no schedule
+COLOR_DAY_EXCLUDED = "D5B8FF"       # Light purple — admin-excluded day
 COLOR_SUMMARY_BG = "EDEDED"         # Light gray — summary columns header
 COLOR_TOTAL_ROW = "FFE699"          # Amber — totals row
 COLOR_WHITE = "FFFFFF"
@@ -302,6 +306,52 @@ class PlanillaResult:
 from app.services.attendance_engine import WEEKDAY_MAP, _normalize_day
 
 
+def _is_excluded(
+    target_date: date,
+    semester: str,
+    subject: str,
+    group_code: str,
+    exclusions: "list[ExcludedDaySchema]",
+) -> bool:
+    """Return True if ``target_date`` is excluded for the given designation context.
+
+    Union semantics: the first exclusion whose date AND scope criteria match
+    immediately returns True. Later entries are not evaluated (no
+    double-counting possible).
+
+    Scope rules:
+      - ``global``   — matches any designation on that date.
+      - ``semester`` — matches when ``exclusion.semester_id == semester``.
+      - ``subject``  — matches when subject_id + group_id both match.
+                       The combination (subject_id, group_id) is unique across all
+                       semesters, so semester_id is NOT checked for subject scope.
+
+    Args:
+        target_date: The calendar date to check.
+        semester:    The designation's semester identifier.
+        subject:     The designation's subject name.
+        group_code:  The designation's group code.
+        exclusions:  List of ExcludedDaySchema entries (may be empty).
+
+    Returns:
+        True if the date is excluded for this designation context, else False.
+    """
+    for exc in exclusions:
+        if exc.date != target_date:
+            continue
+        if exc.scope == "global":
+            return True
+        if exc.scope == "semester" and exc.semester_id == semester:
+            return True
+        if (
+            exc.scope == "subject"
+            and exc.subject_id == subject
+            and exc.group_id == group_code
+        ):
+            return True
+    return False
+
+
 def _index_schedule_by_weekday(schedule_json: list[dict]) -> dict[str, int]:
     """Index schedule_json slots by normalized weekday name → total academic hours.
 
@@ -375,16 +425,36 @@ def _calculate_period_hours(
     schedule_json: list[dict],
     start_date: date,
     end_date: date,
+    semester: str = "",
+    subject: str = "",
+    group_code: str = "",
+    excluded_days: "list[ExcludedDaySchema] | None" = None,
 ) -> int:
     """Count the total academic hours for a designation in a date range.
 
     Delegates to ``_expand_schedule_to_daily`` (single source of truth) and
-    returns the scalar sum.
+    returns the scalar sum.  When ``excluded_days`` is provided, hours for
+    excluded dates are subtracted from the total before returning.
+
+    Args:
+        schedule_json: The designation's schedule JSON.
+        start_date:    Start of the attendance window.
+        end_date:      End of the attendance window.
+        semester:      Designation semester — required for exclusion scope matching.
+        subject:       Designation subject — required for exclusion scope matching.
+        group_code:    Designation group code — required for exclusion scope matching.
+        excluded_days: Optional list of day exclusions.  Empty/None = no exclusions.
 
     Raises:
         ValueError: if start_date > end_date or the range exceeds 62 days.
     """
-    return sum(_expand_schedule_to_daily(schedule_json, start_date, end_date).values())
+    daily = _expand_schedule_to_daily(schedule_json, start_date, end_date)
+    if not excluded_days:
+        return sum(daily.values())
+    return sum(
+        hrs for d, hrs in daily.items()
+        if not _is_excluded(d, semester, subject, group_code, excluded_days)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +631,7 @@ class PlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> PlanillaResult:
         """
         Generate the planilla Excel for a given month/year.
@@ -582,22 +653,26 @@ class PlanillaGenerator:
             end_date: Optional end of attendance window to filter records
             discount_mode: "attendance" (apply discounts) or "full" (no discounts,
                 all teachers receive full assigned hours)
+            excluded_days: Optional list of days to exclude from the planilla.
+                Empty/None means backward-compatible behavior (no exclusions).
 
         Returns:
             PlanillaResult with file path and statistics
         """
         if payment_overrides is None:
             payment_overrides = {}
+        if excluded_days is None:
+            excluded_days = []
 
         logger.info(
-            "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s discount_mode=%s",
-            month, year, start_date, end_date, discount_mode,
+            "PlanillaGenerator.generate: month=%d year=%d start=%s end=%s discount_mode=%s excluded_days=%d",
+            month, year, start_date, end_date, discount_mode, len(excluded_days),
         )
 
         # Step 1: Build data
         rows, detail_rows, warnings = self._build_planilla_data(
             db, month, year, start_date=start_date, end_date=end_date,
-            discount_mode=discount_mode,
+            discount_mode=discount_mode, excluded_days=excluded_days,
         )
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
@@ -633,6 +708,7 @@ class PlanillaGenerator:
             start_date=start_date,
             end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=excluded_days,
         )
 
         return PlanillaResult(
@@ -660,6 +736,7 @@ class PlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> tuple[list[PlanillaRow], list[DetailRow], list[str]]:
         """
         Build PlanillaRow and DetailRow lists from DB data.
@@ -674,6 +751,7 @@ class PlanillaGenerator:
             start_date: When provided, attendance records are filtered to >= start_date.
             end_date:   When provided, attendance records are filtered to <= end_date.
             discount_mode: "attendance" (default, apply discounts) or "full" (no discounts).
+            excluded_days: Optional list of day exclusions. Empty/None = no exclusions.
         """
         warnings: list[str] = []
 
@@ -822,6 +900,7 @@ class PlanillaGenerator:
                 end_date=end_date,
                 month=month,
                 year=year,
+                excluded_days=excluded_days or [],
             )
             planilla_rows.append(row)
 
@@ -869,6 +948,7 @@ class PlanillaGenerator:
         end_date: Optional[date] = None,
         month: int = 0,
         year: int = 0,
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow using Payment Model C.
@@ -879,17 +959,23 @@ class PlanillaGenerator:
           - No biometric at all → full pay (has_biometric=False)
           - discount_mode="full" → full pay for ALL teachers (no deductions)
           - attended/late/no_exit hours in daily_hours are for display only
+          - excluded_days → set daily_hours[d]=0, daily_status[d]="EXCLUDED",
+            reduce base_monthly_hours (but do NOT count as absent_hours)
 
         ``hourly_rate`` is injected from the caller (defaults to the legacy
         ``RATE_PER_HOUR`` constant so tests that construct rows directly keep
         working).
         """
+        if excluded_days is None:
+            excluded_days = []
         daily_hours: dict[date, int] = {}
         daily_status: dict[date, str] = {}
         attended_hours = 0   # for informational display only
         absent_hours = 0     # hours to deduct (Model C)
+        absent_hours_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         late_count = 0
         absent_count = 0
+        absent_count_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         observations: list[str] = []
 
         for rec in records:
@@ -907,11 +993,14 @@ class PlanillaGenerator:
             if status == "ABSENT":
                 daily_status[day] = "ABSENT"
                 absent_count += 1
+                absent_count_by_day[day] = absent_count_by_day.get(day, 0) + 1
                 # Absent slots have academic_hours=0 in the record; we need to
                 # count the slot hours from the designation schedule for deduction.
                 # The engine sets academic_hours=0 for ABSENT — we must compute
                 # absent_hours from the slot's scheduled hours in schedule_json.
-                absent_hours += self._get_slot_hours(desig, rec)
+                slot_hrs = self._get_slot_hours(desig, rec)
+                absent_hours += slot_hrs
+                absent_hours_by_day[day] = absent_hours_by_day.get(day, 0) + slot_hrs
             elif status == "LATE" and current_status != "ABSENT":
                 daily_status[day] = "LATE"
                 late_count += 1
@@ -962,6 +1051,24 @@ class PlanillaGenerator:
                         # via the hours > 0 fallback in _write_data_row.
                         # No attended_hours bump — these are scheduled, not verified.
 
+        # ── Apply day exclusions ─────────────────────────────────────────
+        # Exclusions are applied AFTER schedule expansion so that any day
+        # that has scheduled hours (whether from attendance or schedule fill)
+        # is properly zeroed and flagged. Excluded hours are NOT added to
+        # absent_hours — they represent admin decisions, not attendance failures.
+        # If a day was already marked ABSENT, we must REMOVE its hours from
+        # absent_hours to prevent double-deduction (base_monthly_hours already
+        # excludes the day, so deducting absent_hours again would subtract twice).
+        if excluded_days:
+            for d in list(daily_hours.keys()):
+                if _is_excluded(d, desig.semester, desig.subject, desig.group_code, excluded_days):
+                    if daily_status.get(d) == "ABSENT" and d in absent_hours_by_day:
+                        # Undo the absent deduction for this excluded day
+                        absent_hours = max(0, absent_hours - absent_hours_by_day[d])
+                        absent_count = max(0, absent_count - absent_count_by_day.get(d, 0))
+                    daily_hours[d] = 0
+                    daily_status[d] = "EXCLUDED"
+
         # ── Model C payment calculation ─────────────────────────────────
         # When a cutoff period is specified (start_date + end_date), calculate
         # hours from the ACTUAL calendar days in the period instead of using
@@ -970,10 +1077,43 @@ class PlanillaGenerator:
         # not the fixed 4 assumed by the old weekly×4 formula.
         if start_date and end_date and desig.schedule_json:
             calendar_hours = _calculate_period_hours(
-                desig.schedule_json, start_date, end_date
+                desig.schedule_json, start_date, end_date,
+                semester=desig.semester,
+                subject=desig.subject,
+                group_code=desig.group_code,
+                excluded_days=excluded_days,
             )
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
+            elif calendar_hours == 0 and excluded_days:
+                # Zero hours with exclusions present — but was it because
+                # exclusions removed all scheduled hours, or because the
+                # schedule never matched the period? Compare raw hours.
+                raw_hours = _calculate_period_hours(
+                    desig.schedule_json, start_date, end_date,
+                )
+                if raw_hours > 0:
+                    # All scheduled hours were excluded — intentional zero pay.
+                    base_monthly_hours = 0
+                else:
+                    # Schedule mismatch (no weekdays matched) — use fallback.
+                    fallback_raw = desig.monthly_hours or 0
+                    if fallback_raw > 0:
+                        num_days = (end_date - start_date).days + 1
+                        base_monthly_hours = round(fallback_raw * num_days / 30)
+                        logger.warning(
+                            "Designation %d (CI=%s, %s): calendar hours=0 from schedule_json "
+                            "— falling back to scaled monthly_hours (%d × %d/30 = %d). "
+                            "Check schedule_json day names: %s",
+                            desig.id, desig.teacher_ci, desig.subject,
+                            fallback_raw, num_days, base_monthly_hours,
+                            desig.schedule_json,
+                        )
+                        observations.append(
+                            f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
+                        )
+                    else:
+                        base_monthly_hours = 0
             else:
                 # Schedule present but no weekday matched the period.
                 # This likely means malformed day names in schedule_json.
@@ -999,7 +1139,31 @@ class PlanillaGenerator:
                 else:
                     base_monthly_hours = 0
         else:
+            # No cutoff window — use static monthly_hours.
+            # When exclusions are present AND schedule_json exists, compute
+            # the exact hours for the full target month excluding skipped days.
             base_monthly_hours = desig.monthly_hours or 0
+            if excluded_days and desig.schedule_json and month and year:
+                _, last_day = calendar.monthrange(year, month)
+                m_start = date(year, month, 1)
+                m_end = date(year, month, last_day)
+                try:
+                    raw_month_hours = _calculate_period_hours(
+                        desig.schedule_json, m_start, m_end,
+                    )
+                    month_hours = _calculate_period_hours(
+                        desig.schedule_json, m_start, m_end,
+                        semester=desig.semester,
+                        subject=desig.subject,
+                        group_code=desig.group_code,
+                        excluded_days=excluded_days,
+                    )
+                    # Only apply exclusion-adjusted hours when the schedule
+                    # actually matched (raw > 0) and exclusions reduced it.
+                    if raw_month_hours > 0 and month_hours < base_monthly_hours:
+                        base_monthly_hours = month_hours
+                except ValueError:
+                    pass  # Keep static value on computation error
 
         if not has_biometric:
             # No biometric data at all → full pay, 0 deductions
@@ -1656,7 +1820,9 @@ class PlanillaGenerator:
                 status = data.daily_status.get(target_date, "")
 
                 # Determine fill color based on status and day type
-                if status == "ABSENT":
+                if status == "EXCLUDED":
+                    fill_color = COLOR_DAY_EXCLUDED
+                elif status == "ABSENT":
                     fill_color = COLOR_DAY_ABSENT
                 elif status == "LATE":
                     fill_color = COLOR_DAY_LATE
@@ -1671,7 +1837,7 @@ class PlanillaGenerator:
                     else:
                         fill_color = COLOR_DAY_WEEKEND
 
-                cell.value = hours if hours > 0 else None
+                cell.value = hours if hours > 0 else (0 if status == "EXCLUDED" else None)
                 cell.font = Font(name="Calibri", size=9, bold=(hours > 0))
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.fill = PatternFill("solid", fgColor=fill_color)
@@ -2009,11 +2175,13 @@ class PlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> Optional[PlanillaOutput]:
         """
         Create or update a PlanillaOutput record in the DB.
         Uses upsert logic: if one already exists for month/year, update it.
-        Stores payment_overrides as JSON so publish can reconstruct adjusted amounts.
+        Stores payment_overrides and excluded_days as JSON so publish/salary-report
+        can reconstruct adjusted amounts and exclusions history.
         """
         try:
             existing = (
@@ -2026,6 +2194,11 @@ class PlanillaGenerator:
             )
 
             overrides_data = payment_overrides if payment_overrides else None
+            exclusions_data = (
+                [exc.model_dump(mode="json") for exc in excluded_days]
+                if excluded_days
+                else None
+            )
 
             if existing:
                 existing.file_path = file_path
@@ -2033,6 +2206,7 @@ class PlanillaGenerator:
                 existing.total_hours = total_hours
                 existing.total_payment = Decimal(str(total_payment))
                 existing.payment_overrides_json = overrides_data
+                existing.excluded_days_json = exclusions_data
                 existing.start_date = start_date
                 existing.end_date = end_date
                 existing.discount_mode = discount_mode
@@ -2050,6 +2224,7 @@ class PlanillaGenerator:
                     total_hours=total_hours,
                     total_payment=Decimal(str(total_payment)),
                     payment_overrides_json=overrides_data,
+                    excluded_days_json=exclusions_data,
                     start_date=start_date,
                     end_date=end_date,
                     discount_mode=discount_mode,
