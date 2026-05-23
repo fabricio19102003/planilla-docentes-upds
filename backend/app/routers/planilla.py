@@ -76,6 +76,7 @@ def generate_planilla(
             start_date=payload.start_date,
             end_date=payload.end_date,
             discount_mode=payload.discount_mode,
+            excluded_days=payload.excluded_days,
         )
         log_activity(
             db,
@@ -263,6 +264,12 @@ def generate_salary_report(
             if effective_ed is None and stored.end_date is not None:
                 effective_ed = stored.end_date
 
+        # Resolve exclusions: caller-supplied list overrides stored planilla's exclusions.
+        # excluded_days=None (field omitted) → pass None to generator → generator loads stored
+        # excluded_days=[] (explicit empty) → pass [] to generator → no exclusions (override)
+        # excluded_days=[<entries>] → pass list to generator → use caller's exclusions
+        effective_exclusions = payload.excluded_days  # None = inherit stored; list = override
+
         generator = SalaryReportGenerator(output_dir=str(_output_dir()))
         file_path = generator.generate(
             db=db,
@@ -273,6 +280,7 @@ def generate_salary_report(
             discount_mode=effective_mode,
             start_date=effective_sd,
             end_date=effective_ed,
+            excluded_days=effective_exclusions,
         )
 
         month_name = MONTH_NAMES.get(payload.month, str(payload.month))
@@ -327,13 +335,36 @@ def get_planilla_detail(
     window passed to the generator (same semantics as the generate endpoint).
     ``discount_mode`` controls whether attendance-based discounts are applied
     ("attendance", default) or bypassed ("full").
+
+    Exclusions are loaded from the stored planilla record (if any) so the
+    detail view is consistent with what was generated.
     """
     try:
+        from app.schemas.planilla import ExcludedDaySchema
+
+        # Load stored exclusions to keep detail consistent with the saved planilla
+        stored_for_exclusions = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+        stored_exclusions: list[ExcludedDaySchema] = []
+        if stored_for_exclusions and stored_for_exclusions.excluded_days_json:
+            try:
+                stored_exclusions = [
+                    ExcludedDaySchema.model_validate(item)
+                    for item in stored_for_exclusions.excluded_days_json
+                ]
+            except Exception:
+                stored_exclusions = []
+
         generator = PlanillaGenerator()
         rows, _detail_rows, warnings = generator._build_planilla_data(
             db, month=month, year=year,
             start_date=start_date, end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=stored_exclusions,
         )
 
         detail = []
