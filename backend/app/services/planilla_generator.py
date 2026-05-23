@@ -972,8 +972,10 @@ class PlanillaGenerator:
         daily_status: dict[date, str] = {}
         attended_hours = 0   # for informational display only
         absent_hours = 0     # hours to deduct (Model C)
+        absent_hours_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         late_count = 0
         absent_count = 0
+        absent_count_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         observations: list[str] = []
 
         for rec in records:
@@ -991,11 +993,14 @@ class PlanillaGenerator:
             if status == "ABSENT":
                 daily_status[day] = "ABSENT"
                 absent_count += 1
+                absent_count_by_day[day] = absent_count_by_day.get(day, 0) + 1
                 # Absent slots have academic_hours=0 in the record; we need to
                 # count the slot hours from the designation schedule for deduction.
                 # The engine sets academic_hours=0 for ABSENT — we must compute
                 # absent_hours from the slot's scheduled hours in schedule_json.
-                absent_hours += self._get_slot_hours(desig, rec)
+                slot_hrs = self._get_slot_hours(desig, rec)
+                absent_hours += slot_hrs
+                absent_hours_by_day[day] = absent_hours_by_day.get(day, 0) + slot_hrs
             elif status == "LATE" and current_status != "ABSENT":
                 daily_status[day] = "LATE"
                 late_count += 1
@@ -1051,9 +1056,16 @@ class PlanillaGenerator:
         # that has scheduled hours (whether from attendance or schedule fill)
         # is properly zeroed and flagged. Excluded hours are NOT added to
         # absent_hours — they represent admin decisions, not attendance failures.
+        # If a day was already marked ABSENT, we must REMOVE its hours from
+        # absent_hours to prevent double-deduction (base_monthly_hours already
+        # excludes the day, so deducting absent_hours again would subtract twice).
         if excluded_days:
             for d in list(daily_hours.keys()):
                 if _is_excluded(d, desig.semester, desig.subject, desig.group_code, excluded_days):
+                    if daily_status.get(d) == "ABSENT" and d in absent_hours_by_day:
+                        # Undo the absent deduction for this excluded day
+                        absent_hours = max(0, absent_hours - absent_hours_by_day[d])
+                        absent_count = max(0, absent_count - absent_count_by_day.get(d, 0))
                     daily_hours[d] = 0
                     daily_status[d] = "EXCLUDED"
 
@@ -1073,6 +1085,10 @@ class PlanillaGenerator:
             )
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
+            elif calendar_hours == 0 and excluded_days:
+                # All scheduled hours were excluded — this is intentional, not
+                # a schedule mismatch. Pay zero for this period.
+                base_monthly_hours = 0
             else:
                 # Schedule present but no weekday matched the period.
                 # This likely means malformed day names in schedule_json.

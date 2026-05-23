@@ -221,7 +221,10 @@ class PracticePlanillaGenerator:
         # guard, missing logs are filled from the schedule and paid as if the
         # teacher attended, causing accidental overpayment.
         if discount_mode != "full":
-            self._validate_attendance_coverage(db, month, year, start_date, end_date)
+            self._validate_attendance_coverage(
+                db, month, year, start_date, end_date,
+                excluded_days=excluded_days,
+            )
 
         # Step 1: Build data
         rows, warnings = self._build_planilla_data(
@@ -302,6 +305,7 @@ class PracticePlanillaGenerator:
         year: int,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> None:
         """Block generation when scheduled practice slots lack logs."""
         period_start, period_end = self._effective_period(
@@ -338,10 +342,17 @@ class PracticePlanillaGenerator:
         existing = {(row[0], row[1], row[2], row[3]) for row in existing_rows}
 
         missing: list[MissingPracticeAttendanceSlot] = []
+        _excl = excluded_days or []
         for desig in practice_designations:
             for slot_date, scheduled_start in self._iter_scheduled_slots(
                 desig.schedule_json or [], period_start, period_end,
             ):
+                # Skip slots on excluded days — no attendance expected
+                if _excl and _is_excluded(
+                    slot_date, desig.semester, desig.subject,
+                    desig.group_code, _excl,
+                ):
+                    continue
                 key = (desig.teacher_ci, desig.id, slot_date, scheduled_start)
                 if key not in existing:
                     missing.append(
@@ -554,8 +565,10 @@ class PracticePlanillaGenerator:
         daily_status: dict[date, str] = {}
         attended_hours = 0
         absent_hours = 0
+        absent_hours_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         late_count = 0
         absent_count = 0
+        absent_count_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         observations: list[str] = []
 
         # Process manual attendance logs
@@ -568,7 +581,9 @@ class PracticePlanillaGenerator:
                 daily_hours[day] = daily_hours.get(day, 0)  # 0 hours for absent
                 daily_status[day] = "ABSENT"
                 absent_count += 1
+                absent_count_by_day[day] = absent_count_by_day.get(day, 0) + 1
                 absent_hours += hours  # Manual logs already have the scheduled hours
+                absent_hours_by_day[day] = absent_hours_by_day.get(day, 0) + hours
             elif status == "late":
                 daily_hours[day] = daily_hours.get(day, 0) + hours
                 if daily_status.get(day, "") != "ABSENT":
@@ -603,10 +618,15 @@ class PracticePlanillaGenerator:
                     if d not in daily_hours:
                         daily_hours[d] = hrs
 
-        # Apply day exclusions (same semantics as regular planilla)
+        # Apply day exclusions (same semantics as regular planilla).
+        # If a day was ABSENT, undo its absent_hours to prevent double-deduction
+        # (base_monthly_hours already excludes the day).
         if excluded_days:
             for d in list(daily_hours.keys()):
                 if _is_excluded(d, desig.semester, desig.subject, desig.group_code, excluded_days):
+                    if daily_status.get(d) == "ABSENT" and d in absent_hours_by_day:
+                        absent_hours = max(0, absent_hours - absent_hours_by_day[d])
+                        absent_count = max(0, absent_count - absent_count_by_day.get(d, 0))
                     daily_hours[d] = 0
                     daily_status[d] = "EXCLUDED"
 
@@ -621,6 +641,9 @@ class PracticePlanillaGenerator:
             )
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
+            elif calendar_hours == 0 and excluded_days:
+                # All scheduled hours were excluded — intentional, not mismatch.
+                base_monthly_hours = 0
             else:
                 fallback_raw = desig.monthly_hours or 0
                 if fallback_raw > 0:

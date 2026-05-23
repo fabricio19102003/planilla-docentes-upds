@@ -670,6 +670,18 @@ def dashboard_summary(
                 stored_sd = stored_planilla.start_date if stored_planilla else None
                 stored_ed = stored_planilla.end_date if stored_planilla else None
 
+                # Load stored exclusions so dashboard matches the generated planilla
+                from app.schemas.planilla import ExcludedDaySchema
+                stored_excl: list[ExcludedDaySchema] = []
+                if stored_planilla and stored_planilla.excluded_days_json:
+                    try:
+                        stored_excl = [
+                            ExcludedDaySchema.model_validate(item)
+                            for item in stored_planilla.excluded_days_json
+                        ]
+                    except Exception:
+                        pass  # If stored JSON is corrupt, proceed without exclusions
+
                 gen = PlanillaGenerator()
                 planilla_rows, _, _ = gen._build_planilla_data(
                     db,
@@ -678,6 +690,7 @@ def dashboard_summary(
                     start_date=stored_sd,
                     end_date=stored_ed,
                     discount_mode=stored_dm,
+                    excluded_days=stored_excl or None,
                 )
                 teacher_payments: dict = {}
                 for r in planilla_rows:
