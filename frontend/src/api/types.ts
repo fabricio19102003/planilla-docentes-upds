@@ -340,6 +340,16 @@ export interface ProcessAttendancePayload {
   end_date?: string     // ISO date format "YYYY-MM-DD"
 }
 
+// ─── Exclusion Days ───────────────────────────────────────────────────────────
+export interface ExcludedDay {
+  date: string                           // ISO 8601 "YYYY-MM-DD"
+  scope: 'global' | 'semester' | 'subject'
+  semester_id?: string                   // required when scope=semester
+  subject_id?: string                    // required when scope=subject
+  group_id?: string                      // required when scope=subject
+  reason?: string
+}
+
 export interface GeneratePlanillaPayload {
   month: number
   year: number
@@ -347,6 +357,7 @@ export interface GeneratePlanillaPayload {
   start_date?: string   // ISO date format "YYYY-MM-DD"
   end_date?: string     // ISO date format "YYYY-MM-DD"
   discount_mode?: 'attendance' | 'full'  // default: "attendance"
+  excluded_days?: ExcludedDay[]
 }
 
 export interface UploadBiometricPayload {
