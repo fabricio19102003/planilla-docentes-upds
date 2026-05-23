@@ -5,6 +5,19 @@ Phase 2 will add fixtures for DB session, test client, sample data.
 import pytest
 import os
 import tempfile
+
+# ── Test env defaults ─────────────────────────────────────────────────────────
+# Ensure DATABASE_URL and ASYNC_DATABASE_URL are set before any app module is
+# imported (pydantic-settings requires them at instantiation time).
+# Tests can override via TEST_DATABASE_URL / environment variables.
+_TEST_DB_FILE = os.path.join(tempfile.gettempdir(), "planilla_docentes_upds_test.sqlite")
+_DEFAULT_DB_URL = f"sqlite:///{_TEST_DB_FILE}"
+_DEFAULT_ASYNC_DB_URL = f"sqlite+aiosqlite:///{_TEST_DB_FILE}"
+
+os.environ.setdefault("DATABASE_URL", _DEFAULT_DB_URL)
+os.environ.setdefault("ASYNC_DATABASE_URL", _DEFAULT_ASYNC_DB_URL)
+# ─────────────────────────────────────────────────────────────────────────────
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,8 +27,7 @@ from app.database import Base, get_db
 
 
 # Test database URL (defaults to SQLite smoke DB to avoid external dependencies)
-_TEST_DB_FILE = os.path.join(tempfile.gettempdir(), "planilla_docentes_upds_test.sqlite")
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", f"sqlite:///{_TEST_DB_FILE}")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", _DEFAULT_DB_URL)
 
 
 @pytest.fixture(scope="session")

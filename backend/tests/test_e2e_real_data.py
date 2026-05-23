@@ -16,6 +16,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 # Force UTF-8 output on Windows to avoid cp1252 issues with Unicode chars.
 # Skip when running under pytest (capture=default) to avoid breaking pytest's I/O wrappers.
 if sys.platform == "win32" and "pytest" not in sys.modules:
@@ -659,6 +661,10 @@ def print_final_report():
 # pytest entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(
+    not BIOMETRIC_FILE.exists(),
+    reason=f"E2E fixture file not found: {BIOMETRIC_FILE}. Provide the real biometric XLS to run this test.",
+)
 def test_e2e_full_flow():
     """Single pytest test that runs the complete E2E flow."""
     step1_clear_data()
