@@ -30,6 +30,7 @@ class PracticePlanillaOutput(Base):
     total_hours: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_payment: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     payment_overrides_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    excluded_days_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="generated", nullable=False)
     # "attendance" = apply attendance-based discounts (default)
     # "full" = pay all practice teachers their full assigned hours

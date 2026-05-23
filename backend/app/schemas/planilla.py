@@ -1,12 +1,45 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import date, datetime
 from typing import Literal, Optional
 from decimal import Decimal
 
 from app.schemas.attendance import MonthlyAttendanceSummaryResponse
 from app.schemas.biometric import BiometricUploadResponse
+
+
+class ExcludedDaySchema(BaseModel):
+    """Represents a day excluded from planilla calculation.
+
+    Scopes:
+      - global: excludes the date for ALL teachers, subjects, and semesters.
+      - semester: excludes the date only for a specific semester (requires semester_id).
+      - subject: excludes the date only for a specific (subject, group) pair.
+                 The combination (subject_id, group_id) is unique and irrepetible —
+                 the same subject+group never exists in two different semesters, so
+                 semester_id is NOT needed for subject scope.
+
+    Field names match the published API contract:
+      - semester_id: required when scope=semester ONLY
+      - subject_id:  required when scope=subject
+      - group_id:    required when scope=subject
+    """
+
+    date: date
+    scope: Literal["global", "semester", "subject"]
+    semester_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    group_id: Optional[str] = None
+    reason: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_scope_fields(self) -> "ExcludedDaySchema":
+        if self.scope == "semester" and not self.semester_id:
+            raise ValueError("semester_id is required for scope='semester'")
+        if self.scope == "subject" and (not self.subject_id or not self.group_id):
+            raise ValueError("subject_id and group_id are required for scope='subject'")
+        return self
 
 
 class PlanillaOutputResponse(BaseModel):
@@ -36,6 +69,7 @@ class PlanillaGenerateRequest(BaseModel):
     # "attendance" = apply attendance-based discounts (default)
     # "full" = pay full assigned hours to all teachers (no discounts)
     discount_mode: Literal["attendance", "full"] = "attendance"
+    excluded_days: list[ExcludedDaySchema] = Field(default_factory=list)
 
 
 class PlanillaGenerateResponse(BaseModel):
@@ -61,6 +95,10 @@ class SalaryReportRequest(BaseModel):
     discount_mode: Literal["attendance", "full"] = "attendance"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    # None (field omitted) → inherit stored planilla exclusions
+    # [] (explicit empty list) → no exclusions (overrides stored)
+    # [<entries>] → use caller-supplied exclusions (overrides stored)
+    excluded_days: Optional[list[ExcludedDaySchema]] = None
 
 
 class DashboardSummaryResponse(BaseModel):

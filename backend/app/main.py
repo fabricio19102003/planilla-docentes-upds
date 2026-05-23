@@ -79,6 +79,16 @@ def _run_column_migrations() -> None:
                 if "discount_mode" not in po_cols:
                     conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN discount_mode VARCHAR(20) NOT NULL DEFAULT 'attendance'"))
                     logger.info("Added column planilla_outputs.discount_mode")
+                if "excluded_days_json" not in po_cols:
+                    conn.execute(text("ALTER TABLE planilla_outputs ADD COLUMN excluded_days_json JSONB"))
+                    logger.info("Added column planilla_outputs.excluded_days_json")
+
+            # practice_planilla_outputs.excluded_days_json
+            if inspector.has_table("practice_planilla_outputs"):
+                ppo_cols = {c["name"] for c in inspector.get_columns("practice_planilla_outputs")}
+                if "excluded_days_json" not in ppo_cols:
+                    conn.execute(text("ALTER TABLE practice_planilla_outputs ADD COLUMN excluded_days_json JSONB"))
+                    logger.info("Added column practice_planilla_outputs.excluded_days_json")
 
             # teachers nullable profile/photo columns
             if inspector.has_table("teachers"):
