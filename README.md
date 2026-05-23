@@ -364,6 +364,7 @@ planilla-docentes-upds/
 │   │   │
 │   │   ├── services/            # Logica de negocio
 │   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + dias reales + discount_mode + cross-month)
+│   │   │   ├── practice_planilla_generator.py # Planilla de practicas internas (misma logica)
 │   │   │   ├── salary_report_generator.py # Planilla de salarios Excel (formato UNIPANDO)
 │   │   │   ├── app_settings_service.py   # Configuracion de negocio (cache + CRUD)
 │   │   │   ├── attendance_engine.py      # Procesamiento de asistencia
@@ -383,7 +384,7 @@ planilla-docentes-upds/
 │   │   ├── database.py          # Conexion a PostgreSQL
 │   │   └── main.py              # App FastAPI + lifespan + migraciones
 │   │
-│   ├── tests/                   # Test suite (153+ tests)
+│   ├── tests/                   # Test suite (226+ tests)
 │   ├── data/
 │   │   ├── assets/              # Logos UPDS (isologo + logotipo)
 │   │   ├── uploads/             # Archivos subidos
@@ -403,7 +404,7 @@ planilla-docentes-upds/
 │   │   │   ├── UploadPage.tsx           # Subir: lista docentes, designacion, biometrico
 │   │   │   ├── AttendancePage.tsx        # Procesar asistencia (con auto-deteccion de rango)
 │   │   │   ├── AttendanceAuditPage.tsx  # Auditoria de asistencia por docente
-│   │   │   ├── PlanillaPage.tsx         # Generar + aprobar + publicar + detalle + override
+│   │   │   ├── PlanillaPage.tsx         # Generar + aprobar + publicar + excluir dias + detalle + override
 │   │   │   ├── TeachersPage.tsx         # CRUD docentes + bulk delete
 │   │   │   ├── TeacherDetailPage.tsx    # Detalle/edicion de docente
 │   │   │   ├── UsersPage.tsx            # Gestion de usuarios
@@ -453,6 +454,8 @@ planilla-docentes-upds/
 
 ```
 Horas Reales  = Calculadas desde el horario del docente x dias reales del periodo de corte
+Exclusiones   = Dias excluidos (global, por semestre, o por materia) x Horas/dia
+Horas Reales  = Calculadas desde el horario - Horas Excluidas
 Pago Base     = Horas Reales x Tarifa/hora (configurable, default 70 Bs)
 Descuento     = Horas Ausentes (verificadas por biometrico) x Tarifa/hora
 Bruto         = Pago Base - Descuento
@@ -467,6 +470,11 @@ Neto          = Bruto - Retencion
 **Reglas de negocio:**
 - Docentes **sin biometrico** = pago completo (0 ausencias asumidas)
 - Biometrico scoped al **periodo** de corte, no al mes calendario
+- Admin puede excluir dias especificos del calculo (feriados, eventos, clases magistrales)
+- Tres niveles de granularidad: global (todos), por semestre, por materia+grupo
+- Exclusiones se configuran antes de generar y son editables despues (regenerar)
+- Dias excluidos aparecen con color purpura y 0h en el Excel
+- Exclusiones almacenadas en `excluded_days_json` (JSONB) — mismo patron que overrides
 - Admin puede aplicar **overrides** manuales al monto de cualquier docente
 - Overrides almacenados inmutables en `PlanillaOutput.payment_overrides_json`
 - Publicacion crea **snapshot inmutable** — los montos publicados no cambian si los datos base cambian
@@ -551,6 +559,8 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
 6. Generar Planilla
    → Definir periodo de corte (ej: 21/Mar al 20/Abr)
    → Elegir modo: con descuentos (default) o sin descuentos
+   → Opcionalmente excluir dias especificos (feriados, eventos, clases magistrales)
+   → Granularidad: global, por semestre, o por materia+grupo
    → Calcula pagos por dias reales del calendario (no semanal x 4)
    → Excel muestra dos bloques de dias (un mes cada uno) con dias fuera del corte en gris
    → Admin puede ajustar montos (overrides)
@@ -670,6 +680,9 @@ python -m pytest tests/ --ignore=tests/test_e2e_real_data.py -v
 # Solo tests de planilla (calculo de pagos)
 python -m pytest tests/test_planilla_generator.py -v
 
+# Solo tests de exclusion de dias
+python -m pytest tests/test_exclusion_dias_planilla.py -v
+
 # Solo tests de designation loader
 python -m pytest tests/test_designation_loader.py -v
 
@@ -677,7 +690,7 @@ python -m pytest tests/test_designation_loader.py -v
 python -m pytest tests/test_e2e_real_data.py -s
 ```
 
-**153+ tests** cubriendo: carga de designaciones, calculo de pagos (Model C + retencion + overrides), procesamiento de asistencia, APIs, normalizacion de nombres.
+**226+ tests** cubriendo: carga de designaciones, calculo de pagos (Model C + retencion + overrides), procesamiento de asistencia, APIs, normalizacion de nombres.
 
 ## Datos de Ejemplo
 
@@ -704,12 +717,13 @@ El repositorio incluye datos de ejemplo:
 
 ## Judgment Day (Control de Calidad)
 
-El proyecto ha pasado por **10 rondas de revision adversarial** (Judgment Day) con dos jueces ciegos independientes. Cada ronda verifica:
+El proyecto ha pasado por **12 rondas de revision adversarial** (Judgment Day) con dos jueces ciegos independientes. Cada ronda verifica:
 
 - Correccion de pagos (Model C + retencion + overrides)
 - Scoping de biometrico por periodo
 - Normalizacion de dias con acentos
 - Snapshots inmutables con overrides
+- Exclusion de dias: doble deduccion, cutoff fallback, coverage validation, dashboard consistency
 - Cascada completa de CI (6 tablas)
 - Seguridad (JWT, contrasenas, path traversal, state machine)
 - Frontend build limpio + TypeScript sin errores
