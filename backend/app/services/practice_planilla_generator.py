@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -44,12 +44,14 @@ from app.services.planilla_generator import (
     MonthBlock,
     _calculate_period_hours,
     _expand_schedule_to_daily,
+    _is_excluded,
     _build_month_blocks,
     MONTH_NAMES,
     WEEKDAY_LETTERS,
     DAY_COL_START,
     ROW_COL_HEADERS,
     COLOR_DAY_ABSENT,
+    COLOR_DAY_EXCLUDED,
     COLOR_DAY_LATE,
     COLOR_DAY_CLASS,
     COLOR_DAY_WEEKEND,
@@ -88,6 +90,9 @@ from app.services.planilla_generator import (
     WEEKDAY_MAP,
     _normalize_day,
 )
+
+if TYPE_CHECKING:
+    from app.schemas.planilla import ExcludedDaySchema
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +188,7 @@ class PracticePlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> PracticePlanillaResult:
         """
         Generate the practice planilla Excel for a given month/year.
@@ -195,16 +201,19 @@ class PracticePlanillaGenerator:
             start_date: Optional start of attendance window
             end_date: Optional end of attendance window
             discount_mode: "attendance" (apply discounts) or "full" (no discounts)
+            excluded_days: Optional list of days to exclude from the planilla.
 
         Returns:
             PracticePlanillaResult with file path and statistics
         """
         if payment_overrides is None:
             payment_overrides = {}
+        if excluded_days is None:
+            excluded_days = []
 
         logger.info(
-            "PracticePlanillaGenerator.generate: month=%d year=%d start=%s end=%s discount_mode=%s",
-            month, year, start_date, end_date, discount_mode,
+            "PracticePlanillaGenerator.generate: month=%d year=%d start=%s end=%s discount_mode=%s excluded_days=%d",
+            month, year, start_date, end_date, discount_mode, len(excluded_days),
         )
 
         # In attendance mode, every scheduled practice slot in the payroll
@@ -219,6 +228,7 @@ class PracticePlanillaGenerator:
             db, month, year,
             start_date=start_date, end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=excluded_days,
         )
         logger.info("Built %d practice planilla rows", len(rows))
 
@@ -249,6 +259,7 @@ class PracticePlanillaGenerator:
             start_date=start_date,
             end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=excluded_days,
         )
 
         return PracticePlanillaResult(
@@ -399,6 +410,7 @@ class PracticePlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> tuple[list[PlanillaRow], list[str]]:
         """
         Build PlanillaRow list from practice designations + manual attendance.
@@ -408,6 +420,7 @@ class PracticePlanillaGenerator:
           - If no attendance logs exist, teachers get full pay (same as Model C)
           - Absent hours are summed directly from logs where status == "absent"
           - discount_mode="full" → skip attendance, everyone gets full pay
+          - excluded_days: optional admin day exclusions (same semantics as regular planilla)
         """
         warnings: list[str] = []
 
@@ -502,6 +515,7 @@ class PracticePlanillaGenerator:
                 end_date=end_date,
                 month=month,
                 year=year,
+                excluded_days=excluded_days or [],
             )
             planilla_rows.append(row)
 
@@ -526,6 +540,7 @@ class PracticePlanillaGenerator:
         end_date: Optional[date] = None,
         month: int = 0,
         year: int = 0,
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow for a practice designation.
@@ -533,6 +548,8 @@ class PracticePlanillaGenerator:
         Simpler than regular planilla — no biometric check.
         Absent hours come directly from PracticeAttendanceLog.
         """
+        if excluded_days is None:
+            excluded_days = []
         daily_hours: dict[date, int] = {}
         daily_status: dict[date, str] = {}
         attended_hours = 0
@@ -586,10 +603,21 @@ class PracticePlanillaGenerator:
                     if d not in daily_hours:
                         daily_hours[d] = hrs
 
+        # Apply day exclusions (same semantics as regular planilla)
+        if excluded_days:
+            for d in list(daily_hours.keys()):
+                if _is_excluded(d, desig.semester, desig.subject, desig.group_code, excluded_days):
+                    daily_hours[d] = 0
+                    daily_status[d] = "EXCLUDED"
+
         # Base hours calculation (same real-day-count logic as regular)
         if start_date and end_date and desig.schedule_json:
             calendar_hours = _calculate_period_hours(
-                desig.schedule_json, start_date, end_date
+                desig.schedule_json, start_date, end_date,
+                semester=desig.semester,
+                subject=desig.subject,
+                group_code=desig.group_code,
+                excluded_days=excluded_days,
             )
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
@@ -605,6 +633,22 @@ class PracticePlanillaGenerator:
                     base_monthly_hours = 0
         else:
             base_monthly_hours = desig.monthly_hours or 0
+            if excluded_days and desig.schedule_json and month and year:
+                _, last_day = calendar.monthrange(year, month)
+                m_start = date(year, month, 1)
+                m_end = date(year, month, last_day)
+                try:
+                    month_hours = _calculate_period_hours(
+                        desig.schedule_json, m_start, m_end,
+                        semester=desig.semester,
+                        subject=desig.subject,
+                        group_code=desig.group_code,
+                        excluded_days=excluded_days,
+                    )
+                    if 0 <= month_hours < base_monthly_hours:
+                        base_monthly_hours = month_hours
+                except ValueError:
+                    pass
 
         # discount_mode="full" → zero deductions
         if discount_mode == "full":
@@ -1068,7 +1112,9 @@ class PracticePlanillaGenerator:
                 hours = data.daily_hours.get(target_date, 0)
                 status = data.daily_status.get(target_date, "")
 
-                if status == "ABSENT":
+                if status == "EXCLUDED":
+                    fill_color = COLOR_DAY_EXCLUDED
+                elif status == "ABSENT":
                     fill_color = COLOR_DAY_ABSENT
                 elif status == "LATE":
                     fill_color = COLOR_DAY_LATE
@@ -1082,7 +1128,7 @@ class PracticePlanillaGenerator:
                     else:
                         fill_color = COLOR_DAY_WEEKEND
 
-                cell.value = hours if hours > 0 else None
+                cell.value = hours if hours > 0 else (0 if status == "EXCLUDED" else None)
                 cell.font = Font(name="Calibri", size=9, bold=(hours > 0))
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.fill = PatternFill("solid", fgColor=fill_color)
@@ -1302,6 +1348,7 @@ class PracticePlanillaGenerator:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
+        excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> Optional[PracticePlanillaOutput]:
         """Create or update a PracticePlanillaOutput record (upsert by month/year)."""
         try:
@@ -1315,6 +1362,11 @@ class PracticePlanillaGenerator:
             )
 
             overrides_data = payment_overrides if payment_overrides else None
+            exclusions_data = (
+                [exc.model_dump(mode="json") for exc in excluded_days]
+                if excluded_days
+                else None
+            )
 
             if existing:
                 existing.file_path = file_path
@@ -1322,6 +1374,7 @@ class PracticePlanillaGenerator:
                 existing.total_hours = total_hours
                 existing.total_payment = Decimal(str(total_payment))
                 existing.payment_overrides_json = overrides_data
+                existing.excluded_days_json = exclusions_data
                 existing.start_date = start_date
                 existing.end_date = end_date
                 existing.discount_mode = discount_mode
@@ -1339,6 +1392,7 @@ class PracticePlanillaGenerator:
                     total_hours=total_hours,
                     total_payment=Decimal(str(total_payment)),
                     payment_overrides_json=overrides_data,
+                    excluded_days_json=exclusions_data,
                     start_date=start_date,
                     end_date=end_date,
                     discount_mode=discount_mode,
