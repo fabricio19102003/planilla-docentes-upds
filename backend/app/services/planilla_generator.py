@@ -1086,9 +1086,34 @@ class PlanillaGenerator:
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
             elif calendar_hours == 0 and excluded_days:
-                # All scheduled hours were excluded — this is intentional, not
-                # a schedule mismatch. Pay zero for this period.
-                base_monthly_hours = 0
+                # Zero hours with exclusions present — but was it because
+                # exclusions removed all scheduled hours, or because the
+                # schedule never matched the period? Compare raw hours.
+                raw_hours = _calculate_period_hours(
+                    desig.schedule_json, start_date, end_date,
+                )
+                if raw_hours > 0:
+                    # All scheduled hours were excluded — intentional zero pay.
+                    base_monthly_hours = 0
+                else:
+                    # Schedule mismatch (no weekdays matched) — use fallback.
+                    fallback_raw = desig.monthly_hours or 0
+                    if fallback_raw > 0:
+                        num_days = (end_date - start_date).days + 1
+                        base_monthly_hours = round(fallback_raw * num_days / 30)
+                        logger.warning(
+                            "Designation %d (CI=%s, %s): calendar hours=0 from schedule_json "
+                            "— falling back to scaled monthly_hours (%d × %d/30 = %d). "
+                            "Check schedule_json day names: %s",
+                            desig.id, desig.teacher_ci, desig.subject,
+                            fallback_raw, num_days, base_monthly_hours,
+                            desig.schedule_json,
+                        )
+                        observations.append(
+                            f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
+                        )
+                    else:
+                        base_monthly_hours = 0
             else:
                 # Schedule present but no weekday matched the period.
                 # This likely means malformed day names in schedule_json.
@@ -1123,6 +1148,9 @@ class PlanillaGenerator:
                 m_start = date(year, month, 1)
                 m_end = date(year, month, last_day)
                 try:
+                    raw_month_hours = _calculate_period_hours(
+                        desig.schedule_json, m_start, m_end,
+                    )
                     month_hours = _calculate_period_hours(
                         desig.schedule_json, m_start, m_end,
                         semester=desig.semester,
@@ -1130,8 +1158,9 @@ class PlanillaGenerator:
                         group_code=desig.group_code,
                         excluded_days=excluded_days,
                     )
-                    # Use the exclusion-aware month hours when > 0 and <= base
-                    if 0 <= month_hours < base_monthly_hours:
+                    # Only apply exclusion-adjusted hours when the schedule
+                    # actually matched (raw > 0) and exclusions reduced it.
+                    if raw_month_hours > 0 and month_hours < base_monthly_hours:
                         base_monthly_hours = month_hours
                 except ValueError:
                     pass  # Keep static value on computation error

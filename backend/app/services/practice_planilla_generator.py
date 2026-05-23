@@ -642,8 +642,23 @@ class PracticePlanillaGenerator:
             if calendar_hours > 0:
                 base_monthly_hours = calendar_hours
             elif calendar_hours == 0 and excluded_days:
-                # All scheduled hours were excluded — intentional, not mismatch.
-                base_monthly_hours = 0
+                # Compare raw hours to distinguish exclusions from schedule mismatch
+                raw_hours = _calculate_period_hours(
+                    desig.schedule_json, start_date, end_date,
+                )
+                if raw_hours > 0:
+                    base_monthly_hours = 0  # Genuinely all excluded
+                else:
+                    # Schedule mismatch — use fallback
+                    fallback_raw = desig.monthly_hours or 0
+                    if fallback_raw > 0:
+                        num_days = (end_date - start_date).days + 1
+                        base_monthly_hours = round(fallback_raw * num_days / 30)
+                        observations.append(
+                            f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
+                        )
+                    else:
+                        base_monthly_hours = 0
             else:
                 fallback_raw = desig.monthly_hours or 0
                 if fallback_raw > 0:
@@ -661,6 +676,9 @@ class PracticePlanillaGenerator:
                 m_start = date(year, month, 1)
                 m_end = date(year, month, last_day)
                 try:
+                    raw_month_hours = _calculate_period_hours(
+                        desig.schedule_json, m_start, m_end,
+                    )
                     month_hours = _calculate_period_hours(
                         desig.schedule_json, m_start, m_end,
                         semester=desig.semester,
@@ -668,7 +686,7 @@ class PracticePlanillaGenerator:
                         group_code=desig.group_code,
                         excluded_days=excluded_days,
                     )
-                    if 0 <= month_hours < base_monthly_hours:
+                    if raw_month_hours > 0 and month_hours < base_monthly_hours:
                         base_monthly_hours = month_hours
                 except ValueError:
                     pass
