@@ -1,6 +1,8 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
+  GraduationCap,
   Upload,
   ClipboardCheck,
   AlertTriangle,
@@ -17,6 +19,7 @@ import {
   Bell,
   Calendar,
   Activity,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileSignature,
@@ -36,23 +39,59 @@ interface NavItem {
   badge?: number
 }
 
-const adminNavItems: NavItem[] = [
+interface NavGroup {
+  label: string
+  icon: LucideIcon
+  children: NavItem[]
+}
+
+type AdminNavEntry = NavItem | NavGroup
+
+function isNavGroup(entry: AdminNavEntry): entry is NavGroup {
+  return 'children' in entry
+}
+
+const adminNavItems: AdminNavEntry[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/upload', label: 'Subir Archivos', icon: Upload },
-  { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck },
-  { to: '/practice-attendance', label: 'Asistencia Prácticas', icon: ClipboardCheck },
-  { to: '/attendance-audit', label: 'Auditoría Asistencia', icon: ShieldCheck },
-  { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
-  { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
-  { to: '/practice-planilla', label: 'Planilla Practicas', icon: FileSpreadsheet },
-  { to: '/reports', label: 'Reportes', icon: FileText },
-  { to: '/contracts', label: 'Contratos', icon: FileSignature },
-  { to: '/teachers', label: 'Docentes', icon: Users },
-  { to: '/users', label: 'Gestión Usuarios', icon: Shield },
-  { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
-  { to: '/activity', label: 'Registro de Actividad', icon: Activity },
-  { to: '/backup', label: 'Respaldos', icon: Database },
-  { to: '/settings', label: 'Configuración', icon: Settings },
+  {
+    label: 'Gestión Académica',
+    icon: GraduationCap,
+    children: [
+      { to: '/upload', label: 'Subir Archivos', icon: Upload },
+      { to: '/teachers', label: 'Docentes', icon: Users },
+      { to: '/contracts', label: 'Contratos', icon: FileSignature },
+    ],
+  },
+  {
+    label: 'Asistencia',
+    icon: ClipboardCheck,
+    children: [
+      { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck },
+      { to: '/practice-attendance', label: 'Asistencia Prácticas', icon: ClipboardCheck },
+      { to: '/attendance-audit', label: 'Auditoría Asistencia', icon: ShieldCheck },
+      { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
+    ],
+  },
+  {
+    label: 'Planillas',
+    icon: FileSpreadsheet,
+    children: [
+      { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
+      { to: '/practice-planilla', label: 'Planilla Prácticas', icon: FileSpreadsheet },
+      { to: '/reports', label: 'Reportes', icon: FileText },
+    ],
+  },
+  {
+    label: 'Administración',
+    icon: Settings,
+    children: [
+      { to: '/users', label: 'Gestión Usuarios', icon: Shield },
+      { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
+      { to: '/activity', label: 'Registro de Actividad', icon: Activity },
+      { to: '/backup', label: 'Respaldos', icon: Database },
+      { to: '/settings', label: 'Configuración', icon: Settings },
+    ],
+  },
 ]
 
 const docenteNavItems: NavItem[] = [
@@ -100,14 +139,163 @@ function NavItemLink({ item, collapsed }: { item: NavItem; collapsed?: boolean }
   )
 }
 
+function isItemActive(pathname: string, item: NavItem) {
+  return item.exact ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)
+}
+
+function NavGroupComponent({
+  group,
+  collapsed,
+  expanded,
+  active,
+  pathname,
+  onToggle,
+}: {
+  group: NavGroup
+  collapsed: boolean
+  expanded: boolean
+  active: boolean
+  pathname: string
+  onToggle: () => void
+}) {
+  if (collapsed) {
+    return (
+      <div className="relative group">
+        <button
+          type="button"
+          className={`flex items-center justify-center w-full px-2 py-3 transition-all duration-200 ${active ? 'text-white' : 'text-white/70 hover:text-white'}`}
+          style={active ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined}
+          title={group.label}
+        >
+          <group.icon size={20} />
+        </button>
+        <div className="absolute left-full top-0 z-[60] ml-2 hidden min-w-56 rounded-lg border border-white/10 bg-[#071A2E] p-2 shadow-2xl group-hover:block">
+          <p className="px-3 py-2 text-sm font-semibold text-white">{group.label}</p>
+          <div className="space-y-1">
+            {group.children.map((child) => {
+              const childActive = isItemActive(pathname, child)
+
+              return (
+                <NavLink
+                  key={child.to}
+                  to={child.to}
+                  end={child.exact}
+                  className={`relative flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors duration-200 ${
+                    childActive ? 'text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                  }`}
+                  style={childActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined}
+                >
+                  <child.icon size={16} />
+                  <span>{child.label}</span>
+                  {child.badge != null && child.badge > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                      {child.badge > 9 ? '9+' : child.badge}
+                    </span>
+                  )}
+                </NavLink>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex w-full items-center gap-3 border-l-4 px-4 py-3 text-sm transition-all duration-200 ${
+          active
+            ? 'border-[#4DA8DA] bg-white/10 text-white/90'
+            : 'border-transparent text-white/80 hover:bg-white/5 hover:text-white'
+        }`}
+      >
+        <group.icon size={18} />
+        <span>{group.label}</span>
+        {expanded ? <ChevronDown size={16} className="ml-auto" /> : <ChevronRight size={16} className="ml-auto" />}
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+      >
+        <div className="overflow-hidden">
+          <div className="ml-6 border-l-2 border-white/10 py-1">
+            {group.children.map((child) => (
+              <NavLink
+                key={child.to}
+                to={child.to}
+                end={child.exact}
+                className={({ isActive }) =>
+                  [
+                    'relative flex items-center gap-2 py-2.5 pl-4 pr-4 text-sm transition-all duration-200',
+                    isActive
+                      ? 'border-l-4 border-[#4DA8DA] text-white'
+                      : 'border-l-4 border-transparent text-white/60 hover:text-white',
+                  ].join(' ')
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined
+                }
+              >
+                <child.icon size={16} />
+                <span>{child.label}</span>
+                {child.badge != null && child.badge > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {child.badge > 9 ? '9+' : child.badge}
+                  </span>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Sidebar() {
   const { user, isAdmin, logout } = useAuth()
   const { collapsed, toggle } = useSidebar()
+  const { pathname } = useLocation()
   const navItems = isAdmin ? adminNavItems : docenteNavItems
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    if (!isAdmin) return
+
+    const activeGroup = adminNavItems.find(
+      (item) => isNavGroup(item) && item.children.some((child) => isItemActive(pathname, child))
+    )
+
+    if (!activeGroup || !isNavGroup(activeGroup)) return
+
+    setExpandedGroups((current) => {
+      if (current.has(activeGroup.label)) return current
+
+      const next = new Set(current)
+      next.add(activeGroup.label)
+      return next
+    })
+  }, [isAdmin, pathname])
+
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current)
+
+      if (next.has(label)) {
+        next.delete(label)
+      } else {
+        next.add(label)
+      }
+
+      return next
+    })
+  }
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen flex flex-col z-50 gradient-navy overflow-hidden ${collapsed ? 'w-[68px]' : 'w-64'}`}
+      className={`fixed left-0 top-0 h-screen flex flex-col z-50 gradient-navy overflow-visible ${collapsed ? 'w-[68px]' : 'w-64'}`}
       style={{ boxShadow: '4px 0 24px rgba(0,0,0,0.15)', transition: 'width 200ms ease-in-out' }}
     >
       {/* Logo Section */}
@@ -152,9 +340,21 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 overflow-y-auto">
+      <nav className={`flex-1 py-4 ${collapsed ? 'overflow-visible' : 'overflow-y-auto'}`}>
         {navItems.map((item) => (
-          <NavItemLink key={item.to} item={item} collapsed={collapsed} />
+          isNavGroup(item) ? (
+            <NavGroupComponent
+              key={item.label}
+              group={item}
+              collapsed={collapsed}
+              expanded={expandedGroups.has(item.label)}
+              active={item.children.some((child) => isItemActive(pathname, child))}
+              pathname={pathname}
+              onToggle={() => toggleGroup(item.label)}
+            />
+          ) : (
+            <NavItemLink key={item.to} item={item} collapsed={collapsed} />
+          )
         ))}
       </nav>
 
