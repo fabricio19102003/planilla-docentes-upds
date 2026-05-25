@@ -76,7 +76,8 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
   const rows = new Map<string, ExclusionRow>()
 
   for (const excluded of excludedDays) {
-    const key = `${excluded.date}||${excluded.scope}`
+    // Group by date + scope + reason to preserve distinct reasons on the same day
+    const key = `${excluded.date}||${excluded.scope}||${excluded.reason ?? ''}`
     const current = rows.get(key)
 
     if (excluded.scope === 'global') {
@@ -91,7 +92,7 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
       rows.set(key, {
         date: excluded.date,
         scope: 'semester',
-        reason: current?.reason ?? excluded.reason,
+        reason: excluded.reason,
         selectedSemesters: excluded.semester_id && !selectedSemesters.includes(excluded.semester_id)
           ? [...selectedSemesters, excluded.semester_id]
           : selectedSemesters,
@@ -108,7 +109,7 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
     rows.set(key, {
       date: excluded.date,
       scope: 'subject',
-      reason: current?.reason ?? excluded.reason,
+      reason: excluded.reason,
       selectedSubjects: subject && !selectedSubjects.includes(subject)
         ? [...selectedSubjects, subject]
         : selectedSubjects,
