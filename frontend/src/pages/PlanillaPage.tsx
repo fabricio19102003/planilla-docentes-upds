@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, Plus, Trash2, CalendarOff, Mail } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
@@ -290,18 +290,25 @@ export function PlanillaPage() {
     })
   }
 
+  const [emailSendResult, setEmailSendResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null)
+  const [emailSendError, setEmailSendError] = useState(false)
+
   const handleSendSelectedBillingEmails = () => {
     if (selectedTeachers.size === 0) return
+    setEmailSendResult(null)
+    setEmailSendError(false)
 
     sendBillingEmails.mutate(
       { month, year, teacher_cis: Array.from(selectedTeachers) },
       {
         onSuccess: (result) => {
-          alert(`Correos enviados: ${result.sent}. Fallidos: ${result.failed}. Omitidos: ${result.skipped}.`)
+          setEmailSendResult(result)
+          setEmailSendError(false)
           setSelectedTeachers(new Set())
         },
         onError: () => {
-          alert('No se pudieron enviar los correos seleccionados. Intentá nuevamente.')
+          setEmailSendError(true)
+          setEmailSendResult(null)
         },
       },
     )
@@ -1308,17 +1315,23 @@ export function PlanillaPage() {
                   )}
 
                   {isBillingPublished && selectedTeachers.size > 0 && (
-                    <div className="sticky bottom-4 z-10 rounded-xl border border-[#0066CC]/30 bg-[#003366] px-4 py-3 text-white shadow-lg">
+                    <div className="rounded-xl border border-[#0066CC]/30 bg-[#003366] px-5 py-4 text-white shadow-lg">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm font-semibold">
-                          {selectedTeachers.size} docente(s) seleccionado(s)
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15">
+                            <Mail size={18} className="text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold">{selectedTeachers.size} docente(s) seleccionado(s)</p>
+                            <p className="text-xs text-white/60">Seleccioná los docentes a quienes enviar el correo</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
                           <Button
                             type="button"
                             onClick={handleSendSelectedBillingEmails}
                             disabled={sendBillingEmails.isPending}
-                            className="gap-2 bg-white text-[#003366] hover:bg-blue-50"
+                            className="gap-2 bg-white text-[#003366] font-semibold hover:bg-[#f4b400] hover:text-[#003366] transition-all duration-200 shadow-md hover:shadow-lg"
                           >
                             {sendBillingEmails.isPending ? (
                               <Loader2 size={16} className="animate-spin" />
@@ -1332,11 +1345,68 @@ export function PlanillaPage() {
                             variant="outline"
                             onClick={() => setSelectedTeachers(new Set())}
                             disabled={sendBillingEmails.isPending}
-                            className="border-white/40 text-white hover:bg-white/10 hover:text-white"
+                            className="border-white/50 text-white bg-white/10 hover:bg-white/25 hover:text-white font-medium transition-all duration-200"
                           >
                             Limpiar selección
                           </Button>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Email send result banner */}
+                  {emailSendResult && (
+                    <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 flex-shrink-0">
+                          <CheckCircle size={18} className="text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-green-800 text-sm">Correos procesados exitosamente</p>
+                          <div className="flex flex-wrap gap-4 mt-1.5">
+                            {emailSendResult.sent > 0 && (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
+                                <span className="w-2 h-2 rounded-full bg-green-500" />
+                                {emailSendResult.sent} enviado(s)
+                              </span>
+                            )}
+                            {emailSendResult.failed > 0 && (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-100 px-2.5 py-1 rounded-full">
+                                <span className="w-2 h-2 rounded-full bg-red-500" />
+                                {emailSendResult.failed} fallido(s)
+                              </span>
+                            )}
+                            {emailSendResult.skipped > 0 && (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
+                                <span className="w-2 h-2 rounded-full bg-gray-400" />
+                                {emailSendResult.skipped} omitido(s)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setEmailSendResult(null)}
+                          className="p-1 rounded-md hover:bg-green-100 text-green-400 hover:text-green-600 transition-colors flex-shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {emailSendError && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-800 text-sm">No se pudieron enviar los correos</p>
+                          <p className="text-xs text-red-600 mt-0.5">Verificá la configuración de email e intentá nuevamente.</p>
+                        </div>
+                        <button
+                          onClick={() => setEmailSendError(false)}
+                          className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
                     </div>
                   )}
