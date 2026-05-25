@@ -111,15 +111,12 @@ function NavItemLink({ item, collapsed }: { item: NavItem; collapsed?: boolean }
       end={item.exact}
       className={({ isActive }) =>
         [
-          'flex items-center transition-all duration-200 relative',
+          'relative mx-2 flex items-center rounded-lg transition-all duration-200 ease-in-out',
           collapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3 text-sm',
           isActive
-            ? `text-white ${collapsed ? '' : 'border-l-4 border-[#4DA8DA]'}`
-            : `text-white/70 ${collapsed ? '' : 'border-l-4 border-transparent'} hover:text-white`,
+            ? `bg-white/15 text-white/90 ${collapsed ? '' : 'border-l-[3px] border-sky-400'}`
+            : `text-white/50 ${collapsed ? '' : 'border-l-[3px] border-transparent'} hover:bg-white/[0.08] hover:text-white/90`,
         ].join(' ')
-      }
-      style={({ isActive }) =>
-        isActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined
       }
       title={collapsed ? item.label : undefined}
     >
@@ -149,6 +146,7 @@ function NavGroupComponent({
   expanded,
   active,
   pathname,
+  showSeparator,
   onToggle,
 }: {
   group: NavGroup
@@ -156,21 +154,23 @@ function NavGroupComponent({
   expanded: boolean
   active: boolean
   pathname: string
+  showSeparator: boolean
   onToggle: () => void
 }) {
   if (collapsed) {
     return (
-      <div className="relative group">
+      <div className={`group relative mx-2 ${showSeparator ? 'mt-2 border-t border-white/[0.08] pt-2' : ''}`}>
         <button
           type="button"
-          className={`flex items-center justify-center w-full px-2 py-3 transition-all duration-200 ${active ? 'text-white' : 'text-white/70 hover:text-white'}`}
-          style={active ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined}
+          className={`flex w-full items-center justify-center rounded-lg px-2 py-3 transition-all duration-200 ease-in-out ${
+            active ? 'bg-white/15 text-white/90' : 'text-white/50 hover:bg-white/[0.08] hover:text-white/90'
+          }`}
           title={group.label}
         >
-          <group.icon size={20} />
+          <group.icon size={20} className="text-sky-400/70" />
         </button>
-        <div className="absolute left-full top-0 z-[60] ml-2 hidden min-w-56 rounded-lg border border-white/10 bg-[#071A2E] p-2 shadow-2xl group-hover:block">
-          <p className="px-3 py-2 text-sm font-semibold text-white">{group.label}</p>
+        <div className="absolute left-full top-0 z-[60] ml-3 hidden min-w-56 rounded-xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-xl group-hover:block">
+          <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-white/60">{group.label}</p>
           <div className="space-y-1">
             {group.children.map((child) => {
               const childActive = isItemActive(pathname, child)
@@ -180,10 +180,9 @@ function NavGroupComponent({
                   key={child.to}
                   to={child.to}
                   end={child.exact}
-                  className={`relative flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors duration-200 ${
-                    childActive ? 'text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                  className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all duration-200 ease-in-out ${
+                    childActive ? 'bg-sky-500/20 text-white' : 'text-white/50 hover:bg-white/[0.08] hover:text-white/90'
                   }`}
-                  style={childActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined}
                 >
                   <child.icon size={16} />
                   <span>{child.label}</span>
@@ -202,25 +201,25 @@ function NavGroupComponent({
   }
 
   return (
-    <div>
+    <div className={showSeparator ? 'mt-2 border-t border-white/[0.08] pt-2' : ''}>
       <button
         type="button"
         onClick={onToggle}
-        className={`flex w-full items-center gap-3 border-l-4 px-4 py-3 text-sm transition-all duration-200 ${
+        className={`mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-lg border-l-[3px] px-4 py-3 text-sm transition-all duration-200 ease-in-out ${
           active
-            ? 'border-[#4DA8DA] bg-white/10 text-white/90'
-            : 'border-transparent text-white/80 hover:bg-white/5 hover:text-white'
+            ? 'border-sky-400 bg-white/15 text-white/90'
+            : 'border-transparent text-white/60 hover:bg-white/[0.08] hover:text-white/90'
         }`}
       >
-        <group.icon size={18} />
-        <span>{group.label}</span>
+        <group.icon size={18} className="text-sky-400/70" />
+        <span className="text-[11px] font-bold uppercase tracking-widest">{group.label}</span>
         {expanded ? <ChevronDown size={16} className="ml-auto" /> : <ChevronRight size={16} className="ml-auto" />}
       </button>
       <div
         className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
       >
         <div className="overflow-hidden">
-          <div className="ml-6 border-l-2 border-white/10 py-1">
+          <div className="ml-6 border-l border-white/10 py-1">
             {group.children.map((child) => (
               <NavLink
                 key={child.to}
@@ -228,14 +227,11 @@ function NavGroupComponent({
                 end={child.exact}
                 className={({ isActive }) =>
                   [
-                    'relative flex items-center gap-2 py-2.5 pl-4 pr-4 text-sm transition-all duration-200',
+                    'relative my-0.5 ml-2 mr-2 flex items-center gap-2 rounded-lg py-2.5 pl-11 pr-4 text-sm transition-all duration-200 ease-in-out',
                     isActive
-                      ? 'border-l-4 border-[#4DA8DA] text-white'
-                      : 'border-l-4 border-transparent text-white/60 hover:text-white',
+                      ? 'border-l-2 border-sky-400 bg-sky-500/20 text-white'
+                      : 'border-l-2 border-transparent text-white/50 hover:bg-white/[0.08] hover:text-white/90',
                   ].join(' ')
-                }
-                style={({ isActive }) =>
-                  isActive ? { backgroundColor: 'rgba(0, 102, 204, 0.85)' } : undefined
                 }
               >
                 <child.icon size={16} />
@@ -295,13 +291,17 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen flex flex-col z-50 gradient-navy overflow-visible ${collapsed ? 'w-[68px]' : 'w-64'}`}
-      style={{ boxShadow: '4px 0 24px rgba(0,0,0,0.15)', transition: 'width 200ms ease-in-out' }}
+      className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-visible ${collapsed ? 'w-[68px]' : 'w-64'}`}
+      style={{
+        background: 'linear-gradient(180deg, #1C398E 0%, #142866 50%, #0F1D4A 100%)',
+        boxShadow: '0 8px 30px rgb(0,0,0,0.08)',
+        transition: 'width 200ms ease-in-out',
+      }}
     >
       {/* Logo Section */}
-      <div className="px-3 py-5 border-b border-white/10 flex items-center justify-center" style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.05)' }}>
+      <div className="flex items-center justify-center border-b border-white/10 px-3 py-5" style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.05)' }}>
         {collapsed ? (
-          <span className="font-black text-2xl" style={{ color: '#4DA8DA' }}>S</span>
+          <span className="text-2xl font-black text-sky-400 drop-shadow-[0_0_8px_rgba(0,166,244,0.4)]">S</span>
         ) : (
           <div className="flex flex-col">
             <Logo size="md" />
@@ -314,23 +314,19 @@ export function Sidebar() {
       <div className="px-3 py-3 border-b border-white/10">
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-            style={{ backgroundColor: '#0066CC' }}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-sm font-bold text-white shadow-[0_8px_30px_rgb(0,0,0,0.08)]"
           >
             {user?.full_name?.charAt(0).toUpperCase() ?? 'U'}
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <p className="text-white text-sm font-medium truncate leading-tight">
+              <p className="truncate text-sm font-medium leading-tight text-white/90">
                 {user?.full_name ?? ''}
               </p>
               <span
-                className="text-xs font-semibold px-1.5 py-0.5 rounded"
-                style={
-                  isAdmin
-                    ? { backgroundColor: '#1d4ed8', color: '#bfdbfe' }
-                    : { backgroundColor: '#15803d', color: '#bbf7d0' }
-                }
+                className={`rounded-lg px-1.5 py-0.5 text-xs font-semibold ${
+                  isAdmin ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300'
+                }`}
               >
                 {isAdmin ? 'Admin' : 'Docente'}
               </span>
@@ -340,8 +336,14 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 py-4 ${collapsed ? 'overflow-visible' : 'overflow-y-auto'}`}>
-        {navItems.map((item) => (
+      <nav
+        className={`flex-1 py-4 ${
+          collapsed
+            ? 'overflow-visible'
+            : 'overflow-y-auto [scrollbar-color:rgba(255,255,255,0.1)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent'
+        }`}
+      >
+        {navItems.map((item, index) => (
           isNavGroup(item) ? (
             <NavGroupComponent
               key={item.label}
@@ -350,6 +352,7 @@ export function Sidebar() {
               expanded={expandedGroups.has(item.label)}
               active={item.children.some((child) => isItemActive(pathname, child))}
               pathname={pathname}
+              showSeparator={navItems.slice(0, index).some(isNavGroup)}
               onToggle={() => toggleGroup(item.label)}
             />
           ) : (
@@ -362,7 +365,7 @@ export function Sidebar() {
       <div className="border-t border-white/10">
         <button
           onClick={toggle}
-          className={`flex items-center w-full px-4 py-3 text-sm text-white/50 hover:text-white hover:bg-white/5 transition-colors ${collapsed ? 'justify-center' : 'gap-3'}`}
+          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-3 text-sm text-white/50 transition-colors duration-200 ease-in-out hover:bg-white/[0.08] hover:text-white/90 ${collapsed ? 'justify-center' : 'gap-3'}`}
           title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
         >
           {collapsed ? <ChevronRight size={18} /> : <><ChevronLeft size={18} /><span>Colapsar</span></>}
@@ -373,7 +376,7 @@ export function Sidebar() {
       <div className="border-t border-white/10">
         <button
           onClick={logout}
-          className={`flex items-center w-full px-4 py-4 text-sm text-white/60 hover:text-red-300 transition-colors hover:bg-red-500/10 ${collapsed ? 'justify-center' : 'gap-3'}`}
+          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-4 text-sm text-white/60 transition-colors duration-200 ease-in-out hover:bg-red-500/15 hover:text-red-300 ${collapsed ? 'justify-center' : 'gap-3'}`}
           title={collapsed ? 'Cerrar Sesión' : undefined}
         >
           <LogOut size={18} />
