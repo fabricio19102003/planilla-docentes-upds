@@ -281,6 +281,7 @@ export interface PlanillaOutput {
   start_date: string | null
   end_date: string | null
   discount_mode: 'attendance' | 'full'
+  excluded_days_json?: ExcludedDay[] | null
 }
 
 export interface PlanillaGenerateResponse {

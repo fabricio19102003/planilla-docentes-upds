@@ -55,6 +55,7 @@ class PlanillaOutputResponse(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     discount_mode: Literal["attendance", "full"] = "attendance"
+    excluded_days_json: Optional[list[dict]] = None
 
     model_config = ConfigDict(from_attributes=True)
 

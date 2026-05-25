@@ -72,6 +72,55 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
   })
 }
 
+function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
+  const rows = new Map<string, ExclusionRow>()
+
+  for (const excluded of excludedDays) {
+    const key = `${excluded.date}||${excluded.scope}`
+    const current = rows.get(key)
+
+    if (excluded.scope === 'global') {
+      if (!current) {
+        rows.set(key, { date: excluded.date, scope: 'global', reason: excluded.reason })
+      }
+      continue
+    }
+
+    if (excluded.scope === 'semester') {
+      const selectedSemesters = current?.selectedSemesters ?? []
+      rows.set(key, {
+        date: excluded.date,
+        scope: 'semester',
+        reason: current?.reason ?? excluded.reason,
+        selectedSemesters: excluded.semester_id && !selectedSemesters.includes(excluded.semester_id)
+          ? [...selectedSemesters, excluded.semester_id]
+          : selectedSemesters,
+      })
+      continue
+    }
+
+    const subjectSelections = current?.subjectSelections ?? []
+    const selectedSubjects = current?.selectedSubjects ?? []
+    const subject = excluded.subject_id
+    const group = excluded.group_id
+    const hasSelection = subjectSelections.some(selection => selection.subject === subject && selection.group_code === group)
+
+    rows.set(key, {
+      date: excluded.date,
+      scope: 'subject',
+      reason: current?.reason ?? excluded.reason,
+      selectedSubjects: subject && !selectedSubjects.includes(subject)
+        ? [...selectedSubjects, subject]
+        : selectedSubjects,
+      subjectSelections: subject && group && !hasSelection
+        ? [...subjectSelections, { subject, group_code: group, semester: '' }]
+        : subjectSelections,
+    })
+  }
+
+  return Array.from(rows.values())
+}
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
@@ -123,6 +172,8 @@ export function PlanillaPage() {
   useEffect(() => {
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
+    setExclusionsEdited(false)
+    setExcludedDays([])
   }, [month, year])
 
   // Auto-fill dates from biometric range when available
@@ -153,6 +204,12 @@ export function PlanillaPage() {
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
   const { data: publication } = usePublicationStatus(month, year)
   const { data: planillaStatus } = usePlanillaStatus(month, year)
+
+  useEffect(() => {
+    if (exclusionsEdited) return
+    setExcludedDays(hydrateExclusionRows(planillaStatus?.excluded_days_json ?? []))
+    setExclusionsEdited(false)
+  }, [planillaStatus?.excluded_days_json, exclusionsEdited, month, year])
 
   // Derive the effective discount mode: if the user manually toggled, use their
   // choice. Otherwise fall back to the stored planilla's mode (if one exists),

@@ -176,6 +176,8 @@ export function useGeneratePlanilla() {
     mutationFn: generatePlanilla,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['planilla-history'] })
+      void queryClient.invalidateQueries({ queryKey: ['planilla-status'] })
+      void queryClient.invalidateQueries({ queryKey: ['planilla-detail'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
     },
   })
