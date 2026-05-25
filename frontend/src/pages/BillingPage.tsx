@@ -63,7 +63,7 @@ export function BillingPage() {
 
   if (!billing) return null
 
-  const displayPayment = billing.adjusted_payment ?? billing.total_payment
+  const displayPayment = billing.adjusted_payment ?? billing.final_payment ?? billing.total_payment
   const hasBillingPeriod = Boolean(billing.start_date && billing.end_date)
   const hasExcludedDays = Boolean(billing.excluded_days?.length)
 

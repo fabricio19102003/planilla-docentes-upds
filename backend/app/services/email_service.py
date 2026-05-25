@@ -169,8 +169,8 @@ class EmailService:
                 self.logger.exception("Billing email transport raised for user_id=%s: %s", recipient.user_id, exc)
                 send_result = EmailSendResult(status="failed", error=str(exc))
 
-            if test_mode and send_result.status == "sent":
-                test_email_sent = True
+            if test_mode:
+                test_email_sent = True  # Stop after first attempt regardless of result
 
             if send_result.status == "sent":
                 sent += 1

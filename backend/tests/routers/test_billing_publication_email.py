@@ -104,7 +104,7 @@ def _seed_docente(db_session, *, ci: str, email: str, is_active: bool = True):
     return user
 
 
-def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, discount_mode=None):
+def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, discount_mode=None, excluded_days=None):
     return (
         [
             SimpleNamespace(

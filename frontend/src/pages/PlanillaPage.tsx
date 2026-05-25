@@ -106,6 +106,7 @@ export function PlanillaPage() {
 
   // Exclusion days state
   const [excludedDays, setExcludedDays] = useState<ExclusionRow[]>([])
+  const [exclusionsEdited, setExclusionsEdited] = useState(false)
   const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: new Date().toISOString().slice(0, 10), scope: 'global' }))
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
   const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
@@ -164,9 +165,9 @@ export function PlanillaPage() {
       : discountMode
 
   const expandedExcludedDays = expandExcludedDays(excludedDays)
-  // Only pass exclusions to detail preview when the user has actively configured them.
-  // An empty [] would override stored exclusions; undefined preserves them.
-  const previewExclusions = expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined
+  // Pass exclusions to detail preview only when the user has actively edited them.
+  // undefined = inherit stored exclusions; [] = explicit clear (no exclusions).
+  const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
   const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, previewExclusions)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
@@ -216,11 +217,13 @@ export function PlanillaPage() {
     if (newExclusion.scope === 'subject' && (!newExclusion.subjectSelections || newExclusion.subjectSelections.length === 0)) return
 
     setExcludedDays(prev => [...prev, newExclusion])
+    setExclusionsEdited(true)
     resetNewExclusion()
   }
 
   const removeExclusionRow = (index: number) => {
     setExcludedDays(prev => prev.filter((_, i) => i !== index))
+    setExclusionsEdited(true)
   }
 
   const updateNewExclusion = (patch: Partial<ExclusionRow>) => {
@@ -707,7 +710,7 @@ export function PlanillaPage() {
                 <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
                   <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-purple-700">
-                    <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en morado en el Excel.
+                    <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en rojo en el Excel.
                   </p>
                 </div>
               </div>

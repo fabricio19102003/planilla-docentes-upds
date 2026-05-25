@@ -118,9 +118,23 @@ def publish_billing(
             sd = stored_planilla.start_date
             ed = stored_planilla.end_date
             dm = stored_planilla.discount_mode
+
+            # Load stored exclusions so published amounts match the approved planilla
+            stored_exclusions = None
+            if stored_planilla.excluded_days_json:
+                try:
+                    from app.schemas.planilla import ExcludedDaySchema
+                    stored_exclusions = [
+                        ExcludedDaySchema.model_validate(item)
+                        for item in stored_planilla.excluded_days_json
+                    ]
+                except Exception:
+                    stored_exclusions = None  # Proceed without if JSON is corrupt
+
             rows, _detail_rows, _warnings = generator._build_planilla_data(
                 db, month=month, year=year, start_date=sd, end_date=ed,
                 discount_mode=dm,
+                excluded_days=stored_exclusions,
             )
             total_teachers = len({r.teacher_ci for r in rows})
 
