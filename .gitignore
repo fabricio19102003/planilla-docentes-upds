@@ -67,3 +67,6 @@ analysis_*.py
 
 # Windows artifacts
 nul
+
+# Local agent artifacts
+.atl/

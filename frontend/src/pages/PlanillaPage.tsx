@@ -17,6 +17,7 @@ const MONTH_NAMES: Record<number, string> = {
 }
 
 type ExclusionRow = ExcludedDay & {
+  selectedSemesters?: string[]
   selectedSubjects?: string[]
   subjectSelections?: DesignationOption[]
 }
@@ -58,9 +59,13 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
     }
 
     if (row.scope === 'semester') {
-      return row.semester_id
-        ? [{ date: row.date, scope: 'semester', semester_id: row.semester_id, reason: row.reason }]
-        : []
+      const semesters = row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])
+      return semesters.map((semester) => ({
+        date: row.date,
+        scope: 'semester' as const,
+        semester_id: semester,
+        reason: row.reason,
+      }))
     }
 
     return [{ date: row.date, scope: 'global', reason: row.reason }]
@@ -172,8 +177,8 @@ export function PlanillaPage() {
     // Validate exclusion rows before generating
     for (let i = 0; i < excludedDays.length; i++) {
       const row = excludedDays[i]
-      if (row.scope === 'semester' && !row.semester_id) {
-        alert(`Exclusión #${i + 1}: seleccioná un semestre o cambiá el alcance.`)
+      if (row.scope === 'semester' && (!row.selectedSemesters || row.selectedSemesters.length === 0)) {
+        alert(`Exclusión #${i + 1}: seleccioná al menos un semestre o cambiá el alcance.`)
         return
       }
       if (row.scope === 'subject' && (!row.subjectSelections || row.subjectSelections.length === 0)) {
@@ -207,7 +212,7 @@ export function PlanillaPage() {
 
   const addExclusionRow = () => {
     if (!newExclusion.date) return
-    if (newExclusion.scope === 'semester' && !newExclusion.semester_id) return
+    if (newExclusion.scope === 'semester' && (!newExclusion.selectedSemesters || newExclusion.selectedSemesters.length === 0)) return
     if (newExclusion.scope === 'subject' && (!newExclusion.subjectSelections || newExclusion.subjectSelections.length === 0)) return
 
     setExcludedDays(prev => [...prev, newExclusion])
@@ -226,7 +231,7 @@ export function PlanillaPage() {
         return { date: updated.date, scope: 'global', reason: updated.reason }
       }
       if (patch.scope === 'semester') {
-        return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
+        return { date: updated.date, scope: 'semester', selectedSemesters: [], reason: updated.reason }
       }
       if (patch.scope === 'subject') {
         return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
@@ -237,7 +242,7 @@ export function PlanillaPage() {
 
   const canAddExclusion = Boolean(newExclusion.date) && (
     newExclusion.scope === 'global' ||
-    (newExclusion.scope === 'semester' && Boolean(newExclusion.semester_id)) ||
+    (newExclusion.scope === 'semester' && Boolean(newExclusion.selectedSemesters?.length)) ||
     (newExclusion.scope === 'subject' && Boolean(newExclusion.subjectSelections?.length))
   )
 
@@ -506,18 +511,38 @@ export function PlanillaPage() {
                     </div>
 
                     {newExclusion.scope === 'semester' && (
-                      <div className="flex flex-col gap-0.5">
-                        <label className="text-xs text-gray-500 font-medium">Semestre <span className="text-red-400">*</span></label>
-                        <select
-                          value={newExclusion.semester_id ?? ''}
-                          onChange={e => updateNewExclusion({ semester_id: e.target.value || undefined })}
-                          className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-32"
-                        >
-                          <option value="">Seleccionar</option>
-                          {designationOptions.semesters.map((semester) => (
-                            <option key={semester} value={semester}>{semester}</option>
-                          ))}
-                        </select>
+                      <div className="flex flex-col gap-2 min-w-[220px] max-w-sm flex-1">
+                        <label className="text-xs text-gray-500 font-medium">Semestres <span className="text-red-400">*</span></label>
+                        <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-1">
+                          {designationOptionsLoading ? (
+                            <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
+                          ) : designationOptions.semesters.length === 0 ? (
+                            <p className="text-xs text-gray-400 px-1 py-1">No hay semestres cargados para el período activo.</p>
+                          ) : (
+                            designationOptions.semesters.map((semester) => {
+                              const selectedSemesters = newExclusion.selectedSemesters ?? []
+                              const checked = selectedSemesters.includes(semester)
+
+                              return (
+                                <label key={semester} className="flex items-center gap-2 rounded bg-white/60 px-2 py-1.5 text-sm text-gray-700 hover:bg-purple-50 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      updateNewExclusion({
+                                        selectedSemesters: e.target.checked
+                                          ? [...selectedSemesters, semester]
+                                          : selectedSemesters.filter(selected => selected !== semester),
+                                      })
+                                    }}
+                                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                  />
+                                  <span>{semester}</span>
+                                </label>
+                              )
+                            })
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -639,7 +664,15 @@ export function PlanillaPage() {
                           <div>
                             <p className="text-xs text-gray-400 font-medium">Detalle</p>
                             {row.scope === 'global' && <p className="text-gray-500">Todos los docentes</p>}
-                            {row.scope === 'semester' && <p className="text-gray-700">{row.semester_id}</p>}
+                            {row.scope === 'semester' && (
+                              <div className="flex flex-wrap gap-1">
+                                {(row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])).map((semester) => (
+                                  <span key={semester} className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 border border-blue-100">
+                                    {semester}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {row.scope === 'subject' && (
                               <div className="flex flex-wrap gap-1">
                                 {(row.subjectSelections ?? []).map((selection) => (

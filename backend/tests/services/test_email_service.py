@@ -72,6 +72,22 @@ def test_email_service_sends_billing_email_from_snapshot_and_teacher_email_fallb
     assert "Bs 123.45" in message.text
 
 
+def test_email_service_passes_only_exclusions_that_apply_to_docente():
+    transport = RecordingTransport()
+    service = EmailService(settings=_settings(), transport=transport)
+
+    result = service.send_billing_published(_publication(), [_user()])
+
+    assert result.sent == 1
+    message = transport.messages[0]
+    assert "Período de corte: 21/Abr/2026 al 20/May/2026" in message.text
+    assert "Tarifa por hora académica: Bs 70.00" in message.text
+    assert "Feriado institucional" in message.text
+    assert "Clase magistral de anatomía" in message.text
+    assert "Práctica de cirugía" not in message.text
+    assert "Clase magistral de pediatría" not in message.text
+
+
 def test_email_service_aggregates_provider_failure_without_raising():
     transport = RecordingTransport(EmailSendResult(status="failed", error="provider down"))
     service = EmailService(settings=_settings(), transport=transport)
@@ -121,6 +137,16 @@ def _publication():
         month=5,
         year=2026,
         billing_snapshot={
+            "start_date": "2026-04-21",
+            "end_date": "2026-05-20",
+            "rate_per_hour": 70.0,
+            "excluded_days_json": [
+                {"date": "2026-04-21", "scope": "global", "reason": "Feriado institucional"},
+                {"date": "2026-04-30", "scope": "semester", "semester_id": "1", "reason": "Clase magistral de anatomía"},
+                {"date": "2026-05-02", "scope": "semester", "semester_id": "9", "reason": "Práctica de cirugía"},
+                {"date": "2026-05-08", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Clase magistral de anatomía"},
+                {"date": "2026-05-09", "scope": "subject", "subject_id": "Pediatría", "group_id": "B", "reason": "Clase magistral de pediatría"},
+            ],
             "teacher_details": [
                 {
                     "teacher_ci": "123",

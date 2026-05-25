@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Iterable
@@ -23,6 +24,10 @@ def render_billing_email_html(
     month_name: str,
     year: int | str,
     rows: Iterable[BillingEmailRow],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    rate_per_hour: float | None = None,
+    excluded_days: list[dict] | None = None,
 ) -> str:
     """Render the UPDS-branded billing email HTML.
 
@@ -51,6 +56,12 @@ def render_billing_email_html(
     safe_docente = escape(str(docente_name), quote=True)
     safe_month = escape(str(month_name), quote=True)
     safe_year = escape(str(year), quote=True)
+    context_box = _render_context_box_html(
+        start_date=start_date,
+        end_date=end_date,
+        rate_per_hour=rate_per_hour,
+        excluded_days=excluded_days or [],
+    )
 
     return f"""<!doctype html>
 <html lang="es">
@@ -65,6 +76,7 @@ def render_billing_email_html(
         <p style="margin: 0 0 16px;">
           <strong style="color: #003366;">{safe_docente}</strong>, le informamos que se publicó su detalle de honorarios correspondiente a {safe_month} {safe_year}.
         </p>
+        {context_box}
         <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14px;">
           <thead>
             <tr style="background: #003366; color: #ffffff;">
@@ -98,6 +110,10 @@ def render_billing_email_text(
     month_name: str,
     year: int | str,
     rows: Iterable[BillingEmailRow],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    rate_per_hour: float | None = None,
+    excluded_days: list[dict] | None = None,
 ) -> str:
     """Render a plain-text fallback for the billing email."""
 
@@ -110,8 +126,14 @@ def render_billing_email_text(
         "Estimado(a) docente,",
         f"{docente_name}, se publicó su detalle de honorarios correspondiente a {month_name} {year}.",
         "",
-        "Materia | Monto a facturar | Grupo | Semestre",
     ]
+    lines.extend(_render_context_lines_text(
+        start_date=start_date,
+        end_date=end_date,
+        rate_per_hour=rate_per_hour,
+        excluded_days=excluded_days or [],
+    ))
+    lines.append("Materia | Monto a facturar | Grupo | Semestre")
     for row in row_list:
         amount = _to_decimal(row.amount)
         lines.append(f"{row.subject} | {_format_money(amount)} | {row.group} | {row.semester}")
@@ -131,6 +153,105 @@ def _td(value: object, *, align: str = "left") -> str:
         f'<td style="padding: 10px; border: 1px solid #d9e2ec; text-align: {align};">'
         f"{escape(str(value), quote=True)}</td>"
     )
+
+
+def _render_context_box_html(
+    *,
+    start_date: str | None,
+    end_date: str | None,
+    rate_per_hour: float | None,
+    excluded_days: list[dict],
+) -> str:
+    lines: list[str] = []
+    if start_date and end_date:
+        lines.append(
+            f"📅 <strong>Período de corte:</strong> {escape(_format_date(start_date), quote=True)} al {escape(_format_date(end_date), quote=True)}"
+        )
+    if rate_per_hour is not None:
+        lines.append(f"💰 <strong>Tarifa por hora académica:</strong> {escape(_format_money(_to_decimal(rate_per_hour)), quote=True)}")
+
+    excluded_items = _excluded_day_items(excluded_days)
+    if excluded_items:
+        items = "".join(f"<li style=\"margin: 4px 0;\">{escape(item, quote=True)}</li>" for item in excluded_items)
+        lines.append(
+            "📋 <strong>Días no trabajados que aplican a sus materias:</strong>"
+            f"<ul style=\"margin: 8px 0 0 18px; padding: 0;\">{items}</ul>"
+        )
+
+    if not lines:
+        return ""
+
+    content = "".join(f"<div style=\"margin: 6px 0;\">{line}</div>" for line in lines)
+    return (
+        '<div style="margin: 18px 0; padding: 14px 16px; background: #f8fafc; '
+        'border: 1px solid #d9e2ec; border-left: 4px solid #f4b400; border-radius: 8px; font-size: 14px;">'
+        f"{content}</div>"
+    )
+
+
+def _render_context_lines_text(
+    *,
+    start_date: str | None,
+    end_date: str | None,
+    rate_per_hour: float | None,
+    excluded_days: list[dict],
+) -> list[str]:
+    lines: list[str] = []
+    if start_date and end_date:
+        lines.append(f"📅 Período de corte: {_format_date(start_date)} al {_format_date(end_date)}")
+    if rate_per_hour is not None:
+        lines.append(f"💰 Tarifa por hora académica: {_format_money(_to_decimal(rate_per_hour))}")
+
+    excluded_items = _excluded_day_items(excluded_days)
+    if excluded_items:
+        lines.append("📋 Días no trabajados que aplican a sus materias:")
+        lines.extend(f"• {item}" for item in excluded_items)
+
+    if lines:
+        lines.append("")
+    return lines
+
+
+def _excluded_day_items(excluded_days: list[dict]) -> list[str]:
+    grouped_subjects: dict[tuple[str, str, str], set[str]] = {}
+    items: list[str] = []
+
+    for excluded in excluded_days:
+        if not isinstance(excluded, dict):
+            continue
+        scope = str(excluded.get("scope") or "")
+        date_label = _format_date(str(excluded.get("date") or ""))
+        reason = str(excluded.get("reason") or "Sin motivo")
+
+        if scope == "subject":
+            subject = str(excluded.get("subject_id") or "")
+            group = str(excluded.get("group_id") or "")
+            grouped_subjects.setdefault((date_label, reason, subject), set()).add(group)
+            continue
+
+        if scope == "semester":
+            semester = str(excluded.get("semester_id") or "")
+            items.append(f"{date_label} — {reason} (Semestre: {semester})")
+        else:
+            items.append(f"{date_label} — {reason} (Global)")
+
+    for (date_label, reason, subject), groups in grouped_subjects.items():
+        group_list = ", ".join(sorted(group for group in groups if group))
+        items.append(f"{date_label} — {reason} (Materia: {subject}, Grupos: {group_list})")
+
+    return items
+
+
+def _format_date(value: str) -> str:
+    month_names = {
+        1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
+        7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic",
+    }
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return value
+    return f"{parsed.day:02d}/{month_names[parsed.month]}/{parsed.year}"
 
 
 def _to_decimal(value: Decimal | int | float | str) -> Decimal:

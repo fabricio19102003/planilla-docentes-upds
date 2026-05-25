@@ -162,7 +162,7 @@ class EmailService:
                     teacher_ci=recipient.teacher_ci,
                 )
 
-            message = self._build_billing_message(publication, recipient, rows)
+            message = self._build_billing_message(publication, recipient, rows, teacher_detail)
             try:
                 send_result = transport.send_email(message)
             except Exception as exc:  # pragma: no cover - defensive boundary tested via behavior
@@ -272,10 +272,18 @@ class EmailService:
         publication: Any,
         recipient: EmailRecipient,
         rows: list[BillingEmailRow],
+        teacher_detail: dict[str, Any],
     ) -> EmailMessage:
         month_name = _month_name(getattr(publication, "month", ""))
         year = getattr(publication, "year", "")
         subject = f"Detalle de honorarios docentes - {month_name} {year}"
+        snapshot = getattr(publication, "billing_snapshot", None) or {}
+        context = snapshot if isinstance(snapshot, dict) else {}
+        excluded_days = context.get("excluded_days_json")
+        filtered_excluded_days = self._filter_excluded_days_for_teacher(
+            excluded_days if isinstance(excluded_days, list) else [],
+            teacher_detail,
+        )
         return EmailMessage(
             to=recipient.email,
             subject=subject,
@@ -284,14 +292,55 @@ class EmailService:
                 month_name=month_name,
                 year=year,
                 rows=rows,
+                start_date=context.get("start_date"),
+                end_date=context.get("end_date"),
+                rate_per_hour=context.get("rate_per_hour"),
+                excluded_days=filtered_excluded_days,
             ),
             text=render_billing_email_text(
                 docente_name=recipient.name,
                 month_name=month_name,
                 year=year,
                 rows=rows,
+                start_date=context.get("start_date"),
+                end_date=context.get("end_date"),
+                rate_per_hour=context.get("rate_per_hour"),
+                excluded_days=filtered_excluded_days,
             ),
         )
+
+    def _filter_excluded_days_for_teacher(
+        self,
+        excluded_days: list[Any],
+        teacher_detail: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        teacher_designations = teacher_detail.get("designations", [])
+        if not isinstance(teacher_designations, list):
+            teacher_designations = []
+
+        teacher_semesters = {
+            designation.get("semester")
+            for designation in teacher_designations
+            if isinstance(designation, dict) and designation.get("semester") is not None
+        }
+        teacher_subject_groups = {
+            (designation.get("subject"), designation.get("group") or designation.get("group_code"))
+            for designation in teacher_designations
+            if isinstance(designation, dict) and designation.get("subject") is not None
+        }
+
+        filtered: list[dict[str, Any]] = []
+        for excluded in excluded_days:
+            if not isinstance(excluded, dict):
+                continue
+            scope = excluded.get("scope")
+            if scope == "global":
+                filtered.append(excluded)
+            elif scope == "semester" and excluded.get("semester_id") in teacher_semesters:
+                filtered.append(excluded)
+            elif scope == "subject" and (excluded.get("subject_id"), excluded.get("group_id")) in teacher_subject_groups:
+                filtered.append(excluded)
+        return filtered
 
     def _log_batch_result(self, result: EmailBatchResult, *, reason: str | None = None) -> None:
         self.logger.info(

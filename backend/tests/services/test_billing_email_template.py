@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.billing_email_template import BillingEmailRow, render_billing_email_html
+from app.services.billing_email_template import BillingEmailRow, render_billing_email_html, render_billing_email_text
 
 
 def test_template_renders_static_sections_and_escapes_dynamic_values():
@@ -61,3 +61,41 @@ def test_template_rejects_invalid_amounts():
             year=2026,
             rows=[BillingEmailRow("Materia", "not-a-number", "A", "1")],
         )
+
+
+def test_template_renders_context_sections_before_table():
+    excluded_days = [
+        {"date": "2026-04-30", "scope": "semester", "semester_id": "SEPTIMO", "reason": "Clase magistral de neurología"},
+        {"date": "2026-05-08", "scope": "subject", "subject_id": "OFTALMOLOGÍA", "group_id": "M-3", "reason": "Clase magistral de oftalmología"},
+        {"date": "2026-05-08", "scope": "subject", "subject_id": "OFTALMOLOGÍA", "group_id": "M-1", "reason": "Clase magistral de oftalmología"},
+    ]
+
+    html = render_billing_email_html(
+        docente_name="Docente UPDS",
+        month_name="Mayo",
+        year=2026,
+        rows=[BillingEmailRow("OFTALMOLOGÍA", Decimal("70"), "M-1", "SEPTIMO")],
+        start_date="2026-04-21",
+        end_date="2026-05-20",
+        rate_per_hour=70.0,
+        excluded_days=excluded_days,
+    )
+    text = render_billing_email_text(
+        docente_name="Docente UPDS",
+        month_name="Mayo",
+        year=2026,
+        rows=[BillingEmailRow("OFTALMOLOGÍA", Decimal("70"), "M-1", "SEPTIMO")],
+        start_date="2026-04-21",
+        end_date="2026-05-20",
+        rate_per_hour=70.0,
+        excluded_days=excluded_days,
+    )
+
+    assert html.index("Período de corte") < html.index("<table")
+    assert "21/Abr/2026 al 20/May/2026" in html
+    assert "Tarifa por hora académica" in html
+    assert "Bs 70.00" in html
+    assert "30/Abr/2026 — Clase magistral de neurología (Semestre: SEPTIMO)" in html
+    assert "08/May/2026 — Clase magistral de oftalmología (Materia: OFTALMOLOGÍA, Grupos: M-1, M-3)" in html
+    assert "Período de corte: 21/Abr/2026 al 20/May/2026" in text
+    assert "Tarifa por hora académica: Bs 70.00" in text
