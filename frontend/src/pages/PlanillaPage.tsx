@@ -742,7 +742,7 @@ export function PlanillaPage() {
                     {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {lastResult.total_hours}h totales
                   </p>
                   <p className="text-lg font-bold mt-2" style={{ color: '#003366' }}>
-                    Total: Bs {parseFloat(lastResult.total_payment).toFixed(2)}
+                    Total: Bs {parseFloat(lastResult.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   {lastResult.warnings.length > 0 && (
                     <p className="text-xs text-yellow-600 mt-1">
