@@ -430,7 +430,7 @@ class TestGenerateExcelWithExclusions:
         else:
             fill_hex = fill_color.upper()
         assert fill_hex == COLOR_DAY_EXCLUDED.upper(), (
-            f"Expected purple fill ({COLOR_DAY_EXCLUDED}) on excluded day col {day4_col}, "
+            f"Expected red fill ({COLOR_DAY_EXCLUDED}) on excluded day col {day4_col}, "
             f"got {fill_hex}"
         )
 
