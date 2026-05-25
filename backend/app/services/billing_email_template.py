@@ -165,16 +165,16 @@ def _render_context_box_html(
     lines: list[str] = []
     if start_date and end_date:
         lines.append(
-            f"📅 <strong>Período de corte:</strong> {escape(_format_date(start_date), quote=True)} al {escape(_format_date(end_date), quote=True)}"
+            f"&#9654; <strong>Per&iacute;odo de corte:</strong> {escape(_format_date(start_date), quote=True)} al {escape(_format_date(end_date), quote=True)}"
         )
     if rate_per_hour is not None:
-        lines.append(f"💰 <strong>Tarifa por hora académica:</strong> {escape(_format_money(_to_decimal(rate_per_hour)), quote=True)}")
+        lines.append(f"&#9654; <strong>Tarifa por hora acad&eacute;mica:</strong> {escape(_format_money(_to_decimal(rate_per_hour)), quote=True)}")
 
     excluded_items = _excluded_day_items(excluded_days)
     if excluded_items:
         items = "".join(f"<li style=\"margin: 4px 0;\">{escape(item, quote=True)}</li>" for item in excluded_items)
         lines.append(
-            "📋 <strong>Días no trabajados que aplican a sus materias:</strong>"
+            "&#9654; <strong>D&iacute;as no trabajados que aplican a sus materias:</strong>"
             f"<ul style=\"margin: 8px 0 0 18px; padding: 0;\">{items}</ul>"
         )
 
@@ -198,13 +198,13 @@ def _render_context_lines_text(
 ) -> list[str]:
     lines: list[str] = []
     if start_date and end_date:
-        lines.append(f"📅 Período de corte: {_format_date(start_date)} al {_format_date(end_date)}")
+        lines.append(f"* Periodo de corte: {_format_date(start_date)} al {_format_date(end_date)}")
     if rate_per_hour is not None:
-        lines.append(f"💰 Tarifa por hora académica: {_format_money(_to_decimal(rate_per_hour))}")
+        lines.append(f"* Tarifa por hora academica: {_format_money(_to_decimal(rate_per_hour))}")
 
     excluded_items = _excluded_day_items(excluded_days)
     if excluded_items:
-        lines.append("📋 Días no trabajados que aplican a sus materias:")
+        lines.append("* Dias no trabajados que aplican a sus materias:")
         lines.extend(f"• {item}" for item in excluded_items)
 
     if lines:
