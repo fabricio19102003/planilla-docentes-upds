@@ -158,13 +158,29 @@ export function PlanillaPage() {
       : discountMode
 
   const expandedExcludedDays = expandExcludedDays(excludedDays)
-  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, expandedExcludedDays)
+  // Only pass exclusions to detail preview when the user has actively configured them.
+  // An empty [] would override stored exclusions; undefined preserves them.
+  const previewExclusions = expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined
+  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, previewExclusions)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const approvePlanilla = useApprovePlanilla()
   const rejectPlanilla = useRejectPlanilla()
 
   const handleGenerate = () => {
+    // Validate exclusion rows before generating
+    for (let i = 0; i < excludedDays.length; i++) {
+      const row = excludedDays[i]
+      if (row.scope === 'semester' && !row.semester_id) {
+        alert(`Exclusión #${i + 1}: seleccioná un semestre o cambiá el alcance.`)
+        return
+      }
+      if (row.scope === 'subject' && (!row.subjectSelections || row.subjectSelections.length === 0)) {
+        alert(`Exclusión #${i + 1}: seleccioná al menos una materia/grupo o cambiá el alcance.`)
+        return
+      }
+    }
+
     setLastResult(null)
 
     generatePlanilla.mutate(

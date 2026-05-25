@@ -329,23 +329,29 @@ def get_designation_options(
     try:
         active_period = app_settings_service.get_active_academic_period(db)
 
+        # Exclude practice designations — they have a separate planilla flow
+        base_filter = [
+            Designation.academic_period == active_period,
+            Designation.designation_type != "practice",
+        ]
+
         subject_rows = (
             db.query(Designation.subject, Designation.group_code, Designation.semester)
-            .filter(Designation.academic_period == active_period)
+            .filter(*base_filter)
             .distinct()
             .order_by(Designation.subject, Designation.group_code, Designation.semester)
             .all()
         )
         semester_rows = (
             db.query(Designation.semester)
-            .filter(Designation.academic_period == active_period)
+            .filter(*base_filter)
             .distinct()
             .order_by(Designation.semester)
             .all()
         )
         group_rows = (
             db.query(Designation.group_code)
-            .filter(Designation.academic_period == active_period)
+            .filter(*base_filter)
             .distinct()
             .order_by(Designation.group_code)
             .all()
