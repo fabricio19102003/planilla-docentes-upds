@@ -1,10 +1,20 @@
 import { useCurrentBilling } from '@/api/hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Receipt, Clock, DollarSign, AlertCircle } from 'lucide-react'
+import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff } from 'lucide-react'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatPortalDate(value: string) {
+  const [year, month, day] = value.split('-')
+  const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+  const monthIndex = Number(month) - 1
+
+  if (!year || !month || !day || monthIndex < 0 || monthIndex > 11) return value
+
+  return `${Number(day)}/${monthNames[monthIndex]}/${year}`
 }
 
 export function BillingPage() {
@@ -54,6 +64,8 @@ export function BillingPage() {
   if (!billing) return null
 
   const displayPayment = billing.adjusted_payment ?? billing.total_payment
+  const hasBillingPeriod = Boolean(billing.start_date && billing.end_date)
+  const hasExcludedDays = Boolean(billing.excluded_days?.length)
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -115,6 +127,53 @@ export function BillingPage() {
           </div>
         </div>
       </div>
+
+      {(hasBillingPeriod || hasExcludedDays) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
+              Contexto de planilla
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {hasBillingPeriod && billing.start_date && billing.end_date && (
+              <div className="flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#003366] shadow-sm">
+                  <Calendar size={18} />
+                </div>
+                <p className="text-sm text-gray-700">
+                  <span className="font-semibold" style={{ color: '#003366' }}>Período:</span>{' '}
+                  {formatPortalDate(billing.start_date)} al {formatPortalDate(billing.end_date)}
+                </p>
+              </div>
+            )}
+
+            {hasExcludedDays && (
+              <div className="rounded-xl border border-gray-200 bg-white">
+                <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 text-[#003366]">
+                    <CalendarOff size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: '#003366' }}>
+                      Días no trabajados
+                    </p>
+                    <p className="text-xs text-gray-500">Aplican a tus materias o semestre asignado.</p>
+                  </div>
+                </div>
+                <ul className="divide-y divide-gray-100">
+                  {billing.excluded_days?.map((day) => (
+                    <li key={day.date} className="px-4 py-3 text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">{formatPortalDate(day.date)}</span>
+                      {day.reason && <span className="text-gray-500"> — {day.reason}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Designations breakdown */}
       <Card>

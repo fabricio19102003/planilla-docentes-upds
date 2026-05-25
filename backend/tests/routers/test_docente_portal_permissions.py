@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.models.teacher import Teacher
 from app.models.user import User
+from app.routers.docente_portal import _filter_excluded_days_for_teacher
 from app.services import app_settings_service, teacher_photo_service
 from app.services.auth_service import auth_service
 
@@ -181,3 +182,25 @@ def test_auth_payloads_include_docente_avatar_url(client, db_session):
     me = client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["avatar_url"] == "/uploads/teacher-photos/auth-avatar.png"
+
+
+def test_docente_billing_excluded_days_are_filtered_and_deduplicated():
+    teacher_detail = {
+        "designations": [
+            {"subject": "Anatomía", "group": "A", "semester": "1"},
+        ]
+    }
+    excluded_days = [
+        {"date": "2026-04-21", "scope": "global", "reason": "Feriado institucional"},
+        {"date": "2026-04-30", "scope": "semester", "semester_id": "1", "reason": "Clase magistral"},
+        {"date": "2026-04-30", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Taller docente"},
+        {"date": "2026-05-02", "scope": "semester", "semester_id": "9", "reason": "No aplica"},
+        {"date": "2026-05-09", "scope": "subject", "subject_id": "Pediatría", "group_id": "B", "reason": "No aplica"},
+    ]
+
+    filtered = _filter_excluded_days_for_teacher(excluded_days, teacher_detail)
+
+    assert [day.model_dump() for day in filtered] == [
+        {"date": "2026-04-21", "reason": "Feriado institucional"},
+        {"date": "2026-04-30", "reason": "Clase magistral; Taller docente"},
+    ]

@@ -47,6 +47,9 @@ export interface BillingInfo {
   month: number
   year: number
   month_name: string
+  start_date?: string | null
+  end_date?: string | null
+  excluded_days?: { date: string; reason: string | null }[]
   total_hours: number
   rate_per_hour: number
   total_payment: number

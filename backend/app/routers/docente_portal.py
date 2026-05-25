@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
@@ -57,10 +57,18 @@ class DesignationBilling(BaseModel):
     payment: float = 0.0
 
 
+class ExcludedDayInfo(BaseModel):
+    date: str
+    reason: str | None = None
+
+
 class BillingResponse(BaseModel):
     month: int
     year: int
     month_name: str
+    start_date: str | None = None
+    end_date: str | None = None
+    excluded_days: list[ExcludedDayInfo] = []
     total_hours: int
     rate_per_hour: float
     total_payment: float
@@ -75,6 +83,9 @@ class BillingHistoryItem(BaseModel):
     month: int
     year: int
     month_name: str
+    start_date: str | None = None
+    end_date: str | None = None
+    excluded_days: list[ExcludedDayInfo] = []
     total_hours: int
     total_payment: float
     adjusted_payment: Optional[float] = None
@@ -228,6 +239,56 @@ def _get_teacher_or_raise(current_user: User, db: Session) -> Teacher:
             detail="Docente vinculado no encontrado",
         )
     return teacher
+
+
+def _filter_excluded_days_for_teacher(
+    excluded_days: list[Any],
+    teacher_detail: dict[str, Any],
+) -> list[ExcludedDayInfo]:
+    teacher_designations = teacher_detail.get("designations", [])
+    if not isinstance(teacher_designations, list):
+        teacher_designations = []
+
+    teacher_semesters = {
+        designation.get("semester")
+        for designation in teacher_designations
+        if isinstance(designation, dict) and designation.get("semester") is not None
+    }
+    teacher_subject_groups = {
+        (designation.get("subject"), designation.get("group") or designation.get("group_code"))
+        for designation in teacher_designations
+        if isinstance(designation, dict) and designation.get("subject") is not None
+    }
+
+    reasons_by_date: dict[str, list[str]] = {}
+    for excluded in excluded_days:
+        if not isinstance(excluded, dict):
+            continue
+
+        date_value = excluded.get("date")
+        if date_value is None:
+            continue
+
+        scope = excluded.get("scope")
+        applies = (
+            scope == "global"
+            or (scope == "semester" and excluded.get("semester_id") in teacher_semesters)
+            or (scope == "subject" and (excluded.get("subject_id"), excluded.get("group_id")) in teacher_subject_groups)
+        )
+        if not applies:
+            continue
+
+        date_key = str(date_value)
+        reason = excluded.get("reason")
+        reason_text = str(reason).strip() if reason is not None else ""
+        reasons = reasons_by_date.setdefault(date_key, [])
+        if reason_text and reason_text not in reasons:
+            reasons.append(reason_text)
+
+    return [
+        ExcludedDayInfo(date=date_key, reason="; ".join(reasons) if reasons else None)
+        for date_key, reasons in reasons_by_date.items()
+    ]
 
 
 def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> BillingResponse:
@@ -408,6 +469,7 @@ def get_current_billing(
                 )
                 for d in teacher_data.get("designations", [])
             ]
+            excluded_days = snapshot.get("excluded_days_json")
             # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
             snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
             snap_has_retention = teacher_data.get("has_retention", False)
@@ -417,6 +479,12 @@ def get_current_billing(
                 month=now.month,
                 year=now.year,
                 month_name=MONTH_NAMES.get(now.month, str(now.month)),
+                start_date=snapshot.get("start_date"),
+                end_date=snapshot.get("end_date"),
+                excluded_days=_filter_excluded_days_for_teacher(
+                    excluded_days if isinstance(excluded_days, list) else [],
+                    teacher_data,
+                ),
                 total_hours=teacher_data["total_hours"],
                 # Historical snapshots may lack rate_per_hour; fall back to live config
                 rate_per_hour=snapshot["rate_per_hour"] if "rate_per_hour" in snapshot else app_settings_service.get_hourly_rate(db),
@@ -473,6 +541,7 @@ def get_billing_history(
                     )
                     for d in teacher_data.get("designations", [])
                 ]
+                excluded_days = snapshot.get("excluded_days_json")
                 # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
                 snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
                 snap_final = teacher_data.get("final_payment", teacher_data["total_payment"])
@@ -481,6 +550,12 @@ def get_billing_history(
                         month=pub.month,
                         year=pub.year,
                         month_name=MONTH_NAMES.get(pub.month, str(pub.month)),
+                        start_date=snapshot.get("start_date"),
+                        end_date=snapshot.get("end_date"),
+                        excluded_days=_filter_excluded_days_for_teacher(
+                            excluded_days if isinstance(excluded_days, list) else [],
+                            teacher_data,
+                        ),
                         total_hours=teacher_data["total_hours"],
                         total_payment=snap_gross,   # Bruto
                         adjusted_payment=snap_final if snap_gross != snap_final else None,
@@ -496,6 +571,9 @@ def get_billing_history(
                 month=billing.month,
                 year=billing.year,
                 month_name=billing.month_name,
+                start_date=billing.start_date,
+                end_date=billing.end_date,
+                excluded_days=billing.excluded_days,
                 total_hours=billing.total_hours,
                 total_payment=billing.total_payment,
                 adjusted_payment=billing.adjusted_payment,
