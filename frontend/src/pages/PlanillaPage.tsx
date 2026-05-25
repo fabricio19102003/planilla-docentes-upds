@@ -17,11 +17,54 @@ const MONTH_NAMES: Record<number, string> = {
 }
 
 type ExclusionRow = ExcludedDay & {
+  selectedSubjects?: string[]
   subjectSelections?: DesignationOption[]
 }
 
 function getSubjectOptionKey(option: DesignationOption): string {
   return `${option.subject}||${option.group_code}||${option.semester}`
+}
+
+function getSubjectGroupKey(option: DesignationOption): string {
+  return `${option.subject}||${option.group_code}`
+}
+
+function getUniqueSubjects(options: DesignationOption[]): string[] {
+  return Array.from(new Set(options.map(option => option.subject))).sort((a, b) => a.localeCompare(b))
+}
+
+function getGroupsForSubject(options: DesignationOption[], subject: string): DesignationOption[] {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    if (option.subject !== subject) return false
+    const key = getSubjectGroupKey(option)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
+  return rows.flatMap<ExcludedDay>((row) => {
+    if (row.scope === 'subject') {
+      const selections = row.subjectSelections ?? []
+      return selections.map((selection) => ({
+        date: row.date,
+        scope: 'subject' as const,
+        subject_id: selection.subject,
+        group_id: selection.group_code,
+        reason: row.reason,
+      }))
+    }
+
+    if (row.scope === 'semester') {
+      return row.semester_id
+        ? [{ date: row.date, scope: 'semester', semester_id: row.semester_id, reason: row.reason }]
+        : []
+    }
+
+    return [{ date: row.date, scope: 'global', reason: row.reason }]
+  })
 }
 
 function formatDate(dateStr: string): string {
@@ -114,7 +157,8 @@ export function PlanillaPage() {
       ? planillaStatus.discount_mode
       : discountMode
 
-  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode)
+  const expandedExcludedDays = expandExcludedDays(excludedDays)
+  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, expandedExcludedDays)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const approvePlanilla = useApprovePlanilla()
@@ -122,24 +166,6 @@ export function PlanillaPage() {
 
   const handleGenerate = () => {
     setLastResult(null)
-    const expandedExcludedDays = excludedDays.flatMap<ExcludedDay>((row) => {
-      if (row.scope === 'subject') {
-        const selections = row.subjectSelections ?? []
-        return selections.map((selection) => ({
-          date: row.date,
-          scope: 'subject' as const,
-          subject_id: selection.subject,
-          group_id: selection.group_code,
-          reason: row.reason,
-        }))
-      }
-
-      if (row.scope === 'semester') {
-        return [{ date: row.date, scope: 'semester', semester_id: row.semester_id, reason: row.reason }]
-      }
-
-      return [{ date: row.date, scope: 'global', reason: row.reason }]
-    })
 
     generatePlanilla.mutate(
       {
@@ -179,7 +205,7 @@ export function PlanillaPage() {
           return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
         }
         if (patch.scope === 'subject') {
-          return { date: updated.date, scope: 'subject', subjectSelections: [], reason: updated.reason }
+          return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
         }
         return updated
       })
@@ -458,35 +484,69 @@ export function PlanillaPage() {
 
                         {/* Conditional: subject_id + group_id */}
                         {row.scope === 'subject' && (
-                          <div className="flex flex-col gap-1 min-w-[220px] max-w-sm flex-1">
+                          <div className="flex flex-col gap-2 min-w-[260px] max-w-lg flex-1">
                             <label className="text-xs text-gray-500 font-medium">Materias y grupos <span className="text-red-400">*</span></label>
-                            <div className="max-h-36 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-1">
+                            <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-2">
                               {designationOptionsLoading ? (
                                 <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
                               ) : designationOptions.subjects.length === 0 ? (
                                 <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
                               ) : (
-                                designationOptions.subjects.map((option) => {
-                                  const optionKey = getSubjectOptionKey(option)
-                                  const checked = (row.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
+                                getUniqueSubjects(designationOptions.subjects).map((subject) => {
+                                  const selectedSubjects = row.selectedSubjects ?? []
+                                  const subjectChecked = selectedSubjects.includes(subject)
+                                  const groups = getGroupsForSubject(designationOptions.subjects, subject)
 
                                   return (
-                                    <label key={optionKey} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm text-gray-700 hover:bg-white cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={(e) => {
-                                          const current = row.subjectSelections ?? []
-                                          updateExclusionRow(index, {
-                                            subjectSelections: e.target.checked
-                                              ? [...current, option]
-                                              : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
-                                          })
-                                        }}
-                                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
-                                      />
-                                      <span>{option.subject} ({option.group_code})</span>
-                                    </label>
+                                    <div key={subject} className="rounded-md bg-white/60 px-2 py-1.5">
+                                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={subjectChecked}
+                                          onChange={(e) => {
+                                            const currentSelections = row.subjectSelections ?? []
+                                            updateExclusionRow(index, {
+                                              selectedSubjects: e.target.checked
+                                                ? [...selectedSubjects, subject]
+                                                : selectedSubjects.filter(selected => selected !== subject),
+                                              subjectSelections: e.target.checked
+                                                ? currentSelections
+                                                : currentSelections.filter(selection => selection.subject !== subject),
+                                            })
+                                          }}
+                                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                        />
+                                        <span>{subject}</span>
+                                      </label>
+
+                                      {subjectChecked && (
+                                        <div className="ml-6 mt-1.5 grid grid-cols-2 gap-1">
+                                          {groups.map((option) => {
+                                            const optionKey = getSubjectOptionKey(option)
+                                            const checked = (row.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
+
+                                            return (
+                                              <label key={optionKey} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-gray-600 hover:bg-purple-50 cursor-pointer">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={checked}
+                                                  onChange={(e) => {
+                                                    const current = row.subjectSelections ?? []
+                                                    updateExclusionRow(index, {
+                                                      subjectSelections: e.target.checked
+                                                        ? [...current, option]
+                                                        : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
+                                                    })
+                                                  }}
+                                                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                                />
+                                                <span>{option.group_code}</span>
+                                              </label>
+                                            )
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
                                   )
                                 })
                               )}

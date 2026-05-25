@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -373,6 +374,7 @@ def get_planilla_detail(
     start_date: date | None = None,
     end_date: date | None = None,
     discount_mode: Literal["attendance", "full"] = Query("attendance"),
+    excluded_days_json: str | None = Query(default=None),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -383,35 +385,52 @@ def get_planilla_detail(
     ``discount_mode`` controls whether attendance-based discounts are applied
     ("attendance", default) or bypassed ("full").
 
-    Exclusions are loaded from the stored planilla record (if any) so the
-    detail view is consistent with what was generated.
+    When ``excluded_days_json`` is provided, those exclusions override stored
+    planilla exclusions so the UI can preview the current unsaved form state.
     """
     try:
         from app.schemas.planilla import ExcludedDaySchema
 
-        # Load stored exclusions to keep detail consistent with the saved planilla
-        stored_for_exclusions = (
-            db.query(PlanillaOutput)
-            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-            .order_by(PlanillaOutput.generated_at.desc())
-            .first()
-        )
-        stored_exclusions: list[ExcludedDaySchema] = []
-        if stored_for_exclusions and stored_for_exclusions.excluded_days_json:
+        exclusions_overridden = excluded_days_json is not None
+        effective_exclusions: list[ExcludedDaySchema] = []
+
+        if exclusions_overridden:
             try:
-                stored_exclusions = [
+                raw_exclusions = json.loads(excluded_days_json)
+                if not isinstance(raw_exclusions, list):
+                    raise ValueError("excluded_days_json must be a JSON array")
+                effective_exclusions = [
                     ExcludedDaySchema.model_validate(item)
-                    for item in stored_for_exclusions.excluded_days_json
+                    for item in raw_exclusions
                 ]
-            except Exception:
-                stored_exclusions = []
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="excluded_days_json debe ser un array JSON válido de días excluidos",
+                ) from exc
+        else:
+            # Load stored exclusions to keep detail consistent with the saved planilla
+            stored_for_exclusions = (
+                db.query(PlanillaOutput)
+                .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+                .order_by(PlanillaOutput.generated_at.desc())
+                .first()
+            )
+            if stored_for_exclusions and stored_for_exclusions.excluded_days_json:
+                try:
+                    effective_exclusions = [
+                        ExcludedDaySchema.model_validate(item)
+                        for item in stored_for_exclusions.excluded_days_json
+                    ]
+                except Exception:
+                    effective_exclusions = []
 
         generator = PlanillaGenerator()
         rows, _detail_rows, warnings = generator._build_planilla_data(
             db, month=month, year=year,
             start_date=start_date, end_date=end_date,
             discount_mode=discount_mode,
-            excluded_days=stored_exclusions,
+            excluded_days=effective_exclusions,
         )
 
         detail = []
@@ -482,6 +501,7 @@ def get_planilla_detail(
             stored is not None
             and is_full_month
             and stored_mode == discount_mode
+            and not exclusions_overridden
         )
 
         response: dict = {
@@ -499,6 +519,8 @@ def get_planilla_detail(
             response["stored_total_payment"] = float(stored.total_payment)
 
         return response
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to load planilla detail: %s", exc)
         raise HTTPException(

@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput, TeacherDesignationsResponse } from '@/api/types'
+import type { ExcludedDay, GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput, TeacherDesignationsResponse } from '@/api/types'
 
 export function useApprovePlanilla() {
   const qc = useQueryClient()
@@ -104,11 +105,12 @@ export async function downloadSalaryReport(params: {
   window.URL.revokeObjectURL(url)
 }
 
-async function fetchPlanillaDetail(month: number, year: number, startDate?: string, endDate?: string, discountMode?: string) {
+async function fetchPlanillaDetail(month: number, year: number, startDate?: string, endDate?: string, discountMode?: string, excludedDaysJson?: string) {
   const params = new URLSearchParams()
   if (startDate) params.set('start_date', startDate)
   if (endDate) params.set('end_date', endDate)
   if (discountMode) params.set('discount_mode', discountMode)
+  if (excludedDaysJson !== undefined) params.set('excluded_days_json', excludedDaysJson)
   const qs = params.toString()
   const url = `/planilla/${month}/${year}/detail${qs ? '?' + qs : ''}`
   const response = await api.get<PlanillaDetailResponse>(url)
@@ -122,11 +124,35 @@ export function usePlanillaDetail(
   startDate?: string,
   endDate?: string,
   discountMode?: string,
+  excludedDays?: ExcludedDay[],
 ) {
+  const excludedDaysJson = excludedDays ? JSON.stringify(excludedDays) : undefined
+  const [debouncedParams, setDebouncedParams] = useState({
+    startDate,
+    endDate,
+    discountMode,
+    excludedDaysJson,
+  })
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedParams({ startDate, endDate, discountMode, excludedDaysJson })
+    }, 300)
+    return () => window.clearTimeout(timeout)
+  }, [startDate, endDate, discountMode, excludedDaysJson])
+
   return useQuery({
-    queryKey: ['planilla-detail', month, year, startDate, endDate, discountMode],
-    queryFn: () => fetchPlanillaDetail(month, year, startDate, endDate, discountMode),
+    queryKey: ['planilla-detail', month, year, debouncedParams.startDate, debouncedParams.endDate, debouncedParams.discountMode, debouncedParams.excludedDaysJson],
+    queryFn: () => fetchPlanillaDetail(
+      month,
+      year,
+      debouncedParams.startDate,
+      debouncedParams.endDate,
+      debouncedParams.discountMode,
+      debouncedParams.excludedDaysJson,
+    ),
     enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

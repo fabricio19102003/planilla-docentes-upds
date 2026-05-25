@@ -11,6 +11,7 @@ Test layers:
 from __future__ import annotations
 
 import calendar
+import json
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -924,3 +925,34 @@ class TestDetailEndpointStoredExclusions:
                 f"Expected exclusions to reduce total hours: "
                 f"no_excl={total_no_excl}, with_excl={total_with_excl}"
             )
+
+    def test_detail_endpoint_query_exclusions_override_stored_exclusions(self, api_client, api_db):
+        """excluded_days_json=[] must clear stored exclusions for live preview."""
+        teacher = _make_teacher(ci="DET_DOCENTE_03", name="Detail Docente 3")
+        desig = _make_designation(teacher_ci="DET_DOCENTE_03")
+        api_db.add(teacher)
+        api_db.flush()
+        api_db.add(desig)
+        api_db.flush()
+        self._seed_planilla_with_exclusion(api_db)
+
+        response_stored = api_client.get("/api/planilla/5/2026/detail")
+        assert response_stored.status_code == 200, response_stored.text
+        total_stored = sum(row.get("base_monthly_hours", 0) for row in response_stored.json().get("detail", []))
+
+        response_override = api_client.get(
+            "/api/planilla/5/2026/detail",
+            params={"excluded_days_json": json.dumps([])},
+        )
+        assert response_override.status_code == 200, response_override.text
+        total_override = sum(row.get("base_monthly_hours", 0) for row in response_override.json().get("detail", []))
+
+        assert total_override >= total_stored
+
+    def test_detail_endpoint_invalid_query_exclusions_returns_422(self, api_client, api_db):
+        """Invalid excluded_days_json should fail validation instead of returning 500."""
+        response = api_client.get(
+            "/api/planilla/5/2026/detail",
+            params={"excluded_days_json": "not-json"},
+        )
+        assert response.status_code == 422, response.text
