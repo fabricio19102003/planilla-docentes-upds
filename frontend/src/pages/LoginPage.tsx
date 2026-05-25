@@ -132,7 +132,7 @@ export function LoginPage() {
         className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12"
         style={{ background: 'linear-gradient(to bottom right, #f8fafc, #ffffff, #f0f9ff)' }}
       >
-        <div className="w-full max-w-sm bg-white/80 backdrop-blur-xl border border-white/50 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] p-8">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-[0_12px_40px_rgb(0,0,0,0.12)] border border-slate-200/80 p-8">
           {/* Welcome text */}
           <div className="mb-8">
             <h2 className="text-2xl font-bold" style={{ color: '#1C398E' }}>
