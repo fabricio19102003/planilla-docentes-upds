@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Logo } from '@/components/layout/Logo'
 import { AlertCircle, LogIn, Eye, EyeOff, ShieldAlert } from 'lucide-react'
 
 export function LoginPage() {
@@ -45,14 +46,14 @@ export function LoginPage() {
       <div
         className="hidden lg:flex lg:w-[55%] relative flex-col items-center justify-center p-12 overflow-hidden"
         style={{
-          background: 'linear-gradient(160deg, #001a33 0%, #003366 40%, #004d99 70%, #0066CC 100%)',
+          background: 'linear-gradient(160deg, #0F1D4A 0%, #1C398E 40%, #193CB8 70%, #155DFC 100%)',
         }}
       >
         {/* Decorative elements */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-          <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.07]" style={{ backgroundColor: '#4DA8DA' }} />
-          <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full opacity-[0.05]" style={{ backgroundColor: '#0099FF' }} />
-          <div className="absolute top-1/3 right-1/4 w-80 h-80 rounded-full opacity-[0.04]" style={{ backgroundColor: '#4DA8DA' }} />
+          <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.07]" style={{ backgroundColor: '#00A6F4' }} />
+          <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full opacity-[0.05]" style={{ backgroundColor: '#00BCFF' }} />
+          <div className="absolute top-1/3 right-1/4 w-80 h-80 rounded-full opacity-[0.04]" style={{ backgroundColor: '#00A6F4' }} />
           {/* Grid pattern overlay */}
           <div
             className="absolute inset-0 opacity-[0.03]"
@@ -64,17 +65,9 @@ export function LoginPage() {
         </div>
 
         <div className="relative z-10 text-center max-w-lg">
-          {/* UPDS Letters */}
+          {/* UPDS logo */}
           <div className="mb-8">
-            <div className="font-black tracking-[0.2em] text-8xl leading-none select-none" style={{ textShadow: '0 4px 30px rgba(0,102,204,0.4)' }}>
-              <span style={{ color: '#4DA8DA' }}>U</span>
-              <span style={{ color: '#7CC0E8' }}>P</span>
-              <span style={{ color: '#4DA8DA' }}>D</span>
-              <span className="text-white">S</span>
-            </div>
-            <p className="text-white/40 text-sm tracking-[0.4em] uppercase font-medium mt-4">
-              Universidad Privada Domingo Savio
-            </p>
+            <Logo size="lg" />
           </div>
 
           {/* Divider */}
@@ -84,7 +77,7 @@ export function LoginPage() {
 
           {/* SIPAD branding */}
           <div>
-            <h1 className="text-white text-3xl font-bold tracking-wide" style={{ textShadow: '0 2px 20px rgba(0,102,204,0.3)' }}>
+            <h1 className="text-white text-3xl font-bold tracking-wide" style={{ textShadow: '0 2px 20px rgba(28, 57, 142, 0.4)' }}>
               SIPAD
             </h1>
             <p className="text-white/50 text-base mt-2 font-light">
@@ -95,18 +88,18 @@ export function LoginPage() {
           {/* Stats decorative */}
           <div className="flex items-center justify-center gap-8 mt-12">
             <div className="text-center">
-              <p className="text-white/80 text-2xl font-bold">100+</p>
-              <p className="text-white/30 text-xs uppercase tracking-wider mt-1">Docentes</p>
+              <p className="text-white/85 text-2xl font-bold">100+</p>
+              <p className="text-white/40 text-xs uppercase tracking-wider mt-1">Docentes</p>
             </div>
             <div className="w-px h-10 bg-white/10" />
             <div className="text-center">
-              <p className="text-white/80 text-2xl font-bold">400+</p>
-              <p className="text-white/30 text-xs uppercase tracking-wider mt-1">Designaciones</p>
+              <p className="text-white/85 text-2xl font-bold">400+</p>
+              <p className="text-white/40 text-xs uppercase tracking-wider mt-1">Designaciones</p>
             </div>
             <div className="w-px h-10 bg-white/10" />
             <div className="text-center">
-              <p className="text-white/80 text-2xl font-bold">24/7</p>
-              <p className="text-white/30 text-xs uppercase tracking-wider mt-1">Disponible</p>
+              <p className="text-white/85 text-2xl font-bold">24/7</p>
+              <p className="text-white/40 text-xs uppercase tracking-wider mt-1">Disponible</p>
             </div>
           </div>
         </div>
@@ -121,17 +114,9 @@ export function LoginPage() {
       <div className="lg:hidden w-full">
         <div
           className="w-full py-8 px-6 text-center"
-          style={{ background: 'linear-gradient(160deg, #001a33 0%, #003366 50%, #0066CC 100%)' }}
+          style={{ background: 'linear-gradient(160deg, #0F1D4A 0%, #1C398E 40%, #193CB8 70%, #155DFC 100%)' }}
         >
-          <div className="font-black tracking-[0.15em] text-5xl leading-none select-none mb-2" style={{ textShadow: '0 2px 20px rgba(0,102,204,0.3)' }}>
-            <span style={{ color: '#4DA8DA' }}>U</span>
-            <span style={{ color: '#7CC0E8' }}>P</span>
-            <span style={{ color: '#4DA8DA' }}>D</span>
-            <span className="text-white">S</span>
-          </div>
-          <p className="text-white/40 text-xs tracking-[0.3em] uppercase font-medium">
-            Universidad Privada Domingo Savio
-          </p>
+          <Logo size="lg" />
           <div className="flex items-center gap-3 justify-center my-3">
             <div className="flex-1 max-w-[60px] h-px bg-white/20" />
             <span className="text-white/50 text-xs">•</span>
@@ -145,16 +130,16 @@ export function LoginPage() {
       {/* ── Right panel: Login form ──────────────────────────────── */}
       <div
         className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12"
-        style={{ backgroundColor: '#f8fafc' }}
+        style={{ background: 'linear-gradient(to bottom right, #f8fafc, #ffffff, #f0f9ff)' }}
       >
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm bg-white/80 backdrop-blur-xl border border-white/50 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] p-8">
           {/* Welcome text */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold" style={{ color: '#003366' }}>
+            <h2 className="text-2xl font-bold" style={{ color: '#1C398E' }}>
               Bienvenido
             </h2>
             <p className="text-gray-500 mt-1">
-              Ingresá con tu cuenta institucional
+              Ingresá con tus credenciales de acceso
             </p>
           </div>
 
@@ -171,7 +156,7 @@ export function LoginPage() {
                 onChange={(e) => setCi(e.target.value)}
                 autoComplete="username"
                 disabled={isLoading}
-                className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-[#0066CC] focus:ring-[#0066CC]/20 rounded-xl shadow-sm"
+                className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-blue-600 focus:ring-blue-600/20 rounded-xl shadow-sm"
               />
             </div>
 
@@ -188,7 +173,7 @@ export function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   disabled={isLoading}
-                  className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-[#0066CC] focus:ring-[#0066CC]/20 pr-12 rounded-xl shadow-sm"
+                  className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-blue-600 focus:ring-blue-600/20 pr-12 rounded-xl shadow-sm"
                 />
                 <button
                   type="button"
@@ -206,18 +191,18 @@ export function LoginPage() {
               <div
                 className={`flex items-start gap-2.5 rounded-xl px-4 py-3 ${
                   error.includes('deshabilitada')
-                    ? 'bg-orange-50 border border-orange-200'
-                    : 'bg-red-50 border border-red-200'
+                    ? 'bg-sky-50 border border-sky-200'
+                    : 'bg-blue-50 border border-blue-200'
                 }`}
               >
                 {error.includes('deshabilitada') ? (
-                  <ShieldAlert size={16} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                  <ShieldAlert size={16} className="text-sky-500 flex-shrink-0 mt-0.5" />
                 ) : (
-                  <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <AlertCircle size={16} className="text-blue-700 flex-shrink-0 mt-0.5" />
                 )}
                 <p
                   className={`text-sm leading-snug ${
-                    error.includes('deshabilitada') ? 'text-orange-700' : 'text-red-600'
+                    error.includes('deshabilitada') ? 'text-sky-700' : 'text-blue-900'
                   }`}
                 >
                   {error}
@@ -229,8 +214,8 @@ export function LoginPage() {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full h-12 font-semibold text-white gap-2 rounded-xl shadow-lg hover:shadow-xl transition-shadow"
-              style={{ backgroundColor: '#003366' }}
+              className="w-full h-12 font-semibold text-white gap-2 rounded-xl shadow-lg hover:shadow-xl hover:shadow-blue-900/30 active:scale-[0.98] transition-all duration-200"
+              style={{ background: 'linear-gradient(to right, #1C398E, #193CB8)' }}
             >
               {isLoading ? (
                 <>
@@ -249,10 +234,10 @@ export function LoginPage() {
           {/* Footer */}
           <div className="mt-10 pt-6 border-t border-gray-200">
             <p className="text-center text-gray-400 text-xs">
-              SIPAD — Sistema Integrado de Pago Docente
+              SIPAD - Sistema Integrado de Pago Docente
             </p>
             <p className="text-center text-gray-300 text-xs mt-1">
-              © {new Date().getFullYear()} UPDS — Sede Cobija
+              © {new Date().getFullYear()} UPDS - Sede Cobija
             </p>
           </div>
         </div>
