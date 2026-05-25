@@ -169,6 +169,7 @@ export function PlanillaPage() {
   const [salaryReportLoading, setSalaryReportLoading] = useState<Record<string, boolean>>({})
 
   const { data: bioRange } = useBiometricDateRange(month, year)
+  const { data: planillaStatus } = usePlanillaStatus(month, year)
 
   // Reset manual flags when month/year changes so auto-fill can run again
   useEffect(() => {
@@ -183,19 +184,29 @@ export function PlanillaPage() {
     setExcludedDays([])
   }, [month, year])
 
-  // Auto-fill dates from biometric range when available
+  // Auto-fill dates: prefer stored planilla dates, then biometric, then fallback
   useEffect(() => {
-    if (!datesManuallySet && bioRange?.has_data && bioRange.suggested_start && bioRange.suggested_end) {
+    if (datesManuallySet) return
+
+    // If there's a stored planilla with dates, use those (ensures consistency)
+    if (planillaStatus?.start_date && planillaStatus?.end_date) {
+      setStartDate(planillaStatus.start_date)
+      setEndDate(planillaStatus.end_date)
+      return
+    }
+
+    // Otherwise use biometric suggestion
+    if (bioRange?.has_data && bioRange.suggested_start && bioRange.suggested_end) {
       setStartDate(bioRange.suggested_start)
       setEndDate(bioRange.suggested_end)
-    } else if (!datesManuallySet && bioRange !== undefined && !bioRange.has_data) {
+    } else if (bioRange !== undefined && !bioRange.has_data) {
       // No biometric data: fall back to standard cut-off period
       const prevMonth = month === 1 ? 12 : month - 1
       const prevYear = month === 1 ? year - 1 : year
       setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
       setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
     }
-  }, [bioRange, datesManuallySet, month, year])
+  }, [bioRange, datesManuallySet, month, year, planillaStatus])
 
   useEffect(() => {
     if (!exclusionPanelOpen) return
@@ -210,7 +221,6 @@ export function PlanillaPage() {
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
   const { data: publication } = usePublicationStatus(month, year)
-  const { data: planillaStatus } = usePlanillaStatus(month, year)
 
   useEffect(() => {
     if (exclusionsEdited) return

@@ -39,6 +39,8 @@ export function usePublishBilling() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['billing-publication'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-status'] })
+      void qc.invalidateQueries({ queryKey: ['planilla-history'] })
     },
   })
 }
