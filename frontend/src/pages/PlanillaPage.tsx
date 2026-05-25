@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, Plus, Trash2, CalendarOff } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
@@ -161,6 +161,7 @@ export function PlanillaPage() {
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
   const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
   const [designationOptionsLoading, setDesignationOptionsLoading] = useState(false)
+  const restoringHistoryRef = useRef(false)
 
   // Salary report download loading state (keyed by planilla id for history rows,
   // "current" for the main action bar). Using a map lets multiple rows spin
@@ -171,6 +172,11 @@ export function PlanillaPage() {
 
   // Reset manual flags when month/year changes so auto-fill can run again
   useEffect(() => {
+    if (restoringHistoryRef.current) {
+      restoringHistoryRef.current = false
+      return
+    }
+
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
     setExclusionsEdited(false)
@@ -952,10 +958,10 @@ export function PlanillaPage() {
           ) : (
             <Button
               className="gap-2 text-white"
-              style={{ backgroundColor: planillaStatus?.status === 'approved' ? '#16a34a' : '#9ca3af' }}
+              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited ? '#16a34a' : '#9ca3af' }}
               onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved'}
-              title={planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
+              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited}
+              title={exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
             >
               <Send size={14} />
               {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
@@ -985,6 +991,12 @@ export function PlanillaPage() {
             {planillaStatus.status === 'rejected'
               ? 'La planilla fue rechazada. Regenerá con los ajustes necesarios.'
               : 'Aprobá la planilla antes de publicar para docentes.'}
+          </div>
+        )}
+
+        {exclusionsEdited && publication?.status !== 'published' && (
+          <div className="px-5 py-3 bg-amber-50/50 text-sm text-amber-700">
+            Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar.
           </div>
         )}
       </div>
@@ -1220,7 +1232,8 @@ export function PlanillaPage() {
                                   {d.absent_hours > 0 && <span className="text-red-500">-{d.absent_hours}h</span>}
                                   <span className="font-semibold text-gray-800">{d.payable_hours}h</span>
                                   <span className="font-bold min-w-[80px] text-right" style={{ color: '#003366' }}>
-                                    Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    {(d.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
                                   </span>
                                 </div>
                               </div>
@@ -1266,7 +1279,10 @@ export function PlanillaPage() {
                               )}
                             </td>
                             <td className="px-3 py-2.5 text-gray-800 font-semibold">{row.payable_hours}h</td>
-                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>{row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>
+                              {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                              {(row.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
+                            </td>
                             <td className="px-3 py-2.5">
                               {!row.has_biometric ? (
                                 <Badge className="bg-yellow-100 text-yellow-700 text-xs">Sin Bio</Badge>
@@ -1330,8 +1346,15 @@ export function PlanillaPage() {
                       key={item.id}
                       className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
                       onClick={() => {
+                        restoringHistoryRef.current = item.month !== month || item.year !== year
                         setMonth(item.month)
                         setYear(item.year)
+                        setStartDate(item.start_date ?? '')
+                        setEndDate(item.end_date ?? '')
+                        setDatesManuallySet(true)
+                        setDiscountMode(item.discount_mode)
+                        setDiscountModeManuallySet(true)
+                        setExclusionsEdited(false)
                       }}
                     >
                       <td className="px-4 py-3">

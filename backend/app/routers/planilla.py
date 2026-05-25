@@ -450,8 +450,61 @@ def get_planilla_detail(
             excluded_days=effective_exclusions,
         )
 
+        # Check if there is a stored planilla with potential admin overrides
+        stored = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc())
+            .first()
+        )
+
+        stored_overrides: dict[str, float] = {}
+        if stored is not None and stored.payment_overrides_json:
+            stored_overrides = stored.payment_overrides_json
+
+        def normalize_exclusions(items) -> list[dict]:
+            normalized = []
+            for item in items or []:
+                try:
+                    normalized.append(ExcludedDaySchema.model_validate(item).model_dump(mode="json", exclude_none=True))
+                except Exception:
+                    return []
+            return sorted(normalized, key=lambda item: json.dumps(item, sort_keys=True))
+
+        dates_match = stored is not None and stored.start_date == start_date and stored.end_date == end_date
+        exclusions_match = stored is not None and normalize_exclusions(effective_exclusions) == normalize_exclusions(stored.excluded_days_json)
+        overrides_match_request = (
+            stored is not None
+            and bool(stored_overrides)
+            and dates_match
+            and stored.discount_mode == discount_mode
+            and exclusions_match
+        )
+
+        resolved_payments: dict[str, float] = {}
+        if overrides_match_request:
+            rows_by_teacher: dict[str, list] = {}
+            for row in rows:
+                rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
+
+            teacher_allocations: dict[str, dict[int, float]] = {}
+            for teacher_ci, teacher_rows in rows_by_teacher.items():
+                allocations = generator._get_teacher_override_allocations(teacher_rows, stored_overrides)
+                if allocations is not None:
+                    teacher_allocations[teacher_ci] = allocations
+
+            for row in rows:
+                row_key = f"{row.teacher_ci}:{row.designation_id}"
+                allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+                if allocation is not None:
+                    resolved_payments[row_key] = float(allocation)
+                elif row_key in stored_overrides:
+                    resolved_payments[row_key] = float(stored_overrides[row_key])
+
         detail = []
         for row in rows:
+            row_key = f"{row.teacher_ci}:{row.designation_id}"
+            effective_payment = resolved_payments.get(row_key, row.final_payment)
             detail.append({
                 "teacher_ci": row.teacher_ci,
                 "teacher_name": row.teacher_name,
@@ -462,10 +515,10 @@ def get_planilla_detail(
                 "absent_hours": row.absent_hours,
                 "payable_hours": row.payable_hours,
                 "rate_per_hour": row.rate_per_hour,
-                "calculated_payment": row.calculated_payment,
+                "calculated_payment": effective_payment,
                 "has_retention": row.has_retention,
                 "retention_amount": row.retention_amount,
-                "final_payment": row.final_payment,
+                "final_payment": effective_payment,
                 "has_biometric": row.has_biometric,
                 "late_count": row.late_count,
                 "absent_count": row.absent_count,
@@ -493,25 +546,17 @@ def get_planilla_detail(
             teacher_totals[ci]["total_base_hours"] += row.base_monthly_hours
             teacher_totals[ci]["total_absent_hours"] += row.absent_hours
             teacher_totals[ci]["total_payable_hours"] += row.payable_hours
-            teacher_totals[ci]["total_payment"] += row.calculated_payment
+            row_key = f"{row.teacher_ci}:{row.designation_id}"
+            effective_payment = resolved_payments.get(row_key, row.final_payment)
+            teacher_totals[ci]["total_payment"] += effective_payment
             teacher_totals[ci]["retention_amount"] += row.retention_amount
-            teacher_totals[ci]["final_payment"] += row.final_payment
+            teacher_totals[ci]["final_payment"] += effective_payment
             teacher_totals[ci]["designation_count"] += 1
-
-        # Check if there is a stored planilla with potential admin overrides
-        stored = (
-            db.query(PlanillaOutput)
-            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-            .order_by(PlanillaOutput.generated_at.desc())
-            .first()
-        )
 
         computed_total = sum(r.final_payment for r in rows)
 
-        # Use stored planilla total ONLY for full-month requests (no date filter)
-        # AND only when the stored planilla's discount_mode matches the requested one.
-        # Otherwise the stored total (which reflects the mode it was generated with)
-        # would be shown on top of rows computed in a different mode.
+        # Use stored planilla total only when the preview represents the same
+        # generated planilla and stored overrides have been applied to rows.
         is_full_month = start_date is None and end_date is None
         stored_mode = stored.discount_mode if stored is not None else None
         use_stored = (
@@ -519,7 +564,7 @@ def get_planilla_detail(
             and is_full_month
             and stored_mode == discount_mode
             and not exclusions_overridden
-        )
+        ) or overrides_match_request
 
         response: dict = {
             "month": month,
