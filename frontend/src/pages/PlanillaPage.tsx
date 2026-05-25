@@ -4,15 +4,24 @@ import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSala
 import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { api } from '@/api/client'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
+import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
   5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
+
+type ExclusionRow = ExcludedDay & {
+  subjectSelections?: DesignationOption[]
+}
+
+function getSubjectOptionKey(option: DesignationOption): string {
+  return `${option.subject}||${option.group_code}||${option.semester}`
 }
 
 function formatDate(dateStr: string): string {
@@ -48,8 +57,10 @@ export function PlanillaPage() {
   const [overrideValue, setOverrideValue] = useState('')
 
   // Exclusion days state
-  const [excludedDays, setExcludedDays] = useState<ExcludedDay[]>([])
+  const [excludedDays, setExcludedDays] = useState<ExclusionRow[]>([])
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
+  const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
+  const [designationOptionsLoading, setDesignationOptionsLoading] = useState(false)
 
   // Salary report download loading state (keyed by planilla id for history rows,
   // "current" for the main action bar). Using a map lets multiple rows spin
@@ -78,6 +89,16 @@ export function PlanillaPage() {
     }
   }, [bioRange, datesManuallySet, month, year])
 
+  useEffect(() => {
+    if (!exclusionPanelOpen) return
+
+    setDesignationOptionsLoading(true)
+    api.get<DesignationOptions>('/planilla/designation-options')
+      .then(res => setDesignationOptions(res.data))
+      .catch(() => setDesignationOptions({ subjects: [], semesters: [], groups: [] }))
+      .finally(() => setDesignationOptionsLoading(false))
+  }, [exclusionPanelOpen])
+
   const generatePlanilla = useGeneratePlanilla()
   const { data: history, isLoading: historyLoading } = usePlanillaHistory()
   const { data: publication } = usePublicationStatus(month, year)
@@ -101,6 +122,25 @@ export function PlanillaPage() {
 
   const handleGenerate = () => {
     setLastResult(null)
+    const expandedExcludedDays = excludedDays.flatMap<ExcludedDay>((row) => {
+      if (row.scope === 'subject') {
+        const selections = row.subjectSelections ?? []
+        return selections.map((selection) => ({
+          date: row.date,
+          scope: 'subject' as const,
+          subject_id: selection.subject,
+          group_id: selection.group_code,
+          reason: row.reason,
+        }))
+      }
+
+      if (row.scope === 'semester') {
+        return [{ date: row.date, scope: 'semester', semester_id: row.semester_id, reason: row.reason }]
+      }
+
+      return [{ date: row.date, scope: 'global', reason: row.reason }]
+    })
+
     generatePlanilla.mutate(
       {
         month,
@@ -109,7 +149,7 @@ export function PlanillaPage() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         discount_mode: effectiveDiscountMode,
-        excluded_days: excludedDays.length > 0 ? excludedDays : undefined,
+        excluded_days: expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined,
       },
       {
         onSuccess: (data) => setLastResult(data),
@@ -126,7 +166,7 @@ export function PlanillaPage() {
     setExcludedDays(prev => prev.filter((_, i) => i !== index))
   }
 
-  const updateExclusionRow = (index: number, patch: Partial<ExcludedDay>) => {
+  const updateExclusionRow = (index: number, patch: Partial<ExclusionRow>) => {
     setExcludedDays(prev =>
       prev.map((row, i) => {
         if (i !== index) return row
@@ -137,6 +177,9 @@ export function PlanillaPage() {
         }
         if (patch.scope === 'semester') {
           return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
+        }
+        if (patch.scope === 'subject') {
+          return { date: updated.date, scope: 'subject', subjectSelections: [], reason: updated.reason }
         }
         return updated
       })
@@ -400,40 +443,55 @@ export function PlanillaPage() {
                         {row.scope === 'semester' && (
                           <div className="flex flex-col gap-0.5">
                             <label className="text-xs text-gray-500 font-medium">Semestre <span className="text-red-400">*</span></label>
-                            <input
-                              type="text"
+                            <select
                               value={row.semester_id ?? ''}
                               onChange={e => updateExclusionRow(index, { semester_id: e.target.value || undefined })}
-                              placeholder={detail?.detail[0]?.semester ?? 'ej: 2024-I'}
                               className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-28"
-                            />
+                            >
+                              <option value="">Seleccionar</option>
+                              {designationOptions.semesters.map((semester) => (
+                                <option key={semester} value={semester}>{semester}</option>
+                              ))}
+                            </select>
                           </div>
                         )}
 
                         {/* Conditional: subject_id + group_id */}
                         {row.scope === 'subject' && (
-                          <>
-                            <div className="flex flex-col gap-0.5">
-                              <label className="text-xs text-gray-500 font-medium">Materia <span className="text-red-400">*</span></label>
-                              <input
-                                type="text"
-                                value={row.subject_id ?? ''}
-                                onChange={e => updateExclusionRow(index, { subject_id: e.target.value || undefined })}
-                                placeholder={detail?.detail[0]?.subject ?? 'ej: Matemática I'}
-                                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-36"
-                              />
+                          <div className="flex flex-col gap-1 min-w-[220px] max-w-sm flex-1">
+                            <label className="text-xs text-gray-500 font-medium">Materias y grupos <span className="text-red-400">*</span></label>
+                            <div className="max-h-36 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-1">
+                              {designationOptionsLoading ? (
+                                <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
+                              ) : designationOptions.subjects.length === 0 ? (
+                                <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
+                              ) : (
+                                designationOptions.subjects.map((option) => {
+                                  const optionKey = getSubjectOptionKey(option)
+                                  const checked = (row.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
+
+                                  return (
+                                    <label key={optionKey} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm text-gray-700 hover:bg-white cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          const current = row.subjectSelections ?? []
+                                          updateExclusionRow(index, {
+                                            subjectSelections: e.target.checked
+                                              ? [...current, option]
+                                              : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
+                                          })
+                                        }}
+                                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                      />
+                                      <span>{option.subject} ({option.group_code})</span>
+                                    </label>
+                                  )
+                                })
+                              )}
                             </div>
-                            <div className="flex flex-col gap-0.5">
-                              <label className="text-xs text-gray-500 font-medium">Grupo <span className="text-red-400">*</span></label>
-                              <input
-                                type="text"
-                                value={row.group_id ?? ''}
-                                onChange={e => updateExclusionRow(index, { group_id: e.target.value || undefined })}
-                                placeholder={detail?.detail[0]?.group_code ?? 'ej: A'}
-                                className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-20"
-                              />
-                            </div>
-                          </>
+                          </div>
                         )}
 
                         {/* Optional reason */}

@@ -319,6 +319,53 @@ def generate_salary_report(
         ) from exc
 
 
+@router.get("/planilla/designation-options")
+def get_designation_options(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return active-period designation values used by planilla filters."""
+    try:
+        active_period = app_settings_service.get_active_academic_period(db)
+
+        subject_rows = (
+            db.query(Designation.subject, Designation.group_code, Designation.semester)
+            .filter(Designation.academic_period == active_period)
+            .distinct()
+            .order_by(Designation.subject, Designation.group_code, Designation.semester)
+            .all()
+        )
+        semester_rows = (
+            db.query(Designation.semester)
+            .filter(Designation.academic_period == active_period)
+            .distinct()
+            .order_by(Designation.semester)
+            .all()
+        )
+        group_rows = (
+            db.query(Designation.group_code)
+            .filter(Designation.academic_period == active_period)
+            .distinct()
+            .order_by(Designation.group_code)
+            .all()
+        )
+
+        return {
+            "subjects": [
+                {"subject": subject, "group_code": group_code, "semester": semester}
+                for subject, group_code, semester in subject_rows
+            ],
+            "semesters": [semester for (semester,) in semester_rows],
+            "groups": [group_code for (group_code,) in group_rows],
+        }
+    except Exception as exc:
+        logger.exception("Failed to load designation options: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudieron obtener las opciones de designaciones",
+        ) from exc
+
+
 @router.get("/planilla/{month}/{year}/detail")
 def get_planilla_detail(
     month: int,

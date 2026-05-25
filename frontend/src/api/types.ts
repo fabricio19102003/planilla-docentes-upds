@@ -350,6 +350,18 @@ export interface ExcludedDay {
   reason?: string
 }
 
+export interface DesignationOption {
+  subject: string
+  group_code: string
+  semester: string
+}
+
+export interface DesignationOptions {
+  subjects: DesignationOption[]
+  semesters: string[]
+  groups: string[]
+}
+
 export interface GeneratePlanillaPayload {
   month: number
   year: number
