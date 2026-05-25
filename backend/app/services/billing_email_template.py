@@ -62,6 +62,7 @@ def render_billing_email_html(
         rate_per_hour=rate_per_hour,
         excluded_days=excluded_days or [],
     )
+    invoice_example = _render_invoice_example_html(row_list, month_name, year)
 
     return f"""<!doctype html>
 <html lang="es">
@@ -94,6 +95,7 @@ def render_billing_email_html(
             </tr>
           </tbody>
         </table>
+        {invoice_example}
       </main>
       <footer style="padding: 18px 24px; background: #f8fafc; border-top: 1px solid #d9e2ec; font-size: 12px; color: #4b5563;">
         <p style="margin: 0 0 8px;">Este es un mensaje generado automáticamente. Por favor, no responda a este correo.</p>
@@ -140,6 +142,8 @@ def render_billing_email_text(
     lines.extend(
         [
             f"TOTAL: {_format_money(total)}",
+            "",
+            *_render_invoice_example_text(row_list, month_name, year),
             "",
             "Este es un mensaje generado automáticamente.",
             "Gestión Humana: Lisseth, (+591) 69063028.",
@@ -210,6 +214,198 @@ def _render_context_lines_text(
     if lines:
         lines.append("")
     return lines
+
+
+def _render_invoice_example_html(rows: list[BillingEmailRow], month_name: str, year: int | str) -> str:
+    total = sum((_to_decimal(row.amount) for row in rows), Decimal("0"))
+    safe_month = escape(str(month_name).upper(), quote=True)
+    safe_year = escape(str(year), quote=True)
+    safe_date = escape(date.today().strftime("%d/%m/%Y"), quote=True)
+    invoice_rows: list[str] = []
+
+    for index, row in enumerate(rows, start=66):
+        amount = _to_decimal(row.amount)
+        safe_subject = escape(str(row.subject).upper(), quote=True)
+        description = (
+            "SERVICIOS PROFESIONALES DE DOCENCIA EN LA MATERIA DE "
+            f"{safe_subject} CORRESPONDIENTE AL MES DE {safe_month} DE {safe_year}"
+        )
+        invoice_rows.append(
+            "<tr>"
+            f"{_invoice_td(f'P{index}')}"
+            f"{_invoice_td('1.00', align='right')}"
+            f"{_invoice_td('Unidad (Servicios)')}"
+            f"{_invoice_td_html(description)}"
+            f"{_invoice_td(_format_invoice_amount(amount), align='right', monospace=True)}"
+            f"{_invoice_td('0.00', align='right', monospace=True)}"
+            f"{_invoice_td(_format_invoice_amount(amount), align='right', monospace=True)}"
+            "</tr>"
+        )
+
+    total_amount = _format_invoice_amount(total)
+    total_words = escape(_number_to_spanish_words(int(total)).upper(), quote=True)
+    cents = int((total.quantize(Decimal("0.01")) * 100) % 100)
+
+    return f"""
+        <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid #d9e2ec;">
+          <p style="margin: 0 0 6px; font-size: 16px; font-weight: 700; color: #003366;">Ejemplo de facturaci&oacute;n</p>
+          <p style="margin: 0 0 12px; font-size: 13px; color: #4b5563;">A continuaci&oacute;n se muestra un ejemplo de c&oacute;mo debe realizar su factura. Este es un ejemplo orientativo.</p>
+          <div style="max-width: 100%; overflow-x: auto;">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; border: 1px solid #333; font-family: 'Courier New', Courier, monospace; font-size: 11px; color: #111; background: #ffffff;">
+              <tbody>
+                <tr>
+                  <td style="padding: 14px 12px 8px; border: 1px solid #333; text-align: center;" colspan="7">
+                    <div style="font-size: 16px; font-weight: 700; letter-spacing: 0.4px;">FACTURA DE VENTA DE ZONA FRANCA</div>
+                    <div style="font-size: 12px; margin-top: 3px;">(Sin Derecho a Cr&eacute;dito Fiscal)</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 12px; border: 1px solid #333;" colspan="7">
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; font-family: 'Courier New', Courier, monospace; font-size: 11px;">
+                      <tr>
+                        <td style="padding: 2px 0; width: 58%;"><strong>Fecha:</strong> {safe_date}</td>
+                        <td style="padding: 2px 0;"><strong>NIT/CI/CEX:</strong> 456850023</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 2px 0;"><strong>Nombre/Raz&oacute;n Social:</strong> UNIPANDO S.R.L.</td>
+                        <td style="padding: 2px 0;"><strong>Cod. Cliente:</strong> 456850023</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 2px 0;">&nbsp;</td>
+                        <td style="padding: 2px 0;"><strong>Nro. Parte Recepci&oacute;n:</strong> ---</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr style="background: #333; color: #ffffff;">
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: left;">C&Oacute;DIGO PRODUCTO</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: right;">CANTIDAD</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: left;">UNIDAD DE MEDIDA</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: left;">DESCRIPCI&Oacute;N</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: right;">PRECIO UNITARIO</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: right;">DESCUENTO</th>
+                  <th style="padding: 7px 6px; border: 1px solid #333; text-align: right;">SUBTOTAL</th>
+                </tr>
+                {''.join(invoice_rows)}
+                {_invoice_total_row('SUBTOTAL Bs', total_amount)}
+                {_invoice_total_row('DESCUENTO Bs', '0.00')}
+                {_invoice_total_row('TOTAL Bs', total_amount, bold=True)}
+                {_invoice_total_row('MONTO GIFT CARD Bs', '0.00')}
+                {_invoice_total_row('MONTO A PAGAR Bs', total_amount, bold=True)}
+                <tr>
+                  <td style="padding: 10px 6px; border: 1px solid #ddd;" colspan="7"><strong>Son:</strong> {total_words} {cents:02d}/100 Bolivianos</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>"""
+
+
+def _render_invoice_example_text(rows: list[BillingEmailRow], month_name: str, year: int | str) -> list[str]:
+    total = sum((_to_decimal(row.amount) for row in rows), Decimal("0"))
+    total_amount = _format_invoice_amount(total)
+    cents = int((total.quantize(Decimal("0.01")) * 100) % 100)
+    lines = [
+        "Ejemplo de facturación",
+        "Este es un ejemplo orientativo de cómo debe realizar su factura.",
+        "FACTURA DE VENTA DE ZONA FRANCA",
+        "(Sin Derecho a Crédito Fiscal)",
+        f"Fecha: {date.today().strftime('%d/%m/%Y')}",
+        "Nombre/Razón Social: UNIPANDO S.R.L. | NIT/CI/CEX: 456850023",
+        "Cod. Cliente: 456850023 | Nro. Parte Recepción: ---",
+        "CÓDIGO PRODUCTO | CANTIDAD | UNIDAD DE MEDIDA | DESCRIPCIÓN | PRECIO UNITARIO | DESCUENTO | SUBTOTAL",
+    ]
+
+    for index, row in enumerate(rows, start=66):
+        amount = _to_decimal(row.amount)
+        description = (
+            "SERVICIOS PROFESIONALES DE DOCENCIA EN LA MATERIA DE "
+            f"{str(row.subject).upper()} CORRESPONDIENTE AL MES DE {str(month_name).upper()} DE {year}"
+        )
+        lines.append(
+            f"P{index} | 1.00 | Unidad (Servicios) | {description} | "
+            f"{_format_invoice_amount(amount)} | 0.00 | {_format_invoice_amount(amount)}"
+        )
+
+    lines.extend(
+        [
+            f"SUBTOTAL Bs {total_amount}",
+            "DESCUENTO Bs 0.00",
+            f"TOTAL Bs {total_amount}",
+            "MONTO GIFT CARD Bs 0.00",
+            f"MONTO A PAGAR Bs {total_amount}",
+            f"Son: {_number_to_spanish_words(int(total)).upper()} {cents:02d}/100 Bolivianos",
+        ]
+    )
+    return lines
+
+
+def _invoice_td(value: object, *, align: str = "left", monospace: bool = False) -> str:
+    font = " font-family: 'Courier New', Courier, monospace;" if monospace else ""
+    return (
+        f'<td style="padding: 7px 6px; border: 1px solid #ddd; text-align: {align};{font}">'
+        f"{escape(str(value), quote=True)}</td>"
+    )
+
+
+def _invoice_td_html(value: str) -> str:
+    return f'<td style="padding: 7px 6px; border: 1px solid #ddd; text-align: left; line-height: 1.35;">{value}</td>'
+
+
+def _invoice_total_row(label: str, amount: str, *, bold: bool = False) -> str:
+    weight = "700" if bold else "400"
+    cells = "".join('<td style="padding: 5px 6px; border: 1px solid #ddd;"></td>' for _ in range(5))
+    return (
+        "<tr>"
+        f"{cells}"
+        f'<td style="padding: 5px 6px; border: 1px solid #ddd; text-align: right; font-weight: {weight};">{escape(label, quote=True)}</td>'
+        f'<td style="padding: 5px 6px; border: 1px solid #ddd; text-align: right; font-family: \'Courier New\', Courier, monospace; font-weight: {weight};">{escape(amount, quote=True)}</td>'
+        "</tr>"
+    )
+
+
+def _format_invoice_amount(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}"
+
+
+def _number_to_spanish_words(value: int) -> str:
+    if value == 0:
+        return "cero"
+    if value < 0:
+        return f"menos {_number_to_spanish_words(abs(value))}"
+
+    units = [
+        "", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+        "diez", "once", "doce", "trece", "catorce", "quince", "dieciseis", "diecisiete", "dieciocho", "diecinueve",
+    ]
+    tens = {20: "veinte", 30: "treinta", 40: "cuarenta", 50: "cincuenta", 60: "sesenta", 70: "setenta", 80: "ochenta", 90: "noventa"}
+    hundreds = {100: "cien", 200: "doscientos", 300: "trescientos", 400: "cuatrocientos", 500: "quinientos", 600: "seiscientos", 700: "setecientos", 800: "ochocientos", 900: "novecientos"}
+
+    if value < 20:
+        return units[value]
+    if value < 30:
+        return "veinti" + units[value - 20]
+    if value < 100:
+        ten = value // 10 * 10
+        unit = value % 10
+        return tens[ten] if unit == 0 else f"{tens[ten]} y {units[unit]}"
+    if value < 1000:
+        hundred = value // 100 * 100
+        rest = value % 100
+        if rest == 0:
+            return hundreds[hundred]
+        prefix = "ciento" if hundred == 100 else hundreds[hundred]
+        return f"{prefix} {_number_to_spanish_words(rest)}"
+    if value < 1_000_000:
+        thousands = value // 1000
+        rest = value % 1000
+        prefix = "mil" if thousands == 1 else f"{_number_to_spanish_words(thousands)} mil"
+        return prefix if rest == 0 else f"{prefix} {_number_to_spanish_words(rest)}"
+
+    millions = value // 1_000_000
+    rest = value % 1_000_000
+    prefix = "un millon" if millions == 1 else f"{_number_to_spanish_words(millions)} millones"
+    return prefix if rest == 0 else f"{prefix} {_number_to_spanish_words(rest)}"
 
 
 def _excluded_day_items(excluded_days: list[dict]) -> list[str]:

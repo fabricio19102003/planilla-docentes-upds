@@ -53,6 +53,47 @@ def test_template_renders_fixed_headers_zebra_rows_and_exact_total():
     assert "color: #d93025;\" colspan=\"2\">Bs 600.30</td>" in html
 
 
+def test_template_renders_invoice_example_from_designations():
+    rows = [
+        BillingEmailRow("Bioquímica", Decimal("100.10"), "A", "1"),
+        BillingEmailRow("Anatomía <b>", Decimal("200.20"), "B", "2"),
+    ]
+
+    html = render_billing_email_html(
+        docente_name="Docente UPDS",
+        month_name="Mayo",
+        year=2026,
+        rows=rows,
+    )
+    text = render_billing_email_text(
+        docente_name="Docente UPDS",
+        month_name="Mayo",
+        year=2026,
+        rows=rows,
+    )
+
+    assert html.index("Ejemplo de facturaci") > html.index("TOTAL:")
+    assert "FACTURA DE VENTA DE ZONA FRANCA" in html
+    assert "Este es un ejemplo orientativo" in html
+    assert "Nombre/Raz&oacute;n Social:</strong> UNIPANDO S.R.L." in html
+    assert "NIT/CI/CEX:</strong> 456850023" in html
+    assert "P66" in html
+    assert "P67" in html
+    assert "SERVICIOS PROFESIONALES DE DOCENCIA EN LA MATERIA DE BIOQU" in html
+    assert "SERVICIOS PROFESIONALES DE DOCENCIA EN LA MATERIA DE ANATOM" in html
+    assert "&lt;B&gt;" in html
+    assert "CORRESPONDIENTE AL MES DE MAYO DE 2026" in html
+    assert "MONTO A PAGAR Bs" in html
+    assert "300.30" in html
+    assert "TRESCIENTOS 30/100 Bolivianos" in html
+    assert "<b>" not in html
+
+    assert "Ejemplo de facturación" in text
+    assert "P66 | 1.00 | Unidad (Servicios)" in text
+    assert "P67 | 1.00 | Unidad (Servicios)" in text
+    assert "MONTO A PAGAR Bs 300.30" in text
+
+
 def test_template_rejects_invalid_amounts():
     with pytest.raises(ValueError, match="Invalid billing amount"):
         render_billing_email_html(
