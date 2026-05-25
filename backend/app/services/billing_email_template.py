@@ -165,16 +165,16 @@ def _render_context_box_html(
     lines: list[str] = []
     if start_date and end_date:
         lines.append(
-            f"&#9654; <strong>Per&iacute;odo de corte:</strong> {escape(_format_date(start_date), quote=True)} al {escape(_format_date(end_date), quote=True)}"
+            f"&#128197; <strong>Per&iacute;odo de corte:</strong> {escape(_format_date(start_date), quote=True)} al {escape(_format_date(end_date), quote=True)}"
         )
     if rate_per_hour is not None:
-        lines.append(f"&#9654; <strong>Tarifa por hora acad&eacute;mica:</strong> {escape(_format_money(_to_decimal(rate_per_hour)), quote=True)}")
+        lines.append(f"&#128176; <strong>Tarifa por hora acad&eacute;mica:</strong> {escape(_format_money(_to_decimal(rate_per_hour)), quote=True)}")
 
     excluded_items = _excluded_day_items(excluded_days)
     if excluded_items:
         items = "".join(f"<li style=\"margin: 4px 0;\">{escape(item, quote=True)}</li>" for item in excluded_items)
         lines.append(
-            "&#9654; <strong>D&iacute;as no trabajados que aplican a sus materias:</strong>"
+            "&#128203; <strong>D&iacute;as no trabajados que aplican a sus materias:</strong>"
             f"<ul style=\"margin: 8px 0 0 18px; padding: 0;\">{items}</ul>"
         )
 
