@@ -925,6 +925,147 @@ export function PlanillaPage() {
         </div>
       )}
 
+      {/* History */}
+      <div className="card-3d-static overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
+            <History size={16} className="text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
+            <p className="text-xs text-gray-500">
+              {history ? `${history.length} planilla(s) generada(s)` : 'Cargando...'}
+            </p>
+          </div>
+        </div>
+        <div className="p-0">
+          {historyLoading ? (
+            <div className="p-5">
+              <LoadingPage />
+            </div>
+          ) : !history || history.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              No hay planillas generadas aún
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
+                    {['Período', 'Corte', 'Generada el', 'Docentes', 'Horas', 'Total (Bs)', 'Estado', 'Descarga'].map(h => (
+                      <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((item, i) => (
+                    <tr
+                      key={item.id}
+                      className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
+                      onClick={() => {
+                        restoringHistoryRef.current = item.month !== month || item.year !== year
+                        setMonth(item.month)
+                        setYear(item.year)
+                        setStartDate(item.start_date ?? '')
+                        setEndDate(item.end_date ?? '')
+                        setDatesManuallySet(true)
+                        setDiscountMode(item.discount_mode)
+                        setDiscountModeManuallySet(true)
+                        setExclusionsEdited(false)
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Calendar size={14} className="text-[#0066CC] flex-shrink-0" />
+                          <span className="font-semibold text-gray-800">{MONTH_NAMES[item.month]} {item.year}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                        {item.start_date && item.end_date
+                          ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
+                          : <span className="text-gray-300">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(item.generated_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-gray-700 font-medium">
+                          <Users size={13} className="text-gray-400" />
+                          {item.total_teachers}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
+                      <td className="px-4 py-3">
+                        <span className="font-bold" style={{ color: '#003366' }}>
+                          {parseFloat(item.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          className={
+                            item.status?.toLowerCase() === 'approved'
+                              ? 'bg-green-100 text-green-700 text-xs'
+                              : item.status?.toLowerCase() === 'rejected'
+                                ? 'bg-red-100 text-red-700 text-xs'
+                                : 'bg-yellow-100 text-yellow-700 text-xs'
+                          }
+                        >
+                          {item.status?.toLowerCase() === 'approved'
+                            ? 'Aprobada'
+                            : item.status?.toLowerCase() === 'rejected'
+                              ? 'Rechazada'
+                              : 'Pend. Aprobación'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {item.file_path ? (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
+                            >
+                              <Download size={12} />
+                              Excel
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const key = `row-${item.id}`
+                                setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
+                                try {
+                                  await downloadSalaryReport({
+                                    month: item.month,
+                                    year: item.year,
+                                    discount_mode: item.discount_mode,
+                                  })
+                                } finally {
+                                  setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
+                                }
+                              }}
+                              disabled={salaryReportLoading[`row-${item.id}`]}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-green-700 hover:bg-green-50 border border-green-600/30 text-xs font-medium transition-colors disabled:opacity-50"
+                            >
+                              {salaryReportLoading[`row-${item.id}`]
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <FileSpreadsheet size={12} />}
+                              Salarios
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 text-xs">No disponible</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Approval Status — show when there is a planilla for this period */}
       {planillaStatus && (
         <div className="card-3d-static overflow-hidden">
@@ -1166,6 +1307,40 @@ export function PlanillaPage() {
                     </div>
                   )}
 
+                  {isBillingPublished && selectedTeachers.size > 0 && (
+                    <div className="sticky bottom-4 z-10 rounded-xl border border-[#0066CC]/30 bg-[#003366] px-4 py-3 text-white shadow-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm font-semibold">
+                          {selectedTeachers.size} docente(s) seleccionado(s)
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            onClick={handleSendSelectedBillingEmails}
+                            disabled={sendBillingEmails.isPending}
+                            className="gap-2 bg-white text-[#003366] hover:bg-blue-50"
+                          >
+                            {sendBillingEmails.isPending ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Mail size={16} />
+                            )}
+                            Enviar correo
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setSelectedTeachers(new Set())}
+                            disabled={sendBillingEmails.isPending}
+                            className="border-white/40 text-white hover:bg-white/10 hover:text-white"
+                          >
+                            Limpiar selección
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {visibleTeacherTotals.map(teacher => (
                       <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
                         {/* Teacher header */}
@@ -1332,39 +1507,6 @@ export function PlanillaPage() {
                       </div>
                     ))}
 
-                  {isBillingPublished && selectedTeachers.size > 0 && (
-                    <div className="sticky bottom-4 z-10 rounded-xl border border-[#0066CC]/30 bg-[#003366] px-4 py-3 text-white shadow-lg">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm font-semibold">
-                          {selectedTeachers.size} docente(s) seleccionado(s)
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            onClick={handleSendSelectedBillingEmails}
-                            disabled={sendBillingEmails.isPending}
-                            className="gap-2 bg-white text-[#003366] hover:bg-blue-50"
-                          >
-                            {sendBillingEmails.isPending ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              <Mail size={16} />
-                            )}
-                            Enviar correo
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setSelectedTeachers(new Set())}
-                            disabled={sendBillingEmails.isPending}
-                            className="border-white/40 text-white hover:bg-white/10 hover:text-white"
-                          >
-                            Limpiar selección
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1430,146 +1572,6 @@ export function PlanillaPage() {
         </div>
       </div>
 
-      {/* History */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-            <History size={16} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
-            <p className="text-xs text-gray-500">
-              {history ? `${history.length} planilla(s) generada(s)` : 'Cargando...'}
-            </p>
-          </div>
-        </div>
-        <div className="p-0">
-          {historyLoading ? (
-            <div className="p-5">
-              <LoadingPage />
-            </div>
-          ) : !history || history.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              No hay planillas generadas aún
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                    {['Período', 'Corte', 'Generada el', 'Docentes', 'Horas', 'Total (Bs)', 'Estado', 'Descarga'].map(h => (
-                      <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((item, i) => (
-                    <tr
-                      key={item.id}
-                      className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
-                      onClick={() => {
-                        restoringHistoryRef.current = item.month !== month || item.year !== year
-                        setMonth(item.month)
-                        setYear(item.year)
-                        setStartDate(item.start_date ?? '')
-                        setEndDate(item.end_date ?? '')
-                        setDatesManuallySet(true)
-                        setDiscountMode(item.discount_mode)
-                        setDiscountModeManuallySet(true)
-                        setExclusionsEdited(false)
-                      }}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-[#0066CC] flex-shrink-0" />
-                          <span className="font-semibold text-gray-800">{MONTH_NAMES[item.month]} {item.year}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
-                        {item.start_date && item.end_date
-                          ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
-                          : <span className="text-gray-300">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(item.generated_at)}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 text-gray-700 font-medium">
-                          <Users size={13} className="text-gray-400" />
-                          {item.total_teachers}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
-                      <td className="px-4 py-3">
-                        <span className="font-bold" style={{ color: '#003366' }}>
-                          {parseFloat(item.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          className={
-                            item.status?.toLowerCase() === 'approved'
-                              ? 'bg-green-100 text-green-700 text-xs'
-                              : item.status?.toLowerCase() === 'rejected'
-                                ? 'bg-red-100 text-red-700 text-xs'
-                                : 'bg-yellow-100 text-yellow-700 text-xs'
-                          }
-                        >
-                          {item.status?.toLowerCase() === 'approved'
-                            ? 'Aprobada'
-                            : item.status?.toLowerCase() === 'rejected'
-                              ? 'Rechazada'
-                              : 'Pend. Aprobación'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.file_path ? (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
-                              }}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
-                            >
-                              <Download size={12} />
-                              Excel
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                const key = `row-${item.id}`
-                                setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
-                                try {
-                                  await downloadSalaryReport({
-                                    month: item.month,
-                                    year: item.year,
-                                    discount_mode: item.discount_mode,
-                                  })
-                                } finally {
-                                  setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
-                                }
-                              }}
-                              disabled={salaryReportLoading[`row-${item.id}`]}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-green-700 hover:bg-green-50 border border-green-600/30 text-xs font-medium transition-colors disabled:opacity-50"
-                            >
-                              {salaryReportLoading[`row-${item.id}`]
-                                ? <Loader2 size={12} className="animate-spin" />
-                                : <FileSpreadsheet size={12} />}
-                              Salarios
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-gray-300 text-xs">No disponible</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

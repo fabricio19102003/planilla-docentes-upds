@@ -32,6 +32,13 @@ class ResendEmailTransport:
     def send_email(self, message: EmailMessage) -> EmailSendResult:
         """Send one email through Resend and map errors to safe results."""
 
+        logger.info(
+            "Resend send_email: to=%s subject=%s html_len=%d text_len=%d",
+            message.to, message.subject,
+            len(message.html) if message.html else 0,
+            len(message.text) if message.text else 0,
+        )
+
         payload: dict[str, Any] = {
             "from": self.from_email,
             "to": [message.to],
