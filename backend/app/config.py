@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     RESEND_API_URL: str = "https://api.resend.com"
     EMAIL_TIMEOUT_SECONDS: float = 3.0
 
+    # Test mode — redirects ALL outbound emails to a single recipient.
+    # When enabled, only ONE email is sent (first eligible docente) to verify
+    # the email flow without spamming real docentes.
+    EMAIL_TEST_MODE: bool = False
+    EMAIL_TEST_RECIPIENT: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

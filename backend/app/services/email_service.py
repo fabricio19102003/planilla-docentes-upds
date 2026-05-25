@@ -100,10 +100,26 @@ class EmailService:
             self._log_batch_result(result, reason="missing_provider_config")
             return result
 
+        # ── Test mode: redirect ALL emails to a single test recipient ────
+        test_mode = getattr(self.settings, "EMAIL_TEST_MODE", False)
+        test_recipient_email = getattr(self.settings, "EMAIL_TEST_RECIPIENT", None) if test_mode else None
+        if test_mode and not test_recipient_email:
+            self.logger.warning("EMAIL_TEST_MODE is enabled but EMAIL_TEST_RECIPIENT is not set — skipping all emails")
+            result = EmailBatchResult(skipped=len(docente_users))
+            self._log_batch_result(result, reason="test_mode_no_recipient")
+            return result
+
+        if test_mode:
+            self.logger.info(
+                "EMAIL_TEST_MODE active — sending ONE test email to %s (simulating %d docentes)",
+                test_recipient_email, len(docente_users),
+            )
+
         transport = self._get_transport()
         snapshot_by_ci = self._snapshot_details_by_ci(publication)
         attempts: list[EmailAttemptResult] = []
         eligible = sent = failed = skipped = 0
+        test_email_sent = False  # Only send one email in test mode
 
         for user in docente_users:
             recipient = self._resolve_recipient(user)
@@ -131,12 +147,30 @@ class EmailService:
                 continue
 
             eligible += 1
+
+            # In test mode, send only ONE email to the test recipient
+            if test_mode:
+                if test_email_sent:
+                    skipped += 1
+                    attempts.append(EmailAttemptResult(recipient=recipient, status="skipped", error="test_mode_already_sent"))
+                    continue
+                # Override recipient email to test address
+                recipient = EmailRecipient(
+                    user_id=recipient.user_id,
+                    name=f"[TEST] {recipient.name}",
+                    email=test_recipient_email,
+                    teacher_ci=recipient.teacher_ci,
+                )
+
             message = self._build_billing_message(publication, recipient, rows)
             try:
                 send_result = transport.send_email(message)
             except Exception as exc:  # pragma: no cover - defensive boundary tested via behavior
                 self.logger.exception("Billing email transport raised for user_id=%s: %s", recipient.user_id, exc)
                 send_result = EmailSendResult(status="failed", error=str(exc))
+
+            if test_mode and send_result.status == "sent":
+                test_email_sent = True
 
             if send_result.status == "sent":
                 sent += 1
