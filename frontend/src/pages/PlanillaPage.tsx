@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, Plus, Trash2, CalendarOff } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, Plus, Trash2, CalendarOff, Mail } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
-import { usePublicationStatus, usePublishBilling, useUnpublishBilling } from '@/api/hooks/useBillingPublication'
+import { usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { api } from '@/api/client'
@@ -146,6 +146,7 @@ export function PlanillaPage() {
   const [showDetail] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
+  const [selectedTeachers, setSelectedTeachers] = useState<Set<string>>(() => new Set())
   const [discountMode, setDiscountMode] = useState<'attendance' | 'full'>('attendance')
   const [discountModeManuallySet, setDiscountModeManuallySet] = useState(false)
 
@@ -245,8 +246,66 @@ export function PlanillaPage() {
   const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, previewExclusions)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
+  const sendBillingEmails = useSendBillingEmails()
   const approvePlanilla = useApprovePlanilla()
   const rejectPlanilla = useRejectPlanilla()
+
+  const isBillingPublished = publication?.status === 'published'
+  const visibleTeacherTotals = detail?.teacher_totals
+    .filter(t => {
+      if (!searchTerm) return true
+      const term = searchTerm.toLowerCase()
+      return t.teacher_name.toLowerCase().includes(term) || t.teacher_ci.includes(term)
+    })
+    .sort((a, b) => b.total_payment - a.total_payment) ?? []
+  const allVisibleTeachersSelected = visibleTeacherTotals.length > 0 && visibleTeacherTotals.every(t => selectedTeachers.has(t.teacher_ci))
+
+  useEffect(() => {
+    if (!isBillingPublished) {
+      setSelectedTeachers(new Set())
+    }
+  }, [isBillingPublished, month, year])
+
+  const toggleTeacherSelection = (teacherCi: string) => {
+    setSelectedTeachers(prev => {
+      const next = new Set(prev)
+      if (next.has(teacherCi)) {
+        next.delete(teacherCi)
+      } else {
+        next.add(teacherCi)
+      }
+      return next
+    })
+  }
+
+  const toggleAllVisibleTeachers = () => {
+    setSelectedTeachers(prev => {
+      const next = new Set(prev)
+      if (allVisibleTeachersSelected) {
+        visibleTeacherTotals.forEach(t => next.delete(t.teacher_ci))
+      } else {
+        visibleTeacherTotals.forEach(t => next.add(t.teacher_ci))
+      }
+      return next
+    })
+  }
+
+  const handleSendSelectedBillingEmails = () => {
+    if (selectedTeachers.size === 0) return
+
+    sendBillingEmails.mutate(
+      { month, year, teacher_cis: Array.from(selectedTeachers) },
+      {
+        onSuccess: (result) => {
+          alert(`Correos enviados: ${result.sent}. Fallidos: ${result.failed}. Omitidos: ${result.skipped}.`)
+          setSelectedTeachers(new Set())
+        },
+        onError: () => {
+          alert('No se pudieron enviar los correos seleccionados. Intentá nuevamente.')
+        },
+      },
+    )
+  }
 
   const handleGenerate = () => {
     // Validate exclusion rows before generating
@@ -1089,18 +1148,38 @@ export function PlanillaPage() {
               {/* Tab: Por Docente */}
               {detailTab === 'teachers' && (
                 <div className="space-y-3">
-                  {detail.teacher_totals
-                    .filter(t => {
-                      if (!searchTerm) return true
-                      const term = searchTerm.toLowerCase()
-                      return t.teacher_name.toLowerCase().includes(term) || t.teacher_ci.includes(term)
-                    })
-                    .sort((a, b) => b.total_payment - a.total_payment)
-                    .map(teacher => (
+                  {isBillingPublished && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#0066CC]/20 bg-blue-50/50 px-4 py-3">
+                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleTeachersSelected}
+                          onChange={toggleAllVisibleTeachers}
+                          disabled={visibleTeacherTotals.length === 0}
+                          className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
+                        />
+                        Seleccionar todos
+                      </label>
+                      <Badge className="bg-[#003366] text-white">
+                        {selectedTeachers.size} seleccionado(s)
+                      </Badge>
+                    </div>
+                  )}
+
+                  {visibleTeacherTotals.map(teacher => (
                       <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
                         {/* Teacher header */}
                         <div className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
                           <div className="flex items-center gap-3">
+                            {isBillingPublished && (
+                              <input
+                                type="checkbox"
+                                checked={selectedTeachers.has(teacher.teacher_ci)}
+                                onChange={() => toggleTeacherSelection(teacher.teacher_ci)}
+                                aria-label={`Seleccionar ${teacher.teacher_name}`}
+                                className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
+                              />
+                            )}
                             <div className="w-9 h-9 rounded-full gradient-stat-navy flex items-center justify-center">
                               <span className="text-white text-sm font-bold">{teacher.teacher_name.charAt(0)}</span>
                             </div>
@@ -1251,8 +1330,41 @@ export function PlanillaPage() {
                           }
                         </div>
                       </div>
-                    ))
-                  }
+                    ))}
+
+                  {isBillingPublished && selectedTeachers.size > 0 && (
+                    <div className="sticky bottom-4 z-10 rounded-xl border border-[#0066CC]/30 bg-[#003366] px-4 py-3 text-white shadow-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm font-semibold">
+                          {selectedTeachers.size} docente(s) seleccionado(s)
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            onClick={handleSendSelectedBillingEmails}
+                            disabled={sendBillingEmails.isPending}
+                            className="gap-2 bg-white text-[#003366] hover:bg-blue-50"
+                          >
+                            {sendBillingEmails.isPending ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Mail size={16} />
+                            )}
+                            Enviar correo
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setSelectedTeachers(new Set())}
+                            disabled={sendBillingEmails.isPending}
+                            className="border-white/40 text-white hover:bg-white/10 hover:text-white"
+                          >
+                            Limpiar selección
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

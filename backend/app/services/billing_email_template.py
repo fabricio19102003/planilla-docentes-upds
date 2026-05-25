@@ -198,13 +198,13 @@ def _render_context_lines_text(
 ) -> list[str]:
     lines: list[str] = []
     if start_date and end_date:
-        lines.append(f"* Periodo de corte: {_format_date(start_date)} al {_format_date(end_date)}")
+        lines.append(f"* Período de corte: {_format_date(start_date)} al {_format_date(end_date)}")
     if rate_per_hour is not None:
-        lines.append(f"* Tarifa por hora academica: {_format_money(_to_decimal(rate_per_hour))}")
+        lines.append(f"* Tarifa por hora académica: {_format_money(_to_decimal(rate_per_hour))}")
 
     excluded_items = _excluded_day_items(excluded_days)
     if excluded_items:
-        lines.append("* Dias no trabajados que aplican a sus materias:")
+        lines.append("* Días no trabajados que aplican a sus materias:")
         lines.extend(f"• {item}" for item in excluded_items)
 
     if lines:

@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
+from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
@@ -70,6 +71,47 @@ def test_publish_billing_survives_email_service_failure_and_keeps_notifications(
     assert notification.title == "Facturación Mayo 2026 publicada"
 
 
+def test_send_billing_emails_filters_selected_active_docentes(client, db_session, monkeypatch):
+    import app.routers.billing_publication as billing_publication_router
+
+    selected_docente = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
+    _seed_docente(db_session, ci="EMAIL-DOC-2", email="other@example.com")
+    _seed_docente(db_session, ci="EMAIL-DOC-INACTIVE", email="inactive@example.com", is_active=False)
+    _seed_publication(db_session)
+    sent_calls = []
+
+    class RecordingEmailService:
+        def send_billing_published(self, publication, docente_users):
+            sent_calls.append((publication, list(docente_users)))
+            return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
+
+    monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
+
+    response = client.post(
+        "/api/billing/send-emails",
+        json={"month": 5, "year": 2026, "teacher_cis": ["EMAIL-DOC-1", "EMAIL-DOC-INACTIVE"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"sent": 1, "failed": 0, "skipped": 0}
+    assert len(sent_calls) == 1
+    assert sent_calls[0][0].status == "published"
+    assert [user.id for user in sent_calls[0][1]] == [selected_docente.id]
+    assert sent_calls[0][1][0].teacher.email == "selected@example.com"
+
+
+def test_send_billing_emails_requires_published_publication(client, db_session):
+    _seed_publication(db_session, status="draft")
+
+    response = client.post(
+        "/api/billing/send-emails",
+        json={"month": 5, "year": 2026, "teacher_cis": ["EMAIL-DOC-1"]},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "La facturación no está publicada para este período"
+
+
 def _seed_approved_planilla(db_session):
     output = PlanillaOutput(
         month=5,
@@ -86,6 +128,31 @@ def _seed_approved_planilla(db_session):
     db_session.add(output)
     db_session.commit()
     return output
+
+
+def _seed_publication(db_session, *, status="published"):
+    publication = BillingPublication(
+        month=5,
+        year=2026,
+        status=status,
+        version=1,
+        total_teachers=1,
+        total_payment=Decimal("560.00"),
+        published_at=datetime(2026, 5, 31, 12, 0, 0) if status == "published" else None,
+        billing_snapshot={
+            "source": "planilla_output",
+            "teacher_details": [
+                {
+                    "teacher_ci": "EMAIL-DOC-1",
+                    "teacher_name": "Docente EMAIL-DOC-1",
+                    "designations": [{"subject": "Anatomía", "group": "A", "semester": "1", "payment": 560.0}],
+                }
+            ],
+        },
+    )
+    db_session.add(publication)
+    db_session.commit()
+    return publication
 
 
 def _seed_docente(db_session, *, ci: str, email: str, is_active: bool = True):

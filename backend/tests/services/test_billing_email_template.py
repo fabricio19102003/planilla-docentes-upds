@@ -98,5 +98,5 @@ def test_template_renders_context_sections_before_table():
     assert "30/Abr/2026" in html
     assert "Clase magistral de neurolog" in html
     assert "08/May/2026" in html
-    assert "Periodo de corte: 21/Abr/2026 al 20/May/2026" in text
-    assert "Tarifa por hora academica: Bs 70.00" in text
+    assert "Período de corte: 21/Abr/2026 al 20/May/2026" in text
+    assert "Tarifa por hora académica: Bs 70.00" in text

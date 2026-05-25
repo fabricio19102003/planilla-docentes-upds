@@ -57,3 +57,12 @@ export function useUnpublishBilling() {
     },
   })
 }
+
+export function useSendBillingEmails() {
+  return useMutation({
+    mutationFn: async (data: { month: number; year: number; teacher_cis: string[] }) => {
+      const res = await api.post<{ sent: number; failed: number; skipped: number }>('/billing/send-emails', data)
+      return res.data
+    },
+  })
+}

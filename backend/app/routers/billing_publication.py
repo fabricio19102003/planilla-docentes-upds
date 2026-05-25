@@ -48,6 +48,18 @@ class UnpublishRequest(BaseModel):
     year: int
 
 
+class SendBillingEmailsRequest(BaseModel):
+    month: int
+    year: int
+    teacher_cis: list[str]
+
+
+class SendBillingEmailsResponse(BaseModel):
+    sent: int
+    failed: int
+    skipped: int
+
+
 class PublicationResponse(BaseModel):
     id: int
     month: int
@@ -361,6 +373,68 @@ def publish_billing(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo publicar la facturación",
         ) from exc
+
+
+@router.post("/send-emails", response_model=SendBillingEmailsResponse)
+def send_billing_emails(
+    payload: SendBillingEmailsRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> SendBillingEmailsResponse:
+    """Send billing-published emails to selected active docentes."""
+    if not (1 <= payload.month <= 12):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mes inválido")
+    if payload.year < 2000 or payload.year > 2100:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Año inválido")
+
+    teacher_cis = [ci.strip() for ci in payload.teacher_cis if ci.strip()]
+    if not teacher_cis:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Seleccioná al menos un docente")
+
+    publication = (
+        db.query(BillingPublication)
+        .filter(BillingPublication.month == payload.month, BillingPublication.year == payload.year)
+        .first()
+    )
+    if publication is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No existe publicación para este mes/año",
+        )
+    if publication.status != "published":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La facturación no está publicada para este período",
+        )
+
+    docente_users = (
+        db.query(User)
+        .options(joinedload(User.teacher))
+        .filter(
+            User.role == "docente",
+            User.is_active == True,
+            User.teacher_ci.in_(teacher_cis),
+        )
+        .all()
+    )
+
+    email_result = EmailService().send_billing_published(publication, docente_users)
+    logger.info(
+        "Selective billing email step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
+        payload.month,
+        payload.year,
+        len(teacher_cis),
+        email_result.eligible,
+        email_result.sent,
+        email_result.failed,
+        email_result.skipped,
+    )
+
+    return SendBillingEmailsResponse(
+        sent=email_result.sent,
+        failed=email_result.failed,
+        skipped=email_result.skipped,
+    )
 
 
 @router.post("/unpublish", response_model=PublicationResponse)
