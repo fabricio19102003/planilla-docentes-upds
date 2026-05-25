@@ -303,10 +303,7 @@ export function Sidebar() {
         {collapsed ? (
           <span className="text-2xl font-black text-sky-400 drop-shadow-[0_0_8px_rgba(0,166,244,0.4)]">S</span>
         ) : (
-          <div className="flex flex-col">
-            <Logo size="md" />
-            <p className="text-white/60 text-xs mt-1 font-medium tracking-wide">SIPAD</p>
-          </div>
+          <Logo size="md" />
         )}
       </div>
 
