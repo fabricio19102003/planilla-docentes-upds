@@ -357,12 +357,23 @@ def get_designation_options(
             .all()
         )
 
+        # Sort semesters by logical order (PRIMERO=1, SEGUNDO=2, etc.)
+        semester_order = {
+            "PRIMERO": 1, "SEGUNDO": 2, "TERCERO": 3, "CUARTO": 4,
+            "QUINTO": 5, "SEXTO": 6, "SEPTIMO": 7, "OCTAVO": 8,
+            "NOVENO": 9, "DECIMO": 10,
+        }
+        sorted_semesters = sorted(
+            [semester for (semester,) in semester_rows],
+            key=lambda s: semester_order.get(s.upper(), 99),
+        )
+
         return {
             "subjects": [
                 {"subject": subject, "group_code": group_code, "semester": semester}
                 for subject, group_code, semester in subject_rows
             ],
-            "semesters": [semester for (semester,) in semester_rows],
+            "semesters": sorted_semesters,
             "groups": [group_code for (group_code,) in group_rows],
         }
     except Exception as exc:
