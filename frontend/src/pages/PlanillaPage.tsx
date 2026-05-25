@@ -101,6 +101,7 @@ export function PlanillaPage() {
 
   // Exclusion days state
   const [excludedDays, setExcludedDays] = useState<ExclusionRow[]>([])
+  const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: new Date().toISOString().slice(0, 10), scope: 'global' }))
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
   const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
   const [designationOptionsLoading, setDesignationOptionsLoading] = useState(false)
@@ -199,34 +200,46 @@ export function PlanillaPage() {
     )
   }
 
-  const addExclusionRow = () => {
+  const resetNewExclusion = () => {
     const today = new Date().toISOString().slice(0, 10)
-    setExcludedDays(prev => [...prev, { date: today, scope: 'global' }])
+    setNewExclusion({ date: today, scope: 'global' })
+  }
+
+  const addExclusionRow = () => {
+    if (!newExclusion.date) return
+    if (newExclusion.scope === 'semester' && !newExclusion.semester_id) return
+    if (newExclusion.scope === 'subject' && (!newExclusion.subjectSelections || newExclusion.subjectSelections.length === 0)) return
+
+    setExcludedDays(prev => [...prev, newExclusion])
+    resetNewExclusion()
   }
 
   const removeExclusionRow = (index: number) => {
     setExcludedDays(prev => prev.filter((_, i) => i !== index))
   }
 
-  const updateExclusionRow = (index: number, patch: Partial<ExclusionRow>) => {
-    setExcludedDays(prev =>
-      prev.map((row, i) => {
-        if (i !== index) return row
-        const updated = { ...row, ...patch }
-        // Clear scope-specific fields when scope changes
-        if (patch.scope === 'global') {
-          return { date: updated.date, scope: 'global', reason: updated.reason }
-        }
-        if (patch.scope === 'semester') {
-          return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
-        }
-        if (patch.scope === 'subject') {
-          return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
-        }
-        return updated
-      })
-    )
+  const updateNewExclusion = (patch: Partial<ExclusionRow>) => {
+    setNewExclusion(prev => {
+      const updated = { ...prev, ...patch }
+      // Clear scope-specific fields when scope changes
+      if (patch.scope === 'global') {
+        return { date: updated.date, scope: 'global', reason: updated.reason }
+      }
+      if (patch.scope === 'semester') {
+        return { date: updated.date, scope: 'semester', semester_id: updated.semester_id, reason: updated.reason }
+      }
+      if (patch.scope === 'subject') {
+        return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
+      }
+      return updated
+    })
   }
+
+  const canAddExclusion = Boolean(newExclusion.date) && (
+    newExclusion.scope === 'global' ||
+    (newExclusion.scope === 'semester' && Boolean(newExclusion.semester_id)) ||
+    (newExclusion.scope === 'subject' && Boolean(newExclusion.subjectSelections?.length))
+  )
 
   return (
     <div className="space-y-6">
@@ -447,175 +460,223 @@ export function PlanillaPage() {
 
             {exclusionPanelOpen && (
               <div className="px-4 pb-4 border-t border-gray-200">
-                {/* Exclusion list */}
-                {excludedDays.length === 0 ? (
-                  <p className="text-xs text-gray-400 py-3 text-center">
-                    No hay días excluidos. Agregá una regla para excluir fechas específicas.
-                  </p>
-                ) : (
-                  <div className="mt-3 space-y-2">
-                    {excludedDays.map((row, index) => (
-                      <div key={index} className="flex flex-wrap items-start gap-2 p-3 bg-white rounded-lg border border-purple-100">
-                        {/* Date */}
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-xs text-gray-500 font-medium">Fecha</label>
-                          <input
-                            type="date"
-                            value={row.date}
-                            onChange={e => updateExclusionRow(index, { date: e.target.value })}
-                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                          />
-                        </div>
+                {/* Add exclusion form */}
+                <form
+                  onSubmit={(e) => { e.preventDefault(); addExclusionRow() }}
+                  className="mt-3 rounded-lg border border-dashed border-purple-300 bg-white p-3"
+                >
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">Agregar exclusión</p>
+                      <p className="text-xs text-gray-500">Completá los datos y confirmá para enviarla a la lista.</p>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={!canAddExclusion}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+                    >
+                      <Plus size={14} />
+                      Agregar
+                    </button>
+                  </div>
 
-                        {/* Scope */}
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-xs text-gray-500 font-medium">Alcance</label>
-                          <select
-                            value={row.scope}
-                            onChange={e => updateExclusionRow(index, { scope: e.target.value as ExcludedDay['scope'] })}
-                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 min-w-[120px]"
-                          >
-                            <option value="global">Global</option>
-                            <option value="semester">Por semestre</option>
-                            <option value="subject">Por materia</option>
-                          </select>
-                        </div>
+                  <div className="flex flex-wrap items-start gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-xs text-gray-500 font-medium">Fecha <span className="text-red-400">*</span></label>
+                      <input
+                        type="date"
+                        value={newExclusion.date}
+                        onChange={e => updateNewExclusion({ date: e.target.value })}
+                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                        required
+                      />
+                    </div>
 
-                        {/* Conditional: semester_id */}
-                        {row.scope === 'semester' && (
-                          <div className="flex flex-col gap-0.5">
-                            <label className="text-xs text-gray-500 font-medium">Semestre <span className="text-red-400">*</span></label>
-                            <select
-                              value={row.semester_id ?? ''}
-                              onChange={e => updateExclusionRow(index, { semester_id: e.target.value || undefined })}
-                              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-28"
-                            >
-                              <option value="">Seleccionar</option>
-                              {designationOptions.semesters.map((semester) => (
-                                <option key={semester} value={semester}>{semester}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-xs text-gray-500 font-medium">Alcance</label>
+                      <select
+                        value={newExclusion.scope}
+                        onChange={e => updateNewExclusion({ scope: e.target.value as ExcludedDay['scope'] })}
+                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 min-w-[130px]"
+                      >
+                        <option value="global">Global</option>
+                        <option value="semester">Por semestre</option>
+                        <option value="subject">Por materia</option>
+                      </select>
+                    </div>
 
-                        {/* Conditional: subject_id + group_id */}
-                        {row.scope === 'subject' && (
-                          <div className="flex flex-col gap-2 min-w-[260px] max-w-lg flex-1">
-                            <label className="text-xs text-gray-500 font-medium">Materias y grupos <span className="text-red-400">*</span></label>
-                            <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-2">
-                              {designationOptionsLoading ? (
-                                <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
-                              ) : designationOptions.subjects.length === 0 ? (
-                                <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
-                              ) : (
-                                getUniqueSubjects(designationOptions.subjects).map((subject) => {
-                                  const selectedSubjects = row.selectedSubjects ?? []
-                                  const subjectChecked = selectedSubjects.includes(subject)
-                                  const groups = getGroupsForSubject(designationOptions.subjects, subject)
+                    {newExclusion.scope === 'semester' && (
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-xs text-gray-500 font-medium">Semestre <span className="text-red-400">*</span></label>
+                        <select
+                          value={newExclusion.semester_id ?? ''}
+                          onChange={e => updateNewExclusion({ semester_id: e.target.value || undefined })}
+                          className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 w-32"
+                        >
+                          <option value="">Seleccionar</option>
+                          {designationOptions.semesters.map((semester) => (
+                            <option key={semester} value={semester}>{semester}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
-                                  return (
-                                    <div key={subject} className="rounded-md bg-white/60 px-2 py-1.5">
-                                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={subjectChecked}
-                                          onChange={(e) => {
-                                            const currentSelections = row.subjectSelections ?? []
-                                            updateExclusionRow(index, {
-                                              selectedSubjects: e.target.checked
-                                                ? [...selectedSubjects, subject]
-                                                : selectedSubjects.filter(selected => selected !== subject),
-                                              subjectSelections: e.target.checked
-                                                ? currentSelections
-                                                : currentSelections.filter(selection => selection.subject !== subject),
-                                            })
-                                          }}
-                                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
-                                        />
-                                        <span>{subject}</span>
-                                      </label>
+                    {newExclusion.scope === 'subject' && (
+                      <div className="flex flex-col gap-2 min-w-[260px] max-w-xl flex-1">
+                        <label className="text-xs text-gray-500 font-medium">Materias y grupos <span className="text-red-400">*</span></label>
+                        <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-2">
+                          {designationOptionsLoading ? (
+                            <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
+                          ) : designationOptions.subjects.length === 0 ? (
+                            <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
+                          ) : (
+                            getUniqueSubjects(designationOptions.subjects).map((subject) => {
+                              const selectedSubjects = newExclusion.selectedSubjects ?? []
+                              const subjectChecked = selectedSubjects.includes(subject)
+                              const groups = getGroupsForSubject(designationOptions.subjects, subject)
 
-                                      {subjectChecked && (
-                                        <div className="ml-6 mt-1.5 grid grid-cols-2 gap-1">
-                                          {groups.map((option) => {
-                                            const optionKey = getSubjectOptionKey(option)
-                                            const checked = (row.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
+                              return (
+                                <div key={subject} className="rounded-md bg-white/60 px-2 py-1.5">
+                                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={subjectChecked}
+                                      onChange={(e) => {
+                                        const currentSelections = newExclusion.subjectSelections ?? []
+                                        updateNewExclusion({
+                                          selectedSubjects: e.target.checked
+                                            ? [...selectedSubjects, subject]
+                                            : selectedSubjects.filter(selected => selected !== subject),
+                                          subjectSelections: e.target.checked
+                                            ? currentSelections
+                                            : currentSelections.filter(selection => selection.subject !== subject),
+                                        })
+                                      }}
+                                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                    />
+                                    <span>{subject}</span>
+                                  </label>
 
-                                            return (
-                                              <label key={optionKey} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-gray-600 hover:bg-purple-50 cursor-pointer">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={checked}
-                                                  onChange={(e) => {
-                                                    const current = row.subjectSelections ?? []
-                                                    updateExclusionRow(index, {
-                                                      subjectSelections: e.target.checked
-                                                        ? [...current, option]
-                                                        : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
-                                                    })
-                                                  }}
-                                                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
-                                                />
-                                                <span>{option.group_code}</span>
-                                              </label>
-                                            )
-                                          })}
-                                        </div>
-                                      )}
+                                  {subjectChecked && (
+                                    <div className="ml-6 mt-1.5 grid grid-cols-2 gap-1">
+                                      {groups.map((option) => {
+                                        const optionKey = getSubjectOptionKey(option)
+                                        const checked = (newExclusion.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
+
+                                        return (
+                                          <label key={optionKey} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-gray-600 hover:bg-purple-50 cursor-pointer">
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(e) => {
+                                                const current = newExclusion.subjectSelections ?? []
+                                                updateNewExclusion({
+                                                  subjectSelections: e.target.checked
+                                                    ? [...current, option]
+                                                    : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
+                                                })
+                                              }}
+                                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
+                                            />
+                                            <span>{option.group_code}</span>
+                                          </label>
+                                        )
+                                      })}
                                     </div>
-                                  )
-                                })
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Optional reason */}
-                        <div className="flex flex-col gap-0.5 flex-1 min-w-[140px]">
-                          <label className="text-xs text-gray-500 font-medium">Motivo <span className="text-gray-300">(opcional)</span></label>
-                          <input
-                            type="text"
-                            value={row.reason ?? ''}
-                            onChange={e => updateExclusionRow(index, { reason: e.target.value || undefined })}
-                            placeholder="ej: Feriado institucional"
-                            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                          />
-                        </div>
-
-                        {/* Remove button */}
-                        <div className="flex flex-col justify-end pb-0.5">
-                          <button
-                            type="button"
-                            onClick={() => removeExclusionRow(index)}
-                            className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors mt-auto"
-                            title="Quitar exclusión"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                                  )}
+                                </div>
+                              )
+                            })
+                          )}
                         </div>
                       </div>
-                    ))}
+                    )}
+
+                    <div className="flex flex-col gap-0.5 flex-1 min-w-[180px]">
+                      <label className="text-xs text-gray-500 font-medium">Motivo <span className="text-gray-300">(opcional)</span></label>
+                      <input
+                        type="text"
+                        value={newExclusion.reason ?? ''}
+                        onChange={e => updateNewExclusion({ reason: e.target.value || undefined })}
+                        placeholder="ej: Feriado institucional"
+                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      />
+                    </div>
                   </div>
-                )}
+                </form>
 
-                {/* Add row button */}
-                <button
-                  type="button"
-                  onClick={addExclusionRow}
-                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 text-sm font-medium transition-colors"
-                >
-                  <Plus size={14} />
-                  Agregar exclusión
-                </button>
+                {/* Confirmed exclusion list */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Exclusiones configuradas</p>
+                    <span className="text-xs text-gray-400">{excludedDays.length} confirmada(s)</span>
+                  </div>
 
-                {excludedDays.length > 0 && (
-                  <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
-                    <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-purple-700">
-                      <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en morado en el Excel.
+                  {excludedDays.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-4 text-center bg-white rounded-lg border border-gray-200">
+                      No hay exclusiones configuradas
                     </p>
-                  </div>
-                )}
+                  ) : (
+                    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                      {excludedDays.map((row, index) => (
+                        <div key={index} className={`grid grid-cols-1 md:grid-cols-[110px_120px_1fr_1fr_36px] gap-3 px-3 py-3 text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'} border-b border-gray-100 last:border-b-0`}>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Fecha</p>
+                            <p className="text-gray-700 font-medium">{formatDate(row.date)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Alcance</p>
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              row.scope === 'global'
+                                ? 'bg-purple-100 text-purple-700'
+                                : row.scope === 'semester'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {row.scope === 'global' ? 'Global' : row.scope === 'semester' ? 'Semestre' : 'Materia'}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Detalle</p>
+                            {row.scope === 'global' && <p className="text-gray-500">Todos los docentes</p>}
+                            {row.scope === 'semester' && <p className="text-gray-700">{row.semester_id}</p>}
+                            {row.scope === 'subject' && (
+                              <div className="flex flex-wrap gap-1">
+                                {(row.subjectSelections ?? []).map((selection) => (
+                                  <span key={getSubjectOptionKey(selection)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
+                                    {selection.subject} ({selection.group_code})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Motivo</p>
+                            <p className="text-gray-600">{row.reason || 'Sin motivo'}</p>
+                          </div>
+                          <div className="flex items-start md:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => removeExclusionRow(index)}
+                              className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                              title="Quitar exclusión"
+                              aria-label="Quitar exclusión"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
+                  <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-purple-700">
+                    <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en morado en el Excel.
+                  </p>
+                </div>
               </div>
             )}
           </div>
