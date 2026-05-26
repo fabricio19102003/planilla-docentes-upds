@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -521,13 +521,15 @@ def unpublish_billing(
 
 @router.get("/publications", response_model=list[PublicationResponse])
 def list_publications(
+    planilla_type: Literal["regular", "practice"] = "regular",
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[PublicationResponse]:
-    """List all billing publications ordered by year desc, month desc."""
+    """List billing publications by type ordered by year desc, month desc."""
     try:
         publications = (
             db.query(BillingPublication)
+            .filter(BillingPublication.planilla_type == planilla_type)
             .order_by(BillingPublication.year.desc(), BillingPublication.month.desc())
             .all()
         )
@@ -559,7 +561,7 @@ def list_publications(
 def get_publication(
     month: int,
     year: int,
-    planilla_type: str = "regular",
+    planilla_type: Literal["regular", "practice"] = "regular",
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PublicationResponse:

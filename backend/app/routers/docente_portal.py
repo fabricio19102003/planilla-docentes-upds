@@ -333,6 +333,7 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla
         .filter(
             Designation.teacher_ci == teacher_ci,
             Designation.academic_period == app_settings_service.get_active_academic_period(db),
+            Designation.designation_type != "practice",
         )
         .all()
     )

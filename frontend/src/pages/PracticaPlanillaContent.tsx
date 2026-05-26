@@ -202,6 +202,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
 
   // Payment override state
   const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
+  const [paymentOverridesEdited, setPaymentOverridesEdited] = useState(false)
   const [editingOverride, setEditingOverride] = useState<string | null>(null)
   const [overrideValue, setOverrideValue] = useState('')
 
@@ -237,6 +238,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     }
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
+    setPaymentOverrides({})
+    setPaymentOverridesEdited(false)
     setExclusionsEdited(false)
     setExcludedDays([])
   }, [month, year])
@@ -262,6 +265,11 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     setExcludedDays(hydrateExclusionRows(planillaStatus?.excluded_days_json ?? []))
     setExclusionsEdited(false)
   }, [planillaStatus?.excluded_days_json, exclusionsEdited, month, year])
+
+  useEffect(() => {
+    if (paymentOverridesEdited) return
+    setPaymentOverrides(planillaStatus?.payment_overrides_json ?? {})
+  }, [planillaStatus?.payment_overrides_json, paymentOverridesEdited, month, year])
 
   // Effective discount mode: manual override takes precedence, then stored value
   const effectiveDiscountMode: 'attendance' | 'full' = discountModeManuallySet
@@ -376,7 +384,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
         discount_mode: effectiveDiscountMode,
         excluded_days: expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined,
       },
-      { onSuccess: (data) => setLastResult(data) },
+      { onSuccess: (data) => { setLastResult(data); setPaymentOverridesEdited(false) } },
     )
   }
 
@@ -1320,7 +1328,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                             />
                             <button
                               onClick={() => {
-                                if (overrideValue) setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
+                                if (overrideValue) {
+                                  setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
+                                  setPaymentOverridesEdited(true)
+                                }
                                 setEditingOverride(null); setOverrideValue('')
                               }}
                               className="text-green-600 hover:text-green-800"
@@ -1360,7 +1371,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                             </div>
                             {paymentOverrides[teacher.teacher_ci] != null && (
                               <button
-                                onClick={() => setPaymentOverrides(prev => { const next = { ...prev }; delete next[teacher.teacher_ci]; return next })}
+                                onClick={() => {
+                                  setPaymentOverrides(prev => { const next = { ...prev }; delete next[teacher.teacher_ci]; return next })
+                                  setPaymentOverridesEdited(true)
+                                }}
                                 className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
                                 title="Quitar ajuste"
                               >

@@ -68,12 +68,28 @@ def _run_column_migrations() -> None:
                         "ALTER TABLE billing_publications ADD COLUMN planilla_type VARCHAR(20) NOT NULL DEFAULT 'regular'"
                     ))
                     logger.info("Added column billing_publications.planilla_type")
-                    # Drop old unique constraint (month, year) and replace with (month, year, planilla_type)
+
+                # Drop old unique constraint (month, year) and replace with (month, year, planilla_type).
+                # This is independent from column creation because a previous run may have added
+                # the column but failed before replacing the constraint.
+                unique_constraints = {
+                    c["name"] for c in inspector.get_unique_constraints("billing_publications")
+                }
+                if "uq_billing_publication_month_year" in unique_constraints:
                     try:
                         conn.execute(text(
                             "ALTER TABLE billing_publications DROP CONSTRAINT IF EXISTS "
                             "uq_billing_publication_month_year"
                         ))
+                        logger.info("Dropped old billing_publications unique constraint")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not drop old billing_publications constraint: %s", constraint_exc)
+
+                unique_constraints = {
+                    c["name"] for c in inspector.get_unique_constraints("billing_publications")
+                }
+                if "uq_billing_publication_month_year_type" not in unique_constraints:
+                    try:
                         conn.execute(text(
                             "ALTER TABLE billing_publications ADD CONSTRAINT "
                             "uq_billing_publication_month_year_type "
@@ -81,7 +97,21 @@ def _run_column_migrations() -> None:
                         ))
                         logger.info("Updated billing_publications unique constraint to include planilla_type")
                     except Exception as constraint_exc:
-                        logger.warning("Could not update billing_publications constraint: %s", constraint_exc)
+                        logger.warning("Could not create billing_publications type-aware constraint: %s", constraint_exc)
+
+                check_constraints = {
+                    c["name"] for c in inspector.get_check_constraints("billing_publications")
+                }
+                if "ck_billing_publication_planilla_type" not in check_constraints:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications ADD CONSTRAINT "
+                            "ck_billing_publication_planilla_type "
+                            "CHECK (planilla_type IN ('regular', 'practice'))"
+                        ))
+                        logger.info("Added billing_publications planilla_type check constraint")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not create billing_publications planilla_type check constraint: %s", constraint_exc)
 
             # planilla_outputs.payment_overrides_json + start_date/end_date
             if inspector.has_table("planilla_outputs"):

@@ -162,7 +162,13 @@ class EmailService:
                     teacher_ci=recipient.teacher_ci,
                 )
 
-            message = self._build_billing_message(publication, recipient, rows, teacher_detail)
+            message = self._build_billing_message(
+                publication,
+                recipient,
+                rows,
+                teacher_detail,
+                planilla_type=getattr(publication, "planilla_type", "regular") or "regular",
+            )
             try:
                 send_result = transport.send_email(message)
             except Exception as exc:  # pragma: no cover - defensive boundary tested via behavior
@@ -273,10 +279,15 @@ class EmailService:
         recipient: EmailRecipient,
         rows: list[BillingEmailRow],
         teacher_detail: dict[str, Any],
+        planilla_type: str = "regular",
     ) -> EmailMessage:
         month_name = _month_name(getattr(publication, "month", ""))
         year = getattr(publication, "year", "")
-        subject = f"Detalle de honorarios docentes - {month_name} {year}"
+        subject = (
+            f"Detalle de honorarios (Prácticas) - {month_name} {year}"
+            if planilla_type == "practice"
+            else f"Detalle de honorarios docentes - {month_name} {year}"
+        )
         snapshot = getattr(publication, "billing_snapshot", None) or {}
         context = snapshot if isinstance(snapshot, dict) else {}
         excluded_days = context.get("excluded_days_json")

@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Boolean, Text, func, UniqueConstraint
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, func, UniqueConstraint, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
@@ -12,6 +12,7 @@ class BillingPublication(Base):
 
     __table_args__ = (
         UniqueConstraint("month", "year", "planilla_type", name="uq_billing_publication_month_year_type"),
+        CheckConstraint("planilla_type IN ('regular', 'practice')", name="ck_billing_publication_planilla_type"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

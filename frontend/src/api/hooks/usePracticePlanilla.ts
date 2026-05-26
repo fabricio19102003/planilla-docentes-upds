@@ -19,6 +19,7 @@ export interface PracticePlanillaOutput {
   discount_mode: 'attendance' | 'full'
   start_date: string | null
   end_date: string | null
+  payment_overrides_json?: Record<string, number> | null
   excluded_days_json?: ExcludedDay[] | null
 }
 

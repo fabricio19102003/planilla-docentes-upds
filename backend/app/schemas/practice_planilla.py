@@ -49,6 +49,7 @@ class PracticePlanillaOutputResponse(BaseModel):
     discount_mode: Literal["attendance", "full"] = "attendance"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    payment_overrides_json: Optional[dict[str, float]] = None
     excluded_days_json: Optional[list[dict]] = None
 
     model_config = ConfigDict(from_attributes=True)
