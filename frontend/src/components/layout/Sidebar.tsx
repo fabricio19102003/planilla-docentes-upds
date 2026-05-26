@@ -66,7 +66,7 @@ const adminNavItems: AdminNavEntry[] = [
     label: 'Asistencia',
     icon: ClipboardCheck,
     children: [
-      { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck },
+      { to: '/attendance', label: 'Asistencia Teóricas', icon: ClipboardCheck },
       { to: '/practice-attendance', label: 'Asistencia Prácticas', icon: ClipboardCheck },
       { to: '/attendance-audit', label: 'Auditoría Asistencia', icon: ShieldCheck },
       { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
@@ -77,7 +77,6 @@ const adminNavItems: AdminNavEntry[] = [
     icon: FileSpreadsheet,
     children: [
       { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
-      { to: '/practice-planilla', label: 'Planilla Prácticas', icon: FileSpreadsheet },
       { to: '/reports', label: 'Reportes', icon: FileText },
     ],
   },
