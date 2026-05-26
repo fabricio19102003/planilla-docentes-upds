@@ -1050,9 +1050,21 @@ class ReportGenerator:
         """Generate a reconciliation report comparing designation vs attendance."""
         from collections import defaultdict
 
+        start = date(year, month, 1)
+        end = date(year, month, calendar.monthrange(year, month)[1])
+
         att_records = db.query(AttendanceRecord).filter(
             AttendanceRecord.month == month, AttendanceRecord.year == year,
         ).all()
+        practice_records = db.query(PracticeAttendanceLog).filter(
+            PracticeAttendanceLog.date >= start,
+            PracticeAttendanceLog.date <= end,
+        ).all()
+
+        stored_planilla = db.query(PlanillaOutput).filter(
+            PlanillaOutput.month == month, PlanillaOutput.year == year,
+        ).order_by(PlanillaOutput.generated_at.desc()).first()
+        exclusion_count = len(stored_planilla.excluded_days_json) if stored_planilla and stored_planilla.excluded_days_json else 0
 
         designations = db.query(Designation).filter(
             Designation.academic_period == app_settings_service.get_active_academic_period(db)
@@ -1065,6 +1077,10 @@ class ReportGenerator:
         for r in att_records:
             att_by_teacher[r.teacher_ci].append(r)
 
+        practice_att_by_teacher: dict = defaultdict(list)
+        for r in practice_records:
+            practice_att_by_teacher[r.teacher_ci].append(r)
+
         desig_by_teacher: dict = defaultdict(list)
         for d in designations:
             desig_by_teacher[d.teacher_ci].append(d)
@@ -1075,44 +1091,94 @@ class ReportGenerator:
                 continue
             name = teacher_names.get(ci, ci)
             teacher_att = att_by_teacher.get(ci, [])
+            teacher_practice_att = practice_att_by_teacher.get(ci, [])
             teacher_desigs = desig_by_teacher.get(ci, [])
-            expected_monthly_hours = sum(d.monthly_hours or 0 for d in teacher_desigs)
+            regular_desigs = [d for d in teacher_desigs if d.designation_type != "practice"]
+            practice_desigs = [d for d in teacher_desigs if d.designation_type == "practice"]
+            regular_expected = sum(d.monthly_hours or 0 for d in regular_desigs)
+            practice_expected = sum(d.monthly_hours or 0 for d in practice_desigs)
 
-            if not teacher_att:
+            if regular_desigs and not teacher_att:
                 discrepancies.append({
                     "teacher_name": name,
+                    "source": "Regular",
                     "type": "Sin registro",
-                    "description": "Sin registros de asistencia",
-                    "expected_hours": expected_monthly_hours,
+                    "description": "Sin registros de asistencia regular",
+                    "expected_hours": regular_expected,
                     "actual_hours": 0,
                     "severity": "high",
                 })
-                continue
 
-            absences = sum(1 for r in teacher_att if r.status == "ABSENT")
-            total = len(teacher_att)
-            absence_rate = absences / total if total > 0 else 0
-            attended_hours = sum(r.academic_hours for r in teacher_att if r.status in ("ATTENDED", "LATE"))
+            if regular_desigs and teacher_att:
+                absences = sum(1 for r in teacher_att if r.status == "ABSENT")
+                total = len(teacher_att)
+                absence_rate = absences / total if total > 0 else 0
+                attended_hours = sum(r.academic_hours for r in teacher_att if r.status in ("ATTENDED", "LATE"))
 
-            already_added = False
-            if absence_rate > 0.3:
-                discrepancies.append({
-                    "teacher_name": name,
-                    "type": "Alta ausencia",
-                    "description": f"Tasa de ausencia: {absence_rate*100:.0f}% ({absences}/{total} clases)",
-                    "expected_hours": expected_monthly_hours,
-                    "actual_hours": attended_hours,
-                    "severity": "high" if absence_rate > 0.5 else "medium",
-                })
-                already_added = True
-
-            if expected_monthly_hours > 0 and attended_hours < expected_monthly_hours * 0.5:
-                if not already_added:
+                already_added = False
+                if absence_rate > 0.3:
                     discrepancies.append({
                         "teacher_name": name,
+                        "source": "Regular",
+                        "type": "Alta ausencia",
+                        "description": f"Tasa de ausencia regular: {absence_rate*100:.0f}% ({absences}/{total} clases)",
+                        "expected_hours": regular_expected,
+                        "actual_hours": attended_hours,
+                        "severity": "high" if absence_rate > 0.5 else "medium",
+                    })
+                    already_added = True
+
+                if regular_expected > 0 and attended_hours < regular_expected * 0.5 and not already_added:
+                    discrepancies.append({
+                        "teacher_name": name,
+                        "source": "Regular",
                         "type": "Horas inconsistentes",
-                        "description": f"Horas asistidas ({attended_hours}h) < 50% de esperadas ({expected_monthly_hours}h)",
-                        "expected_hours": expected_monthly_hours,
+                        "description": f"Horas asistidas regulares ({attended_hours}h) < 50% de esperadas ({regular_expected}h)",
+                        "expected_hours": regular_expected,
+                        "actual_hours": attended_hours,
+                        "severity": "medium",
+                    })
+
+            if practice_desigs and not teacher_practice_att:
+                discrepancies.append({
+                    "teacher_name": name,
+                    "source": "Prácticas",
+                    "type": "Sin registro",
+                    "description": "Sin registros de asistencia de prácticas",
+                    "expected_hours": practice_expected,
+                    "actual_hours": 0,
+                    "severity": "high",
+                })
+
+            if practice_desigs and teacher_practice_att:
+                absences = sum(1 for r in teacher_practice_att if r.status.lower() == "absent")
+                total = len(teacher_practice_att)
+                absence_rate = absences / total if total > 0 else 0
+                attended_hours = sum(
+                    r.academic_hours for r in teacher_practice_att
+                    if r.status.lower() in ("attended", "present", "justified", "late")
+                )
+
+                already_added = False
+                if absence_rate > 0.3:
+                    discrepancies.append({
+                        "teacher_name": name,
+                        "source": "Prácticas",
+                        "type": "Alta ausencia",
+                        "description": f"Tasa de ausencia en prácticas: {absence_rate*100:.0f}% ({absences}/{total} clases)",
+                        "expected_hours": practice_expected,
+                        "actual_hours": attended_hours,
+                        "severity": "high" if absence_rate > 0.5 else "medium",
+                    })
+                    already_added = True
+
+                if practice_expected > 0 and attended_hours < practice_expected * 0.5 and not already_added:
+                    discrepancies.append({
+                        "teacher_name": name,
+                        "source": "Prácticas",
+                        "type": "Horas inconsistentes",
+                        "description": f"Horas asistidas en prácticas ({attended_hours}h) < 50% de esperadas ({practice_expected}h)",
+                        "expected_hours": practice_expected,
                         "actual_hours": attended_hours,
                         "severity": "medium",
                     })
@@ -1142,14 +1208,16 @@ class ReportGenerator:
         # ── Summary ───────────────────────────────────────────────────────
         high_count = sum(1 for d in discrepancies if d["severity"] == "high")
         medium_count = sum(1 for d in discrepancies if d["severity"] == "medium")
+        regular_count = sum(1 for d in discrepancies if d["source"] == "Regular")
+        practice_count = sum(1 for d in discrepancies if d["source"] == "Prácticas")
 
         summary_data = [
-            [_cell(h, cs["header"]) for h in ["Total Docentes", "Discrepancias", "Severidad Alta", "Severidad Media"]],
+            [_cell(h, cs["header"]) for h in ["Total Docentes", "Discrepancias Regular", "Discrepancias Prácticas", "Severidad Alta", "Severidad Media"]],
             [_cell(v, cs["cell_center"]) for v in [
-                str(len(teacher_cis)), str(len(discrepancies)), str(high_count), str(medium_count),
+                str(len(teacher_cis)), str(regular_count), str(practice_count), str(high_count), str(medium_count),
             ]],
         ]
-        summary_table = Table(summary_data, colWidths=[110, 110, 110, 115])
+        summary_table = Table(summary_data, colWidths=[85, 105, 105, 85, 85])
         summary_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
             ("BACKGROUND", (0, 1), (-1, 1), LIGHT_BLUE),
@@ -1161,9 +1229,29 @@ class ReportGenerator:
         elements.append(summary_table)
         elements.append(Spacer(1, 16))
 
+        if exclusion_count:
+            note_style = ParagraphStyle(
+                "ExclusionNote", parent=self.styles["Normal"],
+                fontSize=8, textColor=colors.HexColor("#78350f"), leading=11,
+            )
+            note_table = Table(
+                [[Paragraph(f"Nota: Esta planilla tiene {exclusion_count} días excluidos que pueden afectar las horas esperadas.", note_style)]],
+                colWidths=[465],
+            )
+            note_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF3C7")),
+                ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#F59E0B")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            elements.append(note_table)
+            elements.append(Spacer(1, 12))
+
         # ── Discrepancy table ─────────────────────────────────────────────
         if discrepancies:
-            disc_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Tipo", "Descripción", "Hrs Esperadas", "Hrs Reales", "Severidad"]]
+            disc_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Tipo", "Discrepancia", "Descripción", "Hrs Esperadas", "Hrs Reales", "Severidad"]]
             disc_data: list = [disc_header]
 
             for idx, row in enumerate(discrepancies, start=1):
@@ -1178,6 +1266,7 @@ class ReportGenerator:
                 disc_data.append([
                     _cell(str(idx), cs["cell_center"]),
                     _cell(row["teacher_name"], cs["cell"]),
+                    _cell(row["source"], cs["cell_center"]),
                     _cell(row["type"], cs["cell"]),
                     _cell(row["description"], cs["cell"]),
                     _cell(f"{row['expected_hours']}h", cs["cell_center"]),
@@ -1199,7 +1288,7 @@ class ReportGenerator:
                 else:
                     disc_style_list.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FEF3C7")))
 
-            disc_table = Table(disc_data, colWidths=[22, 110, 65, 155, 55, 50, 50], repeatRows=1)
+            disc_table = Table(disc_data, colWidths=[22, 92, 52, 68, 140, 52, 45, 45], repeatRows=1)
             disc_table.setStyle(TableStyle(disc_style_list))
             elements.append(disc_table)
         else:
