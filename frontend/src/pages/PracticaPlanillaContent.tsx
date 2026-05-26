@@ -184,11 +184,13 @@ function getPlanillaErrorMessage(error: unknown): string {
 interface PracticaPlanillaContentProps {
   month: number
   year: number
+  setMonth: (month: number) => void
+  setYear: (year: number) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function PracticaPlanillaContent({ month, year }: PracticaPlanillaContentProps) {
+export function PracticaPlanillaContent({ month, year, setMonth, setYear }: PracticaPlanillaContentProps) {
   const [lastResult, setLastResult] = useState<PracticePlanillaGenerateResponse | null>(null)
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
@@ -900,6 +902,8 @@ export function PracticaPlanillaContent({ month, year }: PracticaPlanillaContent
                       className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
                       onClick={() => {
                         restoringHistoryRef.current = item.month !== month || item.year !== year
+                        setMonth(item.month)
+                        setYear(item.year)
                         setDatesManuallySet(true)
                         setStartDate(item.start_date ?? '')
                         setEndDate(item.end_date ?? '')

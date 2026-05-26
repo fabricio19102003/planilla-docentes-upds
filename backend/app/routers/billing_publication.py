@@ -245,7 +245,11 @@ def publish_billing(
         now = datetime.now()
         publication = (
             db.query(BillingPublication)
-            .filter(BillingPublication.month == month, BillingPublication.year == year)
+            .filter(
+                BillingPublication.month == month,
+                BillingPublication.year == year,
+                BillingPublication.planilla_type == "regular",
+            )
             .first()
         )
 
@@ -253,6 +257,7 @@ def publish_billing(
             publication = BillingPublication(
                 month=month,
                 year=year,
+                planilla_type="regular",
                 status="published",
                 version=1,
                 total_teachers=total_teachers,
@@ -397,7 +402,11 @@ def send_billing_emails(
 
     publication = (
         db.query(BillingPublication)
-        .filter(BillingPublication.month == payload.month, BillingPublication.year == payload.year)
+        .filter(
+            BillingPublication.month == payload.month,
+            BillingPublication.year == payload.year,
+            BillingPublication.planilla_type == "regular",
+        )
         .first()
     )
     if publication is None:
@@ -455,6 +464,7 @@ def unpublish_billing(
             .filter(
                 BillingPublication.month == payload.month,
                 BillingPublication.year == payload.year,
+                BillingPublication.planilla_type == "regular",
             )
             .first()
         )
@@ -663,16 +673,23 @@ def publish_practice_billing(
 
             resolved_payments: dict[str, float] = {}
             if stored_overrides:
+                rows_by_teacher: dict[str, list] = {}
+                for row in rows:
+                    rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
+
+                teacher_allocations: dict[str, dict[int, float]] = {}
+                for teacher_ci, teacher_rows in rows_by_teacher.items():
+                    allocations = generator._get_teacher_override_allocations(teacher_rows, stored_overrides)
+                    if allocations is not None:
+                        teacher_allocations[teacher_ci] = allocations
+
                 for row in rows:
                     row_key = f"{row.teacher_ci}:{row.designation_id}"
-                    # PracticePlanillaGenerator uses simple row-key or teacher-CI overrides
-                    # (no complex multi-designation allocation like the regular generator)
-                    row_level = stored_overrides.get(row_key)
-                    if row_level is not None:
-                        resolved_payments[row_key] = float(row_level)
-                    elif row.teacher_ci in stored_overrides:
-                        # Teacher-level override applies to all their rows
-                        resolved_payments[row_key] = float(stored_overrides[row.teacher_ci])
+                    allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+                    if allocation is not None:
+                        resolved_payments[row_key] = float(allocation)
+                    elif row_key in stored_overrides:
+                        resolved_payments[row_key] = float(stored_overrides[row_key])
 
             teacher_map: dict[str, dict] = {}
             for row in rows:
@@ -783,6 +800,36 @@ def publish_practice_billing(
         db.flush()
 
         month_name = MONTH_NAMES.get(month, str(month))
+
+        db.query(Notification).filter(
+            Notification.notification_type == "practice_billing_published",
+            Notification.reference_month == month,
+            Notification.reference_year == year,
+        ).delete()
+        db.flush()
+
+        docente_users = (
+            db.query(User)
+            .options(joinedload(User.teacher))
+            .filter(User.role == "docente", User.is_active == True)
+            .all()
+        )
+
+        for docente in docente_users:
+            notif = Notification(
+                user_id=docente.id,
+                title=f"Facturación de prácticas {month_name} {year} publicada",
+                message=(
+                    f"El monto a facturar por prácticas para {month_name} {year} ya está disponible. "
+                    f"Revisá tu portal para ver el detalle."
+                ),
+                notification_type="practice_billing_published",
+                is_read=False,
+                reference_month=month,
+                reference_year=year,
+            )
+            db.add(notif)
+
         log_activity(
             db,
             "publish_practice_billing",
@@ -801,6 +848,25 @@ def publish_practice_billing(
 
         db.commit()
         db.refresh(publication)
+
+        try:
+            email_result = EmailService().send_billing_published(publication, docente_users)
+            logger.info(
+                "Practice billing publication email step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d",
+                month,
+                year,
+                email_result.eligible,
+                email_result.sent,
+                email_result.failed,
+                email_result.skipped,
+            )
+        except Exception as exc:  # pragma: no cover - defensive best-effort boundary
+            logger.exception(
+                "Practice billing publication email step failed after commit for %d/%d: %s",
+                month,
+                year,
+                exc,
+            )
 
         logger.info(
             "Practice billing published for %d/%d by user %d — %d teachers, Bs %.2f",

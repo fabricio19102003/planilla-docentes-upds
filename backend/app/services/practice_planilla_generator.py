@@ -1099,9 +1099,7 @@ class PracticePlanillaGenerator:
         blocks: list[MonthBlock], scols: dict[str, int],
     ) -> None:
         """Write one practice teacher data row."""
-        override = self._resolve_override(
-            data.teacher_ci, data.designation_id, payment_overrides
-        )
+        override = self._get_row_override(data, payment_overrides, all_rows)
 
         is_even = (row_num - DATA_ROW_START) % 2 == 0
         row_bg = "FFFFFF" if is_even else "F5F8FA"
@@ -1480,17 +1478,81 @@ class PracticePlanillaGenerator:
             return overrides[teacher_ci]
         return None
 
+    def _get_row_override(
+        self,
+        row: PlanillaRow,
+        payment_overrides: dict[str, float],
+        all_rows: list[PlanillaRow],
+    ) -> Optional[float]:
+        """Resolve row display value, distributing teacher-level overrides."""
+        teacher_rows = [candidate for candidate in all_rows if candidate.teacher_ci == row.teacher_ci]
+        allocations = self._get_teacher_override_allocations(teacher_rows, payment_overrides)
+        if allocations is not None:
+            return allocations.get(row.designation_id)
+
+        return self._resolve_override(row.teacher_ci, row.designation_id, payment_overrides)
+
+    def _get_teacher_override_allocations(
+        self,
+        teacher_rows: list[PlanillaRow],
+        payment_overrides: dict[str, float],
+    ) -> dict[int, float] | None:
+        teacher_ci = teacher_rows[0].teacher_ci
+        teacher_override = payment_overrides.get(teacher_ci)
+        if teacher_override is None:
+            return None
+
+        allocations: dict[int, float] = {}
+        row_override_total = 0.0
+        rows_without_override: list[PlanillaRow] = []
+
+        for row in teacher_rows:
+            row_key = f"{row.teacher_ci}:{row.designation_id}"
+            row_override = payment_overrides.get(row_key)
+            if row_override is not None:
+                allocations[row.designation_id] = row_override
+                row_override_total += row_override
+            else:
+                rows_without_override.append(row)
+
+        remaining_override = teacher_override - row_override_total
+        if not rows_without_override:
+            return allocations
+
+        total_hours = sum(candidate.total_hours for candidate in rows_without_override)
+        if total_hours <= 0:
+            distributed_value = remaining_override / len(rows_without_override)
+            for row in rows_without_override:
+                allocations[row.designation_id] = distributed_value
+            return allocations
+
+        for row in rows_without_override:
+            allocations[row.designation_id] = remaining_override * (row.total_hours / total_hours)
+
+        return allocations
+
     def _calculate_total_payment(
         self, rows: list[PlanillaRow], payment_overrides: dict[str, float],
     ) -> float:
-        """Calculate total payment with override precedence."""
+        """Calculate total payment with override precedence and allocation."""
         total = 0.0
+
+        rows_by_teacher: dict[str, list[PlanillaRow]] = {}
         for row in rows:
-            override = self._resolve_override(
-                row.teacher_ci, row.designation_id, payment_overrides
-            )
-            if override is not None:
-                total += override
+            rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
+
+        teacher_allocations: dict[str, dict[int, float]] = {}
+        for teacher_ci, teacher_rows in rows_by_teacher.items():
+            allocations = self._get_teacher_override_allocations(teacher_rows, payment_overrides)
+            if allocations is not None:
+                teacher_allocations[teacher_ci] = allocations
+
+        for row in rows:
+            allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+            if allocation is not None:
+                total += allocation
+            elif f"{row.teacher_ci}:{row.designation_id}" in payment_overrides:
+                total += payment_overrides[f"{row.teacher_ci}:{row.designation_id}"]
             else:
                 total += row.final_payment
         return total

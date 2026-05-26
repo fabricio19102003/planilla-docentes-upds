@@ -451,7 +451,7 @@ export function PlanillaPage() {
 
       {/* Prácticas tab content */}
       {planillaTab === 'practicas' && (
-        <PracticaPlanillaContent month={month} year={year} />
+        <PracticaPlanillaContent month={month} year={year} setMonth={setMonth} setYear={setYear} />
       )}
 
       {/* Teóricas tab content — rendered exactly as before */}

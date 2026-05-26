@@ -54,8 +54,10 @@ export function NotificationsPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {notifications.map((notif) => (
-            <button
+          {notifications.map((notif) => {
+            const isBillingNotification = notif.notification_type.endsWith('billing_published')
+            return (
+              <button
               key={notif.id}
               onClick={() => {
                 if (!notif.is_read) markRead.mutate(notif.id)
@@ -66,10 +68,10 @@ export function NotificationsPage() {
             >
               <div
                 className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  notif.notification_type === 'billing_published' ? 'bg-green-100' : 'bg-blue-100'
+                  isBillingNotification ? 'bg-green-100' : 'bg-blue-100'
                 }`}
               >
-                {notif.notification_type === 'billing_published' ? (
+                {isBillingNotification ? (
                   <Receipt size={16} className="text-green-600" />
                 ) : (
                   <Bell size={16} className="text-blue-600" />
@@ -100,8 +102,9 @@ export function NotificationsPage() {
                   })}
                 </p>
               </div>
-            </button>
-          ))}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

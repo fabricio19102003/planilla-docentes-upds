@@ -187,7 +187,7 @@ export function BillingHistoryPage() {
                   </tr>
                 ) : (
                   history.map((billing) => {
-                    const key = `${billing.year}-${billing.month}`
+                    const key = `${billing.planilla_type ?? 'regular'}-${billing.year}-${billing.month}`
                     return (
                       <BillingRow
                         key={key}

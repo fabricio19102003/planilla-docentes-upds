@@ -520,6 +520,8 @@ def generate_practice_salary_report(
         effective_mode = payload.discount_mode
         effective_sd = payload.start_date
         effective_ed = payload.end_date
+        effective_exclusions = payload.excluded_days or None
+        stored_overrides: dict[str, float] = {}
         if stored is not None:
             if stored.discount_mode in ("attendance", "full"):
                 if payload.discount_mode == "attendance" and stored.discount_mode == "full":
@@ -528,6 +530,17 @@ def generate_practice_salary_report(
                 effective_sd = stored.start_date
             if effective_ed is None and stored.end_date is not None:
                 effective_ed = stored.end_date
+            if effective_exclusions is None and stored.excluded_days_json:
+                try:
+                    from app.schemas.planilla import ExcludedDaySchema
+                    effective_exclusions = [
+                        ExcludedDaySchema.model_validate(item)
+                        for item in stored.excluded_days_json
+                    ]
+                except Exception:
+                    effective_exclusions = None
+            if stored.payment_overrides_json:
+                stored_overrides = stored.payment_overrides_json
 
         # Build rows using practice generator
         gen = PPG()
@@ -538,7 +551,29 @@ def generate_practice_salary_report(
             start_date=effective_sd,
             end_date=effective_ed,
             discount_mode=effective_mode,
+            excluded_days=effective_exclusions,
         )
+
+        if stored_overrides:
+            rows_by_teacher: dict[str, list] = {}
+            for row in rows:
+                rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
+
+            teacher_allocations: dict[str, dict[int, float]] = {}
+            for teacher_ci, teacher_rows in rows_by_teacher.items():
+                allocations = gen._get_teacher_override_allocations(teacher_rows, stored_overrides)
+                if allocations is not None:
+                    teacher_allocations[teacher_ci] = allocations
+
+            for row in rows:
+                row_key = f"{row.teacher_ci}:{row.designation_id}"
+                override = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+                if override is None and row_key in stored_overrides:
+                    override = stored_overrides[row_key]
+                if override is not None:
+                    row.calculated_payment = float(override)
+                    row.retention_amount = 0.0
+                    row.final_payment = float(override)
         rows.sort(key=lambda r: (r.teacher_name, r.subject, r.group_code))
 
         # Build salary report using the shared SalaryReportGenerator template
