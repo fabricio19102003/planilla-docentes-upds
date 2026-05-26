@@ -101,6 +101,7 @@ export function useGeneratePracticePlanilla() {
       start_date?: string
       end_date?: string
       discount_mode?: string
+      excluded_days?: ExcludedDay[]
     }) => {
       const res = await api.post<PracticePlanillaGenerateResponse>(
         '/practice-planilla/generate',
@@ -340,5 +341,18 @@ export function useSendPracticeBillingEmails() {
       const res = await api.post<{ sent: number; failed: number; skipped: number }>('/billing/practice/send-emails', data)
       return res.data
     },
+  })
+}
+
+// ─── Practice Designation Options ─────────────────────────────────────────────
+
+export function usePracticeDesignationOptions(enabled: boolean = false) {
+  return useQuery<PracticeDesignationOptions>({
+    queryKey: ['practice-designation-options'],
+    queryFn: async () => {
+      const res = await api.get<PracticeDesignationOptions>('/practice-planilla/designation-options')
+      return res.data
+    },
+    enabled,
   })
 }

@@ -1,15 +1,50 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail } from 'lucide-react'
-import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
-import { usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails } from '@/api/hooks/useBillingPublication'
-import { useBiometricDateRange } from '@/api/hooks/useBiometric'
+import {
+  FileSpreadsheet,
+  Download,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Users,
+  Search,
+  Send,
+  EyeOff,
+  Pencil,
+  Check,
+  X,
+  History,
+  Calendar,
+  Info,
+  AlertTriangle,
+  AlertCircle,
+  Plus,
+  Trash2,
+  CalendarOff,
+  Mail,
+} from 'lucide-react'
+import {
+  useGeneratePracticePlanilla,
+  usePracticePlanillaHistory,
+  usePracticePlanillaDetailWithExclusions,
+  usePracticePlanillaStatus,
+  useApprovePracticePlanilla,
+  useRejectPracticePlanilla,
+  usePracticePublicationStatus,
+  usePublishPracticeBilling,
+  useUnpublishPracticeBilling,
+  useSendPracticeBillingEmails,
+  usePracticeDesignationOptions,
+  downloadPracticePlanilla,
+  downloadPracticeSalaryReport,
+} from '@/api/hooks/usePracticePlanilla'
+import type { PracticePlanillaGenerateResponse } from '@/api/hooks/usePracticePlanilla'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
-import { api } from '@/api/client'
-
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
-import { PracticaPlanillaContent } from './PracticaPlanillaContent'
+import type { ExcludedDay } from '@/api/types'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -17,29 +52,35 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
+interface PracticeDesignationOption {
+  subject: string
+  group_code: string
+  semester: string
+}
+
 type ExclusionRow = ExcludedDay & {
   selectedSemesters?: string[]
   selectedSubjects?: string[]
-  subjectSelections?: DesignationOption[]
+  subjectSelections?: PracticeDesignationOption[]
 }
 
-function getSubjectOptionKey(option: DesignationOption): string {
+function getSubjectOptionKey(option: PracticeDesignationOption): string {
   return `${option.subject}||${option.group_code}||${option.semester}`
 }
 
-function getSubjectGroupKey(option: DesignationOption): string {
+function getSubjectGroupKey(option: PracticeDesignationOption): string {
   return `${option.subject}||${option.group_code}`
 }
 
-function getUniqueSubjects(options: DesignationOption[]): string[] {
-  return Array.from(new Set(options.map(option => option.subject))).sort((a, b) => a.localeCompare(b))
+function getUniqueSubjects(options: PracticeDesignationOption[]): string[] {
+  return Array.from(new Set(options.map(o => o.subject))).sort((a, b) => a.localeCompare(b))
 }
 
-function getGroupsForSubject(options: DesignationOption[], subject: string): DesignationOption[] {
+function getGroupsForSubject(options: PracticeDesignationOption[], subject: string): PracticeDesignationOption[] {
   const seen = new Set<string>()
-  return options.filter((option) => {
-    if (option.subject !== subject) return false
-    const key = getSubjectGroupKey(option)
+  return options.filter((o) => {
+    if (o.subject !== subject) return false
+    const key = getSubjectGroupKey(o)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -50,15 +91,14 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
   return rows.flatMap<ExcludedDay>((row) => {
     if (row.scope === 'subject') {
       const selections = row.subjectSelections ?? []
-      return selections.map((selection) => ({
+      return selections.map((s) => ({
         date: row.date,
         scope: 'subject' as const,
-        subject_id: selection.subject,
-        group_id: selection.group_code,
+        subject_id: s.subject,
+        group_id: s.group_code,
         reason: row.reason,
       }))
     }
-
     if (row.scope === 'semester') {
       const semesters = row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])
       return semesters.map((semester) => ({
@@ -68,26 +108,20 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
         reason: row.reason,
       }))
     }
-
     return [{ date: row.date, scope: 'global', reason: row.reason }]
   })
 }
 
 function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
   const rows = new Map<string, ExclusionRow>()
-
   for (const excluded of excludedDays) {
-    // Group by date + scope + reason to preserve distinct reasons on the same day
     const key = `${excluded.date}||${excluded.scope}||${excluded.reason ?? ''}`
     const current = rows.get(key)
 
     if (excluded.scope === 'global') {
-      if (!current) {
-        rows.set(key, { date: excluded.date, scope: 'global', reason: excluded.reason })
-      }
+      if (!current) rows.set(key, { date: excluded.date, scope: 'global', reason: excluded.reason })
       continue
     }
-
     if (excluded.scope === 'semester') {
       const selectedSemesters = current?.selectedSemesters ?? []
       rows.set(key, {
@@ -100,13 +134,11 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
       })
       continue
     }
-
-    const subjectSelections = current?.subjectSelections ?? []
+    const subjectSelections = (current?.subjectSelections ?? []) as PracticeDesignationOption[]
     const selectedSubjects = current?.selectedSubjects ?? []
     const subject = excluded.subject_id
     const group = excluded.group_id
-    const hasSelection = subjectSelections.some(selection => selection.subject === subject && selection.group_code === group)
-
+    const hasSelection = subjectSelections.some(s => s.subject === subject && s.group_code === group)
     rows.set(key, {
       date: excluded.date,
       scope: 'subject',
@@ -119,7 +151,6 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
         : subjectSelections,
     })
   }
-
   return Array.from(rows.values())
 }
 
@@ -134,20 +165,35 @@ function formatShortDate(dateStr: string | null): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export function PlanillaPage() {
-  const currentYear = new Date().getFullYear()
-  const currentMonth = new Date().getMonth() + 1
+function getPlanillaErrorMessage(error: unknown): string {
+  const fallback = 'Error al generar la planilla. Verificá que la asistencia esté procesada para el período seleccionado.'
+  if (!error || typeof error !== 'object') return fallback
+  const response = (error as { response?: { data?: { detail?: unknown } } }).response
+  const detail = response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string' ? message : fallback
+}
 
-  const [planillaTab, setPlanillaTab] = useState<'teoricas' | 'practicas'>('teoricas')
-  const [month, setMonth] = useState<number>(currentMonth)
-  const [year, setYear] = useState<number>(currentYear)
-  const [lastResult, setLastResult] = useState<PlanillaGenerateResponse | null>(null)
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface PracticaPlanillaContentProps {
+  month: number
+  year: number
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function PracticaPlanillaContent({ month, year }: PracticaPlanillaContentProps) {
+  const [lastResult, setLastResult] = useState<PracticePlanillaGenerateResponse | null>(null)
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
   const [datesManuallySet, setDatesManuallySet] = useState(false)
-  const [showDetail] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
   const [selectedTeachers, setSelectedTeachers] = useState<Set<string>>(() => new Set())
   const [discountMode, setDiscountMode] = useState<'attendance' | 'full'>('attendance')
   const [discountModeManuallySet, setDiscountModeManuallySet] = useState(false)
@@ -162,79 +208,60 @@ export function PlanillaPage() {
   const [exclusionsEdited, setExclusionsEdited] = useState(false)
   const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: new Date().toISOString().slice(0, 10), scope: 'global' }))
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
-  const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
-  const [designationOptionsLoading, setDesignationOptionsLoading] = useState(false)
+
+  const [salaryReportLoading, setSalaryReportLoading] = useState<Record<string, boolean>>({})
+  const [emailSendResult, setEmailSendResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null)
+  const [emailSendError, setEmailSendError] = useState(false)
+
   const restoringHistoryRef = useRef(false)
 
-  // Salary report download loading state (keyed by planilla id for history rows,
-  // "current" for the main action bar). Using a map lets multiple rows spin
-  // independently without one blocking the others.
-  const [salaryReportLoading, setSalaryReportLoading] = useState<Record<string, boolean>>({})
+  // Hooks
+  const { data: planillaStatus } = usePracticePlanillaStatus(month, year)
+  const { data: publication } = usePracticePublicationStatus(month, year)
+  const { data: history, isLoading: historyLoading } = usePracticePlanillaHistory()
+  const { data: designationOptions, isLoading: designationOptionsLoading } = usePracticeDesignationOptions(exclusionPanelOpen)
+  const generatePlanilla = useGeneratePracticePlanilla()
+  const approvePlanilla = useApprovePracticePlanilla()
+  const rejectPlanilla = useRejectPracticePlanilla()
+  const publishBilling = usePublishPracticeBilling()
+  const unpublishBilling = useUnpublishPracticeBilling()
+  const sendBillingEmails = useSendPracticeBillingEmails()
 
-  const { data: bioRange } = useBiometricDateRange(month, year)
-  const { data: planillaStatus } = usePlanillaStatus(month, year)
-
-  // Reset manual flags when month/year changes so auto-fill can run again
+  // Reset manual flags when month/year changes
   useEffect(() => {
     if (restoringHistoryRef.current) {
       restoringHistoryRef.current = false
       return
     }
-
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
     setExclusionsEdited(false)
     setExcludedDays([])
   }, [month, year])
 
-  // Auto-fill dates: prefer stored planilla dates, then biometric, then fallback
+  // Auto-fill dates from stored planilla, then fallback to standard period
   useEffect(() => {
     if (datesManuallySet) return
-
-    // If there's a stored planilla with dates, use those (ensures consistency)
     if (planillaStatus?.start_date && planillaStatus?.end_date) {
       setStartDate(planillaStatus.start_date)
       setEndDate(planillaStatus.end_date)
       return
     }
+    // Fallback: standard cut-off period
+    const prevMonth = month === 1 ? 12 : month - 1
+    const prevYear = month === 1 ? year - 1 : year
+    setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
+    setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
+  }, [planillaStatus, datesManuallySet, month, year])
 
-    // Otherwise use biometric suggestion
-    if (bioRange?.has_data && bioRange.suggested_start && bioRange.suggested_end) {
-      setStartDate(bioRange.suggested_start)
-      setEndDate(bioRange.suggested_end)
-    } else if (bioRange !== undefined && !bioRange.has_data) {
-      // No biometric data: fall back to standard cut-off period
-      const prevMonth = month === 1 ? 12 : month - 1
-      const prevYear = month === 1 ? year - 1 : year
-      setStartDate(`${prevYear}-${String(prevMonth).padStart(2, '0')}-21`)
-      setEndDate(`${year}-${String(month).padStart(2, '0')}-20`)
-    }
-  }, [bioRange, datesManuallySet, month, year, planillaStatus])
-
-  useEffect(() => {
-    if (!exclusionPanelOpen) return
-
-    setDesignationOptionsLoading(true)
-    api.get<DesignationOptions>('/planilla/designation-options')
-      .then(res => setDesignationOptions(res.data))
-      .catch(() => setDesignationOptions({ subjects: [], semesters: [], groups: [] }))
-      .finally(() => setDesignationOptionsLoading(false))
-  }, [exclusionPanelOpen])
-
-  const generatePlanilla = useGeneratePlanilla()
-  const { data: history, isLoading: historyLoading } = usePlanillaHistory()
-  const { data: publication } = usePublicationStatus(month, year)
-
+  // Sync exclusions from stored planilla (when not manually edited)
   useEffect(() => {
     if (exclusionsEdited) return
     setExcludedDays(hydrateExclusionRows(planillaStatus?.excluded_days_json ?? []))
     setExclusionsEdited(false)
   }, [planillaStatus?.excluded_days_json, exclusionsEdited, month, year])
 
-  // Derive the effective discount mode: if the user manually toggled, use their
-  // choice. Otherwise fall back to the stored planilla's mode (if one exists),
-  // then to the local state default ("attendance"). This is a single source of
-  // truth — no sync effect, no race condition, no clobbering on refetch.
+  // Effective discount mode: manual override takes precedence, then stored value
   const effectiveDiscountMode: 'attendance' | 'full' = discountModeManuallySet
     ? discountMode
     : (planillaStatus?.discount_mode === 'attendance' || planillaStatus?.discount_mode === 'full')
@@ -242,40 +269,52 @@ export function PlanillaPage() {
       : discountMode
 
   const expandedExcludedDays = expandExcludedDays(excludedDays)
-  // Pass exclusions to detail preview only when the user has actively edited them.
-  // undefined = inherit stored exclusions; [] = explicit clear (no exclusions).
   const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
-  const { data: detail, isLoading: detailLoading } = usePlanillaDetail(month, year, showDetail, startDate || undefined, endDate || undefined, effectiveDiscountMode, previewExclusions)
-  const publishBilling = usePublishBilling()
-  const unpublishBilling = useUnpublishBilling()
-  const sendBillingEmails = useSendBillingEmails()
-  const approvePlanilla = useApprovePlanilla()
-  const rejectPlanilla = useRejectPlanilla()
+
+  const { data: detail, isLoading: detailLoading } = usePracticePlanillaDetailWithExclusions(
+    month,
+    year,
+    true,
+    startDate || undefined,
+    endDate || undefined,
+    effectiveDiscountMode,
+    previewExclusions,
+  )
 
   const isBillingPublished = publication?.status === 'published'
-  const visibleTeacherTotals = detail?.teacher_totals
-    .filter(t => {
-      if (!searchTerm) return true
-      const term = searchTerm.toLowerCase()
-      return t.teacher_name.toLowerCase().includes(term) || t.teacher_ci.includes(term)
-    })
-    .sort((a, b) => b.total_payment - a.total_payment) ?? []
-  const allVisibleTeachersSelected = visibleTeacherTotals.length > 0 && visibleTeacherTotals.every(t => selectedTeachers.has(t.teacher_ci))
+
+  const visibleTeacherRows = (() => {
+    if (!detail?.rows) return []
+    const byTeacher = new Map<string, { teacher_ci: string; teacher_name: string; total_gross: number; total_net: number; rows: typeof detail.rows }>()
+    for (const row of detail.rows) {
+      if (!byTeacher.has(row.teacher_ci)) {
+        byTeacher.set(row.teacher_ci, { teacher_ci: row.teacher_ci, teacher_name: row.teacher_name, total_gross: 0, total_net: 0, rows: [] })
+      }
+      const entry = byTeacher.get(row.teacher_ci)!
+      entry.total_gross += row.calculated_payment
+      entry.total_net += row.final_payment
+      entry.rows.push(row)
+    }
+    return Array.from(byTeacher.values())
+      .filter(t => {
+        if (!searchTerm) return true
+        const term = searchTerm.toLowerCase()
+        return t.teacher_name.toLowerCase().includes(term) || t.teacher_ci.includes(term)
+      })
+      .sort((a, b) => b.total_gross - a.total_gross)
+  })()
+
+  const allVisibleTeachersSelected = visibleTeacherRows.length > 0 && visibleTeacherRows.every(t => selectedTeachers.has(t.teacher_ci))
 
   useEffect(() => {
-    if (!isBillingPublished) {
-      setSelectedTeachers(new Set())
-    }
+    if (!isBillingPublished) setSelectedTeachers(new Set())
   }, [isBillingPublished, month, year])
 
   const toggleTeacherSelection = (teacherCi: string) => {
     setSelectedTeachers(prev => {
       const next = new Set(prev)
-      if (next.has(teacherCi)) {
-        next.delete(teacherCi)
-      } else {
-        next.add(teacherCi)
-      }
+      if (next.has(teacherCi)) next.delete(teacherCi)
+      else next.add(teacherCi)
       return next
     })
   }
@@ -284,22 +323,18 @@ export function PlanillaPage() {
     setSelectedTeachers(prev => {
       const next = new Set(prev)
       if (allVisibleTeachersSelected) {
-        visibleTeacherTotals.forEach(t => next.delete(t.teacher_ci))
+        visibleTeacherRows.forEach(t => next.delete(t.teacher_ci))
       } else {
-        visibleTeacherTotals.forEach(t => next.add(t.teacher_ci))
+        visibleTeacherRows.forEach(t => next.add(t.teacher_ci))
       }
       return next
     })
   }
 
-  const [emailSendResult, setEmailSendResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null)
-  const [emailSendError, setEmailSendError] = useState(false)
-
   const handleSendSelectedBillingEmails = () => {
     if (selectedTeachers.size === 0) return
     setEmailSendResult(null)
     setEmailSendError(false)
-
     sendBillingEmails.mutate(
       { month, year, teacher_cis: Array.from(selectedTeachers) },
       {
@@ -317,7 +352,6 @@ export function PlanillaPage() {
   }
 
   const handleGenerate = () => {
-    // Validate exclusion rows before generating
     for (let i = 0; i < excludedDays.length; i++) {
       const row = excludedDays[i]
       if (row.scope === 'semester' && (!row.selectedSemesters || row.selectedSemesters.length === 0)) {
@@ -329,9 +363,7 @@ export function PlanillaPage() {
         return
       }
     }
-
     setLastResult(null)
-
     generatePlanilla.mutate(
       {
         month,
@@ -342,22 +374,18 @@ export function PlanillaPage() {
         discount_mode: effectiveDiscountMode,
         excluded_days: expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined,
       },
-      {
-        onSuccess: (data) => setLastResult(data),
-      },
+      { onSuccess: (data) => setLastResult(data) },
     )
   }
 
   const resetNewExclusion = () => {
-    const today = new Date().toISOString().slice(0, 10)
-    setNewExclusion({ date: today, scope: 'global' })
+    setNewExclusion({ date: new Date().toISOString().slice(0, 10), scope: 'global' })
   }
 
   const addExclusionRow = () => {
     if (!newExclusion.date) return
     if (newExclusion.scope === 'semester' && (!newExclusion.selectedSemesters || newExclusion.selectedSemesters.length === 0)) return
     if (newExclusion.scope === 'subject' && (!newExclusion.subjectSelections || newExclusion.subjectSelections.length === 0)) return
-
     setExcludedDays(prev => [...prev, newExclusion])
     setExclusionsEdited(true)
     resetNewExclusion()
@@ -371,16 +399,9 @@ export function PlanillaPage() {
   const updateNewExclusion = (patch: Partial<ExclusionRow>) => {
     setNewExclusion(prev => {
       const updated = { ...prev, ...patch }
-      // Clear scope-specific fields when scope changes
-      if (patch.scope === 'global') {
-        return { date: updated.date, scope: 'global', reason: updated.reason }
-      }
-      if (patch.scope === 'semester') {
-        return { date: updated.date, scope: 'semester', selectedSemesters: [], reason: updated.reason }
-      }
-      if (patch.scope === 'subject') {
-        return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
-      }
+      if (patch.scope === 'global') return { date: updated.date, scope: 'global', reason: updated.reason }
+      if (patch.scope === 'semester') return { date: updated.date, scope: 'semester', selectedSemesters: [], reason: updated.reason }
+      if (patch.scope === 'subject') return { date: updated.date, scope: 'subject', selectedSubjects: [], subjectSelections: [], reason: updated.reason }
       return updated
     })
   }
@@ -391,77 +412,16 @@ export function PlanillaPage() {
     (newExclusion.scope === 'subject' && Boolean(newExclusion.subjectSelections?.length))
   )
 
+  const practiceSubjects = designationOptions?.subjects ?? []
+  const practiceSemesters = designationOptions?.semesters ?? []
+
   return (
     <div className="space-y-6">
-      {/* Top-level Teóricas / Prácticas tab switcher */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          {/* Tab buttons */}
-          <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: '#e8eef6' }}>
-            <button
-              onClick={() => setPlanillaTab('teoricas')}
-              className={`px-5 py-2 rounded-md text-sm font-semibold transition-all duration-150 ${
-                planillaTab === 'teoricas'
-                  ? 'bg-[#003366] text-white shadow-sm border-b-2 border-[#0066CC]'
-                  : 'text-[#003366] hover:bg-[#003366]/10'
-              }`}
-            >
-              Teóricas
-            </button>
-            <button
-              onClick={() => setPlanillaTab('practicas')}
-              className={`px-5 py-2 rounded-md text-sm font-semibold transition-all duration-150 ${
-                planillaTab === 'practicas'
-                  ? 'bg-[#003366] text-white shadow-sm border-b-2 border-[#0066CC]'
-                  : 'text-[#003366] hover:bg-[#003366]/10'
-              }`}
-            >
-              Prácticas
-            </button>
-          </div>
-
-          {/* Shared month/year selectors */}
-          <div className="flex items-end gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Mes</label>
-              <select
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] min-w-[130px]"
-              >
-                {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Año</label>
-              <input
-                type="number"
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
-                min={2020}
-                max={2030}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] w-24"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Prácticas tab content */}
-      {planillaTab === 'practicas' && (
-        <PracticaPlanillaContent month={month} year={year} />
-      )}
-
-      {/* Teóricas tab content — rendered exactly as before */}
-      {planillaTab === 'teoricas' && (
-      <div className="space-y-6">
       {/* Generator Card */}
       <div className="card-3d-static overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Generar Planilla de Pagos</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Seleccioná el período y generá la planilla de haberes docentes</p>
+          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Generar Planilla de Prácticas</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Seleccioná el período y generá la planilla de haberes docentes asistenciales</p>
         </div>
         <div className="px-6 py-5">
           <div className="flex flex-wrap items-end gap-4">
@@ -496,38 +456,9 @@ export function PlanillaPage() {
             </div>
           )}
 
+          {/* Cut-off period */}
           <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
             <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
-
-            {/* Biometric Coverage Info */}
-            {bioRange && (
-              <div className={`flex items-start gap-2 p-3 rounded-lg border mb-3 ${
-                bioRange.has_data ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'
-              }`}>
-                {bioRange.has_data ? (
-                  <>
-                    <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-blue-700 font-medium">Rango biométrico detectado</p>
-                      <p className="text-xs text-blue-600 mt-0.5">{bioRange.message}</p>
-                      <p className="text-xs text-blue-500 mt-1">
-                        Las fechas de inicio y fin se han ajustado automáticamente al rango del biométrico.
-                        Puede modificarlas si lo necesita.
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-yellow-700 font-medium">Sin datos biométricos</p>
-                      <p className="text-xs text-yellow-600 mt-0.5">{bioRange.message}</p>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
             <div className="flex items-end gap-4 flex-wrap">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Fecha inicio</label>
@@ -551,22 +482,6 @@ export function PlanillaPage() {
                 Estándar: del 21 del mes anterior al 20 del mes actual
               </p>
             </div>
-
-            {/* Warning: dates extend beyond biometric coverage */}
-            {bioRange?.has_data && startDate && endDate &&
-              (startDate < (bioRange.suggested_start ?? '') || endDate > (bioRange.suggested_end ?? '')) && (
-              <div className="flex items-start gap-2 p-3 bg-orange-50 rounded-lg border border-orange-200 mt-2">
-                <AlertTriangle size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-orange-700 font-medium">Rango extendido más allá del biométrico</p>
-                  <p className="text-xs text-orange-600 mt-0.5">
-                    El rango seleccionado ({startDate} — {endDate}) excede la cobertura del biométrico
-                    ({bioRange.suggested_start} — {bioRange.suggested_end}). Los días sin cobertura generarán
-                    ausencias para todos los docentes con biométrico.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Discount Mode Switch */}
@@ -576,7 +491,7 @@ export function PlanillaPage() {
                 <p className="text-sm font-medium text-gray-700">Modo de cálculo</p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {effectiveDiscountMode === 'attendance'
-                    ? 'Se aplican descuentos por ausencias registradas en el biométrico'
+                    ? 'Se aplican descuentos por ausencias registradas'
                     : 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'}
                 </p>
               </div>
@@ -598,9 +513,7 @@ export function PlanillaPage() {
             </div>
             <div className="mt-2 flex items-center gap-2">
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                effectiveDiscountMode === 'attendance'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-green-100 text-green-700'
+                effectiveDiscountMode === 'attendance' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
               }`}>
                 {effectiveDiscountMode === 'attendance' ? 'Con descuentos' : 'Sin descuentos — pago completo'}
               </span>
@@ -618,7 +531,6 @@ export function PlanillaPage() {
 
           {/* Exclusion Days Section */}
           <div className="mt-4 bg-gray-50/50 rounded-lg border border-gray-200 overflow-hidden">
-            {/* Collapsible header */}
             <button
               type="button"
               onClick={() => setExclusionPanelOpen(prev => !prev)}
@@ -649,7 +561,6 @@ export function PlanillaPage() {
 
             {exclusionPanelOpen && (
               <div className="px-4 pb-4 border-t border-gray-200">
-                {/* Add exclusion form */}
                 <form
                   onSubmit={(e) => { e.preventDefault(); addExclusionRow() }}
                   className="mt-3 rounded-lg border border-dashed border-purple-300 bg-white p-3"
@@ -700,13 +611,12 @@ export function PlanillaPage() {
                         <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-1">
                           {designationOptionsLoading ? (
                             <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
-                          ) : designationOptions.semesters.length === 0 ? (
+                          ) : practiceSemesters.length === 0 ? (
                             <p className="text-xs text-gray-400 px-1 py-1">No hay semestres cargados para el período activo.</p>
                           ) : (
-                            designationOptions.semesters.map((semester) => {
+                            practiceSemesters.map((semester) => {
                               const selectedSemesters = newExclusion.selectedSemesters ?? []
                               const checked = selectedSemesters.includes(semester)
-
                               return (
                                 <label key={semester} className="flex items-center gap-2 rounded bg-white/60 px-2 py-1.5 text-sm text-gray-700 hover:bg-purple-50 cursor-pointer">
                                   <input
@@ -716,7 +626,7 @@ export function PlanillaPage() {
                                       updateNewExclusion({
                                         selectedSemesters: e.target.checked
                                           ? [...selectedSemesters, semester]
-                                          : selectedSemesters.filter(selected => selected !== semester),
+                                          : selectedSemesters.filter(s => s !== semester),
                                       })
                                     }}
                                     className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
@@ -736,14 +646,13 @@ export function PlanillaPage() {
                         <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-2">
                           {designationOptionsLoading ? (
                             <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
-                          ) : designationOptions.subjects.length === 0 ? (
+                          ) : practiceSubjects.length === 0 ? (
                             <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
                           ) : (
-                            getUniqueSubjects(designationOptions.subjects).map((subject) => {
+                            getUniqueSubjects(practiceSubjects).map((subject) => {
                               const selectedSubjects = newExclusion.selectedSubjects ?? []
                               const subjectChecked = selectedSubjects.includes(subject)
-                              const groups = getGroupsForSubject(designationOptions.subjects, subject)
-
+                              const groups = getGroupsForSubject(practiceSubjects, subject)
                               return (
                                 <div key={subject} className="rounded-md bg-white/60 px-2 py-1.5">
                                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
@@ -751,38 +660,36 @@ export function PlanillaPage() {
                                       type="checkbox"
                                       checked={subjectChecked}
                                       onChange={(e) => {
-                                        const currentSelections = newExclusion.subjectSelections ?? []
+                                        const currentSelections = (newExclusion.subjectSelections ?? []) as PracticeDesignationOption[]
                                         updateNewExclusion({
                                           selectedSubjects: e.target.checked
                                             ? [...selectedSubjects, subject]
-                                            : selectedSubjects.filter(selected => selected !== subject),
+                                            : selectedSubjects.filter(s => s !== subject),
                                           subjectSelections: e.target.checked
                                             ? currentSelections
-                                            : currentSelections.filter(selection => selection.subject !== subject),
+                                            : currentSelections.filter(s => s.subject !== subject),
                                         })
                                       }}
                                       className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                     />
                                     <span>{subject}</span>
                                   </label>
-
                                   {subjectChecked && (
                                     <div className="ml-6 mt-1.5 grid grid-cols-2 gap-1">
                                       {groups.map((option) => {
                                         const optionKey = getSubjectOptionKey(option)
-                                        const checked = (newExclusion.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
-
+                                        const checked = ((newExclusion.subjectSelections ?? []) as PracticeDesignationOption[]).some(s => getSubjectOptionKey(s) === optionKey)
                                         return (
                                           <label key={optionKey} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-gray-600 hover:bg-purple-50 cursor-pointer">
                                             <input
                                               type="checkbox"
                                               checked={checked}
                                               onChange={(e) => {
-                                                const current = newExclusion.subjectSelections ?? []
+                                                const current = (newExclusion.subjectSelections ?? []) as PracticeDesignationOption[]
                                                 updateNewExclusion({
                                                   subjectSelections: e.target.checked
                                                     ? [...current, option]
-                                                    : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
+                                                    : current.filter(s => getSubjectOptionKey(s) !== optionKey),
                                                 })
                                               }}
                                               className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
@@ -820,7 +727,6 @@ export function PlanillaPage() {
                     <p className="text-sm font-semibold text-gray-700">Exclusiones configuradas</p>
                     <span className="text-xs text-gray-400">{excludedDays.length} confirmada(s)</span>
                   </div>
-
                   {excludedDays.length === 0 ? (
                     <p className="text-xs text-gray-400 py-4 text-center bg-white rounded-lg border border-gray-200">
                       No hay exclusiones configuradas
@@ -836,11 +742,7 @@ export function PlanillaPage() {
                           <div>
                             <p className="text-xs text-gray-400 font-medium">Alcance</p>
                             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              row.scope === 'global'
-                                ? 'bg-purple-100 text-purple-700'
-                                : row.scope === 'semester'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-amber-100 text-amber-700'
+                              row.scope === 'global' ? 'bg-purple-100 text-purple-700' : row.scope === 'semester' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                             }`}>
                               {row.scope === 'global' ? 'Global' : row.scope === 'semester' ? 'Semestre' : 'Materia'}
                             </span>
@@ -850,18 +752,16 @@ export function PlanillaPage() {
                             {row.scope === 'global' && <p className="text-gray-500">Todos los docentes</p>}
                             {row.scope === 'semester' && (
                               <div className="flex flex-wrap gap-1">
-                                {(row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])).map((semester) => (
-                                  <span key={semester} className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 border border-blue-100">
-                                    {semester}
-                                  </span>
+                                {(row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])).map((s) => (
+                                  <span key={s} className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 border border-blue-100">{s}</span>
                                 ))}
                               </div>
                             )}
                             {row.scope === 'subject' && (
                               <div className="flex flex-wrap gap-1">
-                                {(row.subjectSelections ?? []).map((selection) => (
-                                  <span key={getSubjectOptionKey(selection)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
-                                    {selection.subject} ({selection.group_code})
+                                {((row.subjectSelections ?? []) as PracticeDesignationOption[]).map((s) => (
+                                  <span key={getSubjectOptionKey(s)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
+                                    {s.subject} ({s.group_code})
                                   </span>
                                 ))}
                               </div>
@@ -877,7 +777,6 @@ export function PlanillaPage() {
                               onClick={() => removeExclusionRow(index)}
                               className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                               title="Quitar exclusión"
-                              aria-label="Quitar exclusión"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -891,7 +790,7 @@ export function PlanillaPage() {
                 <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
                   <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-purple-700">
-                    <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en rojo en el Excel.
+                    <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos.
                   </p>
                 </div>
               </div>
@@ -901,7 +800,7 @@ export function PlanillaPage() {
           {generatePlanilla.isError && (
             <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-sm text-red-600">
-                Error al generar la planilla. Verificá que la asistencia esté procesada para el período seleccionado.
+                {getPlanillaErrorMessage(generatePlanilla.error)}
               </p>
             </div>
           )}
@@ -910,18 +809,13 @@ export function PlanillaPage() {
 
       {/* Result Card */}
       {lastResult && (
-        <div
-          className="card-3d-static overflow-hidden border-l-4"
-          style={{ borderLeftColor: '#16a34a' }}
-        >
+        <div className="card-3d-static overflow-hidden border-l-4" style={{ borderLeftColor: '#16a34a' }}>
           <div className="py-5 px-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
                 <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-green-700">
-                    ¡Planilla generada exitosamente!
-                  </p>
+                  <p className="font-semibold text-green-700">¡Planilla de prácticas generada exitosamente!</p>
                   <p className="text-sm text-gray-600 mt-1">
                     {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {lastResult.total_hours}h totales
                   </p>
@@ -929,9 +823,7 @@ export function PlanillaPage() {
                     Total: Bs {parseFloat(lastResult.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   {lastResult.warnings.length > 0 && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      {lastResult.warnings.length} advertencia(s) durante la generación
-                    </p>
+                    <p className="text-xs text-yellow-600 mt-1">{lastResult.warnings.length} advertencia(s) durante la generación</p>
                   )}
                 </div>
               </div>
@@ -940,16 +832,16 @@ export function PlanillaPage() {
                   <Button
                     variant="outline"
                     className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
-                    onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
+                    onClick={() => void downloadPracticePlanilla(lastResult.planilla_id)}
                   >
                     <Download size={16} />
                     Descargar Excel
                   </Button>
                   <button
                     onClick={async () => {
-                      setSalaryReportLoading((prev) => ({ ...prev, current: true }))
+                      setSalaryReportLoading(prev => ({ ...prev, current: true }))
                       try {
-                        await downloadSalaryReport({
+                        await downloadPracticeSalaryReport({
                           month: lastResult.month,
                           year: lastResult.year,
                           discount_mode: effectiveDiscountMode,
@@ -957,7 +849,7 @@ export function PlanillaPage() {
                           end_date: endDate || undefined,
                         })
                       } finally {
-                        setSalaryReportLoading((prev) => ({ ...prev, current: false }))
+                        setSalaryReportLoading(prev => ({ ...prev, current: false }))
                       }
                     }}
                     disabled={salaryReportLoading.current}
@@ -988,13 +880,9 @@ export function PlanillaPage() {
         </div>
         <div className="p-0">
           {historyLoading ? (
-            <div className="p-5">
-              <LoadingPage />
-            </div>
+            <div className="p-5"><LoadingPage /></div>
           ) : !history || history.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              No hay planillas generadas aún
-            </div>
+            <div className="text-center py-10 text-gray-400 text-sm">No hay planillas de prácticas generadas aún</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1012,11 +900,9 @@ export function PlanillaPage() {
                       className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
                       onClick={() => {
                         restoringHistoryRef.current = item.month !== month || item.year !== year
-                        setMonth(item.month)
-                        setYear(item.year)
+                        setDatesManuallySet(true)
                         setStartDate(item.start_date ?? '')
                         setEndDate(item.end_date ?? '')
-                        setDatesManuallySet(true)
                         setDiscountMode(item.discount_mode)
                         setDiscountModeManuallySet(true)
                         setExclusionsEdited(false)
@@ -1031,8 +917,7 @@ export function PlanillaPage() {
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
                         {item.start_date && item.end_date
                           ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
-                          : <span className="text-gray-300">—</span>
-                        }
+                          : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(item.generated_at)}</td>
                       <td className="px-4 py-3">
@@ -1048,20 +933,14 @@ export function PlanillaPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge
-                          className={
-                            item.status?.toLowerCase() === 'approved'
-                              ? 'bg-green-100 text-green-700 text-xs'
-                              : item.status?.toLowerCase() === 'rejected'
-                                ? 'bg-red-100 text-red-700 text-xs'
-                                : 'bg-yellow-100 text-yellow-700 text-xs'
-                          }
-                        >
-                          {item.status?.toLowerCase() === 'approved'
-                            ? 'Aprobada'
-                            : item.status?.toLowerCase() === 'rejected'
-                              ? 'Rechazada'
-                              : 'Pend. Aprobación'}
+                        <Badge className={
+                          item.status?.toLowerCase() === 'approved' ? 'bg-green-100 text-green-700 text-xs'
+                          : item.status?.toLowerCase() === 'rejected' ? 'bg-red-100 text-red-700 text-xs'
+                          : 'bg-yellow-100 text-yellow-700 text-xs'
+                        }>
+                          {item.status?.toLowerCase() === 'approved' ? 'Aprobada'
+                            : item.status?.toLowerCase() === 'rejected' ? 'Rechazada'
+                            : 'Pend. Aprobación'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
@@ -1070,7 +949,7 @@ export function PlanillaPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
+                                void downloadPracticePlanilla(item.id)
                               }}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
                             >
@@ -1081,23 +960,17 @@ export function PlanillaPage() {
                               onClick={async (e) => {
                                 e.stopPropagation()
                                 const key = `row-${item.id}`
-                                setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
+                                setSalaryReportLoading(prev => ({ ...prev, [key]: true }))
                                 try {
-                                  await downloadSalaryReport({
-                                    month: item.month,
-                                    year: item.year,
-                                    discount_mode: item.discount_mode,
-                                  })
+                                  await downloadPracticeSalaryReport({ month: item.month, year: item.year, discount_mode: item.discount_mode })
                                 } finally {
-                                  setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
+                                  setSalaryReportLoading(prev => ({ ...prev, [key]: false }))
                                 }
                               }}
                               disabled={salaryReportLoading[`row-${item.id}`]}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded text-green-700 hover:bg-green-50 border border-green-600/30 text-xs font-medium transition-colors disabled:opacity-50"
                             >
-                              {salaryReportLoading[`row-${item.id}`]
-                                ? <Loader2 size={12} className="animate-spin" />
-                                : <FileSpreadsheet size={12} />}
+                              {salaryReportLoading[`row-${item.id}`] ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
                               Salarios
                             </button>
                           </div>
@@ -1114,50 +987,38 @@ export function PlanillaPage() {
         </div>
       </div>
 
-      {/* Approval Status — show when there is a planilla for this period */}
+      {/* Approval Status */}
       {planillaStatus && (
         <div className="card-3d-static overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                planillaStatus.status === 'approved' ? 'bg-green-100' :
-                planillaStatus.status === 'rejected' ? 'bg-red-100' : 'bg-yellow-100'
+                planillaStatus.status === 'approved' ? 'bg-green-100' : planillaStatus.status === 'rejected' ? 'bg-red-100' : 'bg-yellow-100'
               }`}>
                 {planillaStatus.status === 'approved'
                   ? <CheckCircle size={16} className="text-green-600" />
                   : planillaStatus.status === 'rejected'
                     ? <XCircle size={16} className="text-red-600" />
-                    : <Clock size={16} className="text-yellow-600" />
-                }
+                    : <Clock size={16} className="text-yellow-600" />}
               </div>
               <div>
-                <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                  Estado de la Planilla
-                </h3>
+                <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Estado de la Planilla</h3>
                 <p className="text-xs text-gray-500">
-                  {planillaStatus.status === 'approved'
-                    ? 'Aprobada — lista para publicar'
-                    : planillaStatus.status === 'rejected'
-                      ? 'Rechazada — requiere regeneración'
-                      : 'Pendiente de aprobación'}
+                  {planillaStatus.status === 'approved' ? 'Aprobada — lista para publicar'
+                    : planillaStatus.status === 'rejected' ? 'Rechazada — requiere regeneración'
+                    : 'Pendiente de aprobación'}
                 </p>
               </div>
             </div>
-
             {planillaStatus.status === 'generated' && (
               <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1"
                   onClick={() => approvePlanilla.mutate(planillaStatus.id)}
                   disabled={approvePlanilla.isPending}
                 >
                   <Check size={14} /> Aprobar
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
+                <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
                   onClick={() => rejectPlanilla.mutate(planillaStatus.id)}
                   disabled={rejectPlanilla.isPending}
                 >
@@ -1165,11 +1026,9 @@ export function PlanillaPage() {
                 </Button>
               </div>
             )}
-
             {planillaStatus.status === 'approved' && (
               <span className="text-sm text-green-700 font-medium">✅ Lista para publicar</span>
             )}
-
             {planillaStatus.status === 'rejected' && (
               <span className="text-sm text-red-600 font-medium">❌ Regenerá la planilla</span>
             )}
@@ -1177,7 +1036,7 @@ export function PlanillaPage() {
         </div>
       )}
 
-      {/* Publication Status — at the top so admin doesn't need to scroll */}
+      {/* Publication Status */}
       <div className="card-3d-static overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1186,13 +1045,10 @@ export function PlanillaPage() {
             }`}>
               {publication?.status === 'published'
                 ? <Send size={16} className="text-green-600" />
-                : <EyeOff size={16} className="text-gray-400" />
-              }
+                : <EyeOff size={16} className="text-gray-400" />}
             </div>
             <div>
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Publicación de Facturación
-              </h3>
+              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Publicación de Facturación</h3>
               <p className="text-xs text-gray-500">
                 {MONTH_NAMES[month]} {year} — {
                   publication?.status === 'published'
@@ -1202,11 +1058,8 @@ export function PlanillaPage() {
               </p>
             </div>
           </div>
-
           {publication?.status === 'published' ? (
-            <Button
-              variant="outline"
-              className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
+            <Button variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
               onClick={() => unpublishBilling.mutate({ month, year })}
               disabled={unpublishBilling.isPending}
             >
@@ -1231,19 +1084,15 @@ export function PlanillaPage() {
           <div className="px-5 py-3 bg-green-50/50 text-sm text-green-700 flex items-center gap-2">
             <span>✅ Los docentes pueden ver sus montos a facturar para {MONTH_NAMES[month]} {year}.</span>
             {publication.total_teachers > 0 && (
-              <span className="text-green-600">
-                ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
-              </span>
+              <span className="text-green-600">({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})</span>
             )}
           </div>
         )}
-
         {!planillaStatus && publication?.status !== 'published' && (
           <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
             Generá y aprobá la planilla antes de publicar.
           </div>
         )}
-
         {planillaStatus && planillaStatus.status !== 'approved' && publication?.status !== 'published' && (
           <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
             {planillaStatus.status === 'rejected'
@@ -1251,7 +1100,6 @@ export function PlanillaPage() {
               : 'Aprobá la planilla antes de publicar para docentes.'}
           </div>
         )}
-
         {exclusionsEdited && publication?.status !== 'published' && (
           <div className="px-5 py-3 bg-amber-50/50 text-sm text-amber-700">
             Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar.
@@ -1259,24 +1107,20 @@ export function PlanillaPage() {
         )}
       </div>
 
-      {/* Planilla Detail Section — ALWAYS visible */}
+      {/* Detail Section */}
       <div className="card-3d-static overflow-hidden">
-        {/* Header */}
         <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-100">
           <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
             <Users size={16} className="text-white" />
           </div>
           <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-              Detalle por Docente
-            </h3>
+            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Detalle por Docente</h3>
             <p className="text-xs text-gray-500">
               {detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
             </p>
           </div>
         </div>
 
-        {/* Detail content */}
         <div className="p-5">
           {detailLoading ? (
             <div className="flex justify-center py-8">
@@ -1285,43 +1129,44 @@ export function PlanillaPage() {
           ) : detail ? (
             <div className="space-y-4">
               {/* Summary stats */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div className="bg-blue-50/50 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_teachers}</p>
                   <p className="text-xs text-gray-500">Docentes</p>
                 </div>
                 <div className="bg-blue-50/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_designations}</p>
-                  <p className="text-xs text-gray-500">Designaciones</p>
+                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>
+                    Bs {detail.total_gross.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-gray-500">Total Bruto</p>
                 </div>
-                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>Bs {detail.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
-                  <p className="text-xs text-gray-500">Total a Pagar</p>
+                <div className="bg-red-50/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-red-600">
+                    Bs {detail.total_retention.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-gray-500">Retenciones</p>
+                </div>
+                <div className="bg-green-50/50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700">
+                    Bs {detail.total_net.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-gray-500">Total Neto</p>
                 </div>
               </div>
 
-              {/* Tabs + Search row */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                  <button
-                    onClick={() => setDetailTab('teachers')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      detailTab === 'teachers' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Por Docente
-                  </button>
-                  <button
-                    onClick={() => setDetailTab('designations')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      detailTab === 'designations' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Por Designación
-                  </button>
+              {/* Warnings */}
+              {detail.warnings.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-yellow-800">Advertencias:</p>
+                  <ul className="text-xs text-yellow-700 mt-1 space-y-0.5">
+                    {detail.warnings.map((w, i) => <li key={i}>- {w}</li>)}
+                  </ul>
                 </div>
+              )}
 
-                {/* Search */}
+              {/* Selection bar + search */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-gray-500">Vista por docente</div>
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -1334,306 +1179,233 @@ export function PlanillaPage() {
                 </div>
               </div>
 
-              {/* Tab: Por Docente */}
-              {detailTab === 'teachers' && (
-                <div className="space-y-3">
-                  {isBillingPublished && (
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#0066CC]/20 bg-blue-50/50 px-4 py-3">
-                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allVisibleTeachersSelected}
-                          onChange={toggleAllVisibleTeachers}
-                          disabled={visibleTeacherTotals.length === 0}
-                          className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
-                        />
-                        Seleccionar todos
-                      </label>
-                      <Badge className="bg-[#003366] text-white">
-                        {selectedTeachers.size} seleccionado(s)
-                      </Badge>
-                    </div>
-                  )}
-
-                  {isBillingPublished && selectedTeachers.size > 0 && (
-                    <div className="rounded-xl border border-[#0066CC]/30 bg-[#003366] px-5 py-4 text-white shadow-lg">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15">
-                            <Mail size={18} className="text-white" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{selectedTeachers.size} docente(s) seleccionado(s)</p>
-                            <p className="text-xs text-white/60">Seleccioná los docentes a quienes enviar el correo</p>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                          <Button
-                            type="button"
-                            onClick={handleSendSelectedBillingEmails}
-                            disabled={sendBillingEmails.isPending}
-                            className="gap-2 bg-white text-[#003366] font-semibold hover:bg-[#f4b400] hover:text-[#003366] transition-all duration-200 shadow-md hover:shadow-lg"
-                          >
-                            {sendBillingEmails.isPending ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              <Mail size={16} />
-                            )}
-                            Enviar correo
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setSelectedTeachers(new Set())}
-                            disabled={sendBillingEmails.isPending}
-                            className="border-white/50 text-white bg-white/10 hover:bg-white/25 hover:text-white font-medium transition-all duration-200"
-                          >
-                            Limpiar selección
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Email send result banner */}
-                  {emailSendResult && (
-                    <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 flex-shrink-0">
-                          <CheckCircle size={18} className="text-green-600" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-green-800 text-sm">Correos procesados exitosamente</p>
-                          <div className="flex flex-wrap gap-4 mt-1.5">
-                            {emailSendResult.sent > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-green-500" />
-                                {emailSendResult.sent} enviado(s)
-                              </span>
-                            )}
-                            {emailSendResult.failed > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-red-500" />
-                                {emailSendResult.failed} fallido(s)
-                              </span>
-                            )}
-                            {emailSendResult.skipped > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-gray-400" />
-                                {emailSendResult.skipped} omitido(s)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setEmailSendResult(null)}
-                          className="p-1 rounded-md hover:bg-green-100 text-green-400 hover:text-green-600 transition-colors flex-shrink-0"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {emailSendError && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="font-semibold text-red-800 text-sm">No se pudieron enviar los correos</p>
-                          <p className="text-xs text-red-600 mt-0.5">Verificá la configuración de email e intentá nuevamente.</p>
-                        </div>
-                        <button
-                          onClick={() => setEmailSendError(false)}
-                          className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {visibleTeacherTotals.map(teacher => (
-                      <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
-                        {/* Teacher header */}
-                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
-                          <div className="flex items-center gap-3">
-                            {isBillingPublished && (
-                              <input
-                                type="checkbox"
-                                checked={selectedTeachers.has(teacher.teacher_ci)}
-                                onChange={() => toggleTeacherSelection(teacher.teacher_ci)}
-                                aria-label={`Seleccionar ${teacher.teacher_name}`}
-                                className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
-                              />
-                            )}
-                            <div className="w-9 h-9 rounded-full gradient-stat-navy flex items-center justify-center">
-                              <span className="text-white text-sm font-bold">{teacher.teacher_name.charAt(0)}</span>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-800 text-sm">{teacher.teacher_name}</p>
-                              <p className="text-xs text-gray-500">CI: {teacher.teacher_ci} · {teacher.designation_count} materia(s)</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            {editingOverride === teacher.teacher_ci ? (
-                              <div className="flex items-center gap-2 justify-end">
-                                <span className="text-xs text-gray-500">Bs</span>
-                                <input
-                                  type="number"
-                                  value={overrideValue}
-                                  onChange={e => setOverrideValue(e.target.value)}
-                                  className="w-24 border border-[#0066CC] rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#0066CC]"
-                                  autoFocus
-                                />
-                                <button
-                                  onClick={() => {
-                                    if (overrideValue) {
-                                      setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
-                                    }
-                                    setEditingOverride(null)
-                                    setOverrideValue('')
-                                  }}
-                                  className="text-green-600 hover:text-green-800"
-                                  title="Confirmar ajuste"
-                                >
-                                  <Check size={14} />
-                                </button>
-                                <button
-                                  onClick={() => { setEditingOverride(null); setOverrideValue('') }}
-                                  className="text-gray-400 hover:text-gray-600"
-                                  title="Cancelar"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col items-end gap-0.5">
-                                {teacher.has_retention ? (
-                                  <>
-                                    <p className="text-xs text-gray-400 line-through">
-                                      Bruto: Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    </p>
-                                    <p className="text-xs text-red-500">
-                                      Retención 13%: -Bs {(teacher.retention_amount ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                      <p
-                                        className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
-                                        style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
-                                      >
-                                        Neto: Bs {(teacher.final_payment ?? teacher.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                      </p>
-                                      {paymentOverrides[teacher.teacher_ci] != null && (
-                                        <p className="text-lg font-bold text-green-700">
-                                          Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                        </p>
-                                      )}
-                                      <button
-                                        onClick={() => {
-                                          setEditingOverride(teacher.teacher_ci)
-                                          setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? (teacher.final_payment ?? teacher.total_payment)))
-                                        }}
-                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
-                                        title="Ajustar monto"
-                                      >
-                                        <Pencil size={13} />
-                                      </button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="flex items-center gap-2 justify-end">
-                                    <p
-                                      className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
-                                      style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
-                                    >
-                                      Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    </p>
-                                    {paymentOverrides[teacher.teacher_ci] != null && (
-                                      <p className="text-lg font-bold text-green-700">
-                                        Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                      </p>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        setEditingOverride(teacher.teacher_ci)
-                                        setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_payment))
-                                      }}
-                                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
-                                      title="Ajustar monto"
-                                    >
-                                      <Pencil size={13} />
-                                    </button>
-                                  </div>
-                                )}
-
-                                {paymentOverrides[teacher.teacher_ci] != null && (
-                                  <button
-                                    onClick={() => {
-                                      setPaymentOverrides(prev => {
-                                        const next = { ...prev }
-                                        delete next[teacher.teacher_ci]
-                                        return next
-                                      })
-                                    }}
-                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
-                                    title="Quitar ajuste"
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            <p className="text-xs text-gray-500 mt-1">
-                              {teacher.total_payable_hours}h de {teacher.total_base_hours}h
-                              {!teacher.has_biometric && (
-                                <span className="ml-1 text-yellow-600 font-medium">· Sin Bio</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        {/* Teacher designations */}
-                        <div className="divide-y divide-gray-100">
-                          {detail.detail
-                            .filter(d => d.teacher_ci === teacher.teacher_ci)
-                            .map(d => (
-                              <div key={`${d.subject}-${d.group_code}`} className="flex items-center justify-between px-4 py-2 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-gray-700">{d.subject}</span>
-                                  <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
-                                  <span className="text-gray-400 text-xs">{d.semester}</span>
-                                </div>
-                                <div className="flex items-center gap-4 text-xs">
-                                  <span className="text-gray-500">{d.base_monthly_hours}h base</span>
-                                  {d.absent_hours > 0 && <span className="text-red-500">-{d.absent_hours}h</span>}
-                                  <span className="font-semibold text-gray-800">{d.payable_hours}h</span>
-                                  <span className="font-bold min-w-[80px] text-right" style={{ color: '#003366' }}>
-                                    Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    {(d.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
-                                  </span>
-                                </div>
-                              </div>
-                            ))
-                          }
-                        </div>
-                      </div>
-                    ))}
-
+              {/* Select-all + email controls */}
+              {isBillingPublished && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#0066CC]/20 bg-blue-50/50 px-4 py-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleTeachersSelected}
+                      onChange={toggleAllVisibleTeachers}
+                      disabled={visibleTeacherRows.length === 0}
+                      className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
+                    />
+                    Seleccionar todos
+                  </label>
+                  <Badge className="bg-[#003366] text-white">{selectedTeachers.size} seleccionado(s)</Badge>
                 </div>
               )}
 
-              {/* Tab: Por Designación */}
-              {detailTab === 'designations' && (
-                <div className="overflow-x-auto rounded-lg border border-gray-200">
+              {isBillingPublished && selectedTeachers.size > 0 && (
+                <div className="rounded-xl border border-[#0066CC]/30 bg-[#003366] px-5 py-4 text-white shadow-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15">
+                        <Mail size={18} className="text-white" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold">{selectedTeachers.size} docente(s) seleccionado(s)</p>
+                        <p className="text-xs text-white/60">Seleccioná los docentes a quienes enviar el correo</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        onClick={handleSendSelectedBillingEmails}
+                        disabled={sendBillingEmails.isPending}
+                        className="gap-2 bg-white text-[#003366] font-semibold hover:bg-[#f4b400] hover:text-[#003366] transition-all duration-200 shadow-md hover:shadow-lg"
+                      >
+                        {sendBillingEmails.isPending ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                        Enviar correo
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSelectedTeachers(new Set())}
+                        disabled={sendBillingEmails.isPending}
+                        className="border-white/50 text-white bg-white/10 hover:bg-white/25 hover:text-white font-medium transition-all duration-200"
+                      >
+                        Limpiar selección
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Email result banners */}
+              {emailSendResult && (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 flex-shrink-0">
+                      <CheckCircle size={18} className="text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-green-800 text-sm">Correos procesados exitosamente</p>
+                      <div className="flex flex-wrap gap-4 mt-1.5">
+                        {emailSendResult.sent > 0 && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
+                            <span className="w-2 h-2 rounded-full bg-green-500" />{emailSendResult.sent} enviado(s)
+                          </span>
+                        )}
+                        {emailSendResult.failed > 0 && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-100 px-2.5 py-1 rounded-full">
+                            <span className="w-2 h-2 rounded-full bg-red-500" />{emailSendResult.failed} fallido(s)
+                          </span>
+                        )}
+                        {emailSendResult.skipped > 0 && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
+                            <span className="w-2 h-2 rounded-full bg-gray-400" />{emailSendResult.skipped} omitido(s)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => setEmailSendResult(null)} className="p-1 rounded-md hover:bg-green-100 text-green-400 hover:text-green-600 transition-colors flex-shrink-0">
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {emailSendError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-red-800 text-sm">No se pudieron enviar los correos</p>
+                      <p className="text-xs text-red-600 mt-0.5">Verificá la configuración de email e intentá nuevamente.</p>
+                    </div>
+                    <button onClick={() => setEmailSendError(false)} className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Teacher cards */}
+              <div className="space-y-3">
+                {visibleTeacherRows.map(teacher => (
+                  <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
+                      <div className="flex items-center gap-3">
+                        {isBillingPublished && (
+                          <input
+                            type="checkbox"
+                            checked={selectedTeachers.has(teacher.teacher_ci)}
+                            onChange={() => toggleTeacherSelection(teacher.teacher_ci)}
+                            aria-label={`Seleccionar ${teacher.teacher_name}`}
+                            className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
+                          />
+                        )}
+                        <div className="w-9 h-9 rounded-full gradient-stat-navy flex items-center justify-center">
+                          <span className="text-white text-sm font-bold">{teacher.teacher_name.charAt(0)}</span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-800 text-sm">{teacher.teacher_name}</p>
+                          <p className="text-xs text-gray-500">CI: {teacher.teacher_ci} · {teacher.rows.length} materia(s)</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {editingOverride === teacher.teacher_ci ? (
+                          <div className="flex items-center gap-2 justify-end">
+                            <span className="text-xs text-gray-500">Bs</span>
+                            <input
+                              type="number"
+                              value={overrideValue}
+                              onChange={e => setOverrideValue(e.target.value)}
+                              className="w-24 border border-[#0066CC] rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#0066CC]"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => {
+                                if (overrideValue) setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
+                                setEditingOverride(null); setOverrideValue('')
+                              }}
+                              className="text-green-600 hover:text-green-800"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button onClick={() => { setEditingOverride(null); setOverrideValue('') }} className="text-gray-400 hover:text-gray-600">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <p className="text-xs text-gray-400">
+                              Bruto: Bs {teacher.total_gross.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <p
+                                className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : 'text-green-700'}`}
+                              >
+                                Neto: Bs {teacher.total_net.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                              </p>
+                              {paymentOverrides[teacher.teacher_ci] != null && (
+                                <p className="text-lg font-bold text-green-700">
+                                  Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                </p>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setEditingOverride(teacher.teacher_ci)
+                                  setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_net))
+                                }}
+                                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
+                                title="Ajustar monto"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                            </div>
+                            {paymentOverrides[teacher.teacher_ci] != null && (
+                              <button
+                                onClick={() => setPaymentOverrides(prev => { const next = { ...prev }; delete next[teacher.teacher_ci]; return next })}
+                                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
+                                title="Quitar ajuste"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Designations */}
+                    <div className="divide-y divide-gray-100">
+                      {teacher.rows.map(row => (
+                        <div key={`${row.subject}-${row.group_code}`} className="flex items-center justify-between px-4 py-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-700">{row.subject}</span>
+                            <Badge className="bg-gray-100 text-gray-600 text-xs">{row.group_code}</Badge>
+                            <span className="text-gray-400 text-xs">{row.semester}</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs">
+                            <span className="text-gray-500">{row.base_monthly_hours}h base</span>
+                            {row.absent_hours > 0 && <span className="text-red-500">-{row.absent_hours}h</span>}
+                            <span className="font-semibold text-gray-800">{row.payable_hours}h</span>
+                            <span className="font-bold min-w-[80px] text-right" style={{ color: '#003366' }}>
+                              Bs {row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                              {row.has_retention && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Full detail table */}
+              <details className="mt-2">
+                <summary className="text-sm text-[#0066CC] cursor-pointer hover:underline font-medium">Ver tabla completa por designación</summary>
+                <div className="mt-3 overflow-x-auto rounded-lg border border-gray-200">
                   <table className="w-full text-sm">
                     <thead>
                       <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                        {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs a Pagar', 'Monto (Bs)', 'Estado'].map(h => (
+                        {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs a Pagar', 'Monto (Bs)', 'Retención', 'Neto (Bs)', 'Observación'].map(h => (
                           <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.detail
+                      {detail.rows
                         .filter(row => {
                           if (!searchTerm) return true
                           const term = searchTerm.toLowerCase()
@@ -1646,34 +1418,27 @@ export function PlanillaPage() {
                             <td className="px-3 py-2.5 text-gray-600">{row.group_code}</td>
                             <td className="px-3 py-2.5 text-gray-600">{row.semester}</td>
                             <td className="px-3 py-2.5 text-gray-700 font-medium">{row.base_monthly_hours}h</td>
-                            <td className="px-3 py-2.5">
-                              {row.absent_hours > 0 ? (
-                                <span className="text-red-600 font-medium">-{row.absent_hours}h</span>
-                              ) : (
-                                <span className="text-green-600">0h</span>
-                              )}
-                            </td>
+                            <td className="px-3 py-2.5">{row.absent_hours > 0 ? <span className="text-red-600 font-medium">-{row.absent_hours}h</span> : <span className="text-green-600">0h</span>}</td>
                             <td className="px-3 py-2.5 text-gray-800 font-semibold">{row.payable_hours}h</td>
-                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>
-                              {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                              {(row.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              {!row.has_biometric ? (
-                                <Badge className="bg-yellow-100 text-yellow-700 text-xs">Sin Bio</Badge>
-                              ) : row.absent_count > 0 ? (
-                                <Badge className="bg-red-100 text-red-700 text-xs">{row.absent_count} falta(s)</Badge>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-700 text-xs">Completo</Badge>
-                              )}
-                            </td>
+                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>{row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2.5">{row.has_retention ? <span className="text-red-600 font-medium">-{row.retention_amount.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span> : <span className="text-gray-400">—</span>}</td>
+                            <td className="px-3 py-2.5 font-bold text-green-700">{row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2.5 text-gray-500 text-xs max-w-[150px] truncate" title={row.observation}>{row.observation || '—'}</td>
                           </tr>
-                        ))
-                      }
+                        ))}
                     </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                        <td colSpan={7} className="px-3 py-2.5 text-right text-gray-700">Totales:</td>
+                        <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>{detail.total_gross.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2.5 font-bold text-red-600">-{detail.total_retention.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2.5 font-bold text-green-700">{detail.total_net.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
-              )}
+              </details>
             </div>
           ) : (
             <div className="text-center py-10 text-gray-400 text-sm">
@@ -1682,10 +1447,6 @@ export function PlanillaPage() {
           )}
         </div>
       </div>
-
-      </div>
-      )}
-
     </div>
   )
 }
