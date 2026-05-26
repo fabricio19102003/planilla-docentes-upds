@@ -13,8 +13,10 @@ from app.database import get_db
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
+from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services.planilla_generator import PlanillaGenerator
+from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.activity_logger import log_activity
 from app.services import app_settings_service
 from app.services.email_service import EmailService
@@ -64,6 +66,7 @@ class PublicationResponse(BaseModel):
     id: int
     month: int
     year: int
+    planilla_type: str = "regular"
     status: str
     total_teachers: int
     total_payment: float
@@ -354,6 +357,7 @@ def publish_billing(
             id=publication.id,
             month=publication.month,
             year=publication.year,
+            planilla_type=publication.planilla_type,
             status=publication.status,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
@@ -483,6 +487,7 @@ def unpublish_billing(
             id=publication.id,
             month=publication.month,
             year=publication.year,
+            planilla_type=publication.planilla_type,
             status=publication.status,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
@@ -521,6 +526,7 @@ def list_publications(
                 id=p.id,
                 month=p.month,
                 year=p.year,
+                planilla_type=p.planilla_type,
                 status=p.status,
                 total_teachers=p.total_teachers,
                 total_payment=float(p.total_payment),
@@ -543,13 +549,22 @@ def list_publications(
 def get_publication(
     month: int,
     year: int,
+    planilla_type: str = "regular",
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> PublicationResponse:
-    """Check if a specific month/year has a billing publication."""
+    """Check if a specific month/year has a billing publication.
+
+    Pass ``planilla_type=practice`` to query the practice publication instead of
+    the regular one (backward-compatible: defaults to ``regular``).
+    """
     publication = (
         db.query(BillingPublication)
-        .filter(BillingPublication.month == month, BillingPublication.year == year)
+        .filter(
+            BillingPublication.month == month,
+            BillingPublication.year == year,
+            BillingPublication.planilla_type == planilla_type,
+        )
         .first()
     )
     if publication is None:
@@ -561,6 +576,7 @@ def get_publication(
         id=publication.id,
         month=publication.month,
         year=publication.year,
+        planilla_type=publication.planilla_type,
         status=publication.status,
         total_teachers=publication.total_teachers,
         total_payment=float(publication.total_payment),
@@ -568,4 +584,385 @@ def get_publication(
         published_at=publication.published_at,
         unpublished_at=publication.unpublished_at,
         notes=publication.notes,
+    )
+
+
+# ==================================================================
+# Practice billing publication endpoints
+# Same flow as regular, but:
+#   - Reads from PracticePlanillaOutput (not PlanillaOutput)
+#   - Uses PracticePlanillaGenerator (not PlanillaGenerator)
+#   - Sets planilla_type="practice" on BillingPublication
+# ==================================================================
+
+
+@router.post("/practice/publish", response_model=PublicationResponse)
+def publish_practice_billing(
+    payload: PublishRequest,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> PublicationResponse:
+    """Publish practice billing for a given month/year."""
+    try:
+        month = payload.month
+        year = payload.year
+
+        if not (1 <= month <= 12):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mes inválido")
+        if year < 2000 or year > 2100:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Año inválido")
+
+        stored_planilla = (
+            db.query(PracticePlanillaOutput)
+            .filter(PracticePlanillaOutput.month == month, PracticePlanillaOutput.year == year)
+            .order_by(PracticePlanillaOutput.generated_at.desc())
+            .first()
+        )
+
+        if not stored_planilla:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No existe una planilla de prácticas generada para este período. Genere una planilla primero.",
+            )
+
+        if stored_planilla.status != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La planilla de prácticas debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
+            )
+
+        generator = PracticePlanillaGenerator()
+        billing_snapshot = None
+        try:
+            stored_overrides: dict[str, float] = {}
+            if stored_planilla.payment_overrides_json:
+                stored_overrides = stored_planilla.payment_overrides_json
+
+            sd = stored_planilla.start_date
+            ed = stored_planilla.end_date
+            dm = stored_planilla.discount_mode
+
+            stored_exclusions = None
+            if stored_planilla.excluded_days_json:
+                try:
+                    from app.schemas.planilla import ExcludedDaySchema
+                    stored_exclusions = [
+                        ExcludedDaySchema.model_validate(item)
+                        for item in stored_planilla.excluded_days_json
+                    ]
+                except Exception:
+                    stored_exclusions = None
+
+            rows, _warnings = generator._build_planilla_data(
+                db, month=month, year=year, start_date=sd, end_date=ed,
+                discount_mode=dm,
+                excluded_days=stored_exclusions,
+            )
+            total_teachers = len({r.teacher_ci for r in rows})
+
+            resolved_payments: dict[str, float] = {}
+            if stored_overrides:
+                for row in rows:
+                    row_key = f"{row.teacher_ci}:{row.designation_id}"
+                    # PracticePlanillaGenerator uses simple row-key or teacher-CI overrides
+                    # (no complex multi-designation allocation like the regular generator)
+                    row_level = stored_overrides.get(row_key)
+                    if row_level is not None:
+                        resolved_payments[row_key] = float(row_level)
+                    elif row.teacher_ci in stored_overrides:
+                        # Teacher-level override applies to all their rows
+                        resolved_payments[row_key] = float(stored_overrides[row.teacher_ci])
+
+            teacher_map: dict[str, dict] = {}
+            for row in rows:
+                if row.teacher_ci not in teacher_map:
+                    teacher_map[row.teacher_ci] = {
+                        "teacher_ci": row.teacher_ci,
+                        "teacher_name": row.teacher_name,
+                        "has_biometric": row.has_biometric,
+                        "has_retention": row.has_retention,
+                        "designations": [],
+                        "total_hours": 0,
+                        "gross_payment": 0.0,
+                        "total_payment": 0.0,
+                        "retention_amount": 0.0,
+                        "final_payment": 0.0,
+                    }
+                t = teacher_map[row.teacher_ci]
+                row_key = f"{row.teacher_ci}:{row.designation_id}"
+                effective_payment = resolved_payments.get(row_key, row.final_payment)
+                row_retention = row.retention_amount if row_key not in resolved_payments else 0.0
+                t["designations"].append({
+                    "subject": row.subject,
+                    "group": row.group_code,
+                    "semester": row.semester,
+                    "base_hours": row.base_monthly_hours,
+                    "absent_hours": row.absent_hours,
+                    "payable_hours": row.payable_hours,
+                    "gross_payment": round(row.calculated_payment, 2),
+                    "retention_amount": round(row_retention, 2),
+                    "payment": round(effective_payment, 2),
+                })
+                t["total_hours"] += row.payable_hours
+                t["gross_payment"] = round(t.get("gross_payment", 0.0) + row.calculated_payment, 2)
+                t["retention_amount"] = round(t.get("retention_amount", 0.0) + row_retention, 2)
+                t["total_payment"] += effective_payment
+                t["final_payment"] = round(float(t["total_payment"]), 2)
+
+            total_payment = float(stored_planilla.total_payment)
+            planilla_id = stored_planilla.id
+            logger.info(
+                "Practice publish: using approved PracticePlanillaOutput id=%d for %d/%d (total=%.2f)",
+                planilla_id, month, year, total_payment,
+            )
+
+            practice_rate = app_settings_service.get_practice_hourly_rate(db)
+            billing_snapshot = {
+                "teacher_details": list(teacher_map.values()),
+                "total_payment": float(total_payment),
+                "total_teachers": total_teachers,
+                "rate_per_hour": practice_rate,
+                "start_date": str(stored_planilla.start_date) if stored_planilla.start_date else None,
+                "end_date": str(stored_planilla.end_date) if stored_planilla.end_date else None,
+                "excluded_days_json": stored_planilla.excluded_days_json or [],
+                "generated_at": datetime.now().isoformat(),
+                "source": "practice_planilla_output",
+                "planilla_id": planilla_id,
+                "discount_mode": dm,
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Failed to build practice planilla snapshot for %d/%d: %s", month, year, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No se pudo generar la facturación de prácticas. Verificá que existan designaciones y datos de asistencia para este período.",
+            ) from exc
+
+        # Create or update BillingPublication with planilla_type="practice"
+        now = datetime.now()
+        publication = (
+            db.query(BillingPublication)
+            .filter(
+                BillingPublication.month == month,
+                BillingPublication.year == year,
+                BillingPublication.planilla_type == "practice",
+            )
+            .first()
+        )
+
+        if publication is None:
+            publication = BillingPublication(
+                month=month,
+                year=year,
+                planilla_type="practice",
+                status="published",
+                version=1,
+                total_teachers=total_teachers,
+                total_payment=total_payment,
+                published_by=current_user.id,
+                published_at=now,
+                unpublished_at=None,
+                notes=payload.notes,
+                billing_snapshot=billing_snapshot,
+            )
+            db.add(publication)
+        else:
+            publication.status = "published"
+            publication.version = (publication.version or 1) + 1
+            publication.total_teachers = total_teachers
+            publication.total_payment = total_payment
+            publication.published_by = current_user.id
+            publication.published_at = now
+            publication.unpublished_at = None
+            publication.billing_snapshot = billing_snapshot
+            if payload.notes is not None:
+                publication.notes = payload.notes
+
+        db.flush()
+
+        month_name = MONTH_NAMES.get(month, str(month))
+        log_activity(
+            db,
+            "publish_practice_billing",
+            "billing",
+            f"Facturación prácticas publicada: {month_name} {year} ({total_teachers} docentes, Bs {total_payment:,.2f})",
+            user=current_user,
+            details={
+                "month": month,
+                "year": year,
+                "total_teachers": total_teachers,
+                "total_payment": float(total_payment),
+                "planilla_type": "practice",
+            },
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(publication)
+
+        logger.info(
+            "Practice billing published for %d/%d by user %d — %d teachers, Bs %.2f",
+            month, year, current_user.id, total_teachers, total_payment,
+        )
+
+        return PublicationResponse(
+            id=publication.id,
+            month=publication.month,
+            year=publication.year,
+            planilla_type=publication.planilla_type,
+            status=publication.status,
+            total_teachers=publication.total_teachers,
+            total_payment=float(publication.total_payment),
+            published_by=publication.published_by,
+            published_at=publication.published_at,
+            unpublished_at=publication.unpublished_at,
+            notes=publication.notes,
+        )
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to publish practice billing: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo publicar la facturación de prácticas",
+        ) from exc
+
+
+@router.post("/practice/unpublish", response_model=PublicationResponse)
+def unpublish_practice_billing(
+    payload: UnpublishRequest,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> PublicationResponse:
+    """Unpublish practice billing for a given month/year."""
+    try:
+        publication = (
+            db.query(BillingPublication)
+            .filter(
+                BillingPublication.month == payload.month,
+                BillingPublication.year == payload.year,
+                BillingPublication.planilla_type == "practice",
+            )
+            .first()
+        )
+
+        if publication is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No existe publicación de prácticas para este mes/año",
+            )
+
+        publication.status = "draft"
+        publication.unpublished_at = datetime.now()
+
+        log_activity(
+            db,
+            "unpublish_practice_billing",
+            "billing",
+            f"Facturación prácticas despublicada: {MONTH_NAMES.get(payload.month, str(payload.month))} {payload.year}",
+            user=current_user,
+            details={"month": payload.month, "year": payload.year, "planilla_type": "practice"},
+            request=request,
+        )
+
+        db.commit()
+        db.refresh(publication)
+
+        logger.info("Practice billing unpublished for %d/%d", payload.month, payload.year)
+
+        return PublicationResponse(
+            id=publication.id,
+            month=publication.month,
+            year=publication.year,
+            planilla_type=publication.planilla_type,
+            status=publication.status,
+            total_teachers=publication.total_teachers,
+            total_payment=float(publication.total_payment),
+            published_by=publication.published_by,
+            published_at=publication.published_at,
+            unpublished_at=publication.unpublished_at,
+            notes=publication.notes,
+        )
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to unpublish practice billing: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo despublicar la facturación de prácticas",
+        ) from exc
+
+
+@router.post("/practice/send-emails", response_model=SendBillingEmailsResponse)
+def send_practice_billing_emails(
+    payload: SendBillingEmailsRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> SendBillingEmailsResponse:
+    """Send practice billing-published emails to selected active docentes."""
+    if not (1 <= payload.month <= 12):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mes inválido")
+    if payload.year < 2000 or payload.year > 2100:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Año inválido")
+
+    teacher_cis = [ci.strip() for ci in payload.teacher_cis if ci.strip()]
+    if not teacher_cis:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Seleccioná al menos un docente")
+
+    publication = (
+        db.query(BillingPublication)
+        .filter(
+            BillingPublication.month == payload.month,
+            BillingPublication.year == payload.year,
+            BillingPublication.planilla_type == "practice",
+        )
+        .first()
+    )
+    if publication is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No existe publicación de prácticas para este mes/año",
+        )
+    if publication.status != "published":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La facturación de prácticas no está publicada para este período",
+        )
+
+    docente_users = (
+        db.query(User)
+        .options(joinedload(User.teacher))
+        .filter(
+            User.role == "docente",
+            User.is_active == True,
+            User.teacher_ci.in_(teacher_cis),
+        )
+        .all()
+    )
+
+    email_result = EmailService().send_billing_published(publication, docente_users)
+    logger.info(
+        "Selective practice billing email step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
+        payload.month,
+        payload.year,
+        len(teacher_cis),
+        email_result.eligible,
+        email_result.sent,
+        email_result.failed,
+        email_result.skipped,
+    )
+
+    return SendBillingEmailsResponse(
+        sent=email_result.sent,
+        failed=email_result.failed,
+        skipped=email_result.skipped,
     )

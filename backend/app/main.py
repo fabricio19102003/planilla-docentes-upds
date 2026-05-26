@@ -54,7 +54,7 @@ def _run_column_migrations() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
                 logger.info("Added column users.must_change_password")
 
-            # billing_publications.billing_snapshot + version
+            # billing_publications.billing_snapshot + version + planilla_type
             if inspector.has_table("billing_publications"):
                 bp_cols = {c["name"] for c in inspector.get_columns("billing_publications")}
                 if "billing_snapshot" not in bp_cols:
@@ -63,6 +63,25 @@ def _run_column_migrations() -> None:
                 if "version" not in bp_cols:
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
                     logger.info("Added column billing_publications.version")
+                if "planilla_type" not in bp_cols:
+                    conn.execute(text(
+                        "ALTER TABLE billing_publications ADD COLUMN planilla_type VARCHAR(20) NOT NULL DEFAULT 'regular'"
+                    ))
+                    logger.info("Added column billing_publications.planilla_type")
+                    # Drop old unique constraint (month, year) and replace with (month, year, planilla_type)
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications DROP CONSTRAINT IF EXISTS "
+                            "uq_billing_publication_month_year"
+                        ))
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications ADD CONSTRAINT "
+                            "uq_billing_publication_month_year_type "
+                            "UNIQUE (month, year, planilla_type)"
+                        ))
+                        logger.info("Updated billing_publications unique constraint to include planilla_type")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not update billing_publications constraint: %s", constraint_exc)
 
             # planilla_outputs.payment_overrides_json + start_date/end_date
             if inspector.has_table("planilla_outputs"):
