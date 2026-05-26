@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import calendar
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +24,12 @@ from sqlalchemy.orm import Session
 from app.models.attendance import AttendanceRecord
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
+from app.models.practice_attendance import PracticeAttendanceLog
+from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.report import Report
 from app.services import app_settings_service
+from app.services.practice_planilla_generator import PracticePlanillaGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +214,40 @@ class ReportGenerator:
         self.styles = getSampleStyleSheet()
         self.cs = _make_cell_styles(self.styles)
 
+    def _filter_planilla_rows(
+        self,
+        rows: list,
+        teacher_ci: str | None = None,
+        semester: str | None = None,
+        group_code: str | None = None,
+        subject: str | None = None,
+    ) -> list:
+        if teacher_ci:
+            rows = [r for r in rows if r.teacher_ci == teacher_ci]
+        if semester:
+            rows = [r for r in rows if r.semester and r.semester.upper() == semester.upper()]
+        if group_code:
+            rows = [r for r in rows if r.group_code == group_code]
+        if subject:
+            rows = [r for r in rows if subject.lower() in r.subject.lower()]
+        return rows
+
+    def _build_practice_planilla_rows(self, db: Session, month: int, year: int) -> tuple[list, PracticePlanillaOutput | None]:
+        stored_po = (
+            db.query(PracticePlanillaOutput)
+            .filter(PracticePlanillaOutput.month == month, PracticePlanillaOutput.year == year)
+            .order_by(PracticePlanillaOutput.generated_at.desc())
+            .first()
+        )
+        dm = stored_po.discount_mode if stored_po else "attendance"
+        sd = stored_po.start_date if stored_po else None
+        ed = stored_po.end_date if stored_po else None
+        practice_gen = PracticePlanillaGenerator()
+        rows, _warnings = practice_gen._build_planilla_data(
+            db, month=month, year=year, start_date=sd, end_date=ed, discount_mode=dm,
+        )
+        return rows, stored_po
+
     # ── Financial Report ─────────────────────────────────────────────────────
     def generate_financial_report(
         self,
@@ -237,15 +275,11 @@ class ReportGenerator:
         sd = stored_po.start_date if stored_po else None
         ed = stored_po.end_date if stored_po else None
         rows, _, warnings = gen._build_planilla_data(db, month=month, year=year, start_date=sd, end_date=ed, discount_mode=dm)
+        practice_rows, stored_practice = self._build_practice_planilla_rows(db, month, year)
 
-        if teacher_ci:
-            rows = [r for r in rows if r.teacher_ci == teacher_ci]
-        if semester:
-            rows = [r for r in rows if r.semester and r.semester.upper() == semester.upper()]
-        if group_code:
-            rows = [r for r in rows if r.group_code == group_code]
-        if subject:
-            rows = [r for r in rows if subject.lower() in r.subject.lower()]
+        rows = self._filter_planilla_rows(rows, teacher_ci, semester, group_code, subject)
+        practice_rows = self._filter_planilla_rows(practice_rows, teacher_ci, semester, group_code, subject)
+        all_rows = rows + practice_rows
 
         filter_parts = [f"{MONTH_NAMES.get(month, str(month))} {year}"]
         if teacher_ci:
@@ -277,8 +311,8 @@ class ReportGenerator:
         _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
-        total_gross = sum(r.calculated_payment for r in rows)
-        total_retention = sum(r.retention_amount for r in rows)
+        total_gross = sum(r.calculated_payment for r in all_rows)
+        total_retention = sum(r.retention_amount for r in all_rows)
         # Prefer stored PlanillaOutput total (reflects admin overrides) over live sum
         stored_planilla = (
             db.query(PlanillaOutput)
@@ -286,19 +320,21 @@ class ReportGenerator:
             .order_by(PlanillaOutput.generated_at.desc())
             .first()
         )
-        if stored_planilla and not teacher_ci and not semester and not group_code and not subject:
-            total_payment = float(stored_planilla.total_payment)
+        if not teacher_ci and not semester and not group_code and not subject:
+            total_payment = 0.0
+            total_payment += float(stored_planilla.total_payment) if stored_planilla else sum(r.final_payment for r in rows)
+            total_payment += float(stored_practice.total_payment) if stored_practice else sum(r.final_payment for r in practice_rows)
         else:
-            total_payment = sum(r.final_payment for r in rows)   # net — after retention
-        total_base = sum(r.base_monthly_hours for r in rows)
-        total_absent = sum(r.absent_hours for r in rows)
-        total_payable = sum(r.payable_hours for r in rows)
-        unique_teachers = len(set(r.teacher_ci for r in rows))
+            total_payment = sum(r.final_payment for r in all_rows)   # net — after retention
+        total_base = sum(r.base_monthly_hours for r in all_rows)
+        total_absent = sum(r.absent_hours for r in all_rows)
+        total_payable = sum(r.payable_hours for r in all_rows)
+        unique_teachers = len(set(r.teacher_ci for r in all_rows))
 
         summary_data = [
             [_cell(h, cs["header"]) for h in ["Docentes", "Designaciones", "Hrs Asignadas", "Hrs Ausencia", "Hrs a Pagar", "Bruto (Bs)", "Ret. 13% (Bs)", "Neto (Bs)"]],
             [_cell(v, cs["cell_center"]) for v in [
-                str(unique_teachers), str(len(rows)), f"{total_base}h", f"{total_absent}h", f"{total_payable}h",
+                str(unique_teachers), str(len(all_rows)), f"{total_base}h", f"{total_absent}h", f"{total_payable}h",
                 f"{total_gross:,.2f}", f"{total_retention:,.2f}", f"{total_payment:,.2f}",
             ]],
         ]
@@ -329,6 +365,24 @@ class ReportGenerator:
                 _cell(f"{r.retention_amount:,.2f}" if r.retention_amount > 0 else "—", cs["cell_center"]),
                 _cell(f"{r.final_payment:,.2f}", cs["cell_bold_right"]),
             ])
+        if practice_rows:
+            detail_data.append([
+                _cell("Prácticas Internas", cs["cell_bold"]), _cell("", cs["cell"]), _cell("", cs["cell_center"]),
+                _cell("", cs["cell_center"]), _cell("", cs["cell_center"]), _cell("", cs["cell_center"]),
+                _cell("", cs["cell_right"]), _cell("", cs["cell_center"]), _cell("", cs["cell_bold_right"]),
+            ])
+            for r in sorted(practice_rows, key=lambda x: (-x.final_payment, x.teacher_name)):
+                detail_data.append([
+                    _cell(r.teacher_name, cs["cell"]),
+                    _cell(f"{r.subject} (Prácticas)", cs["cell"]),
+                    _cell(r.group_code, cs["cell_center"]),
+                    _cell(str(r.base_monthly_hours), cs["cell_center"]),
+                    _cell(str(r.absent_hours) if r.absent_hours > 0 else "0", cs["cell_center"]),
+                    _cell(str(r.payable_hours), cs["cell_center"]),
+                    _cell(f"{r.calculated_payment:,.2f}", cs["cell_right"]),
+                    _cell(f"{r.retention_amount:,.2f}" if r.retention_amount > 0 else "—", cs["cell_center"]),
+                    _cell(f"{r.final_payment:,.2f}", cs["cell_bold_right"]),
+                ])
 
         col_widths = [100, 95, 33, 38, 44, 44, 60, 48, 60]
         detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
@@ -353,7 +407,7 @@ class ReportGenerator:
         )
         db.add(report)
         db.flush()
-        logger.info("Generated financial report: %s (%d rows)", filename, len(rows))
+        logger.info("Generated financial report: %s (%d rows)", filename, len(all_rows))
         return report
 
     # ── Attendance Report ────────────────────────────────────────────────────
@@ -376,9 +430,19 @@ class ReportGenerator:
             query = query.filter(AttendanceRecord.teacher_ci == teacher_ci)
 
         records = query.order_by(AttendanceRecord.teacher_ci, AttendanceRecord.date).all()
+        start = date(year, month, 1)
+        end = date(year, month, calendar.monthrange(year, month)[1])
+
+        practice_query = db.query(PracticeAttendanceLog).filter(
+            PracticeAttendanceLog.date >= start,
+            PracticeAttendanceLog.date <= end,
+        )
+        if teacher_ci:
+            practice_query = practice_query.filter(PracticeAttendanceLog.teacher_ci == teacher_ci)
+        practice_records = practice_query.order_by(PracticeAttendanceLog.teacher_ci, PracticeAttendanceLog.date).all()
 
         desig_map: dict[int, Designation] = {}
-        desig_ids = set(r.designation_id for r in records)
+        desig_ids = set(r.designation_id for r in records) | set(r.designation_id for r in practice_records)
         if desig_ids:
             desig_map = {d.id: d for d in db.query(Designation).filter(Designation.id.in_(desig_ids)).all()}
 
@@ -391,8 +455,9 @@ class ReportGenerator:
                     continue
                 ok_ids.add(did)
             records = [r for r in records if r.designation_id in ok_ids]
+            practice_records = [r for r in practice_records if r.designation_id in ok_ids]
 
-        teacher_cis = set(r.teacher_ci for r in records)
+        teacher_cis = set(r.teacher_ci for r in records) | set(r.teacher_ci for r in practice_records)
         teachers: dict[str, Teacher] = {
             t.ci: t for t in db.query(Teacher).filter(Teacher.ci.in_(teacher_cis)).all()
         } if teacher_cis else {}
@@ -423,11 +488,11 @@ class ReportGenerator:
         _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
-        attended = sum(1 for r in records if r.status == "ATTENDED")
-        late = sum(1 for r in records if r.status == "LATE")
-        absent = sum(1 for r in records if r.status == "ABSENT")
+        attended = sum(1 for r in records if r.status == "ATTENDED") + sum(1 for r in practice_records if r.status.lower() in ("attended", "present", "justified"))
+        late = sum(1 for r in records if r.status == "LATE") + sum(1 for r in practice_records if r.status.lower() == "late")
+        absent = sum(1 for r in records if r.status == "ABSENT") + sum(1 for r in practice_records if r.status.lower() == "absent")
         no_exit = sum(1 for r in records if r.status == "NO_EXIT")
-        total = len(records)
+        total = len(records) + len(practice_records)
         # NO_EXIT counts as present (teacher was physically there, just forgot to clock out)
         rate = (attended + late + no_exit) / total * 100 if total > 0 else 0
 
@@ -499,6 +564,58 @@ class ReportGenerator:
         detail_table.setStyle(TableStyle(detail_style_list))
         elements.append(detail_table)
 
+        elements.append(Spacer(1, 16))
+        section_style = ParagraphStyle(
+            "PracticeSectionTitle", parent=self.styles["Normal"],
+            fontSize=9, fontName="Helvetica-Bold", textColor=NAVY, spaceAfter=4,
+        )
+        elements.append(Paragraph("Prácticas Internas", section_style))
+
+        practice_header = [_cell(h, cs["header"]) for h in ["Fecha", "Docente", "Materia", "Grupo", "Estado", "Entrada", "Salida", "Hrs"]]
+        practice_data: list = [practice_header]
+        practice_status_labels = {"attended": "Asistido", "present": "Asistido", "justified": "Justificado", "late": "Tardanza", "absent": "Ausente"}
+        for r in practice_records:
+            desig = desig_map.get(r.designation_id)
+            teacher = teachers.get(r.teacher_ci)
+            status = r.status.lower()
+            if status == "absent":
+                status_style = ParagraphStyle("PracticeStatusAbsent", parent=cs["cell_center"], textColor=colors.HexColor("#DC2626"), fontName="Helvetica-Bold")
+            elif status == "late":
+                status_style = ParagraphStyle("PracticeStatusLate", parent=cs["cell_center"], textColor=colors.HexColor("#D97706"), fontName="Helvetica-Bold")
+            else:
+                status_style = cs["cell_center"]
+
+            practice_data.append([
+                _cell(r.date.strftime("%d/%m/%Y") if r.date else "", cs["cell_center"]),
+                _cell(teacher.full_name if teacher else r.teacher_ci, cs["cell"]),
+                _cell(desig.subject if desig else "", cs["cell"]),
+                _cell(desig.group_code if desig else "", cs["cell_center"]),
+                _cell(practice_status_labels.get(status, r.status), status_style),
+                _cell(r.actual_start.strftime("%H:%M") if r.actual_start else "—", cs["cell_center"]),
+                _cell(r.actual_end.strftime("%H:%M") if r.actual_end else "—", cs["cell_center"]),
+                _cell(str(r.academic_hours) if r.academic_hours else "0", cs["cell_center"]),
+            ])
+
+        practice_table = Table(practice_data, colWidths=col_widths, repeatRows=1)
+        practice_style_list: list = [
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+        for i, r in enumerate(practice_records):
+            row_idx = i + 1
+            status = r.status.lower()
+            if status == "absent":
+                practice_style_list.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#FEE2E2")))
+            elif status == "late":
+                practice_style_list.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#FEF3C7")))
+            elif row_idx % 2 == 0:
+                practice_style_list.append(("BACKGROUND", (0, row_idx), (-1, row_idx), LIGHT_GRAY))
+        practice_table.setStyle(TableStyle(practice_style_list))
+        elements.append(practice_table)
+
         _add_footer(elements, self.styles, generated_by_name)
         doc.build(elements)
 
@@ -510,7 +627,7 @@ class ReportGenerator:
         )
         db.add(report)
         db.flush()
-        logger.info("Generated attendance report: %s (%d records)", filename, len(records))
+        logger.info("Generated attendance report: %s (%d records)", filename, len(records) + len(practice_records))
         return report
 
     # ── Comparative Report ───────────────────────────────────────────────────
@@ -527,13 +644,25 @@ class ReportGenerator:
         months_query = db.query(
             AttendanceRecord.month,
         ).filter(AttendanceRecord.year == year).distinct().order_by(AttendanceRecord.month).all()
-        months = [m[0] for m in months_query]
+        months = {m[0] for m in months_query}
+        practice_months = {
+            r[0].month for r in db.query(PracticeAttendanceLog.date)
+            .filter(PracticeAttendanceLog.date >= date(year, 1, 1), PracticeAttendanceLog.date <= date(year, 12, 31))
+            .distinct().all()
+        }
+        practice_output_months = {
+            r[0] for r in db.query(PracticePlanillaOutput.month)
+            .filter(PracticePlanillaOutput.year == year)
+            .distinct().all()
+        }
+        months.update(practice_months)
+        months.update(practice_output_months)
         if not months:
-            months = [datetime.now().month]
+            months = {datetime.now().month}
 
         gen = PlanillaGenerator()
         monthly_data = []
-        for m in months:
+        for m in sorted(months):
             # Use stored discount_mode so PDF matches the approved planilla
             stored_m = (
                 db.query(PlanillaOutput)
@@ -545,20 +674,25 @@ class ReportGenerator:
             m_sd = stored_m.start_date if stored_m else None
             m_ed = stored_m.end_date if stored_m else None
             rows, _, _ = gen._build_planilla_data(db, month=m, year=year, start_date=m_sd, end_date=m_ed, discount_mode=m_dm)
+            practice_rows, stored_practice_m = self._build_practice_planilla_rows(db, m, year)
             if teacher_ci:
                 rows = [r for r in rows if r.teacher_ci == teacher_ci]
-            if stored_m and not teacher_ci:
-                month_total = float(stored_m.total_payment)
+                practice_rows = [r for r in practice_rows if r.teacher_ci == teacher_ci]
+            if not teacher_ci:
+                month_total = 0.0
+                month_total += float(stored_m.total_payment) if stored_m else sum(r.final_payment for r in rows)
+                month_total += float(stored_practice_m.total_payment) if stored_practice_m else sum(r.final_payment for r in practice_rows)
             else:
-                month_total = sum(r.final_payment for r in rows)  # net — after retention
+                month_total = sum(r.final_payment for r in rows + practice_rows)  # net — after retention
+            all_rows = rows + practice_rows
 
             monthly_data.append({
                 "month": m,
                 "month_name": MONTH_NAMES.get(m, str(m)),
-                "teachers": len(set(r.teacher_ci for r in rows)),
-                "base_hours": sum(r.base_monthly_hours for r in rows),
-                "absent_hours": sum(r.absent_hours for r in rows),
-                "payable_hours": sum(r.payable_hours for r in rows),
+                "teachers": len(set(r.teacher_ci for r in all_rows)),
+                "base_hours": sum(r.base_monthly_hours for r in all_rows),
+                "absent_hours": sum(r.absent_hours for r in all_rows),
+                "payable_hours": sum(r.payable_hours for r in all_rows),
                 "total_payment": month_total,
             })
 
@@ -651,6 +785,10 @@ class ReportGenerator:
             AttendanceRecord.month == month,
             AttendanceRecord.year == year,
         ).all()
+        practice_records = db.query(PracticeAttendanceLog).filter(
+            PracticeAttendanceLog.date >= date(year, month, 1),
+            PracticeAttendanceLog.date <= date(year, month, calendar.monthrange(year, month)[1]),
+        ).all()
 
         bio_cis = {
             r[0] for r in db.query(BiometricRecord.teacher_ci)
@@ -661,14 +799,18 @@ class ReportGenerator:
 
         all_teacher_cis = {
             r[0] for r in db.query(Designation.teacher_ci)
-            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
+            .filter(
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
+                Designation.designation_type != "practice",
+            )
             .distinct().all()
         }
+        practice_teacher_cis = {r.teacher_ci for r in practice_records}
 
         teachers_without_bio = all_teacher_cis - bio_cis
         teacher_names = {
-            t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis)).all()
-        }
+            t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis | practice_teacher_cis)).all()
+        } if all_teacher_cis or practice_teacher_cis else {}
 
         teacher_stats: dict = defaultdict(lambda: {"absences": 0, "lates": 0, "late_minutes_total": 0, "total_slots": 0})
         for r in records:
@@ -679,6 +821,18 @@ class ReportGenerator:
             elif r.status == "LATE":
                 ts["lates"] += 1
                 ts["late_minutes_total"] += r.late_minutes
+
+        practice_stats: dict = defaultdict(lambda: {"absences": 0, "lates": 0, "total_slots": 0})
+        for r in practice_records:
+            status = r.status.lower()
+            if status not in ("absent", "late"):
+                continue
+            ts = practice_stats[r.teacher_ci]
+            ts["total_slots"] += 1
+            if status == "absent":
+                ts["absences"] += 1
+            elif status == "late":
+                ts["lates"] += 1
 
         top_absentees = sorted(
             [{"ci": ci, "name": teacher_names.get(ci, ci), **stats}
@@ -700,6 +854,13 @@ class ReportGenerator:
 
         total_absences = sum(1 for r in records if r.status == "ABSENT")
         total_lates = sum(1 for r in records if r.status == "LATE")
+        total_practice_absences = sum(1 for r in practice_records if r.status.lower() == "absent")
+        total_practice_lates = sum(1 for r in practice_records if r.status.lower() == "late")
+        practice_incidents = sorted(
+            [{"ci": ci, "name": teacher_names.get(ci, ci), **stats}
+             for ci, stats in practice_stats.items()],
+            key=lambda x: (-(x["absences"] + x["lates"]), x["name"])
+        )[:20]
 
         month_name = MONTH_NAMES.get(month, str(month))
         title = "Reporte de Incidencias"
@@ -728,7 +889,10 @@ class ReportGenerator:
         summary_data = [
             [_cell(h, cs["header"]) for h in ["Total Registros", "Ausencias", "Tardanzas", "Sin Biométrico"]],
             [_cell(v, cs["cell_center"]) for v in [
-                str(len(records)), str(total_absences), str(total_lates), str(len(without_bio_list)),
+                str(len(records) + len(practice_records)),
+                str(total_absences + total_practice_absences),
+                str(total_lates + total_practice_lates),
+                str(len(without_bio_list)),
             ]],
         ]
         summary_table = Table(summary_data, colWidths=[110, 110, 110, 115])
@@ -804,6 +968,35 @@ class ReportGenerator:
             elements.append(late_table)
         else:
             elements.append(Paragraph("Sin tardanzas registradas en el período.", cs["cell"]))
+        elements.append(Spacer(1, 12))
+
+        # ── Practice incidences table ─────────────────────────────────────
+        elements.append(Paragraph("Incidencias en Prácticas", section_style))
+
+        if practice_incidents:
+            practice_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "Ausencias", "Tardanzas", "Total Incidencias"]]
+            practice_data: list = [practice_header]
+            for idx, row in enumerate(practice_incidents, start=1):
+                total_incidents = row["absences"] + row["lates"]
+                practice_data.append([
+                    _cell(str(idx), cs["cell_center"]),
+                    _cell(row["name"], cs["cell"]),
+                    _cell(str(row["absences"]), cs["cell_center"]),
+                    _cell(str(row["lates"]), cs["cell_center"]),
+                    _cell(str(total_incidents), cs["cell_center"]),
+                ])
+            practice_table = Table(practice_data, colWidths=[25, 230, 70, 70, 80], repeatRows=1)
+            practice_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
+            ]))
+            elements.append(practice_table)
+        else:
+            elements.append(Paragraph("Sin incidencias de prácticas registradas en el período.", cs["cell"]))
         elements.append(Spacer(1, 12))
 
         # ── Without biometric table ───────────────────────────────────────
@@ -1040,12 +1233,16 @@ class ReportGenerator:
         # Count designations per teacher — scoped to the active academic period
         from collections import Counter
         desig_counts: Counter[str] = Counter()
+        practice_counts: Counter[str] = Counter()
         desig_hours: Counter[str] = Counter()
         all_desigs = db.query(Designation).filter(
             Designation.academic_period == app_settings_service.get_active_academic_period(db)
         ).all()
         for d in all_desigs:
-            desig_counts[d.teacher_ci] += 1
+            if d.designation_type == "practice":
+                practice_counts[d.teacher_ci] += 1
+            else:
+                desig_counts[d.teacher_ci] += 1
             desig_hours[d.teacher_ci] += (d.monthly_hours or 0)
 
         title = "Plantel Docente"
@@ -1075,7 +1272,7 @@ class ReportGenerator:
                 str(len(teachers)),
                 str(with_nit),
                 str(with_retention),
-                str(sum(desig_counts.values())),
+                f"{sum(desig_counts.values())} ({sum(practice_counts.values())} prácticas)",
                 f"{sum(desig_hours.values())}h",
             ]],
         ]
@@ -1092,23 +1289,24 @@ class ReportGenerator:
         elements.append(Spacer(1, 12))
 
         # Detail table
-        detail_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "C.I.", "Teléfono", "Email", "Banco", "Cuenta", "NIT/Ret."]]
+        detail_header = [_cell(h, cs["header"]) for h in ["Nº", "Docente", "C.I.", "Designaciones", "Teléfono", "Banco", "Cuenta", "NIT/Ret."]]
         detail_data: list = [detail_header]
 
         for idx, t in enumerate(teachers, start=1):
             nit_ret = "RET" if (t.invoice_retention or "").upper() == "RETENCION" else (t.nit or "—")
+            designation_label = f"{desig_counts[t.ci]} materias ({practice_counts[t.ci]} prácticas)"
             detail_data.append([
                 _cell(str(idx), cs["cell_center"]),
                 _cell(t.full_name, cs["cell"]),
                 _cell(t.ci, cs["cell_center"]),
+                _cell(designation_label, cs["cell_center"]),
                 _cell(t.phone or "—", cs["cell_center"]),
-                _cell(t.email or "—", cs["cell"]),
                 _cell(t.bank or "—", cs["cell"]),
                 _cell(t.account_number or "—", cs["cell"]),
                 _cell(nit_ret, cs["cell_center"]),
             ])
 
-        col_widths = [22, 110, 48, 55, 85, 50, 65, 45]
+        col_widths = [22, 110, 48, 80, 55, 50, 65, 45]
         detail_table = Table(detail_data, colWidths=col_widths, repeatRows=1)
         detail_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
