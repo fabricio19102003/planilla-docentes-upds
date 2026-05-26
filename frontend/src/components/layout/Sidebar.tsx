@@ -169,7 +169,9 @@ function NavGroupComponent({
         >
           <group.icon size={20} className="text-sky-400/70" />
         </button>
-        <div className="absolute left-full top-0 z-[60] ml-3 hidden min-w-56 rounded-xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-xl group-hover:block">
+        {/* Invisible bridge: fills the gap between icon and flyout so hover doesn't break */}
+        <div className="absolute left-full top-0 z-[59] hidden h-full w-4 group-hover:block" />
+        <div className="absolute left-full top-0 z-[60] ml-4 hidden min-w-56 rounded-xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-xl group-hover:block">
           <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-white/60">{group.label}</p>
           <div className="space-y-1">
             {group.children.map((child) => {
