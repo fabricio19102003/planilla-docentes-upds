@@ -7,6 +7,7 @@ and output table.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from pathlib import Path
@@ -76,6 +77,7 @@ def generate_practice_planilla(
             start_date=payload.start_date,
             end_date=payload.end_date,
             discount_mode=payload.discount_mode,
+            excluded_days=payload.excluded_days,
         )
 
         log_activity(
@@ -162,6 +164,169 @@ def practice_planilla_history(
 
 
 # ------------------------------------------------------------------
+# GET /api/practice-planilla/designation-options
+# ------------------------------------------------------------------
+
+@router.get("/designation-options")
+def get_practice_designation_options(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return active-period designation values for practice planilla filters."""
+    try:
+        from app.services import app_settings_service as _settings
+
+        active_period = _settings.get_active_academic_period(db)
+
+        base_filter = [
+            Designation.academic_period == active_period,
+            Designation.designation_type == "practice",
+        ]
+
+        subject_rows = (
+            db.query(Designation.subject, Designation.group_code, Designation.semester)
+            .filter(*base_filter)
+            .distinct()
+            .order_by(Designation.subject, Designation.group_code, Designation.semester)
+            .all()
+        )
+        semester_rows = (
+            db.query(Designation.semester)
+            .filter(*base_filter)
+            .distinct()
+            .order_by(Designation.semester)
+            .all()
+        )
+        group_rows = (
+            db.query(Designation.group_code)
+            .filter(*base_filter)
+            .distinct()
+            .order_by(Designation.group_code)
+            .all()
+        )
+
+        semester_order = {
+            "PRIMERO": 1, "SEGUNDO": 2, "TERCERO": 3, "CUARTO": 4,
+            "QUINTO": 5, "SEXTO": 6, "SEPTIMO": 7, "OCTAVO": 8,
+            "NOVENO": 9, "DECIMO": 10,
+        }
+        sorted_semesters = sorted(
+            [semester for (semester,) in semester_rows],
+            key=lambda s: semester_order.get(s.upper(), 99),
+        )
+
+        return {
+            "subjects": [
+                {"subject": subject, "group_code": group_code, "semester": semester}
+                for subject, group_code, semester in subject_rows
+            ],
+            "semesters": sorted_semesters,
+            "groups": [group_code for (group_code,) in group_rows],
+        }
+    except Exception as exc:
+        logger.exception("Failed to load practice designation options: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudieron obtener las opciones de designaciones de prácticas",
+        ) from exc
+
+
+# ------------------------------------------------------------------
+# POST /api/practice-planilla/{planilla_id}/approve
+# ------------------------------------------------------------------
+
+@router.post("/{planilla_id}/approve")
+def approve_practice_planilla(
+    request: Request,
+    planilla_id: int,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Approve a generated practice planilla for publication."""
+    planilla = (
+        db.query(PracticePlanillaOutput)
+        .filter(PracticePlanillaOutput.id == planilla_id)
+        .first()
+    )
+    if not planilla:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Planilla de prácticas no encontrada",
+        )
+    if planilla.status != "generated":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Solo se puede aprobar una planilla de prácticas en estado 'generada' "
+                f"(estado actual: {planilla.status})"
+            ),
+        )
+
+    planilla.status = "approved"
+
+    log_activity(
+        db,
+        "approve_practice_planilla",
+        "practice-planilla",
+        f"Planilla prácticas aprobada: {MONTH_NAMES.get(planilla.month)} {planilla.year}",
+        user=current_user,
+        details={"planilla_id": planilla.id, "month": planilla.month, "year": planilla.year},
+        request=request,
+    )
+
+    db.commit()
+    return {"success": True, "status": "approved", "planilla_id": planilla.id}
+
+
+# ------------------------------------------------------------------
+# POST /api/practice-planilla/{planilla_id}/reject
+# ------------------------------------------------------------------
+
+@router.post("/{planilla_id}/reject")
+def reject_practice_planilla(
+    request: Request,
+    planilla_id: int,
+    notes: str = Query(default="", description="Reason for rejection"),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Reject a practice planilla. Admin must regenerate."""
+    planilla = (
+        db.query(PracticePlanillaOutput)
+        .filter(PracticePlanillaOutput.id == planilla_id)
+        .first()
+    )
+    if not planilla:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Planilla de prácticas no encontrada",
+        )
+    if planilla.status not in ("generated", "approved"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Solo se puede rechazar una planilla de prácticas en estado 'generada' o 'aprobada' "
+                f"(estado actual: {planilla.status})"
+            ),
+        )
+
+    planilla.status = "rejected"
+
+    log_activity(
+        db,
+        "reject_practice_planilla",
+        "practice-planilla",
+        f"Planilla prácticas rechazada: {MONTH_NAMES.get(planilla.month)} {planilla.year} — {notes}",
+        user=current_user,
+        details={"planilla_id": planilla.id, "notes": notes},
+        request=request,
+    )
+
+    db.commit()
+    return {"success": True, "status": "rejected", "planilla_id": planilla.id}
+
+
+# ------------------------------------------------------------------
 # GET /api/practice-planilla/{month}/{year}/detail
 # ------------------------------------------------------------------
 
@@ -172,16 +337,61 @@ def get_practice_planilla_detail(
     start_date: date | None = None,
     end_date: date | None = None,
     discount_mode: Literal["attendance", "full"] = Query("attendance"),
+    excluded_days_json: str | None = Query(default=None),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Return detailed practice planilla breakdown per teacher/designation."""
+    """Return detailed practice planilla breakdown per teacher/designation.
+
+    When ``excluded_days_json`` is provided, those exclusions override stored
+    planilla exclusions so the UI can preview the current unsaved form state.
+    """
     try:
+        from app.schemas.planilla import ExcludedDaySchema
+
+        exclusions_overridden = excluded_days_json is not None
+        effective_exclusions: list[ExcludedDaySchema] = []
+
+        if exclusions_overridden:
+            try:
+                raw_exclusions = json.loads(excluded_days_json)
+                if not isinstance(raw_exclusions, list):
+                    raise ValueError("excluded_days_json must be a JSON array")
+                effective_exclusions = [
+                    ExcludedDaySchema.model_validate(item)
+                    for item in raw_exclusions
+                ]
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="excluded_days_json debe ser un array JSON válido de días excluidos",
+                ) from exc
+        else:
+            # Load stored exclusions to keep detail consistent with the saved planilla
+            stored_for_exclusions = (
+                db.query(PracticePlanillaOutput)
+                .filter(
+                    PracticePlanillaOutput.month == month,
+                    PracticePlanillaOutput.year == year,
+                )
+                .order_by(PracticePlanillaOutput.generated_at.desc())
+                .first()
+            )
+            if stored_for_exclusions and stored_for_exclusions.excluded_days_json:
+                try:
+                    effective_exclusions = [
+                        ExcludedDaySchema.model_validate(item)
+                        for item in stored_for_exclusions.excluded_days_json
+                    ]
+                except Exception:
+                    effective_exclusions = []
+
         generator = PracticePlanillaGenerator()
         rows, warnings = generator._build_planilla_data(
             db, month=month, year=year,
             start_date=start_date, end_date=end_date,
             discount_mode=discount_mode,
+            excluded_days=effective_exclusions,
         )
 
         row_list = []
@@ -223,6 +433,8 @@ def get_practice_planilla_detail(
             "total_teachers": len({r.teacher_ci for r in rows}),
             "warnings": warnings,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to load practice planilla detail: %s", exc)
         raise HTTPException(
