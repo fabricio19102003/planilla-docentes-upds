@@ -20,6 +20,7 @@ function BillingRow({
   onToggle: () => void
 }) {
   const displayPayment = billing.adjusted_payment ?? billing.total_payment
+  const isPractice = billing.planilla_type === 'practice'
 
   return (
     <>
@@ -38,6 +39,17 @@ function BillingRow({
           </div>
         </td>
         <td className="px-4 py-3 text-gray-600">{billing.year}</td>
+        <td className="px-4 py-3">
+          {isPractice ? (
+            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+              Prácticas
+            </Badge>
+          ) : (
+            <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
+              Teóricas
+            </Badge>
+          )}
+        </td>
         <td className="px-4 py-3 text-gray-700 font-semibold">{billing.total_hours}h</td>
         <td className="px-4 py-3 font-semibold" style={{ color: '#003366' }}>
           {formatBs(displayPayment)}
@@ -59,6 +71,7 @@ function BillingRow({
           className="bg-blue-50/50 border-b last:border-0"
         >
           <td className="pl-10 pr-4 py-2 text-gray-600 text-sm">{d.subject}</td>
+          <td className="px-4 py-2" />
           <td className="px-4 py-2">
             <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-mono text-xs">
               {d.group}
@@ -155,7 +168,7 @@ export function BillingHistoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
-                  {['Mes', 'Año', 'Horas', 'Pago Total', 'Materias'].map((h) => (
+                  {['Mes', 'Año', 'Tipo', 'Horas', 'Pago Total', 'Materias'].map((h) => (
                     <th
                       key={h}
                       className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
@@ -168,7 +181,7 @@ export function BillingHistoryPage() {
               <tbody>
                 {!history.length ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-12 text-gray-400">
+                    <td colSpan={6} className="text-center py-12 text-gray-400">
                       No hay meses publicados en tu historial de facturación
                     </td>
                   </tr>
