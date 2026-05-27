@@ -10,6 +10,10 @@ interface StatCardProps {
 }
 
 const GRADIENT_MAP: Record<string, string> = {
+  '#1C398E': 'gradient-stat-navy',
+  '#193CB8': 'gradient-stat-blue',
+  '#00A6F4': 'gradient-stat-blue',
+  '#62748E': 'gradient-stat-slate',
   '#003366': 'gradient-stat-navy',
   '#0066CC': 'gradient-stat-blue',
   '#4DA8DA': 'gradient-stat-blue',

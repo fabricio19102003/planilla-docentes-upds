@@ -173,15 +173,16 @@
   }
 
   .gradient-navy {
-    background: linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%);
+    background: linear-gradient(135deg, #1C398E 0%, #142866 50%, #0F1D4A 100%);
   }
 
   .gradient-stat-green { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
   .gradient-stat-yellow { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
   .gradient-stat-red { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); }
   .gradient-stat-orange { background: linear-gradient(135deg, #ea580c 0%, #f97316 100%); }
-  .gradient-stat-blue { background: linear-gradient(135deg, #0066CC 0%, #4DA8DA 100%); }
-  .gradient-stat-navy { background: linear-gradient(135deg, #003366 0%, #004d99 100%); }
+  .gradient-stat-blue { background: linear-gradient(135deg, #193CB8 0%, #00A6F4 100%); }
+  .gradient-stat-navy { background: linear-gradient(135deg, #1C398E 0%, #142866 100%); }
+  .gradient-stat-slate { background: linear-gradient(135deg, #62748E 0%, #45556C 100%); }
 }
 
 /* ─── Animations ──────────────────────────────────────────── */
