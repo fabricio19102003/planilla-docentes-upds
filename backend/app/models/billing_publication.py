@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Boolean, Text, func, UniqueConstraint
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, func, UniqueConstraint, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
@@ -11,12 +11,14 @@ class BillingPublication(Base):
     __tablename__ = "billing_publications"
 
     __table_args__ = (
-        UniqueConstraint("month", "year", name="uq_billing_publication_month_year"),
+        UniqueConstraint("month", "year", "planilla_type", name="uq_billing_publication_month_year_type"),
+        CheckConstraint("planilla_type IN ('regular', 'practice')", name="ck_billing_publication_planilla_type"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
+    planilla_type: Mapped[str] = mapped_column(String(20), nullable=False, default="regular", server_default="regular")
     status: Mapped[str] = mapped_column(String(20), default="published", nullable=False)  # 'published' | 'draft'
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # increments on each re-publish
 

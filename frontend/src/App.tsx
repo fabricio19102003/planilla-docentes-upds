@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import { SidebarProvider } from './context/SidebarContext'
@@ -22,7 +22,7 @@ import { BackupPage } from './pages/BackupPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
-import { PracticePlanillaPage } from './pages/PracticePlanillaPage'
+// PracticePlanillaPage removed — unified into PlanillaPage tabs
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -79,7 +79,7 @@ function AppRoutes() {
             <Route path="activity" element={<ActivityLogPage />} />
             <Route path="backup" element={<BackupPage />} />
             <Route path="practice-attendance" element={<PracticeAttendancePage />} />
-            <Route path="practice-planilla" element={<PracticePlanillaPage />} />
+            <Route path="practice-planilla" element={<Navigate to="/planilla?tab=practicas" replace />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
 

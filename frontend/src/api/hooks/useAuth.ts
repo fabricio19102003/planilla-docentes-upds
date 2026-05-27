@@ -3,6 +3,7 @@ import { api } from '@/api/client'
 import type {
   AuthUser,
   BillingInfo,
+  CombinedBillingInfo,
   DetailRequestCreate,
   DetailRequestInfo,
   DetailRequestAction,
@@ -72,7 +73,7 @@ export function useCurrentBilling() {
   return useQuery({
     queryKey: ['billing', 'current'],
     queryFn: async () => {
-      const res = await api.get<BillingInfo>('/portal/billing/current')
+      const res = await api.get<CombinedBillingInfo>('/portal/billing/current')
       return res.data
     },
   })

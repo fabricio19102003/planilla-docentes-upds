@@ -5,6 +5,8 @@ from datetime import date, datetime
 from typing import Literal, Optional
 from decimal import Decimal
 
+from app.schemas.planilla import ExcludedDaySchema
+
 
 class PracticePlanillaGenerateRequest(BaseModel):
     """Request body to trigger practice planilla generation."""
@@ -15,6 +17,7 @@ class PracticePlanillaGenerateRequest(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     discount_mode: Literal["attendance", "full"] = "attendance"
+    excluded_days: list[ExcludedDaySchema] = Field(default_factory=list)
 
 
 class PracticePlanillaGenerateResponse(BaseModel):
@@ -46,5 +49,7 @@ class PracticePlanillaOutputResponse(BaseModel):
     discount_mode: Literal["attendance", "full"] = "attendance"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    payment_overrides_json: Optional[dict[str, float]] = None
+    excluded_days_json: Optional[list[dict]] = None
 
     model_config = ConfigDict(from_attributes=True)

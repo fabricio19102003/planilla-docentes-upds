@@ -16,6 +16,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
+from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.biometric import BiometricUploadResponse
@@ -29,6 +30,7 @@ from app.schemas.planilla import (
 from app.services import app_settings_service
 from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PlanillaGenerator
+from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.salary_report_generator import SalaryReportGenerator
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
@@ -733,25 +735,43 @@ def dashboard_summary(
             or 0
         )
 
-        latest_period = (
+        latest_attendance_period = (
             db.query(AttendanceRecord.month, AttendanceRecord.year)
             .order_by(desc(AttendanceRecord.year), desc(AttendanceRecord.month))
             .first()
         )
 
+        latest_period = latest_attendance_period
+        if latest_period is None:
+            planilla_period = (
+                db.query(PlanillaOutput.month, PlanillaOutput.year)
+                .order_by(desc(PlanillaOutput.year), desc(PlanillaOutput.month))
+                .first()
+            )
+            practice_period = (
+                db.query(PracticePlanillaOutput.month, PracticePlanillaOutput.year)
+                .order_by(desc(PracticePlanillaOutput.year), desc(PracticePlanillaOutput.month))
+                .first()
+            )
+            latest_period = max(
+                [period for period in (planilla_period, practice_period) if period is not None],
+                key=lambda period: (period.year, period.month),
+                default=None,
+        )
+
         latest_summary = None
-        if latest_period is not None:
+        if latest_attendance_period is not None:
             engine = AttendanceEngine()
             base_summary = engine.get_month_summary(
                 db=db,
-                month=latest_period.month,
-                year=latest_period.year,
+                month=latest_attendance_period.month,
+                year=latest_attendance_period.year,
             )
             total_teachers = (
                 db.query(func.count(func.distinct(AttendanceRecord.teacher_ci)))
                 .filter(
-                    AttendanceRecord.month == latest_period.month,
-                    AttendanceRecord.year == latest_period.year,
+                    AttendanceRecord.month == latest_attendance_period.month,
+                    AttendanceRecord.year == latest_attendance_period.year,
                 )
                 .scalar()
                 or 0
@@ -785,6 +805,29 @@ def dashboard_summary(
         total_monthly_payment = 0.0
         if latest_period:
             try:
+                from app.schemas.planilla import ExcludedDaySchema
+
+                def apply_payment_overrides(rows, generator, overrides: dict[str, float]) -> None:
+                    rows_by_teacher: dict[str, list] = {}
+                    for row in rows:
+                        rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
+
+                    teacher_allocations: dict[str, dict[int, float]] = {}
+                    for teacher_ci, teacher_rows in rows_by_teacher.items():
+                        allocations = generator._get_teacher_override_allocations(teacher_rows, overrides)
+                        if allocations is not None:
+                            teacher_allocations[teacher_ci] = allocations
+
+                    for row in rows:
+                        row_key = f"{row.teacher_ci}:{row.designation_id}"
+                        override = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+                        if override is None and row_key in overrides:
+                            override = overrides[row_key]
+                        if override is not None:
+                            row.calculated_payment = float(override)
+                            row.retention_amount = 0.0
+                            row.final_payment = float(override)
+
                 # Look up stored planilla first so we can reuse its discount_mode
                 # when computing the rows — otherwise top_earners would default to
                 # "attendance" even when the stored planilla was generated in "full" mode.
@@ -802,7 +845,6 @@ def dashboard_summary(
                 stored_ed = stored_planilla.end_date if stored_planilla else None
 
                 # Load stored exclusions so dashboard matches the generated planilla
-                from app.schemas.planilla import ExcludedDaySchema
                 stored_excl: list[ExcludedDaySchema] = []
                 if stored_planilla and stored_planilla.excluded_days_json:
                     try:
@@ -814,6 +856,8 @@ def dashboard_summary(
                         pass  # If stored JSON is corrupt, proceed without exclusions
 
                 gen = PlanillaGenerator()
+                # Top earners require per-teacher rows. Totals use stored snapshots below
+                # when available, but the chart still needs a live breakdown.
                 planilla_rows, _, _ = gen._build_planilla_data(
                     db,
                     month=latest_period.month,
@@ -823,6 +867,9 @@ def dashboard_summary(
                     discount_mode=stored_dm,
                     excluded_days=stored_excl or None,
                 )
+                if stored_planilla and stored_planilla.payment_overrides_json:
+                    apply_payment_overrides(planilla_rows, gen, stored_planilla.payment_overrides_json)
+
                 teacher_payments: dict = {}
                 for r in planilla_rows:
                     if r.teacher_ci not in teacher_payments:
@@ -835,6 +882,60 @@ def dashboard_summary(
                 # If there is a stored planilla with admin overrides, use its total
                 if stored_planilla:
                     total_monthly_payment = float(stored_planilla.total_payment)
+
+                stored_practice_planilla = (
+                    db.query(PracticePlanillaOutput)
+                    .filter(
+                        PracticePlanillaOutput.month == latest_period.month,
+                        PracticePlanillaOutput.year == latest_period.year,
+                    )
+                    .order_by(PracticePlanillaOutput.generated_at.desc())
+                    .first()
+                )
+                practice_dm = stored_practice_planilla.discount_mode if stored_practice_planilla else "attendance"
+                practice_sd = stored_practice_planilla.start_date if stored_practice_planilla else None
+                practice_ed = stored_practice_planilla.end_date if stored_practice_planilla else None
+                practice_excl: list[ExcludedDaySchema] = []
+                if stored_practice_planilla and stored_practice_planilla.excluded_days_json:
+                    try:
+                        practice_excl = [
+                            ExcludedDaySchema.model_validate(item)
+                            for item in stored_practice_planilla.excluded_days_json
+                        ]
+                    except Exception:
+                        pass
+
+                practice_gen = PracticePlanillaGenerator()
+                practice_rows, _ = practice_gen._build_planilla_data(
+                    db,
+                    month=latest_period.month,
+                    year=latest_period.year,
+                    start_date=practice_sd,
+                    end_date=practice_ed,
+                    discount_mode=practice_dm,
+                    excluded_days=practice_excl or None,
+                )
+                if stored_practice_planilla and stored_practice_planilla.payment_overrides_json:
+                    apply_payment_overrides(
+                        practice_rows,
+                        practice_gen,
+                        stored_practice_planilla.payment_overrides_json,
+                    )
+
+                practice_total = 0.0
+                for r in practice_rows:
+                    if r.teacher_ci not in teacher_payments:
+                        teacher_payments[r.teacher_ci] = {"name": r.teacher_name, "hours": 0, "payment": 0.0}
+                    teacher_payments[r.teacher_ci]["hours"] += r.payable_hours
+                    teacher_payments[r.teacher_ci]["payment"] += r.final_payment
+                    practice_total += r.final_payment
+
+                total_monthly_payment += (
+                    float(stored_practice_planilla.total_payment)
+                    if stored_practice_planilla
+                    else practice_total
+                )
+                top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
             except Exception:
                 logger.warning("Could not compute top earners for dashboard")
 
@@ -872,6 +973,8 @@ def dashboard_summary(
             group_distribution=group_distribution,
             semester_distribution=semester_distribution,
             total_monthly_payment=total_monthly_payment,
+            billing_period_month=latest_period.month if latest_period else None,
+            billing_period_year=latest_period.year if latest_period else None,
             pending_requests=pending_requests,
         )
     except Exception as exc:

@@ -66,6 +66,7 @@ class BillingResponse(BaseModel):
     month: int
     year: int
     month_name: str
+    planilla_type: str = "regular"
     start_date: str | None = None
     end_date: str | None = None
     excluded_days: list[ExcludedDayInfo] = []
@@ -83,6 +84,7 @@ class BillingHistoryItem(BaseModel):
     month: int
     year: int
     month_name: str
+    planilla_type: str = "regular"
     start_date: str | None = None
     end_date: str | None = None
     excluded_days: list[ExcludedDayInfo] = []
@@ -90,6 +92,11 @@ class BillingHistoryItem(BaseModel):
     total_payment: float
     adjusted_payment: Optional[float] = None
     designations: list[DesignationBilling] = []
+
+
+class CombinedBillingResponse(BaseModel):
+    regular: Optional[BillingResponse] = None
+    practice: Optional[BillingResponse] = None
 
 
 class ProfileResponse(BaseModel):
@@ -291,7 +298,7 @@ def _filter_excluded_days_for_teacher(
     ]
 
 
-def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> BillingResponse:
+def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla_type: str = "regular") -> BillingResponse:
     """
     Build billing summary for a teacher using Payment Model C.
 
@@ -326,6 +333,7 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
         .filter(
             Designation.teacher_ci == teacher_ci,
             Designation.academic_period == app_settings_service.get_active_academic_period(db),
+            Designation.designation_type != "practice",
         )
         .all()
     )
@@ -407,6 +415,7 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
         month=month,
         year=year,
         month_name=MONTH_NAMES.get(month, str(month)),
+        planilla_type=planilla_type,
         total_hours=total_hours,
         rate_per_hour=rate,
         total_payment=total_payment,
@@ -423,39 +432,24 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session) -> Billi
 # ------------------------------------------------------------------
 
 
-@router.get("/billing/current", response_model=BillingResponse)
-def get_current_billing(
-    current_user: User = Depends(require_docente),
-    db: Session = Depends(get_db),
-) -> BillingResponse:
-    """Get current month billing summary for the authenticated docente.
+def _build_billing_response_from_publication(
+    pub: BillingPublication,
+    teacher_ci: str,
+    month: int,
+    year: int,
+    db: Session,
+) -> Optional[BillingResponse]:
+    """Build a BillingResponse from a published BillingPublication for a specific teacher.
 
-    Returns 404 if the current month's billing has not been published by admin.
+    Returns None if the teacher has no data in this publication's snapshot.
+    Falls back to live calculation for legacy publications without snapshot.
     """
-    teacher = _get_teacher_or_raise(current_user, db)
-    now = datetime.now()
+    snapshot = pub.billing_snapshot
+    ptype = pub.planilla_type or "regular"
 
-    # Check publication status before returning billing
-    publication = (
-        db.query(BillingPublication)
-        .filter(
-            BillingPublication.month == now.month,
-            BillingPublication.year == now.year,
-            BillingPublication.status == "published",
-        )
-        .first()
-    )
-    if not publication:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="La facturación de este mes aún no ha sido publicada",
-        )
-
-    # Read from snapshot if available — prevents retroactive recalculation
-    snapshot = publication.billing_snapshot
     if snapshot:
         teacher_data = next(
-            (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher.ci),
+            (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher_ci),
             None,
         )
         if teacher_data:
@@ -470,15 +464,15 @@ def get_current_billing(
                 for d in teacher_data.get("designations", [])
             ]
             excluded_days = snapshot.get("excluded_days_json")
-            # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
             snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
             snap_has_retention = teacher_data.get("has_retention", False)
             snap_retention_amount = teacher_data.get("retention_amount", 0.0)
             snap_final_payment = teacher_data.get("final_payment", teacher_data["total_payment"])
             return BillingResponse(
-                month=now.month,
-                year=now.year,
-                month_name=MONTH_NAMES.get(now.month, str(now.month)),
+                month=month,
+                year=year,
+                month_name=MONTH_NAMES.get(month, str(month)),
+                planilla_type=ptype,
                 start_date=snapshot.get("start_date"),
                 end_date=snapshot.get("end_date"),
                 excluded_days=_filter_excluded_days_for_teacher(
@@ -486,18 +480,73 @@ def get_current_billing(
                     teacher_data,
                 ),
                 total_hours=teacher_data["total_hours"],
-                # Historical snapshots may lack rate_per_hour; fall back to live config
                 rate_per_hour=snapshot["rate_per_hour"] if "rate_per_hour" in snapshot else app_settings_service.get_hourly_rate(db),
-                total_payment=snap_gross,          # Bruto (for display)
+                total_payment=snap_gross,
                 adjusted_payment=None,
                 has_retention=snap_has_retention,
                 retention_amount=snap_retention_amount,
-                final_payment=snap_final_payment,  # Neto
+                final_payment=snap_final_payment,
                 designations=designations,
             )
+        # Teacher not in snapshot — they have no data in this publication
+        return None
 
-    # Fallback: recalculate (backwards-compat for publications without snapshot)
-    return _build_billing(teacher.ci, now.month, now.year, db)
+    # Fallback: recalculate (legacy publications without snapshot)
+    if ptype == "regular":
+        return _build_billing(teacher_ci, month, year, db, planilla_type="regular")
+    # Practice publications without snapshots cannot be reconstructed from attendance data
+    return None
+
+
+@router.get("/billing/current", response_model=CombinedBillingResponse)
+def get_current_billing(
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+) -> CombinedBillingResponse:
+    """Get current month billing summary for the authenticated docente.
+
+    Returns regular and/or practice billing for the current month.
+    Returns 404 if no billing has been published for this month at all.
+    """
+    teacher = _get_teacher_or_raise(current_user, db)
+    now = datetime.now()
+
+    # Fetch all published publications for current month (regular + practice)
+    publications = (
+        db.query(BillingPublication)
+        .filter(
+            BillingPublication.month == now.month,
+            BillingPublication.year == now.year,
+            BillingPublication.status == "published",
+        )
+        .all()
+    )
+    if not publications:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La facturación de este mes aún no ha sido publicada",
+        )
+
+    regular_billing: Optional[BillingResponse] = None
+    practice_billing: Optional[BillingResponse] = None
+
+    for pub in publications:
+        ptype = pub.planilla_type or "regular"
+        billing = _build_billing_response_from_publication(pub, teacher.ci, now.month, now.year, db)
+        if billing is None:
+            continue
+        if ptype == "practice":
+            practice_billing = billing
+        else:
+            regular_billing = billing
+
+    if regular_billing is None and practice_billing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La facturación de este mes aún no ha sido publicada",
+        )
+
+    return CombinedBillingResponse(regular=regular_billing, practice=practice_billing)
 
 
 @router.get("/billing/history", response_model=list[BillingHistoryItem])
@@ -507,12 +556,14 @@ def get_billing_history(
 ) -> list[BillingHistoryItem]:
     """Get billing history for the authenticated docente.
 
-    Only returns periods that have a published BillingPublication.
+    Returns all published billing entries (regular and practice), sorted newest first.
+    Each item includes a planilla_type field to distinguish entry type in the UI.
     """
     teacher = _get_teacher_or_raise(current_user, db)
 
     # Discover periods directly from published BillingPublications (not attendance).
     # This ensures docentes without biometric data still see their published months.
+    # Returns both regular and practice publications — sorted newest first.
     published_publications = (
         db.query(BillingPublication)
         .filter(BillingPublication.status == "published")
@@ -522,6 +573,7 @@ def get_billing_history(
 
     history: list[BillingHistoryItem] = []
     for pub in published_publications:
+        ptype = pub.planilla_type or "regular"
 
         # Read from snapshot if available — prevents retroactive recalculation
         snapshot = pub.billing_snapshot
@@ -550,6 +602,7 @@ def get_billing_history(
                         month=pub.month,
                         year=pub.year,
                         month_name=MONTH_NAMES.get(pub.month, str(pub.month)),
+                        planilla_type=ptype,
                         start_date=snapshot.get("start_date"),
                         end_date=snapshot.get("end_date"),
                         excluded_days=_filter_excluded_days_for_teacher(
@@ -563,23 +616,28 @@ def get_billing_history(
                     )
                 )
                 continue
+            # Teacher not in snapshot — skip this publication entry for this teacher
+            continue
 
-        # Fallback: recalculate (backwards-compat for publications without snapshot)
-        billing = _build_billing(teacher.ci, pub.month, pub.year, db)
-        history.append(
-            BillingHistoryItem(
-                month=billing.month,
-                year=billing.year,
-                month_name=billing.month_name,
-                start_date=billing.start_date,
-                end_date=billing.end_date,
-                excluded_days=billing.excluded_days,
-                total_hours=billing.total_hours,
-                total_payment=billing.total_payment,
-                adjusted_payment=billing.adjusted_payment,
-                designations=billing.designations,
+        # Fallback: recalculate (backwards-compat for regular publications without snapshot)
+        if ptype == "regular":
+            billing = _build_billing(teacher.ci, pub.month, pub.year, db, planilla_type="regular")
+            history.append(
+                BillingHistoryItem(
+                    month=billing.month,
+                    year=billing.year,
+                    month_name=billing.month_name,
+                    planilla_type=billing.planilla_type,
+                    start_date=billing.start_date,
+                    end_date=billing.end_date,
+                    excluded_days=billing.excluded_days,
+                    total_hours=billing.total_hours,
+                    total_payment=billing.total_payment,
+                    adjusted_payment=billing.adjusted_payment,
+                    designations=billing.designations,
+                )
             )
-        )
+        # Practice publications without snapshots cannot be reconstructed — skip silently
 
     return history
 

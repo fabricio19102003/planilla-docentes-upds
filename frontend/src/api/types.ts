@@ -47,6 +47,7 @@ export interface BillingInfo {
   month: number
   year: number
   month_name: string
+  planilla_type?: string  // "regular" | "practice" — default "regular"
   start_date?: string | null
   end_date?: string | null
   excluded_days?: { date: string; reason: string | null }[]
@@ -58,6 +59,11 @@ export interface BillingInfo {
   retention_amount?: number
   final_payment?: number
   designations: BillingDesignation[]
+}
+
+export interface CombinedBillingInfo {
+  regular: BillingInfo | null
+  practice: BillingInfo | null
 }
 
 // ─── Detail Requests ──────────────────────────────────────────────────────────

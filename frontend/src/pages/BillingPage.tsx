@@ -1,7 +1,8 @@
 import { useCurrentBilling } from '@/api/hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff } from 'lucide-react'
+import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff, BookOpen } from 'lucide-react'
+import type { BillingInfo } from '@/api/types'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -17,64 +18,22 @@ function formatPortalDate(value: string) {
   return `${Number(day)}/${monthNames[monthIndex]}/${year}`
 }
 
-export function BillingPage() {
-  const { data: billing, isLoading, error } = useCurrentBilling()
+const REGULAR_GRADIENT = 'linear-gradient(135deg, #003366 0%, #0066CC 60%, #4DA8DA 100%)'
+const PRACTICE_GRADIENT = 'linear-gradient(135deg, #1a5c3a 0%, #2d8a5a 60%, #5ab98a 100%)'
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    const status = (error as { response?: { status?: number } })?.response?.status
-    if (status === 404) {
-      return (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
-          <Clock size={40} className="text-yellow-400 mx-auto mb-3" />
-          <p className="text-yellow-700 font-medium">Facturación aún no publicada</p>
-          <p className="text-yellow-500 text-sm mt-1">
-            El administrador aún no ha publicado los montos a facturar para este mes.
-            Serás notificado cuando estén disponibles.
-          </p>
-        </div>
-      )
-    }
-    if (status === 400) {
-      return (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
-          <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
-          <p className="text-red-600 font-medium">Tu cuenta no está vinculada a un docente</p>
-          <p className="text-red-400 text-sm mt-1">
-            Contactá al administrador para que vincule tu cuenta con tu registro de docente.
-          </p>
-        </div>
-      )
-    }
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
-        <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
-        <p className="text-red-600 font-medium">No hay información de facturación disponible</p>
-      </div>
-    )
-  }
-
-  if (!billing) return null
-
+function BillingCard({ billing }: { billing: BillingInfo }) {
+  const isPractice = billing.planilla_type === 'practice'
+  const gradient = isPractice ? PRACTICE_GRADIENT : REGULAR_GRADIENT
   const displayPayment = billing.adjusted_payment ?? billing.final_payment ?? billing.total_payment
   const hasBillingPeriod = Boolean(billing.start_date && billing.end_date)
   const hasExcludedDays = Boolean(billing.excluded_days?.length)
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Main billing card */}
+    <div className="space-y-4">
+      {/* Main billing hero card */}
       <div
         className="rounded-2xl p-8 text-white relative overflow-hidden"
-        style={{
-          background: 'linear-gradient(135deg, #003366 0%, #0066CC 60%, #4DA8DA 100%)',
-        }}
+        style={{ background: gradient }}
       >
         {/* Decorative circle */}
         <div
@@ -85,9 +44,13 @@ export function BillingPage() {
         <div className="flex items-start justify-between relative">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Receipt size={18} className="text-white/70" />
+              {isPractice ? (
+                <BookOpen size={18} className="text-white/70" />
+              ) : (
+                <Receipt size={18} className="text-white/70" />
+              )}
               <p className="text-white/70 text-sm font-medium uppercase tracking-wider">
-                Facturación — {billing.month_name} {billing.year}
+                {isPractice ? 'Prácticas Internas' : 'Facturación'} — {billing.month_name} {billing.year}
               </p>
             </div>
             <p className="text-5xl font-black tracking-tight mt-4">
@@ -255,6 +218,82 @@ export function BillingPage() {
               Para más información contactá al área de planillas.
             </p>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function BillingPage() {
+  const { data: combined, isLoading, error } = useCurrentBilling()
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (error) {
+    const httpStatus = (error as { response?: { status?: number } })?.response?.status
+    if (httpStatus === 404) {
+      return (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+          <Clock size={40} className="text-yellow-400 mx-auto mb-3" />
+          <p className="text-yellow-700 font-medium">Facturación aún no publicada</p>
+          <p className="text-yellow-500 text-sm mt-1">
+            El administrador aún no ha publicado los montos a facturar para este mes.
+            Serás notificado cuando estén disponibles.
+          </p>
+        </div>
+      )
+    }
+    if (httpStatus === 400) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+          <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
+          <p className="text-red-600 font-medium">Tu cuenta no está vinculada a un docente</p>
+          <p className="text-red-400 text-sm mt-1">
+            Contactá al administrador para que vincule tu cuenta con tu registro de docente.
+          </p>
+        </div>
+      )
+    }
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+        <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
+        <p className="text-red-600 font-medium">No hay información de facturación disponible</p>
+      </div>
+    )
+  }
+
+  if (!combined) return null
+
+  const { regular, practice } = combined
+  const hasBoth = Boolean(regular && practice)
+
+  return (
+    <div className="space-y-8 max-w-3xl">
+      {regular && (
+        <div>
+          {hasBoth && (
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-400 mb-3">
+              Teóricas
+            </h2>
+          )}
+          <BillingCard billing={regular} />
+        </div>
+      )}
+
+      {practice && (
+        <div>
+          {hasBoth && (
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-400 mb-3">
+              Prácticas Internas
+            </h2>
+          )}
+          <BillingCard billing={practice} />
         </div>
       )}
     </div>

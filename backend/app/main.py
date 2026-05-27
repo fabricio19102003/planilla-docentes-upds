@@ -54,7 +54,7 @@ def _run_column_migrations() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
                 logger.info("Added column users.must_change_password")
 
-            # billing_publications.billing_snapshot + version
+            # billing_publications.billing_snapshot + version + planilla_type
             if inspector.has_table("billing_publications"):
                 bp_cols = {c["name"] for c in inspector.get_columns("billing_publications")}
                 if "billing_snapshot" not in bp_cols:
@@ -63,6 +63,55 @@ def _run_column_migrations() -> None:
                 if "version" not in bp_cols:
                     conn.execute(text("ALTER TABLE billing_publications ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
                     logger.info("Added column billing_publications.version")
+                if "planilla_type" not in bp_cols:
+                    conn.execute(text(
+                        "ALTER TABLE billing_publications ADD COLUMN planilla_type VARCHAR(20) NOT NULL DEFAULT 'regular'"
+                    ))
+                    logger.info("Added column billing_publications.planilla_type")
+
+                # Drop old unique constraint (month, year) and replace with (month, year, planilla_type).
+                # This is independent from column creation because a previous run may have added
+                # the column but failed before replacing the constraint.
+                unique_constraints = {
+                    c["name"] for c in inspector.get_unique_constraints("billing_publications")
+                }
+                if "uq_billing_publication_month_year" in unique_constraints:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications DROP CONSTRAINT IF EXISTS "
+                            "uq_billing_publication_month_year"
+                        ))
+                        logger.info("Dropped old billing_publications unique constraint")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not drop old billing_publications constraint: %s", constraint_exc)
+
+                unique_constraints = {
+                    c["name"] for c in inspector.get_unique_constraints("billing_publications")
+                }
+                if "uq_billing_publication_month_year_type" not in unique_constraints:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications ADD CONSTRAINT "
+                            "uq_billing_publication_month_year_type "
+                            "UNIQUE (month, year, planilla_type)"
+                        ))
+                        logger.info("Updated billing_publications unique constraint to include planilla_type")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not create billing_publications type-aware constraint: %s", constraint_exc)
+
+                check_constraints = {
+                    c["name"] for c in inspector.get_check_constraints("billing_publications")
+                }
+                if "ck_billing_publication_planilla_type" not in check_constraints:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE billing_publications ADD CONSTRAINT "
+                            "ck_billing_publication_planilla_type "
+                            "CHECK (planilla_type IN ('regular', 'practice'))"
+                        ))
+                        logger.info("Added billing_publications planilla_type check constraint")
+                    except Exception as constraint_exc:
+                        logger.warning("Could not create billing_publications planilla_type check constraint: %s", constraint_exc)
 
             # planilla_outputs.payment_overrides_json + start_date/end_date
             if inspector.has_table("planilla_outputs"):

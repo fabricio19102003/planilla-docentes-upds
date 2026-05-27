@@ -5,6 +5,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { useDashboard } from '@/api/hooks/useDashboard'
+import { useAppSettings } from '@/api/hooks/useAppSettings'
+import { usePlanillaStatus } from '@/api/hooks/usePlanilla'
+import { usePublicationStatus } from '@/api/hooks/useBillingPublication'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
@@ -14,6 +17,16 @@ const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
   5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
+
+const CHART_TOOLTIP_PROPS = {
+  contentStyle: {
+    borderRadius: 12,
+    border: '1px solid #E2E8F0',
+    boxShadow: '0 8px 30px rgb(0,0,0,0.08)',
+  },
+  labelStyle: { color: '#1C398E', fontWeight: 700 },
+  itemStyle: { color: '#1D293D', fontWeight: 600 },
 }
 
 function formatDate(dateStr: string): string {
@@ -29,7 +42,16 @@ function formatCurrency(value: number): string {
 }
 
 export function DashboardPage() {
+  const now = new Date()
+  const currentMonth = now.getMonth() + 1
+  const currentYear = now.getFullYear()
   const { data, isLoading, error } = useDashboard()
+  const { data: settings } = useAppSettings()
+  const billingMonth = data?.billing_period_month ?? currentMonth
+  const billingYear = data?.billing_period_year ?? currentYear
+  const hasBillingPeriod = data?.billing_period_month != null && data?.billing_period_year != null
+  const { data: planillaStatus } = usePlanillaStatus(billingMonth, billingYear, hasBillingPeriod)
+  const { data: publicationStatus } = usePublicationStatus(billingMonth, billingYear, hasBillingPeriod)
 
   if (isLoading) return <LoadingPage />
 
@@ -46,24 +68,63 @@ export function DashboardPage() {
   const lastUpload = data?.recent_uploads?.[0]
   const totalPayment = data?.total_monthly_payment ?? 0
   const pendingRequests = data?.pending_requests ?? 0
+  const isPublished = publicationStatus?.status === 'published'
+  const planillaStatusText = !planillaStatus
+    ? 'Sin generar'
+    : isPublished
+      ? 'Publicada ✓'
+      : planillaStatus.status === 'approved'
+        ? 'Aprobada (sin publicar)'
+        : planillaStatus.status === 'rejected'
+          ? 'Rechazada'
+        : 'Pend. Aprobación'
+  const planillaActionText = !planillaStatus
+    ? 'Generar Planilla'
+    : isPublished
+      ? 'Ver Facturación'
+      : planillaStatus.status === 'approved'
+        ? 'Publicar Facturación'
+        : planillaStatus.status === 'rejected'
+          ? 'Regenerar Planilla'
+        : 'Aprobar Planilla'
+  const planillaActionClassName = planillaStatus?.status === 'rejected'
+    ? 'w-full justify-start gap-2 h-11 border-red-300 text-red-600 hover:bg-red-50 transition-all duration-200'
+    : 'w-full justify-start gap-2 h-11 border-[#193CB8] text-[#193CB8] hover:bg-blue-50 transition-all duration-200'
+  const planillaStatusColor = isPublished
+    ? '#16a34a'
+    : planillaStatus?.status === 'rejected'
+      ? '#dc2626'
+      : planillaStatus
+        ? '#d97706'
+        : '#62748E'
+  const activePeriod = settings?.active_academic_period || `Gestión ${currentYear}`
+  const billingPeriodLabel = hasBillingPeriod ? `${MONTH_NAMES[billingMonth]} ${billingYear}` : 'Sin datos'
 
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
       <div className="gradient-navy rounded-xl p-6 text-white">
-        <h2 className="text-2xl font-bold">Bienvenido al Panel de Administración</h2>
-        <p className="text-white/70 mt-1">SIPAD — Sistema Integrado de Pago Docente</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Panel de Administración — SIPAD</h2>
+            <p className="text-white/75 mt-1">{activePeriod}</p>
+          </div>
+          <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
+            <p className="text-xs font-bold uppercase tracking-widest text-white/60">Período facturación</p>
+            <p className="text-lg font-bold">{billingPeriodLabel}</p>
+          </div>
+        </div>
       </div>
 
-      {/* Stats Grid — 6 cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div>
           <StatCard
             icon={Users}
             title="Total Docentes"
             value={data?.teacher_count ?? 0}
             subtitle="Docentes registrados"
-            color="#003366"
+            color="#1C398E"
           />
         </div>
         <div>
@@ -72,7 +133,7 @@ export function DashboardPage() {
             title="Designaciones Activas"
             value={data?.designation_count ?? 0}
             subtitle="Materias asignadas"
-            color="#0066CC"
+            color="#193CB8"
           />
         </div>
         <div>
@@ -93,8 +154,17 @@ export function DashboardPage() {
             icon={DollarSign}
             title="Total Facturación"
             value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
-            subtitle="Período actual"
-            color="#7c3aed"
+            subtitle={billingPeriodLabel}
+            color="#1C398E"
+          />
+        </div>
+        <div>
+          <StatCard
+            icon={ClipboardCheck}
+            title="Estado Planilla"
+            value={planillaStatusText}
+            subtitle={billingPeriodLabel}
+            color={planillaStatusColor}
           />
         </div>
         <div>
@@ -116,7 +186,7 @@ export function DashboardPage() {
                 : 'Sin datos'
             }
             subtitle={lastUpload ? `${lastUpload.total_records} registros` : undefined}
-            color="#4DA8DA"
+            color="#00A6F4"
           />
         </div>
       </div>
@@ -127,7 +197,7 @@ export function DashboardPage() {
         <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Distribución de Asistencia
               </h3>
             </div>
@@ -150,7 +220,7 @@ export function DashboardPage() {
                             <Cell key={i} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value) => [Number(value), 'registros']} />
+                        <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(value) => [Number(value), 'registros']} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -183,7 +253,7 @@ export function DashboardPage() {
         <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Top 10 Docentes por Facturación
               </h3>
             </div>
@@ -211,12 +281,13 @@ export function DashboardPage() {
                       }}
                     />
                     <Tooltip
+                      {...CHART_TOOLTIP_PROPS}
                       formatter={(value) => [
                         `Bs ${Number(value).toLocaleString('es-BO', { minimumFractionDigits: 2 })}`,
                         'Facturación',
                       ]}
                     />
-                    <Bar dataKey="payment" fill="#003366" radius={[0, 4, 4, 0]} barSize={20} />
+                    <Bar dataKey="payment" fill="#1C398E" radius={[0, 4, 4, 0]} barSize={20} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -233,7 +304,7 @@ export function DashboardPage() {
         <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Designaciones por Grupo
               </h3>
             </div>
@@ -244,8 +315,8 @@ export function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="group" tick={{ fontSize: 9 }} />
                     <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#0066CC" radius={[4, 4, 0, 0]} />
+                    <Tooltip {...CHART_TOOLTIP_PROPS} />
+                    <Bar dataKey="count" fill="#193CB8" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -259,7 +330,7 @@ export function DashboardPage() {
         <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Designaciones por Semestre
               </h3>
             </div>
@@ -270,8 +341,8 @@ export function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="semester" tick={{ fontSize: 9 }} />
                     <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#4DA8DA" radius={[4, 4, 0, 0]} />
+                    <Tooltip {...CHART_TOOLTIP_PROPS} />
+                    <Bar dataKey="count" fill="#00A6F4" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -288,7 +359,7 @@ export function DashboardPage() {
         <div className="lg:col-span-2">
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Últimas Subidas de Datos
               </h3>
             </div>
@@ -348,7 +419,7 @@ export function DashboardPage() {
         <div>
           <div className="card-3d-static overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+              <h3 className="text-base font-semibold" style={{ color: '#1C398E' }}>
                 Acciones Rápidas
               </h3>
             </div>
@@ -357,7 +428,7 @@ export function DashboardPage() {
                 <Link to="/upload" className="block">
                   <Button
                     className="w-full justify-start gap-2 h-11 text-white transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5 shadow-md"
-                    style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}
+                    style={{ backgroundImage: 'linear-gradient(135deg, #1C398E 0%, #142866 50%, #0F1D4A 100%)' }}
                   >
                     <Upload size={16} />
                     Subir Datos Biométricos
@@ -366,10 +437,10 @@ export function DashboardPage() {
                 <Link to="/planilla" className="block">
                   <Button
                     variant="outline"
-                    className="w-full justify-start gap-2 h-11 border-[#0066CC] text-[#0066CC] hover:bg-blue-50 transition-all duration-200"
+                    className={planillaActionClassName}
                   >
                     <TrendingUp size={16} />
-                    Generar Planilla
+                    {planillaActionText}
                   </Button>
                 </Link>
                 <Link to="/attendance" className="block">
