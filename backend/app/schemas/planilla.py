@@ -115,3 +115,7 @@ class DashboardSummaryResponse(BaseModel):
     semester_distribution: list[dict] = Field(default_factory=list)
     total_monthly_payment: float = 0.0
     pending_requests: int = 0
+
+    # Billing period used for totals/charts (may differ from current calendar month)
+    billing_period_month: Optional[int] = None
+    billing_period_year: Optional[int] = None
