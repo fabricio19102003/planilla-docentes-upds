@@ -1030,9 +1030,14 @@ export function PlanillaPage() {
                           <span className="font-semibold text-gray-800">{MONTH_NAMES[item.month]} {item.year}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {item.start_date && item.end_date
-                          ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
+                          ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1C398E]/8 text-[#1C398E] text-xs font-semibold border border-[#1C398E]/15">
+                              <Calendar size={11} />
+                              {formatShortDate(item.start_date)} — {formatShortDate(item.end_date)}
+                            </span>
+                          )
                           : <span className="text-gray-300">—</span>
                         }
                       </td>
@@ -1074,7 +1079,7 @@ export function PlanillaPage() {
                                 e.stopPropagation()
                                 void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
                               }}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#1C398E] bg-[#1C398E]/5 hover:bg-[#1C398E] hover:text-white border border-[#1C398E]/20 hover:border-[#1C398E] text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md"
                             >
                               <Download size={12} />
                               Excel
@@ -1095,7 +1100,7 @@ export function PlanillaPage() {
                                 }
                               }}
                               disabled={salaryReportLoading[`row-${item.id}`]}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-green-700 hover:bg-green-50 border border-green-600/30 text-xs font-medium transition-colors disabled:opacity-50"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50"
                             >
                               {salaryReportLoading[`row-${item.id}`]
                                 ? <Loader2 size={12} className="animate-spin" />
