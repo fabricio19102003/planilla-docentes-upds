@@ -1302,19 +1302,23 @@ export function PlanillaPage() {
 
               {/* Tabs + Search row */}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                <div className="flex gap-1 rounded-xl p-1 w-fit" style={{ backgroundColor: '#1C398E15' }}>
                   <button
                     onClick={() => setDetailTab('teachers')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      detailTab === 'teachers' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                      detailTab === 'teachers'
+                        ? 'bg-[#1C398E] text-white shadow-md shadow-blue-900/25'
+                        : 'text-[#1C398E] hover:bg-[#1C398E]/10'
                     }`}
                   >
                     Por Docente
                   </button>
                   <button
                     onClick={() => setDetailTab('designations')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      detailTab === 'designations' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                      detailTab === 'designations'
+                        ? 'bg-[#1C398E] text-white shadow-md shadow-blue-900/25'
+                        : 'text-[#1C398E] hover:bg-[#1C398E]/10'
                     }`}
                   >
                     Por Designación
@@ -1323,13 +1327,13 @@ export function PlanillaPage() {
 
                 {/* Search */}
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#1C398E]/50" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Buscar docente por nombre o CI..."
-                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent bg-gray-50/50"
+                    className="w-full pl-10 pr-4 py-2.5 border-2 border-[#1C398E]/20 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#1C398E]/30 focus:border-[#1C398E]/40 bg-white shadow-sm placeholder:text-slate-400 transition-all duration-200"
                   />
                 </div>
               </div>
