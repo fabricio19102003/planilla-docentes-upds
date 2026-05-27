@@ -438,8 +438,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
             <Button
               onClick={handleGenerate}
               disabled={generatePlanilla.isPending}
-              className="h-10"
-              style={{ backgroundColor: '#003366' }}
+              className="h-11 px-6 font-semibold rounded-xl shadow-lg shadow-emerald-900/25 hover:shadow-xl hover:shadow-emerald-900/35 active:scale-[0.97] transition-all duration-200"
+              style={{ background: 'linear-gradient(135deg, #15803d 0%, #16a34a 100%)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #15803d 0%, #16a34a 100%)' }}
             >
               {generatePlanilla.isPending ? (
                 <>

@@ -468,8 +468,10 @@ export function PlanillaPage() {
             <Button
               onClick={handleGenerate}
               disabled={generatePlanilla.isPending}
-              className="h-10"
-              style={{ backgroundColor: '#003366' }}
+              className="h-11 px-6 font-semibold rounded-xl shadow-lg shadow-blue-900/25 hover:shadow-xl hover:shadow-blue-900/35 active:scale-[0.97] transition-all duration-200"
+              style={{ background: 'linear-gradient(135deg, #1C398E 0%, #193CB8 100%)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #193CB8 0%, #155DFC 100%)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #1C398E 0%, #193CB8 100%)' }}
             >
               {generatePlanilla.isPending ? (
                 <>
