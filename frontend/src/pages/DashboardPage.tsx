@@ -47,8 +47,11 @@ export function DashboardPage() {
   const currentYear = now.getFullYear()
   const { data, isLoading, error } = useDashboard()
   const { data: settings } = useAppSettings()
-  const { data: planillaStatus } = usePlanillaStatus(currentMonth, currentYear)
-  const { data: publicationStatus } = usePublicationStatus(currentMonth, currentYear)
+  const billingMonth = data?.billing_period_month ?? currentMonth
+  const billingYear = data?.billing_period_year ?? currentYear
+  const hasBillingPeriod = data?.billing_period_month != null && data?.billing_period_year != null
+  const { data: planillaStatus } = usePlanillaStatus(billingMonth, billingYear, hasBillingPeriod)
+  const { data: publicationStatus } = usePublicationStatus(billingMonth, billingYear, hasBillingPeriod)
 
   if (isLoading) return <LoadingPage />
 
@@ -72,6 +75,8 @@ export function DashboardPage() {
       ? 'Publicada ✓'
       : planillaStatus.status === 'approved'
         ? 'Aprobada (sin publicar)'
+        : planillaStatus.status === 'rejected'
+          ? 'Rechazada'
         : 'Pend. Aprobación'
   const planillaActionText = !planillaStatus
     ? 'Generar Planilla'
@@ -79,9 +84,21 @@ export function DashboardPage() {
       ? 'Ver Facturación'
       : planillaStatus.status === 'approved'
         ? 'Publicar Facturación'
+        : planillaStatus.status === 'rejected'
+          ? 'Regenerar Planilla'
         : 'Aprobar Planilla'
+  const planillaActionClassName = planillaStatus?.status === 'rejected'
+    ? 'w-full justify-start gap-2 h-11 border-red-300 text-red-600 hover:bg-red-50 transition-all duration-200'
+    : 'w-full justify-start gap-2 h-11 border-[#193CB8] text-[#193CB8] hover:bg-blue-50 transition-all duration-200'
+  const planillaStatusColor = isPublished
+    ? '#16a34a'
+    : planillaStatus?.status === 'rejected'
+      ? '#dc2626'
+      : planillaStatus
+        ? '#d97706'
+        : '#62748E'
   const activePeriod = settings?.active_academic_period || `Gestión ${currentYear}`
-  const currentPeriodLabel = `${MONTH_NAMES[currentMonth]} ${currentYear}`
+  const billingPeriodLabel = hasBillingPeriod ? `${MONTH_NAMES[billingMonth]} ${billingYear}` : 'Sin datos'
 
   return (
     <div className="space-y-6">
@@ -93,8 +110,8 @@ export function DashboardPage() {
             <p className="text-white/75 mt-1">{activePeriod}</p>
           </div>
           <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-white/60">Período actual</p>
-            <p className="text-lg font-bold">{currentPeriodLabel}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-white/60">Período facturación</p>
+            <p className="text-lg font-bold">{billingPeriodLabel}</p>
           </div>
         </div>
       </div>
@@ -137,7 +154,7 @@ export function DashboardPage() {
             icon={DollarSign}
             title="Total Facturación"
             value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
-            subtitle="Período actual"
+            subtitle={billingPeriodLabel}
             color="#1C398E"
           />
         </div>
@@ -146,8 +163,8 @@ export function DashboardPage() {
             icon={ClipboardCheck}
             title="Estado Planilla"
             value={planillaStatusText}
-            subtitle={currentPeriodLabel}
-            color={isPublished ? '#16a34a' : planillaStatus ? '#d97706' : '#62748E'}
+            subtitle={billingPeriodLabel}
+            color={planillaStatusColor}
           />
         </div>
         <div>
@@ -420,7 +437,7 @@ export function DashboardPage() {
                 <Link to="/planilla" className="block">
                   <Button
                     variant="outline"
-                    className="w-full justify-start gap-2 h-11 border-[#193CB8] text-[#193CB8] hover:bg-blue-50 transition-all duration-200"
+                    className={planillaActionClassName}
                   >
                     <TrendingUp size={16} />
                     {planillaActionText}
