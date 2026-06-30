@@ -14,7 +14,7 @@ export interface BillingPublication {
   notes: string | null
 }
 
-export function usePublicationStatus(month: number, year: number) {
+export function usePublicationStatus(month: number, year: number, enabled: boolean = true) {
   return useQuery({
     queryKey: ['billing-publication', month, year],
     queryFn: async () => {
@@ -27,6 +27,7 @@ export function usePublicationStatus(month: number, year: number) {
         throw e
       }
     },
+    enabled,
   })
 }
 

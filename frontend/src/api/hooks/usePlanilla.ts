@@ -34,7 +34,7 @@ export function useRejectPlanilla() {
   })
 }
 
-export function usePlanillaStatus(month: number, year: number) {
+export function usePlanillaStatus(month: number, year: number, enabled: boolean = true) {
   return useQuery({
     queryKey: ['planilla-status', month, year],
     queryFn: async () => {
@@ -42,6 +42,7 @@ export function usePlanillaStatus(month: number, year: number) {
       const match = res.data.find((p) => p.month === month && p.year === year)
       return match ?? null
     },
+    enabled,
   })
 }
 

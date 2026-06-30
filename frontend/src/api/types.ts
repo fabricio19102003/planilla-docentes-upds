@@ -305,6 +305,8 @@ export interface PlanillaGenerateResponse {
 export interface DashboardSummary {
   recent_uploads: BiometricUpload[]
   latest_attendance_summary: AttendanceSummary | null
+  billing_period_month?: number | null
+  billing_period_year?: number | null
   teacher_count: number
   designation_count: number
   // Chart data
