@@ -8,6 +8,7 @@ import { api } from '@/api/client'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
 import { PracticaPlanillaContent } from './PracticaPlanillaContent'
 
@@ -123,17 +124,6 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
   return Array.from(rows.values())
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-}
-
-function formatShortDate(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
 export function PlanillaPage() {
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -160,7 +150,7 @@ export function PlanillaPage() {
   // Exclusion days state
   const [excludedDays, setExcludedDays] = useState<ExclusionRow[]>([])
   const [exclusionsEdited, setExclusionsEdited] = useState(false)
-  const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: new Date().toISOString().slice(0, 10), scope: 'global' }))
+  const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: getTodayInBolivia(), scope: 'global' }))
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
   const [designationOptions, setDesignationOptions] = useState<DesignationOptions>({ subjects: [], semesters: [], groups: [] })
   const [designationOptionsLoading, setDesignationOptionsLoading] = useState(false)
@@ -349,7 +339,7 @@ export function PlanillaPage() {
   }
 
   const resetNewExclusion = () => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getTodayInBolivia()
     setNewExclusion({ date: today, scope: 'global' })
   }
 

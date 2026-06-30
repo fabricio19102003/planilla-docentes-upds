@@ -42,6 +42,7 @@ import type { PracticePlanillaGenerateResponse } from '@/api/hooks/usePracticePl
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import type { ExcludedDay } from '@/api/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -154,17 +155,6 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
   return Array.from(rows.values())
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-}
-
-function formatShortDate(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
 function getPlanillaErrorMessage(error: unknown): string {
   const fallback = 'Error al generar la planilla. Verificá que la asistencia esté procesada para el período seleccionado.'
   if (!error || typeof error !== 'object') return fallback
@@ -209,7 +199,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   // Exclusion days state
   const [excludedDays, setExcludedDays] = useState<ExclusionRow[]>([])
   const [exclusionsEdited, setExclusionsEdited] = useState(false)
-  const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: new Date().toISOString().slice(0, 10), scope: 'global' }))
+  const [newExclusion, setNewExclusion] = useState<ExclusionRow>(() => ({ date: getTodayInBolivia(), scope: 'global' }))
   const [exclusionPanelOpen, setExclusionPanelOpen] = useState(false)
 
   const [salaryReportLoading, setSalaryReportLoading] = useState<Record<string, boolean>>({})
@@ -389,7 +379,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   }
 
   const resetNewExclusion = () => {
-    setNewExclusion({ date: new Date().toISOString().slice(0, 10), scope: 'global' })
+    setNewExclusion({ date: getTodayInBolivia(), scope: 'global' })
   }
 
   const addExclusionRow = () => {
