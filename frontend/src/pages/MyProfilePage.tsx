@@ -105,23 +105,34 @@ function assignmentLabel(subjectCount = 0, groupCount = 0): string {
 }
 
 function SelectField({
+  id,
   label,
   value,
   options,
   onChange,
+  invalid = false,
+  errorId,
 }: {
+  id: string
   label: string
   value: string
   options: string[]
   onChange: (value: string) => void
+  invalid?: boolean
+  errorId?: string
 }) {
   const normalizedOptions = value && !options.includes(value) ? [value, ...options] : options
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">{label}</Label>
+      <Label htmlFor={id} className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">{label}</Label>
       <Select value={value || SELECT_EMPTY} onValueChange={(next) => onChange(next === SELECT_EMPTY ? '' : next)}>
-        <SelectTrigger className="h-10 w-full rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20">
+        <SelectTrigger
+          id={id}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? errorId : undefined}
+          className="h-10 w-full rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
+        >
           <SelectValue placeholder="Seleccionar" />
         </SelectTrigger>
         <SelectContent position="popper" className="rounded-xl">
@@ -263,6 +274,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
         {!editMode ? (
           canEdit ? (
             <button
+              type="button"
               onClick={() => setEditMode(true)}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#003366] transition-colors px-2 py-1 rounded hover:bg-gray-100"
             >
@@ -275,6 +287,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
         ) : (
           <div className="flex items-center gap-1.5">
             <button
+              type="button"
               onClick={handleCancel}
               className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded hover:bg-gray-100"
             >
@@ -312,7 +325,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
           </div>
         )}
         {saveError && (
-          <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-3">
+          <div id="profile-save-error" role="alert" className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-3">
             <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
             <p className="text-red-600 text-sm">{saveError}</p>
           </div>
@@ -347,44 +360,59 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <SelectField
+                id="profile-gender"
                 label="Género"
                 value={editForm.gender}
                 options={GENDER_OPTIONS}
                 onChange={(gender) => setEditFormOverride((f) => ({ ...f, gender }))}
+                invalid={Boolean(saveError)}
+                errorId="profile-save-error"
               />
               <SelectField
+                id="profile-teacher-type"
                 label="Tipo docente"
                 value={editForm.external_permanent}
                 options={EXTERNAL_PERMANENT_OPTIONS}
                 onChange={(external_permanent) => setEditFormOverride((f) => ({ ...f, external_permanent }))}
+                invalid={Boolean(saveError)}
+                errorId="profile-save-error"
               />
               <SelectField
+                id="profile-academic-level"
                 label="Nivel académico"
                 value={editForm.academic_level}
                 options={ACADEMIC_LEVEL_OPTIONS}
                 onChange={(academic_level) => setEditFormOverride((f) => ({ ...f, academic_level }))}
+                invalid={Boolean(saveError)}
+                errorId="profile-save-error"
               />
             </div>
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Profesión</Label>
+                <Label htmlFor="profile-profession" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Profesión</Label>
                 <Input
+                  id="profile-profession"
                   type="text"
                   value={editForm.profession}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, profession: e.target.value }))}
                   placeholder="Ej: Médico Cirujano"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Especialidad</Label>
+                <Label htmlFor="profile-specialty" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Especialidad</Label>
                 <Input
+                  id="profile-specialty"
                   type="text"
                   value={editForm.specialty}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, specialty: e.target.value }))}
                   placeholder="Ej: Cirugía General"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
@@ -392,57 +420,69 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
 
             <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-white/70 bg-white/70 p-3 md:grid-cols-2">
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                <Label htmlFor="profile-email" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
                   <Mail size={11} className="inline mr-1" />
                   Email
                 </Label>
                 <Input
+                  id="profile-email"
                   type="email"
                   value={editForm.email}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, email: e.target.value }))}
                   placeholder="tu@email.com"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                <Label htmlFor="profile-phone" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
                   <Phone size={11} className="inline mr-1" />
                   Teléfono
                 </Label>
                 <Input
+                  id="profile-phone"
                   type="text"
                   value={editForm.phone}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, phone: e.target.value }))}
                   placeholder="Ej: 70012345"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                <Label htmlFor="profile-bank" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
                   <CreditCard size={11} className="inline mr-1" />
                   Banco
                 </Label>
                 <Input
+                  id="profile-bank"
                   type="text"
                   value={editForm.bank}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, bank: e.target.value }))}
                   placeholder="Ej: Banco Unión"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
+                <Label htmlFor="profile-account-number" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
                   <CreditCard size={11} className="inline mr-1" />
                   Número de Cuenta
                 </Label>
                 <Input
+                  id="profile-account-number"
                   type="text"
                   value={editForm.account_number}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="Ej: 1234567890"
+                  aria-invalid={Boolean(saveError)}
+                  aria-describedby={saveError ? 'profile-save-error' : undefined}
                   className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
               </div>
@@ -680,21 +720,24 @@ function ChangePasswordCard() {
           <form onSubmit={handleSubmit} className="space-y-4 max-w-sm" autoComplete="off">
             {/* Current password */}
             <div className="space-y-1.5">
-              <Label className="text-sm">Contraseña actual *</Label>
+              <Label htmlFor="profile-current-password" className="text-sm">Contraseña actual *</Label>
               <div className="relative">
                 <Input
+                  id="profile-current-password"
                   type={showCurrent ? 'text' : 'password'}
                   value={form.current}
                   onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
                   placeholder=""
                   autoComplete="off"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'profile-password-error' : undefined}
                   className="pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowCurrent((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  aria-label={showCurrent ? 'Ocultar contraseña actual' : 'Mostrar contraseña actual'}
                 >
                   {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
@@ -703,20 +746,23 @@ function ChangePasswordCard() {
 
             {/* New password */}
             <div className="space-y-1.5">
-              <Label className="text-sm">Nueva contraseña *</Label>
+              <Label htmlFor="profile-new-password" className="text-sm">Nueva contraseña *</Label>
               <div className="relative">
                 <Input
+                  id="profile-new-password"
                   type={showNew ? 'text' : 'password'}
                   value={form.newPwd}
                   onChange={(e) => setForm((f) => ({ ...f, newPwd: e.target.value }))}
                   placeholder="Mínimo 8 caracteres"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'profile-password-error' : undefined}
                   className="pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNew((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  aria-label={showNew ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
                 >
                   {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
@@ -726,26 +772,29 @@ function ChangePasswordCard() {
 
             {/* Confirm */}
             <div className="space-y-1.5">
-              <Label className="text-sm">Confirmar nueva contraseña *</Label>
+              <Label htmlFor="profile-confirm-password" className="text-sm">Confirmar nueva contraseña *</Label>
               <div className="relative">
                 <Input
+                  id="profile-confirm-password"
                   type={showConfirm ? 'text' : 'password'}
                   value={form.confirm}
                   onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
                   placeholder="••••••••"
+                  aria-invalid={Boolean((form.confirm && !passwordsMatch) || error)}
+                  aria-describedby={form.confirm && !passwordsMatch ? 'profile-confirm-error' : error ? 'profile-password-error' : undefined}
                   className={`pr-10 ${form.confirm && !passwordsMatch ? 'border-red-300' : ''}`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  aria-label={showConfirm ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
                 >
                   {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
               {form.confirm && !passwordsMatch && (
-                <p className="text-red-500 text-xs">Las contraseñas no coinciden</p>
+                <p id="profile-confirm-error" role="alert" className="text-red-500 text-xs">Las contraseñas no coinciden</p>
               )}
             </div>
 
@@ -761,7 +810,7 @@ function ChangePasswordCard() {
             )}
 
             {error && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+              <div id="profile-password-error" role="alert" className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                 <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-red-600 text-sm">{error}</p>
               </div>
@@ -808,13 +857,13 @@ export function MyProfilePage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="max-w-2xl space-y-4 sm:space-y-6">
       {/* Profile header */}
       <div
-        className="rounded-xl p-6 text-white"
+        className="rounded-xl p-4 text-white sm:p-6"
         style={{ background: 'linear-gradient(135deg, #003366 0%, #0066CC 100%)' }}
       >
-        <div className="flex items-center gap-5">
+        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-5">
           <div className="w-16 h-16 rounded-full bg-white/15 flex items-center justify-center text-2xl font-black flex-shrink-0 overflow-hidden ring-2 ring-white/20">
             {showHeroImage ? (
               <img

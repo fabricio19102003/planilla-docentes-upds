@@ -21,22 +21,30 @@ function BillingRow({
 }) {
   const isPractice = billing.planilla_type === 'practice'
   const isAvailable = billing.data_status === 'available'
+  const detailId = `billing-detail-${billing.year}-${billing.month}-${billing.planilla_type ?? 'regular'}`
 
   return (
     <>
-      <tr
-        className={`border-b transition-colors ${isAvailable ? 'hover:bg-blue-50 cursor-pointer' : 'bg-amber-50/50'}`}
-        onClick={isAvailable ? onToggle : undefined}
-      >
+      <tr className={`border-b transition-colors ${isAvailable ? 'hover:bg-blue-50' : 'bg-amber-50/50'}`}>
         <td className="px-4 py-3 font-medium text-gray-800">
-          <div className="flex items-center gap-2">
-            {isAvailable && isExpanded ? (
-              <ChevronDown size={14} className="text-gray-400" />
-            ) : isAvailable ? (
-              <ChevronRight size={14} className="text-gray-400" />
-            ) : <AlertCircle size={14} className="text-amber-600" />}
-            {billing.month_name}
-          </div>
+          {isAvailable ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={isExpanded}
+              aria-controls={detailId}
+              className="flex items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:text-[#0066CC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] focus-visible:ring-offset-2"
+            >
+              {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+              <span>{billing.month_name}</span>
+              <span className="sr-only">{isExpanded ? 'Ocultar detalle' : 'Mostrar detalle'}</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <AlertCircle size={14} className="text-amber-600" aria-hidden="true" />
+              {billing.month_name}
+            </div>
+          )}
         </td>
         <td className="px-4 py-3 text-gray-600">{billing.year}</td>
         <td className="px-4 py-3">
@@ -77,7 +85,7 @@ function BillingRow({
       )}
 
       {isAvailable && isExpanded && (
-        <tr className="border-b bg-blue-50/50">
+        <tr id={detailId} className="border-b bg-blue-50/50">
           <td colSpan={6} className="px-6 py-4">
             <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div><span className="text-gray-500">Bruto:</span> <strong>{formatBs(billing.gross_payment ?? 0)}</strong></div>
@@ -138,7 +146,7 @@ export function BillingHistoryPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
@@ -146,7 +154,7 @@ export function BillingHistoryPage() {
   if (error || !history) {
     const is400 = (error as { response?: { status?: number } })?.response?.status === 400
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+      <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-5 text-center max-w-md mx-auto mt-12 sm:p-8">
         <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
         <p className="text-red-600 font-medium">
           {is400
@@ -167,7 +175,7 @@ export function BillingHistoryPage() {
   const totalHours = availableHistory.reduce((sum, billing) => sum + (billing.total_hours ?? 0), 0)
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-4 sm:space-y-6">
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
@@ -200,12 +208,12 @@ export function BillingHistoryPage() {
             Historial de Facturación
           </CardTitle>
           <p className="text-xs text-gray-400 mt-0.5">
-            Hacé click en una fila para ver el detalle
+            Activá el botón del mes para ver el detalle
           </p>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[720px] w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
                   {['Mes', 'Año', 'Tipo', 'Horas', 'Neto Final', 'Materias'].map((h) => (

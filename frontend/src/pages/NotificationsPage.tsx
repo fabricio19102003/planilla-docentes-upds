@@ -15,7 +15,7 @@ export function NotificationsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
@@ -44,9 +44,9 @@ export function NotificationsPage() {
   const unreadCount = notifications?.filter((n) => !n.is_read).length ?? 0
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="max-w-2xl space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between animate-fade-in-up">
+      <div className="flex flex-col items-start gap-3 animate-fade-in-up motion-reduce:animate-none sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Notificaciones</h2>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -57,7 +57,7 @@ export function NotificationsPage() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-2 text-sm"
+            className="w-full gap-2 text-sm sm:w-auto"
             onClick={() => {
               markAllRead.reset()
               markAllRead.mutate()

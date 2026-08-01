@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -103,11 +103,20 @@ const docenteNavItems: NavItem[] = [
   { to: '/portal/profile', label: 'Mi Perfil', icon: User },
 ]
 
-function NavItemLink({ item, collapsed }: { item: NavItem; collapsed?: boolean }) {
+function NavItemLink({
+  item,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem
+  collapsed?: boolean
+  onNavigate?: () => void
+}) {
   return (
     <NavLink
       to={item.to}
       end={item.exact}
+      onClick={onNavigate}
       className={({ isActive }) =>
         [
           'relative mx-2 flex items-center rounded-lg transition-all duration-200 ease-in-out',
@@ -147,6 +156,7 @@ function NavGroupComponent({
   pathname,
   showSeparator,
   onToggle,
+  onNavigate,
 }: {
   group: NavGroup
   collapsed: boolean
@@ -155,6 +165,7 @@ function NavGroupComponent({
   pathname: string
   showSeparator: boolean
   onToggle: () => void
+  onNavigate?: () => void
 }) {
   if (collapsed) {
     return (
@@ -181,6 +192,7 @@ function NavGroupComponent({
                   key={child.to}
                   to={child.to}
                   end={child.exact}
+                  onClick={onNavigate}
                   className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all duration-200 ease-in-out ${
                     childActive ? 'bg-sky-500/20 text-white' : 'text-white/50 hover:bg-white/[0.08] hover:text-white/90'
                   }`}
@@ -226,6 +238,7 @@ function NavGroupComponent({
                 key={child.to}
                 to={child.to}
                 end={child.exact}
+                onClick={onNavigate}
                 className={({ isActive }) =>
                   [
                     'relative my-0.5 ml-2 mr-2 flex items-center gap-2 rounded-lg py-2.5 pl-11 pr-4 text-sm transition-all duration-200 ease-in-out',
@@ -251,30 +264,18 @@ function NavGroupComponent({
   )
 }
 
-export function Sidebar() {
+export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { user, isAdmin, logout } = useAuth()
-  const { collapsed, toggle } = useSidebar()
+  const { collapsed: desktopCollapsed, toggle, closeMobile } = useSidebar()
   const { pathname } = useLocation()
+  const collapsed = mobile ? false : desktopCollapsed
   const navItems = isAdmin ? adminNavItems : docenteNavItems
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-
-  useEffect(() => {
-    if (!isAdmin) return
-
-    const activeGroup = adminNavItems.find(
-      (item) => isNavGroup(item) && item.children.some((child) => isItemActive(pathname, child))
-    )
-
-    if (!activeGroup || !isNavGroup(activeGroup)) return
-
-    setExpandedGroups((current) => {
-      if (current.has(activeGroup.label)) return current
-
-      const next = new Set(current)
-      next.add(activeGroup.label)
-      return next
-    })
-  }, [isAdmin, pathname])
+  const activeGroupLabel = isAdmin
+    ? adminNavItems.find(
+        (item) => isNavGroup(item) && item.children.some((child) => isItemActive(pathname, child)),
+      )?.label
+    : undefined
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((current) => {
@@ -292,7 +293,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-visible ${collapsed ? 'w-[68px]' : 'w-64'}`}
+      className={`${mobile ? 'relative h-full w-full' : 'fixed left-0 top-0 z-50 h-screen'} flex flex-col overflow-visible ${collapsed ? 'w-[68px]' : 'w-64'}`}
       style={{
         background: 'linear-gradient(180deg, #1C398E 0%, #142866 50%, #0F1D4A 100%)',
         boxShadow: '0 8px 30px rgb(0,0,0,0.08)',
@@ -347,34 +348,46 @@ export function Sidebar() {
               key={item.label}
               group={item}
               collapsed={collapsed}
-              expanded={expandedGroups.has(item.label)}
+              expanded={expandedGroups.has(item.label) || activeGroupLabel === item.label}
               active={item.children.some((child) => isItemActive(pathname, child))}
               pathname={pathname}
               showSeparator={navItems.slice(0, index).some(isNavGroup)}
               onToggle={() => toggleGroup(item.label)}
+              onNavigate={mobile ? closeMobile : undefined}
             />
           ) : (
-            <NavItemLink key={item.to} item={item} collapsed={collapsed} />
+            <NavItemLink
+              key={item.to}
+              item={item}
+              collapsed={collapsed}
+              onNavigate={mobile ? closeMobile : undefined}
+            />
           )
         ))}
       </nav>
 
       {/* Toggle button */}
-      <div className="border-t border-white/10">
+      {!mobile && <div className="border-t border-white/10">
         <button
+          type="button"
           onClick={toggle}
-          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-3 text-sm text-white/50 transition-colors duration-200 ease-in-out hover:bg-white/[0.08] hover:text-white/90 ${collapsed ? 'justify-center' : 'gap-3'}`}
+          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-3 text-sm text-white/50 transition-colors duration-200 ease-in-out hover:bg-white/[0.08] hover:text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${collapsed ? 'justify-center' : 'gap-3'}`}
           title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+          aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
         >
           {collapsed ? <ChevronRight size={18} /> : <><ChevronLeft size={18} /><span>Colapsar</span></>}
         </button>
-      </div>
+      </div>}
 
       {/* Logout */}
       <div className="border-t border-white/10">
         <button
-          onClick={logout}
-          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-4 text-sm text-white/60 transition-colors duration-200 ease-in-out hover:bg-red-500/15 hover:text-red-300 ${collapsed ? 'justify-center' : 'gap-3'}`}
+          type="button"
+          onClick={() => {
+            if (mobile) closeMobile()
+            logout()
+          }}
+          className={`mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded-lg px-4 py-4 text-sm text-white/60 transition-colors duration-200 ease-in-out hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${collapsed ? 'justify-center' : 'gap-3'}`}
           title={collapsed ? 'Cerrar Sesión' : undefined}
         >
           <LogOut size={18} />

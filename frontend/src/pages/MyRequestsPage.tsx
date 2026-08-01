@@ -101,14 +101,18 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
           <DialogTitle style={{ color: '#003366' }}>Nueva Solicitud</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Mes *</Label>
+              <Label htmlFor="request-month">Mes *</Label>
               <Select
                 value={String(form.month)}
                 onValueChange={(v) => setForm((f) => ({ ...f, month: Number(v) }))}
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  id="request-month"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'request-form-error' : undefined}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-48">
@@ -121,24 +125,31 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Año *</Label>
+              <Label htmlFor="request-year">Año *</Label>
               <Input
+                id="request-year"
                 type="number"
                 value={form.year}
                 onChange={(e) => setForm((f) => ({ ...f, year: Number(e.target.value) }))}
                 min={2020}
                 max={currentYear + 1}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'request-form-error' : undefined}
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label>Tipo de Solicitud *</Label>
+            <Label htmlFor="request-type">Tipo de Solicitud *</Label>
             <Select
               value={form.request_type}
               onValueChange={(v) => setForm((f) => ({ ...f, request_type: v }))}
             >
-              <SelectTrigger>
+              <SelectTrigger
+                id="request-type"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'request-form-error' : undefined}
+              >
                 <SelectValue placeholder="Seleccioná un tipo..." />
               </SelectTrigger>
               <SelectContent>
@@ -152,17 +163,20 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
 
           <div className="space-y-1.5">
-            <Label>Mensaje (opcional)</Label>
+            <Label htmlFor="request-message">Mensaje (opcional)</Label>
             <Textarea
+              id="request-message"
               value={form.message}
               onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
               placeholder="Describí tu solicitud o dejá un mensaje para el administrador..."
               rows={3}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'request-form-error' : undefined}
             />
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            <p id="request-form-error" role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
               {error}
             </p>
           )}
@@ -266,7 +280,7 @@ export function MyRequestsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
@@ -293,9 +307,9 @@ export function MyRequestsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
             Mis Solicitudes
@@ -306,7 +320,7 @@ export function MyRequestsPage() {
         </div>
         <Button
           onClick={() => setCreateOpen(true)}
-          className="gap-2 text-white"
+          className="w-full gap-2 text-white sm:w-auto"
           style={{ backgroundColor: '#003366' }}
         >
           <PlusCircle size={16} />
@@ -345,7 +359,7 @@ export function MyRequestsPage() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="min-w-[680px] w-full text-sm">
                 <thead>
                   <tr style={{ backgroundColor: '#003366' }}>
                     {['Período', 'Tipo', 'Estado', 'Fecha', 'Acciones'].map((h) => (

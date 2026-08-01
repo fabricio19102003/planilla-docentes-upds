@@ -1,9 +1,18 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, ChevronDown, Bell, Search, Users, BookOpen, Layers } from 'lucide-react'
+import { LogOut, ChevronDown, Bell, Search, Users, BookOpen, Layers, Menu } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useUnreadCount } from '@/api/hooks/useNotifications'
 import { api } from '@/api/client'
+import { SheetTrigger } from '@/components/ui/sheet'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 const routeTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -42,7 +51,6 @@ export function Header() {
   const { user, isAdmin, isDocente, logout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
   const title = getTitleFromPath(pathname)
   const { data: unreadCount = 0 } = useUnreadCount(isDocente)
   const avatarUrl = user?.avatar_url ?? null
@@ -81,17 +89,6 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
   const initials = user?.full_name
     ? user.full_name
         .split(' ')
@@ -102,14 +99,25 @@ export function Header() {
     : 'U'
 
   return (
-    <header className="relative bg-white shadow-md h-16 flex items-center justify-between px-6 sticky top-0 z-40">
-      <h1 className="text-xl font-semibold flex-shrink-0" style={{ color: '#003366' }}>
-        {title}
-      </h1>
+    <header className="sticky top-0 z-40 flex min-h-16 flex-wrap items-center gap-2 bg-white px-3 py-2 shadow-md sm:px-4 md:flex-nowrap md:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <SheetTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] md:hidden"
+            aria-label="Abrir menú de navegación"
+          >
+            <Menu size={22} />
+          </button>
+        </SheetTrigger>
+        <h1 className="truncate text-base font-semibold sm:text-lg md:text-xl" style={{ color: '#003366' }}>
+          {title}
+        </h1>
+      </div>
 
       {/* Global search — admin only */}
       {isAdmin && (
-        <div ref={searchRef} className="relative flex-1 max-w-md mx-4">
+        <div ref={searchRef} className="order-last relative w-full flex-1 md:order-none md:mx-4 md:max-w-md">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -182,8 +190,10 @@ export function Header() {
       <div className="flex items-center gap-2">
         {isDocente && (
           <button
+            type="button"
             onClick={() => navigate('/portal/notifications')}
-            className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            className="relative rounded-lg p-2 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+            aria-label={unreadCount > 0 ? `Notificaciones, ${unreadCount} sin leer` : 'Notificaciones'}
           >
             <Bell size={20} className="text-gray-600" />
             {unreadCount > 0 && (
@@ -195,11 +205,15 @@ export function Header() {
         )}
 
         {/* User section */}
-        <div className="relative" ref={dropdownRef}>
-        <button
-          onClick={() => setDropdownOpen((v) => !v)}
-          className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-        >
+        <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] sm:gap-2.5 sm:px-3"
+              aria-expanded={dropdownOpen}
+              aria-haspopup="menu"
+              aria-label="Abrir menú de usuario"
+            >
           <div className="relative w-8 h-8 rounded-full bg-[#003366] flex items-center justify-center text-white text-xs font-bold flex-shrink-0 overflow-hidden ring-2 ring-[#003366]/10">
             {showAvatarImage ? (
               <img
@@ -231,28 +245,20 @@ export function Header() {
             size={14}
             className={`text-gray-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
           />
-        </button>
-
-        {/* Dropdown */}
-        {dropdownOpen && (
-          <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
-            <div className="px-4 py-2.5 border-b border-gray-100">
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel className="px-3 py-2.5 font-normal">
               <p className="text-sm font-medium text-gray-800 truncate">{user?.full_name}</p>
               <p className="text-xs text-gray-400 truncate mt-0.5">CI: {user?.ci}</p>
-            </div>
-            <button
-              onClick={() => {
-                setDropdownOpen(false)
-                logout()
-              }}
-              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-            >
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={logout} className="gap-2.5 px-3 py-2.5 text-red-600 focus:bg-red-50 focus:text-red-700">
               <LogOut size={15} />
               Cerrar Sesión
-            </button>
-          </div>
-        )}
-        </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Gradient accent line */}

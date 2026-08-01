@@ -33,7 +33,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
     <div className="space-y-4">
       {/* Main billing hero card */}
       <div
-        className="rounded-2xl p-8 text-white relative overflow-hidden"
+        className="relative overflow-hidden rounded-2xl p-4 text-white sm:p-8"
         style={{ background: gradient }}
       >
         {/* Decorative circle */}
@@ -42,7 +42,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
           style={{ backgroundColor: '#ffffff' }}
         />
 
-        <div className="flex items-start justify-between relative">
+        <div className="relative flex flex-col items-start justify-between gap-4 sm:flex-row">
           <div>
             <div className="flex items-center gap-2 mb-2">
               {isPractice ? (
@@ -54,7 +54,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                 {isPractice ? 'Prácticas Internas' : 'Facturación'} — {billing.month_name} {billing.year}
               </p>
             </div>
-            <p className="text-5xl font-black tracking-tight mt-4">
+            <p className="mt-4 break-words text-3xl font-black tracking-tight sm:text-5xl">
               {formatBs(displayPayment)}
             </p>
             {billing.has_admin_override && (
@@ -68,7 +68,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
               </div>
             )}
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="bg-white/10 rounded-xl p-4 text-center min-w-[100px]">
               <p className="text-3xl font-bold">{billing.total_hours}</p>
               <p className="text-white/70 text-xs mt-1">horas académicas</p>
@@ -76,7 +76,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
           </div>
         </div>
 
-        <div className="mt-6 pt-5 border-t border-white/20 flex items-center gap-5 text-sm text-white/70">
+        <div className="mt-6 flex flex-col gap-3 border-t border-white/20 pt-5 text-sm text-white/70 sm:flex-row sm:items-center sm:gap-5">
           <div className="flex items-center gap-1.5">
             <DollarSign size={14} />
             <span>
@@ -172,7 +172,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
                   {[
@@ -286,7 +286,7 @@ export function BillingPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
@@ -295,7 +295,7 @@ export function BillingPage() {
     const httpStatus = (error as { response?: { status?: number } })?.response?.status
     if (httpStatus === 404) {
       return (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-5 text-center max-w-md mx-auto mt-12 sm:p-8">
           <Clock size={40} className="text-yellow-400 mx-auto mb-3" />
           <p className="text-yellow-700 font-medium">Facturación aún no publicada</p>
           <p className="text-yellow-500 text-sm mt-1">
@@ -330,7 +330,7 @@ export function BillingPage() {
   const hasBoth = Boolean(regular && practice)
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="max-w-3xl space-y-5 sm:space-y-8">
       {regular && (
         <div>
           {hasBoth && (

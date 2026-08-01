@@ -164,40 +164,46 @@ export function LoginPage() {
 
             {/* CI */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label htmlFor="login-ci" className="text-sm font-medium text-gray-700">
                 Cédula de Identidad
               </Label>
               <Input
+                id="login-ci"
                 type="text"
                 placeholder="Ej: 12345678"
                 value={ci}
                 onChange={(e) => setCi(e.target.value)}
                 autoComplete="username"
                 disabled={isLoading}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'login-error' : undefined}
                 className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-blue-600 focus:ring-blue-600/20 rounded-xl shadow-sm"
               />
             </div>
 
             {/* Password */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label htmlFor="login-password" className="text-sm font-medium text-gray-700">
                 Contraseña
               </Label>
               <div className="relative">
                 <Input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   disabled={isLoading}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'login-error' : undefined}
                   className="h-12 bg-white border-gray-200 text-gray-800 placeholder:text-gray-400 focus:border-blue-600 focus:ring-blue-600/20 pr-12 rounded-xl shadow-sm"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -207,6 +213,7 @@ export function LoginPage() {
             {/* Error */}
             {error && (
               <div
+                id="login-error"
                 role="alert"
                 className={`flex items-start gap-2.5 rounded-xl px-4 py-3 ${
                   error.includes('deshabilitada')
@@ -238,7 +245,7 @@ export function LoginPage() {
             >
               {isLoading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin motion-reduce:animate-none" />
                   Ingresando...
                 </>
               ) : (

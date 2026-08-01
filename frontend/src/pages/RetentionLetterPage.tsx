@@ -198,21 +198,21 @@ export function RetentionLetterPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="max-w-4xl space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="gradient-navy rounded-xl p-6 text-white animate-fade-in">
-        <div className="flex items-center gap-4">
+      <div className="gradient-navy rounded-xl p-4 text-white animate-fade-in motion-reduce:animate-none sm:p-6">
+        <div className="flex items-start gap-3 sm:items-center sm:gap-4">
           <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
             <FileText size={24} className="text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-bold">Carta de Retención RC-IVA</h2>
+            <h2 className="text-lg font-bold sm:text-xl">Carta de Retención RC-IVA</h2>
             <p className="text-white/70 mt-0.5">
               Generá tu carta de solicitud de retención de impuesto
             </p>
@@ -222,7 +222,7 @@ export function RetentionLetterPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Form card */}
-        <div className="card-3d-static p-6 space-y-5">
+        <div className="card-3d-static space-y-5 p-4 sm:p-6">
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
             Datos de la carta
           </h3>
@@ -246,15 +246,19 @@ export function RetentionLetterPage() {
           </div>
 
           {/* Form fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {/* Título */}
-            <div className="space-y-1.5 col-span-2">
-              <Label>Título profesional *</Label>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="retention-title">Título profesional *</Label>
               <Select
                 value={form.titulo}
                 onValueChange={(v) => setForm((f) => ({ ...f, titulo: v }))}
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  id="retention-title"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'retention-form-error' : undefined}
+                >
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -268,23 +272,30 @@ export function RetentionLetterPage() {
             </div>
 
             {/* Matrícula */}
-            <div className="space-y-1.5 col-span-2">
-              <Label>Matrícula profesional *</Label>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="retention-registration">Matrícula profesional *</Label>
               <Input
+                id="retention-registration"
                 value={form.matricula}
                 onChange={(e) => setForm((f) => ({ ...f, matricula: e.target.value }))}
                 placeholder="Ej: MP-12345"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'retention-form-error' : undefined}
               />
             </div>
 
             {/* Mes de cobro */}
             <div className="space-y-1.5">
-              <Label>Mes de cobro *</Label>
+              <Label htmlFor="retention-month">Mes de cobro *</Label>
               <Select
                 value={String(form.mes_cobro)}
                 onValueChange={(v) => setForm((f) => ({ ...f, mes_cobro: Number(v) }))}
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  id="retention-month"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'retention-form-error' : undefined}
+                >
                   <SelectValue placeholder="Seleccionar mes..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -299,42 +310,49 @@ export function RetentionLetterPage() {
 
             {/* Año de cobro */}
             <div className="space-y-1.5">
-              <Label>Año de cobro *</Label>
+              <Label htmlFor="retention-year">Año de cobro *</Label>
               <Input
+                id="retention-year"
                 type="number"
                 value={form.anio_cobro}
                 onChange={(e) => setForm((f) => ({ ...f, anio_cobro: Number(e.target.value) }))}
                 placeholder="2026"
                 min={2020}
                 max={2100}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'retention-form-error' : undefined}
               />
             </div>
 
             {/* Período académico */}
-            <div className="space-y-1.5 col-span-2">
-              <Label>Período académico *</Label>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="retention-period">Período académico *</Label>
               <Input
+                id="retention-period"
                 value={form.periodo}
                 onChange={(e) => setForm((f) => ({ ...f, periodo: e.target.value }))}
                 placeholder="Ej: I/2026"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'retention-form-error' : undefined}
               />
             </div>
           </div>
 
           {/* Error / success messages */}
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div id="retention-form-error" role="alert" className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
           )}
           {success && (
-            <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+            <div role="status" aria-live="polite" className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
               ✓ Carta generada y descargada exitosamente.
             </div>
           )}
 
           {/* Generate button */}
           <Button
+            type="button"
             onClick={handleGenerate}
             disabled={isGenerating || !isFormValid}
             className="w-full gap-2 text-white"
@@ -342,7 +360,7 @@ export function RetentionLetterPage() {
           >
             {isGenerating ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
                 Generando...
               </>
             ) : (

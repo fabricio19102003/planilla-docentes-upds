@@ -11,7 +11,7 @@ import {
   Filter,
 } from 'lucide-react'
 import { toPng } from 'html-to-image'
-import type { PortalScheduleResponse, PortalDesignationSchedule } from '@/api/types'
+import type { PortalDesignationSchedule } from '@/api/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -68,6 +68,7 @@ function normDay(dia: string): string {
 }
 
 interface FlatSlot {
+  key: string
   dia: string
   hora_inicio: string
   hora_fin: string
@@ -82,13 +83,27 @@ function buildFlatSlots(
   turnFilter: TurnFilter,
 ): FlatSlot[] {
   const slots: FlatSlot[] = []
+  const keyOccurrences = new Map<string, number>()
+
   for (const d of designations) {
     if (turnFilter !== 'todos') {
       const prefix = d.group_code.charAt(0).toUpperCase()
       if (prefix !== turnFilter) continue
     }
     for (const s of d.schedule) {
+      const baseKey = [
+        normDay(s.dia),
+        s.hora_inicio,
+        s.hora_fin,
+        d.subject,
+        d.group_code,
+        d.semester,
+      ].join('|')
+      const occurrence = keyOccurrences.get(baseKey) ?? 0
+      keyOccurrences.set(baseKey, occurrence + 1)
+
       slots.push({
+        key: `${baseKey}|${occurrence}`,
         dia: s.dia,
         hora_inicio: s.hora_inicio,
         hora_fin: s.hora_fin,
@@ -104,16 +119,17 @@ function buildFlatSlots(
 
 // ─── Stats bar ────────────────────────────────────────────────────────────────
 
-function StatsBar({ schedule, allSlots }: { schedule: PortalScheduleResponse; allSlots: FlatSlot[] }) {
+function StatsBar({ allSlots }: { allSlots: FlatSlot[] }) {
   const uniqueSubjects = new Set(allSlots.map((s) => s.subject)).size
   const uniqueGroups = new Set(allSlots.map((s) => s.group_code)).size
+  const visibleHours = allSlots.reduce((sum, slot) => sum + slot.horas_academicas, 0)
 
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {[
-        { icon: Clock, label: 'Horas/semana', value: schedule.total_weekly_hours, color: '#003366' },
-        { icon: BookOpen, label: 'Materias', value: uniqueSubjects, color: '#0066CC' },
-        { icon: Users, label: 'Grupos', value: uniqueGroups, color: '#4DA8DA' },
+        { icon: Clock, label: 'Horas visibles/semana', value: visibleHours, color: '#003366' },
+        { icon: BookOpen, label: 'Materias visibles', value: uniqueSubjects, color: '#0066CC' },
+        { icon: Users, label: 'Grupos visibles', value: uniqueGroups, color: '#4DA8DA' },
       ].map(({ icon: Icon, label, value, color }) => (
         <div key={label} className="card-3d-static px-4 py-3 flex items-center gap-3">
           <div
@@ -158,8 +174,8 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
               <span className="text-xs text-gray-400 ml-auto">{daySlots.length} clase(s)</span>
             </div>
             <div className="divide-y divide-gray-100">
-              {daySlots.map((slot, i) => (
-                <div key={i} className="px-4 py-3 flex items-center justify-between gap-3">
+              {daySlots.map((slot) => (
+                <div key={slot.key} className="flex flex-col items-start gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="text-center min-w-[72px] flex-shrink-0">
                       <p className="text-sm font-bold" style={{ color: '#003366' }}>
@@ -216,7 +232,7 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
         const sorted = [...d.schedule].sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
 
         return (
-          <div key={`${d.subject}-${d.group_code}`} className="card-3d-static overflow-hidden">
+          <div key={`${d.subject}-${d.group_code}-${d.semester}`} className="card-3d-static overflow-hidden">
             <div
               className="px-4 py-3 flex items-center gap-3"
               style={{ background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
@@ -240,8 +256,8 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
             </div>
             {sorted.length > 0 ? (
               <div className="divide-y divide-gray-100">
-                {sorted.map((slot, i) => (
-                  <div key={i} className="px-4 py-2.5 flex items-center gap-3">
+                {sorted.map((slot) => (
+                  <div key={`${d.subject}|${d.group_code}|${d.semester}|${normDay(slot.dia)}|${slot.hora_inicio}|${slot.hora_fin}`} className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
                     <div
                       className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: DAY_COLORS[
@@ -272,12 +288,16 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
 
 function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
   const uniqueTimes = Array.from(new Set(allSlots.map((s) => s.hora_inicio))).sort()
+  const slotsByCell = new Map<string, FlatSlot[]>()
 
-  function findSlot(day: string, startTime: string): FlatSlot | undefined {
-    const dayNorm = normDay(day)
-    return allSlots.find(
-      (s) => normDay(s.dia) === dayNorm && s.hora_inicio === startTime,
-    )
+  for (const slot of allSlots) {
+    const cellKey = `${normDay(slot.dia)}|${slot.hora_inicio}`
+    const cellSlots = slotsByCell.get(cellKey)
+    if (cellSlots) {
+      cellSlots.push(slot)
+    } else {
+      slotsByCell.set(cellKey, [slot])
+    }
   }
 
   if (uniqueTimes.length === 0) {
@@ -289,9 +309,15 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
   }
 
   return (
-    <div className="card-3d-static overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[600px]">
+    <>
+      <div className="md:hidden">
+        <p className="mb-3 text-xs text-gray-500">En pantallas pequeñas, la grilla se presenta como una lista por día.</p>
+        <ViewPorDia allSlots={allSlots} />
+      </div>
+      <div className="card-3d-static hidden max-w-full overflow-hidden md:block">
+        <div className="max-w-full overflow-x-auto">
+          <table className="min-w-[900px] w-full text-sm">
+            <caption className="sr-only">Horario semanal agrupado por día y hora de inicio</caption>
           <thead>
             <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
               <th className="px-3 py-3 text-left text-white font-semibold text-xs w-24">
@@ -307,36 +333,38 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
           <tbody>
             {uniqueTimes.map((time, rowIdx) => {
               const bgRow = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-              // find an example slot for this time to get hora_fin
-              const exampleSlot = allSlots.find((s) => s.hora_inicio === time)
 
               return (
                 <tr key={time} className={`border-b border-gray-100 ${bgRow}`}>
                   <td className="px-3 py-2 text-center">
                     <p className="text-xs font-mono font-bold text-gray-700">{time}</p>
-                    {exampleSlot && (
-                      <p className="text-xs font-mono text-gray-400">{exampleSlot.hora_fin}</p>
-                    )}
+                    <p className="text-[10px] text-gray-400">inicio</p>
                   </td>
                   {WEEKDAYS.map((day) => {
-                    const slot = findSlot(day, time)
-                    const color = slot ? getSubjectColor(slot.subject) : undefined
+                    const cellSlots = slotsByCell.get(`${normDay(day)}|${time}`) ?? []
 
                     return (
-                      <td key={day} className="px-1 py-1 text-center">
-                        {slot ? (
-                          <div
-                            className="rounded-lg p-2 mx-auto max-w-[120px]"
-                            style={{ backgroundColor: color, boxShadow: `0 1px 4px ${color}60` }}
-                          >
-                            <p className="text-xs font-semibold text-white leading-tight truncate">
-                              {slot.subject.length > 22
-                                ? slot.subject.substring(0, 20) + '…'
-                                : slot.subject}
-                            </p>
-                            <p className="text-xs text-white/70 mt-0.5">{slot.group_code}</p>
-                          </div>
-                        ) : null}
+                      <td key={day} className="align-top px-1 py-1 text-center">
+                        <div className="space-y-1">
+                          {cellSlots.map((slot) => {
+                            const color = getSubjectColor(slot.subject)
+
+                            return (
+                              <div
+                                key={slot.key}
+                                className="mx-auto max-w-[140px] rounded-lg p-2 text-left"
+                                style={{ backgroundColor: color, boxShadow: `0 1px 4px ${color}60` }}
+                              >
+                                <p className="text-xs font-semibold leading-tight text-white">{slot.subject}</p>
+                                <p className="mt-1 text-[11px] text-white/90">Grupo {slot.group_code}</p>
+                                <p className="text-[11px] text-white/80">{slot.semester}</p>
+                                <p className="mt-1 text-[10px] font-mono text-white/75">
+                                  {slot.hora_inicio}-{slot.hora_fin} · {slot.horas_academicas}h
+                                </p>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </td>
                     )
                   })}
@@ -344,9 +372,10 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
               )
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -365,7 +394,7 @@ function SubjectLegend({ designations }: { designations: PortalDesignationSchedu
           const color = getSubjectColor(d.subject)
           return (
             <div
-              key={`${d.subject}-${d.group_code}`}
+              key={`${d.subject}-${d.group_code}-${d.semester}`}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
               style={{ backgroundColor: `${color}18`, color, border: `1px solid ${color}30` }}
             >
@@ -422,20 +451,24 @@ export function SchedulePage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
 
   if (error || !schedule) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <div role="alert" className="flex items-center justify-center py-24">
         <p className="text-sm text-gray-400">No se pudo cargar el horario</p>
       </div>
     )
   }
 
-  const allSlots = buildFlatSlots(schedule.designations, turnFilter)
+  const visibleDesignations = schedule.designations.filter((designation) => {
+    if (turnFilter === 'todos') return true
+    return designation.group_code.charAt(0).toUpperCase() === turnFilter
+  })
+  const allSlots = buildFlatSlots(visibleDesignations, 'todos')
 
   const viewModes: { key: ViewMode; label: string }[] = [
     { key: 'dia', label: 'Por Día' },
@@ -451,22 +484,22 @@ export function SchedulePage() {
   ]
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="max-w-5xl space-y-4 sm:space-y-5">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#003366' }}>
+          <h1 className="text-xl font-bold sm:text-2xl" style={{ color: '#003366' }}>
             Mi Horario Semanal
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">{schedule.teacher_name}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportImage}
             disabled={isExportingImg}
-            className="gap-1.5 text-xs h-8"
+            className="h-9 flex-1 gap-1.5 text-xs sm:h-8 sm:flex-none"
           >
             <ImageIcon size={13} />
             {isExportingImg ? 'Exportando...' : 'Exportar Imagen'}
@@ -475,7 +508,7 @@ export function SchedulePage() {
             size="sm"
             onClick={handleExportPDF}
             disabled={isExportingPDF}
-            className="gap-1.5 text-xs h-8 text-white"
+            className="h-9 flex-1 gap-1.5 text-xs text-white sm:h-8 sm:flex-none"
             style={{ backgroundColor: '#003366' }}
           >
             <FileDown size={13} />
@@ -487,12 +520,14 @@ export function SchedulePage() {
       {/* Filters bar */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* View mode tabs */}
-        <div className="flex rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <div className="flex max-w-full overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
           {viewModes.map(({ key, label }) => (
             <button
               key={key}
+              type="button"
               onClick={() => setViewMode(key)}
-              className={`px-3 py-2 text-xs font-medium transition-colors ${
+              aria-pressed={viewMode === key}
+              className={`whitespace-nowrap px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0066CC] ${
                 viewMode === key
                   ? 'text-white'
                   : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
@@ -508,6 +543,7 @@ export function SchedulePage() {
         <div className="flex items-center gap-1.5">
           <Filter size={13} className="text-gray-400" />
           <select
+            aria-label="Filtrar horario por turno"
             value={turnFilter}
             onChange={(e) => setTurnFilter(e.target.value as TurnFilter)}
             className="text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#003366]/30 shadow-sm"
@@ -522,7 +558,7 @@ export function SchedulePage() {
       </div>
 
       {/* Stats */}
-      <StatsBar schedule={schedule} allSlots={allSlots} />
+      <StatsBar allSlots={allSlots} />
 
       {/* Content (captured for image export) */}
       <div ref={contentRef} id="schedule-content" className="space-y-4">
@@ -533,12 +569,12 @@ export function SchedulePage() {
 
         {viewMode === 'dia' && <ViewPorDia allSlots={allSlots} />}
         {viewMode === 'materia' && (
-          <ViewPorMateria designations={schedule.designations} turnFilter={turnFilter} />
+          <ViewPorMateria designations={visibleDesignations} turnFilter="todos" />
         )}
         {viewMode === 'grilla' && <ViewGrillaSemanal allSlots={allSlots} />}
 
         {/* Legend always visible */}
-        <SubjectLegend designations={schedule.designations} />
+        <SubjectLegend designations={visibleDesignations} />
       </div>
     </div>
   )
