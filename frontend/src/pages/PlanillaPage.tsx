@@ -28,10 +28,6 @@ function getSubjectOptionKey(option: DesignationOption): string {
   return `${option.subject}||${option.group_code}||${option.semester}`
 }
 
-function getSubjectGroupKey(option: DesignationOption): string {
-  return `${option.subject}||${option.group_code}`
-}
-
 function getUniqueSubjects(options: DesignationOption[]): string[] {
   return Array.from(new Set(options.map(option => option.subject))).sort((a, b) => a.localeCompare(b))
 }
@@ -40,7 +36,7 @@ function getGroupsForSubject(options: DesignationOption[], subject: string): Des
   const seen = new Set<string>()
   return options.filter((option) => {
     if (option.subject !== subject) return false
-    const key = getSubjectGroupKey(option)
+    const key = getSubjectOptionKey(option)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -56,6 +52,7 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
         scope: 'subject' as const,
         subject_id: selection.subject,
         group_id: selection.group_code,
+        semester_id: selection.semester || undefined,
         reason: row.reason,
       }))
     }
@@ -106,7 +103,12 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
     const selectedSubjects = current?.selectedSubjects ?? []
     const subject = excluded.subject_id
     const group = excluded.group_id
-    const hasSelection = subjectSelections.some(selection => selection.subject === subject && selection.group_code === group)
+    const semester = excluded.semester_id ?? ''
+    const hasSelection = subjectSelections.some(selection => (
+      selection.subject === subject
+      && selection.group_code === group
+      && selection.semester === semester
+    ))
 
     rows.set(key, {
       date: excluded.date,
@@ -116,7 +118,7 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
         ? [...selectedSubjects, subject]
         : selectedSubjects,
       subjectSelections: subject && group && !hasSelection
-        ? [...subjectSelections, { subject, group_code: group, semester: '' }]
+        ? [...subjectSelections, { subject, group_code: group, semester }]
         : subjectSelections,
     })
   }
@@ -779,7 +781,7 @@ export function PlanillaPage() {
                                               }}
                                               className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                             />
-                                            <span>{option.group_code}</span>
+                                            <span>{option.group_code} · Sem. {option.semester}</span>
                                           </label>
                                         )
                                       })}
@@ -853,7 +855,7 @@ export function PlanillaPage() {
                               <div className="flex flex-wrap gap-1">
                                 {(row.subjectSelections ?? []).map((selection) => (
                                   <span key={getSubjectOptionKey(selection)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
-                                    {selection.subject} ({selection.group_code})
+                                    {selection.subject} ({selection.group_code}, Sem. {selection.semester || 'legacy'})
                                   </span>
                                 ))}
                               </div>

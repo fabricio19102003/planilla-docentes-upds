@@ -95,14 +95,16 @@ class TestIsExcluded:
             data["group_id"] = group_code
         return ExcludedDaySchema.model_validate(data)
 
-    def _exc_subject(self, subject: str, group_code: str) -> ExcludedDaySchema:
-        """Create a subject-scope exclusion without semester_id (correct per spec)."""
-        return ExcludedDaySchema.model_validate({
+    def _exc_subject(self, subject: str, group_code: str, semester: str | None = None) -> ExcludedDaySchema:
+        data = {
             "date": self.TARGET,
             "scope": "subject",
             "subject_id": subject,
             "group_id": group_code,
-        })
+        }
+        if semester is not None:
+            data["semester_id"] = semester
+        return ExcludedDaySchema.model_validate(data)
 
     def test_global_scope_matches_any_designation(self):
         """scope=global must return True regardless of semester/subject/group."""
@@ -122,13 +124,13 @@ class TestIsExcluded:
         exc = self._exc("semester", semester="SEM-B")
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is False
 
-    def test_subject_scope_full_match(self):
-        """scope=subject matches when subject_id + group_id match (semester irrelevant)."""
-        exc = self._exc_subject("Biología", "GR-01")
+    def test_subject_scope_full_academic_identity_match(self):
+        exc = self._exc_subject("Biología", "GR-01", "SEM-A")
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is True
+        assert _is_excluded(self.TARGET, "SEM-B", "Biología", "GR-01", [exc]) is False
 
     def test_subject_scope_no_semester_id_still_matches(self):
-        """scope=subject with NO semester_id must match any semester — (subject,group) is unique."""
+        """Legacy subject scope without semester_id keeps its broad behavior."""
         exc = self._exc_subject("Biología", "GR-01")
         # Same designation, any semester context
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is True
@@ -139,8 +141,13 @@ class TestIsExcluded:
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is False
 
     def test_subject_scope_wrong_group(self):
-        exc = self._exc_subject("Biología", "GR-02")
+        exc = self._exc_subject("Biología", "GR-02", "SEM-A")
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is False
+
+    def test_semester_scope_applies_to_all_designations_in_semester(self):
+        exc = self._exc("semester", semester="SEM-A")
+        assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", [exc]) is True
+        assert _is_excluded(self.TARGET, "SEM-A", "Física", "GR-99", [exc]) is True
 
     def test_empty_exclusions_returns_false(self):
         assert _is_excluded(self.TARGET, "SEM-A", "Biología", "GR-01", []) is False
@@ -191,17 +198,19 @@ class TestExcludedDaySchemaValidator:
         assert "semester_id" in str(exc_info.value).lower()
 
     def test_subject_with_all_fields_is_valid(self):
-        """scope=subject with subject_id + group_id (and optional semester_id) is valid."""
+        """New subject exclusions preserve the complete academic identity."""
         schema = ExcludedDaySchema(
             date=date(2026, 5, 15),
             scope="subject",
             subject_id="Biología",
             group_id="GR-01",
+            semester_id="SEM-A",
         )
         assert schema.subject_id == "Biología"
+        assert schema.semester_id == "SEM-A"
 
     def test_subject_without_semester_id_is_valid(self):
-        """scope=subject must NOT require semester_id — (subject_id, group_id) is unique."""
+        """Historical subject exclusions without semester_id remain valid."""
         schema = ExcludedDaySchema(
             date=date(2026, 5, 15),
             scope="subject",
@@ -233,7 +242,7 @@ class TestExcludedDaySchemaValidator:
             )
 
     def test_subject_missing_semester_id_does_not_raise(self):
-        """scope=subject without semester_id must be VALID — semester is not required."""
+        """Legacy subject JSON without semester_id must still deserialize."""
         schema = ExcludedDaySchema(
             date=date(2026, 5, 15),
             scope="subject",
@@ -314,7 +323,7 @@ class TestBuildRowWithExclusions:
             desig=desig,
             records=[],
             has_biometric=False,
-            discount_mode="attendance",
+            discount_mode="full",
             hourly_rate=70.0,
             month=month,
             year=year,
@@ -412,6 +421,7 @@ class TestGenerateExcelWithExclusions:
             month=5,
             year=2026,
             excluded_days=[exc],
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -449,6 +459,7 @@ class TestGenerateExcelWithExclusions:
             month=5,
             year=2026,
             excluded_days=[],
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -478,8 +489,10 @@ class TestBackwardCompatibility:
         """generate() with excluded_days=[] must produce same totals as without the param."""
         gen = PlanillaGenerator(output_dir=temp_output_dir)
 
-        result_default = gen.generate(db=db, month=5, year=2026)
-        result_empty = gen.generate(db=db, month=5, year=2026, excluded_days=[])
+        result_default = gen.generate(db=db, month=5, year=2026, discount_mode="full")
+        result_empty = gen.generate(
+            db=db, month=5, year=2026, excluded_days=[], discount_mode="full"
+        )
 
         assert result_default.total_hours == result_empty.total_hours
         assert result_default.total_payment == result_empty.total_payment
@@ -614,6 +627,7 @@ class TestAPIGenerateWithExclusions:
         payload = {
             "month": 5,
             "year": 2026,
+            "discount_mode": "full",
             "excluded_days": [
                 {"date": "2026-05-04", "scope": "global"}
             ],
@@ -631,6 +645,7 @@ class TestAPIGenerateWithExclusions:
         payload = {
             "month": 5,
             "year": 2026,
+            "discount_mode": "full",
             "excluded_days": [
                 {"date": "2026-05-04", "scope": "semester", "semester_id": "SEM-A"}
             ],
@@ -643,6 +658,7 @@ class TestAPIGenerateWithExclusions:
         payload = {
             "month": 5,
             "year": 2026,
+            "discount_mode": "full",
             "excluded_days": [
                 # scope=semester but semester_id is missing — should fail validation
                 {"date": "2026-05-04", "scope": "semester"}
@@ -671,6 +687,7 @@ class TestAPIGenerateWithExclusions:
         payload = {
             "month": 5,
             "year": 2026,
+            "discount_mode": "full",
             "excluded_days": [
                 # scope=subject with ONLY subject_id + group_id — semester_id absent intentionally
                 {"date": "2026-05-04", "scope": "subject", "subject_id": "Biología", "group_id": "GR-01"}
@@ -685,7 +702,12 @@ class TestAPIGenerateWithExclusions:
         """POST /api/planilla/generate with empty excluded_days must succeed (backward compat)."""
         self._seed_teacher_and_designation(api_db)
 
-        payload = {"month": 5, "year": 2026, "excluded_days": []}
+        payload = {
+            "month": 5,
+            "year": 2026,
+            "excluded_days": [],
+            "discount_mode": "full",
+        }
         response = api_client.post("/api/planilla/generate", json=payload)
         assert response.status_code == 200, response.text
 
@@ -703,7 +725,7 @@ class TestAPISalaryReportExclusionInheritance:
             total_payment=420,
             status="generated",
             excluded_days_json=exclusions_json,
-            discount_mode="attendance",
+            discount_mode="full",
         )
         db.add(output)
         db.flush()
@@ -728,7 +750,7 @@ class TestAPISalaryReportExclusionInheritance:
         api_db.add(desig)
         api_db.flush()
 
-        payload = {"month": 5, "year": 2026}
+        payload = {"month": 5, "year": 2026, "discount_mode": "full"}
         response = api_client.post("/api/planilla/salary-report", json=payload)
         # 200 = report generated successfully; 404/500 = failure
         assert response.status_code == 200, (
@@ -787,6 +809,30 @@ class TestPracticeGeneratorParity:
                 f"{excluded_hours}h on excluded {monday_may_4}"
             )
 
+    def test_practice_subject_scope_uses_full_identity_with_legacy_fallback(self):
+        from app.services.practice_planilla_generator import _is_excluded as practice_is_excluded
+
+        target = date(2026, 5, 15)
+        exact = ExcludedDaySchema(
+            date=target,
+            scope="subject",
+            subject_id="Biología",
+            group_id="GR-01",
+            semester_id="SEM-A",
+        )
+        legacy = ExcludedDaySchema(
+            date=target,
+            scope="subject",
+            subject_id="Biología",
+            group_id="GR-01",
+        )
+
+        assert practice_is_excluded(target, "SEM-A", "Biología", "GR-01", [exact]) is True
+        assert practice_is_excluded(target, "SEM-B", "Biología", "GR-01", [exact]) is False
+        assert practice_is_excluded(target, "SEM-A", "Biología", "GR-02", [exact]) is False
+        assert practice_is_excluded(target, "SEM-A", "Física", "GR-01", [exact]) is False
+        assert practice_is_excluded(target, "SEM-B", "Biología", "GR-01", [legacy]) is True
+
 
 # ---------------------------------------------------------------------------
 # Section 8: Salary report override and empty override tests (CRITICAL 2)
@@ -806,7 +852,7 @@ class TestSalaryReportOverride:
             total_payment=420,
             status="generated",
             excluded_days_json=[{"date": "2026-05-04", "scope": "global"}],
-            discount_mode="attendance",
+            discount_mode="full",
         )
         db.add(output)
         db.flush()
@@ -826,6 +872,7 @@ class TestSalaryReportOverride:
         payload = {
             "month": 5,
             "year": 2026,
+            "discount_mode": "full",
             "excluded_days": [
                 {"date": "2026-05-11", "scope": "global"}  # different date than stored
             ],
@@ -846,7 +893,12 @@ class TestSalaryReportOverride:
         api_db.flush()
 
         # Explicit empty list — must override (clear) stored exclusions
-        payload = {"month": 5, "year": 2026, "excluded_days": []}
+        payload = {
+            "month": 5,
+            "year": 2026,
+            "excluded_days": [],
+            "discount_mode": "full",
+        }
         response = api_client.post("/api/planilla/salary-report", json=payload)
         assert response.status_code == 200, (
             f"Salary report with explicit empty exclusions failed: {response.text}"
@@ -871,7 +923,7 @@ class TestDetailEndpointStoredExclusions:
             total_payment=420,
             status="generated",
             excluded_days_json=[{"date": "2026-05-04", "scope": "global"}],
-            discount_mode="attendance",
+            discount_mode="full",
         )
         db.add(output)
         db.flush()
@@ -887,7 +939,7 @@ class TestDetailEndpointStoredExclusions:
         api_db.add(desig)
         api_db.flush()
 
-        response = api_client.get("/api/planilla/5/2026/detail")
+        response = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
         assert response.status_code == 200, (
             f"Detail endpoint failed with stored exclusions: {response.text}"
         )
@@ -905,7 +957,7 @@ class TestDetailEndpointStoredExclusions:
         api_db.add(desig)
         api_db.flush()
 
-        response_no_excl = api_client.get("/api/planilla/5/2026/detail")
+        response_no_excl = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
         assert response_no_excl.status_code == 200, response_no_excl.text
         # Response is a dict with "detail" key containing list of rows
         data_no_excl = response_no_excl.json().get("detail", [])
@@ -913,7 +965,7 @@ class TestDetailEndpointStoredExclusions:
         # Add stored exclusion
         self._seed_planilla_with_exclusion(api_db)
 
-        response_with_excl = api_client.get("/api/planilla/5/2026/detail")
+        response_with_excl = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
         assert response_with_excl.status_code == 200, response_with_excl.text
         data_with_excl = response_with_excl.json().get("detail", [])
 
@@ -936,13 +988,13 @@ class TestDetailEndpointStoredExclusions:
         api_db.flush()
         self._seed_planilla_with_exclusion(api_db)
 
-        response_stored = api_client.get("/api/planilla/5/2026/detail")
+        response_stored = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
         assert response_stored.status_code == 200, response_stored.text
         total_stored = sum(row.get("base_monthly_hours", 0) for row in response_stored.json().get("detail", []))
 
         response_override = api_client.get(
             "/api/planilla/5/2026/detail",
-            params={"excluded_days_json": json.dumps([])},
+            params={"excluded_days_json": json.dumps([]), "discount_mode": "full"},
         )
         assert response_override.status_code == 200, response_override.text
         total_override = sum(row.get("base_monthly_hours", 0) for row in response_override.json().get("detail", []))

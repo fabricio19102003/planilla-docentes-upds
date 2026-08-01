@@ -232,6 +232,24 @@ class ReportGenerator:
             rows = [r for r in rows if subject.lower() in r.subject.lower()]
         return rows
 
+    @staticmethod
+    def _load_planilla_exclusions(stored_planilla) -> list:
+        if stored_planilla is None or not stored_planilla.excluded_days_json:
+            return []
+        from app.schemas.planilla import ExcludedDaySchema
+        from app.services.planilla_generator import PayrollDataError
+
+        try:
+            return [
+                ExcludedDaySchema.model_validate(item)
+                for item in stored_planilla.excluded_days_json
+            ]
+        except Exception as exc:
+            raise PayrollDataError(
+                "La planilla almacenada contiene exclusiones inválidas; regenerala antes de crear reportes",
+                code="invalid_stored_exclusions",
+            ) from exc
+
     def _build_practice_planilla_rows(self, db: Session, month: int, year: int) -> tuple[list, PracticePlanillaOutput | None]:
         stored_po = (
             db.query(PracticePlanillaOutput)
@@ -245,6 +263,7 @@ class ReportGenerator:
         practice_gen = PracticePlanillaGenerator()
         rows, _warnings = practice_gen._build_planilla_data(
             db, month=month, year=year, start_date=sd, end_date=ed, discount_mode=dm,
+            excluded_days=self._load_planilla_exclusions(stored_po),
         )
         return rows, stored_po
 
@@ -274,7 +293,15 @@ class ReportGenerator:
         dm = stored_po.discount_mode if stored_po else "attendance"
         sd = stored_po.start_date if stored_po else None
         ed = stored_po.end_date if stored_po else None
-        rows, _, warnings = gen._build_planilla_data(db, month=month, year=year, start_date=sd, end_date=ed, discount_mode=dm)
+        rows, _, warnings = gen._build_planilla_data(
+            db,
+            month=month,
+            year=year,
+            start_date=sd,
+            end_date=ed,
+            discount_mode=dm,
+            excluded_days=self._load_planilla_exclusions(stored_po),
+        )
         practice_rows, stored_practice = self._build_practice_planilla_rows(db, month, year)
 
         rows = self._filter_planilla_rows(rows, teacher_ci, semester, group_code, subject)
@@ -673,7 +700,15 @@ class ReportGenerator:
             m_dm = stored_m.discount_mode if stored_m else "attendance"
             m_sd = stored_m.start_date if stored_m else None
             m_ed = stored_m.end_date if stored_m else None
-            rows, _, _ = gen._build_planilla_data(db, month=m, year=year, start_date=m_sd, end_date=m_ed, discount_mode=m_dm)
+            rows, _, _ = gen._build_planilla_data(
+                db,
+                month=m,
+                year=year,
+                start_date=m_sd,
+                end_date=m_ed,
+                discount_mode=m_dm,
+                excluded_days=self._load_planilla_exclusions(stored_m),
+            )
             practice_rows, stored_practice_m = self._build_practice_planilla_rows(db, m, year)
             if teacher_ci:
                 rows = [r for r in rows if r.teacher_ci == teacher_ci]

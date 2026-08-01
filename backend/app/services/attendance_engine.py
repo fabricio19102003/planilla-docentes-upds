@@ -192,7 +192,10 @@ class AttendanceEngine:
         # ── Step 2: Load all designations (scoped to active academic period) ──
         all_designations: list[Designation] = (
             db.query(Designation)
-            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
+            .filter(
+                Designation.academic_period == app_settings_service.get_active_academic_period(db),
+                Designation.designation_type != "practice",
+            )
             .all()
         )
 
@@ -325,6 +328,12 @@ class AttendanceEngine:
         # ── Collect all slots scheduled for today ───────────────────────
         day_slots: list[tuple[Designation, dict]] = []
         for desig in designations:
+            contract_start = getattr(desig, "contract_start_date", None)
+            contract_end = getattr(desig, "contract_end_date", None)
+            if isinstance(contract_start, date) and target_date < contract_start:
+                continue
+            if isinstance(contract_end, date) and target_date > contract_end:
+                continue
             schedule: list[dict] = desig.schedule_json or []
             for slot in schedule:
                 if _normalize_day(slot.get("dia", "")) == weekday_name:

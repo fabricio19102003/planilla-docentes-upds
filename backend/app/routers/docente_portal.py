@@ -20,6 +20,7 @@ from app.schemas.teacher import TeacherResponse
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
 from app.services.attendance_engine import WEEKDAY_MAP as _ENGINE_WEEKDAY_MAP, _normalize_day
+from app.services.exclusion_matching import exclusion_matches_designation
 from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
@@ -256,17 +257,6 @@ def _filter_excluded_days_for_teacher(
     if not isinstance(teacher_designations, list):
         teacher_designations = []
 
-    teacher_semesters = {
-        designation.get("semester")
-        for designation in teacher_designations
-        if isinstance(designation, dict) and designation.get("semester") is not None
-    }
-    teacher_subject_groups = {
-        (designation.get("subject"), designation.get("group") or designation.get("group_code"))
-        for designation in teacher_designations
-        if isinstance(designation, dict) and designation.get("subject") is not None
-    }
-
     reasons_by_date: dict[str, list[str]] = {}
     for excluded in excluded_days:
         if not isinstance(excluded, dict):
@@ -276,11 +266,15 @@ def _filter_excluded_days_for_teacher(
         if date_value is None:
             continue
 
-        scope = excluded.get("scope")
-        applies = (
-            scope == "global"
-            or (scope == "semester" and excluded.get("semester_id") in teacher_semesters)
-            or (scope == "subject" and (excluded.get("subject_id"), excluded.get("group_id")) in teacher_subject_groups)
+        applies = excluded.get("scope") == "global" or any(
+            exclusion_matches_designation(
+                excluded,
+                semester=designation.get("semester"),
+                subject=designation.get("subject"),
+                group_code=designation.get("group") or designation.get("group_code"),
+            )
+            for designation in teacher_designations
+            if isinstance(designation, dict)
         )
         if not applies:
             continue

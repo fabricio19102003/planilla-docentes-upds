@@ -15,7 +15,7 @@ from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
-from app.services.planilla_generator import PlanillaGenerator
+from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.activity_logger import log_activity
 from app.services import app_settings_service
@@ -143,8 +143,11 @@ def publish_billing(
                         ExcludedDaySchema.model_validate(item)
                         for item in stored_planilla.excluded_days_json
                     ]
-                except Exception:
-                    stored_exclusions = None  # Proceed without if JSON is corrupt
+                except Exception as exc:
+                    raise PayrollDataError(
+                        "La planilla aprobada contiene exclusiones inválidas; regenerala antes de publicar",
+                        code="invalid_stored_exclusions",
+                    ) from exc
 
             rows, _detail_rows, _warnings = generator._build_planilla_data(
                 db, month=month, year=year, start_date=sd, end_date=ed,
@@ -234,6 +237,11 @@ def publish_billing(
             }
         except HTTPException:
             raise
+        except PayrollDataError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=exc.as_detail(),
+            ) from exc
         except Exception as exc:
             logger.exception("Failed to build planilla snapshot for %d/%d: %s", month, year, exc)
             raise HTTPException(
@@ -663,8 +671,11 @@ def publish_practice_billing(
                         ExcludedDaySchema.model_validate(item)
                         for item in stored_planilla.excluded_days_json
                     ]
-                except Exception:
-                    stored_exclusions = None
+                except Exception as exc:
+                    raise PayrollDataError(
+                        "La planilla práctica aprobada contiene exclusiones inválidas; regenerala antes de publicar",
+                        code="invalid_stored_exclusions",
+                    ) from exc
 
             rows, _warnings = generator._build_planilla_data(
                 db, month=month, year=year, start_date=sd, end_date=ed,
@@ -752,6 +763,11 @@ def publish_practice_billing(
             }
         except HTTPException:
             raise
+        except PayrollDataError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=exc.as_detail(),
+            ) from exc
         except Exception as exc:
             logger.exception("Failed to build practice planilla snapshot for %d/%d: %s", month, year, exc)
             raise HTTPException(

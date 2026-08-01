@@ -14,6 +14,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.report_generator import ReportGenerator
+from app.services.planilla_generator import PayrollDataError
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -116,6 +117,9 @@ def generate_report(
         }
     except HTTPException:
         raise
+    except PayrollDataError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Report generation failed: %s", exc)
@@ -177,7 +181,13 @@ def preview_report(
             fin_sd = stored_fin.start_date if stored_fin else None
             fin_ed = stored_fin.end_date if stored_fin else None
             planilla_rows, detail_rows, gen_warnings = gen._build_planilla_data(
-                db, month=month, year=year, start_date=fin_sd, end_date=fin_ed, discount_mode=fin_dm,
+                db,
+                month=month,
+                year=year,
+                start_date=fin_sd,
+                end_date=fin_ed,
+                discount_mode=fin_dm,
+                excluded_days=ReportGenerator._load_planilla_exclusions(stored_fin),
             )
             rows = planilla_rows
             if teacher_ci:
@@ -305,7 +315,13 @@ def preview_report(
                 m_sd = stored_m.start_date if stored_m else None
                 m_ed = stored_m.end_date if stored_m else None
                 planilla_rows, detail_rows, warn_rows = gen._build_planilla_data(
-                    db, month=m, year=year, start_date=m_sd, end_date=m_ed, discount_mode=m_dm,
+                    db,
+                    month=m,
+                    year=year,
+                    start_date=m_sd,
+                    end_date=m_ed,
+                    discount_mode=m_dm,
+                    excluded_days=ReportGenerator._load_planilla_exclusions(stored_m),
                 )
                 rows = planilla_rows
                 if teacher_ci:
@@ -543,6 +559,8 @@ def preview_report(
 
     except HTTPException:
         raise
+    except PayrollDataError as exc:
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except Exception as exc:
         logger.exception("Report preview failed: %s", exc)
         raise HTTPException(status_code=500, detail="No se pudo generar la previsualización") from exc

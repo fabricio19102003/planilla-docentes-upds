@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import json
@@ -45,6 +46,19 @@ class Settings(BaseSettings):
     # the email flow without spamming real docentes.
     EMAIL_TEST_MODE: bool = False
     EMAIL_TEST_RECIPIENT: Optional[str] = None
+
+    @field_validator(
+        "ADMIN_DEFAULT_PASSWORD",
+        "RESEND_API_KEY",
+        "RESEND_FROM_EMAIL",
+        "EMAIL_TEST_RECIPIENT",
+        mode="before",
+    )
+    @classmethod
+    def normalize_blank_optional_strings(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",

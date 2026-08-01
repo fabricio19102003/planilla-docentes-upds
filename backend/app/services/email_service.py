@@ -12,6 +12,7 @@ from app.services.billing_email_template import (
     render_billing_email_html,
     render_billing_email_text,
 )
+from app.services.exclusion_matching import exclusion_matches_designation
 
 logger = logging.getLogger(__name__)
 
@@ -329,27 +330,20 @@ class EmailService:
         if not isinstance(teacher_designations, list):
             teacher_designations = []
 
-        teacher_semesters = {
-            designation.get("semester")
-            for designation in teacher_designations
-            if isinstance(designation, dict) and designation.get("semester") is not None
-        }
-        teacher_subject_groups = {
-            (designation.get("subject"), designation.get("group") or designation.get("group_code"))
-            for designation in teacher_designations
-            if isinstance(designation, dict) and designation.get("subject") is not None
-        }
-
         filtered: list[dict[str, Any]] = []
         for excluded in excluded_days:
             if not isinstance(excluded, dict):
                 continue
-            scope = excluded.get("scope")
-            if scope == "global":
-                filtered.append(excluded)
-            elif scope == "semester" and excluded.get("semester_id") in teacher_semesters:
-                filtered.append(excluded)
-            elif scope == "subject" and (excluded.get("subject_id"), excluded.get("group_id")) in teacher_subject_groups:
+            if excluded.get("scope") == "global" or any(
+                exclusion_matches_designation(
+                    excluded,
+                    semester=designation.get("semester"),
+                    subject=designation.get("subject"),
+                    group_code=designation.get("group") or designation.get("group_code"),
+                )
+                for designation in teacher_designations
+                if isinstance(designation, dict)
+            ):
                 filtered.append(excluded)
         return filtered
 

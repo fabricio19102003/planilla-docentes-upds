@@ -32,6 +32,7 @@ from app.services.practice_planilla_generator import (
     PracticePlanillaCoverageError,
     PracticePlanillaGenerator,
 )
+from app.services.planilla_generator import PayrollDataError
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -122,12 +123,14 @@ def generate_practice_planilla(
     except PracticePlanillaCoverageError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "message": str(exc),
-                "missing_count": exc.missing_count,
-                "sample": exc.sample,
-            },
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
+    except PayrollDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
         ) from exc
     except Exception as exc:
         db.rollback()
@@ -383,8 +386,11 @@ def get_practice_planilla_detail(
                         ExcludedDaySchema.model_validate(item)
                         for item in stored_for_exclusions.excluded_days_json
                     ]
-                except Exception:
-                    effective_exclusions = []
+                except Exception as exc:
+                    raise PayrollDataError(
+                        "La planilla práctica almacenada contiene exclusiones inválidas; regenerala antes de previsualizar",
+                        code="invalid_stored_exclusions",
+                    ) from exc
 
         generator = PracticePlanillaGenerator()
         rows, warnings = generator._build_planilla_data(
@@ -435,6 +441,11 @@ def get_practice_planilla_detail(
         }
     except HTTPException:
         raise
+    except PayrollDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         logger.exception("Failed to load practice planilla detail: %s", exc)
         raise HTTPException(
@@ -537,8 +548,11 @@ def generate_practice_salary_report(
                         ExcludedDaySchema.model_validate(item)
                         for item in stored.excluded_days_json
                     ]
-                except Exception:
-                    effective_exclusions = None
+                except Exception as exc:
+                    raise PayrollDataError(
+                        "La planilla práctica almacenada contiene exclusiones inválidas; regenerala antes de generar salarios",
+                        code="invalid_stored_exclusions",
+                    ) from exc
             if stored.payment_overrides_json:
                 stored_overrides = stored.payment_overrides_json
 
@@ -645,6 +659,12 @@ def generate_practice_salary_report(
     except HTTPException:
         db.rollback()
         raise
+    except PayrollDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Practice salary report generation failed: %s", exc)

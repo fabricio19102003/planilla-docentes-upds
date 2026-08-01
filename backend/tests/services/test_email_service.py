@@ -84,8 +84,21 @@ def test_email_service_passes_only_exclusions_that_apply_to_docente():
     assert "Tarifa por hora académica: Bs 70.00" in message.text
     assert "Feriado institucional" in message.text
     assert "Clase magistral de anatomía" in message.text
+    assert "Taller de anatomía" in message.text
+    assert "Exclusión histórica" in message.text
+    assert "Anatomía de segundo semestre" not in message.text
+    assert "Anatomía de otro grupo" not in message.text
     assert "Práctica de cirugía" not in message.text
     assert "Clase magistral de pediatría" not in message.text
+
+
+def test_email_service_keeps_global_exclusion_without_designations():
+    service = EmailService(settings=_settings(), transport=RecordingTransport())
+    excluded = {"date": "2026-04-21", "scope": "global", "reason": "Feriado"}
+
+    assert service._filter_excluded_days_for_teacher(
+        [excluded], {"designations": []}
+    ) == [excluded]
 
 
 def test_email_service_aggregates_provider_failure_without_raising():
@@ -144,7 +157,10 @@ def _publication():
                 {"date": "2026-04-21", "scope": "global", "reason": "Feriado institucional"},
                 {"date": "2026-04-30", "scope": "semester", "semester_id": "1", "reason": "Clase magistral de anatomía"},
                 {"date": "2026-05-02", "scope": "semester", "semester_id": "9", "reason": "Práctica de cirugía"},
-                {"date": "2026-05-08", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Clase magistral de anatomía"},
+                {"date": "2026-05-08", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "semester_id": "1", "reason": "Taller de anatomía"},
+                {"date": "2026-05-10", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "semester_id": "2", "reason": "Anatomía de segundo semestre"},
+                {"date": "2026-05-11", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Exclusión histórica"},
+                {"date": "2026-05-12", "scope": "subject", "subject_id": "Anatomía", "group_id": "B", "semester_id": "1", "reason": "Anatomía de otro grupo"},
                 {"date": "2026-05-09", "scope": "subject", "subject_id": "Pediatría", "group_id": "B", "reason": "Clase magistral de pediatría"},
             ],
             "teacher_details": [

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import datetime, date, time
 from typing import Optional
-
 
 class AttendanceRecordBase(BaseModel):
     teacher_ci: str
@@ -56,6 +55,17 @@ class AttendanceProcessRequest(BaseModel):
     year: int
     start_date: date | None = None   # Optional: start of attendance period (inclusive)
     end_date: date | None = None     # Optional: end of attendance period (inclusive)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "AttendanceProcessRequest":
+        if (self.start_date is None) != (self.end_date is None):
+            raise ValueError("start_date y end_date deben enviarse juntos, o ambos deben omitirse")
+        if self.start_date is not None and self.end_date is not None:
+            if self.start_date > self.end_date:
+                raise ValueError("start_date no puede ser posterior a end_date")
+            if (self.end_date - self.start_date).days + 1 > 63:
+                raise ValueError("el período no puede superar 63 días")
+        return self
 
 
 class AttendanceProcessResponse(BaseModel):

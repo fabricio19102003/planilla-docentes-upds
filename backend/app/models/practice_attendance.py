@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Text, DateTime, Date, Time, ForeignKey, func
+from sqlalchemy import String, Integer, Text, DateTime, Date, Time, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, date, time
 from typing import Optional
@@ -16,6 +16,16 @@ class PracticeAttendanceLog(Base):
     """
 
     __tablename__ = "practice_attendance_logs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "teacher_ci",
+            "designation_id",
+            "date",
+            "scheduled_start",
+            name="uq_practice_attendance_log",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     teacher_ci: Mapped[str] = mapped_column(

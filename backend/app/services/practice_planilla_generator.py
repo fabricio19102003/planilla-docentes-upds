@@ -21,10 +21,9 @@ Payment model (same as regular, adapted for manual attendance):
 """
 from __future__ import annotations
 
-import calendar
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -42,10 +41,15 @@ from app.services import app_settings_service
 from app.services.planilla_generator import (
     PlanillaRow,
     MonthBlock,
-    _calculate_period_hours,
-    _expand_schedule_to_daily,
+    EffectiveDesignationRange,
+    PayrollDataError,
+    _calculate_designation_base_hours,
+    _effective_designation_range,
+    _expand_schedule_to_slots,
     _is_excluded,
     _build_month_blocks,
+    _reconcile_daily_hours,
+    _resolve_payroll_period,
     MONTH_NAMES,
     WEEKDAY_LETTERS,
     DAY_COL_START,
@@ -87,8 +91,6 @@ from app.services.planilla_generator import (
     ROW_EMPTY,
     ROW_SECTION_HEADERS,
     ROW_WEEKDAY,
-    WEEKDAY_MAP,
-    _normalize_day,
 )
 
 if TYPE_CHECKING:
@@ -118,42 +120,24 @@ class PracticePlanillaResult:
     discount_mode: str = "attendance"
 
 
-@dataclass(frozen=True)
-class MissingPracticeAttendanceSlot:
-    """Scheduled practice slot that has no attendance log."""
-
-    teacher_ci: str
-    designation_id: int
-    subject: str | None
-    group_code: str | None
-    slot_date: date
-    scheduled_start: time
-
-
-class PracticePlanillaCoverageError(Exception):
+class PracticePlanillaCoverageError(PayrollDataError):
     """Raised when practice payroll would pay slots with no attendance logs."""
 
-    def __init__(self, missing_slots: list[MissingPracticeAttendanceSlot]):
-        self.missing_count = len(missing_slots)
-        self.sample = [self._format_slot(slot) for slot in missing_slots[:10]]
-        sample_text = "; ".join(self.sample)
-        message = (
-            f"Faltan {self.missing_count} registro(s) de asistencia de prácticas "
-            "para clases programadas dentro del período de la planilla. "
-            "Generá o revisá la asistencia de prácticas antes de generar la planilla"
-        )
-        if sample_text:
-            message += f". Ejemplos: {sample_text}"
-        super().__init__(message)
-
-    @staticmethod
-    def _format_slot(slot: MissingPracticeAttendanceSlot) -> str:
-        return (
-            f"CI {slot.teacher_ci}, {slot.slot_date.isoformat()} "
-            f"{slot.scheduled_start.strftime('%H:%M')}"
-            f" ({slot.subject or 'Sin materia'} {slot.group_code or ''})"
-        ).strip()
-
+    def __init__(
+        self,
+        message: str,
+        *,
+        missing_count: int = 0,
+        duplicate_count: int = 0,
+        unexpected_count: int = 0,
+        invalid_count: int = 0,
+        sample: list[str] | None = None,
+    ):
+        self.missing_count = missing_count
+        self.duplicate_count = duplicate_count
+        self.unexpected_count = unexpected_count
+        self.invalid_count = invalid_count
+        super().__init__(message, code="practice_attendance_coverage", sample=sample)
 
 # ---------------------------------------------------------------------------
 # Main generator class
@@ -216,16 +200,6 @@ class PracticePlanillaGenerator:
             month, year, start_date, end_date, discount_mode, len(excluded_days),
         )
 
-        # In attendance mode, every scheduled practice slot in the payroll
-        # period must have an explicit manual attendance log. Without this
-        # guard, missing logs are filled from the schedule and paid as if the
-        # teacher attended, causing accidental overpayment.
-        if discount_mode != "full":
-            self._validate_attendance_coverage(
-                db, month, year, start_date, end_date,
-                excluded_days=excluded_days,
-            )
-
         # Step 1: Build data
         rows, warnings = self._build_planilla_data(
             db, month, year,
@@ -286,128 +260,142 @@ class PracticePlanillaGenerator:
         end_date: Optional[date] = None,
     ) -> tuple[date, date]:
         """Resolve the period using the same semantics as generation."""
-        if start_date is not None and end_date is not None:
-            period_start, period_end = start_date, end_date
-        else:
-            _, last_day = calendar.monthrange(year, month)
-            period_start = date(year, month, 1)
-            period_end = date(year, month, last_day)
-
-        if period_start > period_end:
-            raise ValueError("start_date no puede ser posterior a end_date")
-
+        period_start, period_end, _ = _resolve_payroll_period(
+            month, year, start_date, end_date,
+        )
         return period_start, period_end
 
     def _validate_attendance_coverage(
         self,
         db: Session,
-        month: int,
-        year: int,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        designations: list[Designation],
+        effective_ranges: dict[int, EffectiveDesignationRange],
         excluded_days: "list[ExcludedDaySchema] | None" = None,
-    ) -> None:
-        """Block generation when scheduled practice slots lack logs."""
-        period_start, period_end = self._effective_period(
-            month, year, start_date, end_date,
-        )
-        active_period = app_settings_service.get_active_academic_period(db)
-
-        practice_designations: list[Designation] = (
-            db.query(Designation)
+    ) -> dict[tuple[str, int], list[PracticeAttendanceLog]]:
+        """Require exactly one valid practice log for every payable slot."""
+        if not designations:
+            return {}
+        requested_start = min(item.requested_start for item in effective_ranges.values())
+        requested_end = max(item.requested_end for item in effective_ranges.values())
+        records: list[PracticeAttendanceLog] = (
+            db.query(PracticeAttendanceLog)
             .filter(
-                Designation.designation_type == "practice",
-                Designation.academic_period == active_period,
+                PracticeAttendanceLog.designation_id.in_([item.id for item in designations]),
+                PracticeAttendanceLog.date >= requested_start,
+                PracticeAttendanceLog.date <= requested_end,
             )
-            .all()
-        )
-        if not practice_designations:
-            return
-
-        designation_ids = [d.id for d in practice_designations]
-        existing_rows = (
-            db.query(
-                PracticeAttendanceLog.teacher_ci,
+            .order_by(
                 PracticeAttendanceLog.designation_id,
                 PracticeAttendanceLog.date,
                 PracticeAttendanceLog.scheduled_start,
             )
-            .filter(
-                PracticeAttendanceLog.designation_id.in_(designation_ids),
-                PracticeAttendanceLog.date >= period_start,
-                PracticeAttendanceLog.date <= period_end,
-            )
             .all()
         )
-        existing = {(row[0], row[1], row[2], row[3]) for row in existing_rows}
+        records_by_designation: dict[int, list[PracticeAttendanceLog]] = {}
+        for record in records:
+            records_by_designation.setdefault(record.designation_id, []).append(record)
 
-        missing: list[MissingPracticeAttendanceSlot] = []
-        _excl = excluded_days or []
-        for desig in practice_designations:
-            for slot_date, scheduled_start in self._iter_scheduled_slots(
-                desig.schedule_json or [], period_start, period_end,
-            ):
-                # Skip slots on excluded days — no attendance expected
-                if _excl and _is_excluded(
-                    slot_date, desig.semester, desig.subject,
-                    desig.group_code, _excl,
-                ):
+        issues: list[str] = []
+        missing_count = duplicate_count = unexpected_count = invalid_count = 0
+        exclusions = excluded_days or []
+        valid_statuses = {"attended", "present", "absent", "late", "justified"}
+        for desig in designations:
+            effective_range = effective_ranges[desig.id]
+            if effective_range.start is None or effective_range.end is None:
+                continue
+            if int(desig.monthly_hours or 0) > 0 and not (desig.schedule_json or []):
+                raise PayrollDataError(
+                    f"La designación práctica {desig.id} tiene horas mensuales pero no tiene horario",
+                    code="missing_schedule",
+                )
+            slots = _expand_schedule_to_slots(
+                desig.schedule_json or [],
+                effective_range.start,
+                effective_range.end,
+                designation_id=desig.id,
+            )
+            expected = {
+                (desig.teacher_ci, desig.id, slot.slot_date, slot.scheduled_start): slot
+                for slot in slots
+                if not _is_excluded(
+                    slot.slot_date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    exclusions,
+                )
+            }
+            relevant = [
+                record
+                for record in records_by_designation.get(desig.id, [])
+                if effective_range.start <= record.date <= effective_range.end
+                and not _is_excluded(
+                    record.date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    exclusions,
+                )
+            ]
+            actual: dict[tuple[str, int, date, time], list[PracticeAttendanceLog]] = {}
+            for record in relevant:
+                key = (record.teacher_ci, record.designation_id, record.date, record.scheduled_start)
+                actual.setdefault(key, []).append(record)
+
+            for key, slot in expected.items():
+                matches = actual.get(key, [])
+                label = (
+                    f"designación {desig.id}, CI {desig.teacher_ci}, "
+                    f"{slot.slot_date.isoformat()} {slot.scheduled_start.strftime('%H:%M')}"
+                )
+                if not matches:
+                    missing_count += 1
+                    issues.append(f"Falta PracticeAttendanceLog: {label}")
                     continue
-                key = (desig.teacher_ci, desig.id, slot_date, scheduled_start)
-                if key not in existing:
-                    missing.append(
-                        MissingPracticeAttendanceSlot(
-                            teacher_ci=desig.teacher_ci,
-                            designation_id=desig.id,
-                            subject=desig.subject,
-                            group_code=desig.group_code,
-                            slot_date=slot_date,
-                            scheduled_start=scheduled_start,
-                        )
+                if len(matches) > 1:
+                    duplicate_count += len(matches) - 1
+                    issues.append(f"PracticeAttendanceLog duplicado: {label}")
+                    continue
+                record = matches[0]
+                status_value = (record.status or "").lower()
+                if (
+                    status_value not in valid_statuses
+                    or record.scheduled_end != slot.scheduled_end
+                    or record.academic_hours != slot.academic_hours
+                ):
+                    invalid_count += 1
+                    issues.append(
+                        f"PracticeAttendanceLog incoherente: {label}, estado={record.status!r}, "
+                        f"fin={record.scheduled_end}, horas={record.academic_hours}; "
+                        f"esperado fin={slot.scheduled_end}, horas={slot.academic_hours}"
                     )
 
-        if missing:
-            raise PracticePlanillaCoverageError(missing)
+            unexpected = set(actual) - set(expected)
+            unexpected_count += len(unexpected)
+            issues.extend(
+                "PracticeAttendanceLog sin slot programado: "
+                f"designación {key[1]}, CI {key[0]}, "
+                f"{key[2].isoformat()} {key[3].strftime('%H:%M')}"
+                for key in sorted(unexpected, key=lambda value: (value[1], value[2], value[3]))
+            )
 
-    def _iter_scheduled_slots(
-        self,
-        schedule_json: list[dict],
-        start_date: date,
-        end_date: date,
-    ) -> list[tuple[date, time]]:
-        """Expand a schedule into expected attendance slot identities."""
-        if not schedule_json:
-            return []
+        if issues:
+            raise PracticePlanillaCoverageError(
+                "La cobertura de prácticas está incompleta o contiene datos incoherentes "
+                f"(faltantes={missing_count}, duplicados={duplicate_count}, "
+                f"sobrantes={unexpected_count}, inválidos={invalid_count}). "
+                "Generá o corregí la asistencia de prácticas antes de generar la planilla",
+                missing_count=missing_count,
+                duplicate_count=duplicate_count,
+                unexpected_count=unexpected_count,
+                invalid_count=invalid_count,
+                sample=issues[:10],
+            )
 
-        slots_by_weekday: dict[str, list[time]] = {}
-        for slot in schedule_json:
-            weekday = _normalize_day(slot.get("dia", ""))
-            scheduled_start = self._parse_schedule_time(slot.get("hora_inicio", ""))
-            if weekday and scheduled_start:
-                slots_by_weekday.setdefault(weekday, []).append(scheduled_start)
-
-        result: list[tuple[date, time]] = []
-        num_days = (end_date - start_date).days + 1
-        for i in range(num_days):
-            current_date = start_date + timedelta(days=i)
-            weekday_name = WEEKDAY_MAP.get(current_date.weekday(), "")
-            for scheduled_start in slots_by_weekday.get(weekday_name, []):
-                result.append((current_date, scheduled_start))
-
-        return result
-
-    @staticmethod
-    def _parse_schedule_time(raw: object) -> time | None:
-        """Parse schedule HH:MM values into time objects used by logs."""
-        if isinstance(raw, time):
-            return raw
-        if not isinstance(raw, str):
-            return None
-        try:
-            parts = raw.strip().split(":")
-            return time(int(parts[0]), int(parts[1]))
-        except (IndexError, TypeError, ValueError):
-            return None
+        att_index: dict[tuple[str, int], list[PracticeAttendanceLog]] = {}
+        for record in records:
+            att_index.setdefault((record.teacher_ci, record.designation_id), []).append(record)
+        return att_index
 
     # ------------------------------------------------------------------
     # Data building
@@ -453,45 +441,29 @@ class PracticePlanillaGenerator:
             warnings.append("No hay designaciones de práctica en la base de datos")
             return [], warnings
 
-        # Step 2: Load attendance logs (skip in "full" mode)
-        att_index: dict[tuple[str, int], list[PracticeAttendanceLog]] = {}
+        exclusions = excluded_days or []
+        _resolve_payroll_period(month, year, start_date, end_date)
+        effective_ranges = {
+            desig.id: _effective_designation_range(
+                desig, month, year, start_date, end_date,
+            )
+            for desig in practice_designations
+        }
 
+        # Step 2: Load attendance logs (skip in "full" mode)
         if discount_mode == "full":
             logger.info(
                 "discount_mode=full — skipping practice attendance queries, "
-                "all practice teachers receive full pay"
+                "paying contract/schedule/exclusion hours"
             )
+            att_index: dict[tuple[str, int], list[PracticeAttendanceLog]] = {}
         else:
-            if start_date is not None and end_date is not None:
-                att_query = db.query(PracticeAttendanceLog).filter(
-                    PracticeAttendanceLog.date >= start_date,
-                    PracticeAttendanceLog.date <= end_date,
-                )
-            else:
-                # Filter by month/year using date extraction
-                att_query = db.query(PracticeAttendanceLog).filter(
-                    PracticeAttendanceLog.date >= date(year, month, 1),
-                    PracticeAttendanceLog.date <= date(
-                        year, month, calendar.monthrange(year, month)[1]
-                    ),
-                )
-
-            att_records = att_query.all()
-
-            if not att_records:
-                logger.info(
-                    "No practice attendance logs for %d/%d — all practice docentes get full pay",
-                    month, year,
-                )
-                warnings.append(
-                    f"Sin registros de asistencia de prácticas para "
-                    f"{MONTH_NAMES.get(month)} {year} — "
-                    f"todos los docentes recibirán pago completo"
-                )
-
-            for rec in att_records:
-                key = (rec.teacher_ci, rec.designation_id)
-                att_index.setdefault(key, []).append(rec)
+            att_index = self._validate_attendance_coverage(
+                db,
+                practice_designations,
+                effective_ranges,
+                exclusions,
+            )
 
         # Step 3: Bulk-load teachers
         all_teacher_cis = {d.teacher_ci for d in practice_designations}
@@ -508,13 +480,27 @@ class PracticePlanillaGenerator:
             teacher = teachers.get(ci)
 
             if teacher is None:
-                warnings.append(
-                    f"Docente CI {ci} no encontrado en la base (designación {desig.id})"
+                raise PayrollDataError(
+                    f"La designación práctica {desig.id} referencia al docente CI {ci}, que no existe",
+                    code="missing_teacher",
                 )
-                continue
 
             key = (ci, desig.id)
-            logs = att_index.get(key, [])
+            effective_range = effective_ranges[desig.id]
+            logs = [
+                record
+                for record in att_index.get(key, [])
+                if effective_range.start is not None
+                and effective_range.end is not None
+                and effective_range.start <= record.date <= effective_range.end
+                and not _is_excluded(
+                    record.date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    exclusions,
+                )
+            ]
 
             row = self._build_row(
                 teacher=teacher,
@@ -526,7 +512,8 @@ class PracticePlanillaGenerator:
                 end_date=end_date,
                 month=month,
                 year=year,
-                excluded_days=excluded_days or [],
+                excluded_days=exclusions,
+                effective_range=effective_range,
             )
             planilla_rows.append(row)
 
@@ -552,6 +539,7 @@ class PracticePlanillaGenerator:
         month: int = 0,
         year: int = 0,
         excluded_days: "list[ExcludedDaySchema] | None" = None,
+        effective_range: EffectiveDesignationRange | None = None,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow for a practice designation.
@@ -570,6 +558,13 @@ class PracticePlanillaGenerator:
         absent_count = 0
         absent_count_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         observations: list[str] = []
+
+        if effective_range is None and (month and year or start_date is not None or end_date is not None):
+            range_month = month or (start_date.month if start_date is not None else 0)
+            range_year = year or (start_date.year if start_date is not None else 0)
+            effective_range = _effective_designation_range(
+                desig, range_month, range_year, start_date, end_date,
+            )
 
         # Process manual attendance logs
         for log in logs:
@@ -601,19 +596,20 @@ class PracticePlanillaGenerator:
 
         # Fill daily_hours gaps from schedule (same as regular planilla)
         if desig.schedule_json:
-            if start_date and end_date:
-                eff_start, eff_end = start_date, end_date
-            elif month and year:
-                _, last_day = calendar.monthrange(year, month)
-                eff_start = date(year, month, 1)
-                eff_end = date(year, month, last_day)
-            else:
-                eff_start, eff_end = None, None
+            eff_start = effective_range.start if effective_range else None
+            eff_end = effective_range.end if effective_range else None
 
             if eff_start and eff_end:
-                scheduled_daily = _expand_schedule_to_daily(
-                    desig.schedule_json, eff_start, eff_end
-                )
+                scheduled_daily: dict[date, int] = {}
+                for slot in _expand_schedule_to_slots(
+                    desig.schedule_json,
+                    eff_start,
+                    eff_end,
+                    designation_id=desig.id,
+                ):
+                    scheduled_daily[slot.slot_date] = (
+                        scheduled_daily.get(slot.slot_date, 0) + slot.academic_hours
+                    )
                 for d, hrs in scheduled_daily.items():
                     if d not in daily_hours:
                         daily_hours[d] = hrs
@@ -630,66 +626,12 @@ class PracticePlanillaGenerator:
                     daily_hours[d] = 0
                     daily_status[d] = "EXCLUDED"
 
-        # Base hours calculation (same real-day-count logic as regular)
-        if start_date and end_date and desig.schedule_json:
-            calendar_hours = _calculate_period_hours(
-                desig.schedule_json, start_date, end_date,
-                semester=desig.semester,
-                subject=desig.subject,
-                group_code=desig.group_code,
-                excluded_days=excluded_days,
+        if effective_range is not None:
+            base_monthly_hours = _calculate_designation_base_hours(
+                desig, effective_range, excluded_days,
             )
-            if calendar_hours > 0:
-                base_monthly_hours = calendar_hours
-            elif calendar_hours == 0 and excluded_days:
-                # Compare raw hours to distinguish exclusions from schedule mismatch
-                raw_hours = _calculate_period_hours(
-                    desig.schedule_json, start_date, end_date,
-                )
-                if raw_hours > 0:
-                    base_monthly_hours = 0  # Genuinely all excluded
-                else:
-                    # Schedule mismatch — use fallback
-                    fallback_raw = desig.monthly_hours or 0
-                    if fallback_raw > 0:
-                        num_days = (end_date - start_date).days + 1
-                        base_monthly_hours = round(fallback_raw * num_days / 30)
-                        observations.append(
-                            f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
-                        )
-                    else:
-                        base_monthly_hours = 0
-            else:
-                fallback_raw = desig.monthly_hours or 0
-                if fallback_raw > 0:
-                    num_days = (end_date - start_date).days + 1
-                    base_monthly_hours = round(fallback_raw * num_days / 30)
-                    observations.append(
-                        f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
-                    )
-                else:
-                    base_monthly_hours = 0
         else:
-            base_monthly_hours = desig.monthly_hours or 0
-            if excluded_days and desig.schedule_json and month and year:
-                _, last_day = calendar.monthrange(year, month)
-                m_start = date(year, month, 1)
-                m_end = date(year, month, last_day)
-                try:
-                    raw_month_hours = _calculate_period_hours(
-                        desig.schedule_json, m_start, m_end,
-                    )
-                    month_hours = _calculate_period_hours(
-                        desig.schedule_json, m_start, m_end,
-                        semester=desig.semester,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
-                        excluded_days=excluded_days,
-                    )
-                    if raw_month_hours > 0 and month_hours < base_monthly_hours:
-                        base_monthly_hours = month_hours
-                except ValueError:
-                    pass
+            base_monthly_hours = int(desig.monthly_hours or 0)
 
         # discount_mode="full" → zero deductions
         if discount_mode == "full":
@@ -705,6 +647,8 @@ class PracticePlanillaGenerator:
             absent_hours = base_monthly_hours
 
         payable_hours = max(0, base_monthly_hours - absent_hours)
+        if desig.schedule_json and effective_range is not None:
+            _reconcile_daily_hours(daily_hours, daily_status, payable_hours)
         calculated_payment = payable_hours * hourly_rate
 
         # RC-IVA 13% retention
@@ -717,8 +661,6 @@ class PracticePlanillaGenerator:
         obs_parts: list[str] = []
         if discount_mode == "full":
             obs_parts.append("Modo sin descuentos — pago completo")
-        if not logs and discount_mode != "full":
-            obs_parts.append("Sin registro de asistencia — pago completo")
         if logs and discount_mode != "full":
             if late_count > 0:
                 obs_parts.append(f"{late_count} tardanza{'s' if late_count > 1 else ''}")

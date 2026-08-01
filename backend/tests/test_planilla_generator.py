@@ -484,7 +484,9 @@ class TestBuildPlanillaData:
     def test_empty_attendance_returns_empty_rows(self, db, temp_output_dir):
         """With no designations in DB, planilla returns empty rows and a warning."""
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        rows, detail_rows, warnings = gen._build_planilla_data(db, month=3, year=2026)
+        rows, detail_rows, warnings = gen._build_planilla_data(
+            db, month=3, year=2026, discount_mode="full"
+        )
         assert rows == []
         assert detail_rows == []
         assert len(warnings) == 1
@@ -499,10 +501,12 @@ class TestBuildPlanillaData:
         seed_attendance(db, teacher.ci, desig.id, day=9)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        rows, detail_rows, warnings = gen._build_planilla_data(db, month=3, year=2026)
+        rows, detail_rows, warnings = gen._build_planilla_data(
+            db, month=3, year=2026, discount_mode="full"
+        )
 
         assert len(rows) == 1
-        assert len(detail_rows) == 2
+        assert len(detail_rows) == 0
         assert len(warnings) == 0
         row = rows[0]
         assert row.teacher_ci == "11111111"
@@ -522,10 +526,12 @@ class TestBuildPlanillaData:
         seed_attendance(db, teacher.ci, d2.id, day=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        rows, detail_rows, warnings = gen._build_planilla_data(db, month=3, year=2026)
+        rows, detail_rows, warnings = gen._build_planilla_data(
+            db, month=3, year=2026, discount_mode="full"
+        )
 
         assert len(rows) == 2
-        assert len(detail_rows) == 2
+        assert len(detail_rows) == 0
         subjects = {r.subject for r in rows}
         assert "Anatomía I" in subjects
         assert "Fisiología" in subjects
@@ -539,7 +545,9 @@ class TestBuildPlanillaData:
         seed_attendance(db, t2.ci, d2.id, day=5)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        rows, detail_rows, warnings = gen._build_planilla_data(db, month=3, year=2026)
+        rows, detail_rows, warnings = gen._build_planilla_data(
+            db, month=3, year=2026, discount_mode="full"
+        )
 
         assert len(rows) == 2
         cis = {r.teacher_ci for r in rows}
@@ -559,6 +567,8 @@ class TestBuildPlanillaData:
         seed_biometric(db, teacher.ci, day=2)  # Mark teacher as having real biometric data
         seed_attendance(db, teacher.ci, desig.id, day=2, status="ATTENDED", academic_hours=3)
         seed_attendance(db, teacher.ci, desig.id, day=9, status="ABSENT", academic_hours=0)
+        for day in (16, 23, 30):
+            seed_attendance(db, teacher.ci, desig.id, day=day, status="ATTENDED", academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
         rows, _, _ = gen._build_planilla_data(db, month=3, year=2026)
@@ -590,7 +600,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=2)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         assert isinstance(result, PlanillaResult)
         assert os.path.exists(result.file_path)
@@ -602,7 +612,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         assert "Planilla" in wb.sheetnames
@@ -614,7 +624,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=4)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -629,7 +639,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=5)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -642,7 +652,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=10)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -661,7 +671,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=11)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -673,11 +683,17 @@ class TestGenerateExcel:
     def test_planilla_data_row_hours_in_correct_column(self, db, temp_output_dir):
         teacher = seed_teacher(db, "40404040", "MORALES IVAN")
         desig = seed_designation(db, teacher.ci)
+        desig.schedule_json = [{
+            "dia": "domingo",
+            "hora_inicio": "08:00",
+            "hora_fin": "10:00",
+            "horas_academicas": 3,
+        }]
         # Day 15, month 3 → column Q + 14 = col 31
         seed_attendance(db, teacher.ci, desig.id, day=15, academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -699,7 +715,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=16, academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -716,7 +732,7 @@ class TestGenerateExcel:
             seed_attendance(db, teacher.ci, desig.id, day=day, academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -736,7 +752,8 @@ class TestGenerateExcel:
         gen = PlanillaGenerator(output_dir=temp_output_dir)
         result = gen.generate(
             db, month=3, year=2026,
-            payment_overrides={"70707070": 500.0}
+            payment_overrides={"70707070": 500.0},
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -756,7 +773,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=2, academic_hours=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -769,7 +786,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=6)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Detalle"]
@@ -780,10 +797,9 @@ class TestGenerateExcel:
     def test_detalle_sheet_has_correct_record_count(self, db, temp_output_dir):
         teacher = seed_teacher(db, "11223344", "MONTOYA LUZ")
         desig = seed_designation(db, teacher.ci)
-        # 3 attendance records
-        seed_attendance(db, teacher.ci, desig.id, day=7)
-        seed_attendance(db, teacher.ci, desig.id, day=14)
-        seed_attendance(db, teacher.ci, desig.id, day=21)
+        # Complete canonical coverage for all five Mondays in March 2026.
+        for day in (2, 9, 16, 23, 30):
+            seed_attendance(db, teacher.ci, desig.id, day=day)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
         result = gen.generate(db, month=3, year=2026)
@@ -798,7 +814,7 @@ class TestGenerateExcel:
             if ws.cell(row=r, column=1).value
             and "TOTAL" not in str(ws.cell(row=r, column=1).value)
         ]
-        assert len(data_rows) == 3
+        assert len(data_rows) == 5
 
     def test_result_statistics_match_data(self, db, temp_output_dir):
         teacher = seed_teacher(db, "55443322", "PAREDES ALICIA")
@@ -807,7 +823,7 @@ class TestGenerateExcel:
             seed_attendance(db, teacher.ci, desig.id, day=day, academic_hours=4)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         assert result.total_teachers == 1
         assert result.total_rows == 1
@@ -821,7 +837,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=2)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -847,7 +863,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=14, month=2, year=2026, academic_hours=2)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=2, year=2026)
+        result = gen.generate(db, month=2, year=2026, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -867,7 +883,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=3)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         filename = os.path.basename(result.file_path)
         assert "03" in filename
@@ -879,7 +895,7 @@ class TestGenerateExcel:
         seed_attendance(db, teacher.ci, desig.id, day=7)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=3, year=2026)
+        result = gen.generate(db, month=3, year=2026, discount_mode="full")
 
         assert result.planilla_output_id is not None
         po = db.query(PlanillaOutput).filter_by(
@@ -903,8 +919,8 @@ class TestEdgeCases:
         teacher = seed_teacher(db, "13131313", "IBARRA KARINA")
         desig = seed_designation(db, teacher.ci)  # monthly_hours=12, schedule slot=3h
         seed_biometric(db, teacher.ci, day=2)  # Mark as having real biometric data
-        # 4 absent days × 3h per slot = 12h absent = monthly_hours → payable = 0
-        for day in [2, 9, 16, 23]:
+        # Complete coverage: March 2026 has five Mondays, all absent.
+        for day in [2, 9, 16, 23, 30]:
             seed_attendance(db, teacher.ci, desig.id, day=day,
                             status="ABSENT", academic_hours=0)
 
@@ -936,7 +952,8 @@ class TestEdgeCases:
         gen = PlanillaGenerator(output_dir=temp_output_dir)
         result = gen.generate(
             db, month=3, year=2026,
-            payment_overrides={"14141414": 1000.0}
+            payment_overrides={"14141414": 1000.0},
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -968,6 +985,7 @@ class TestEdgeCases:
             month=3,
             year=2026,
             payment_overrides={teacher.ci: 1000.0},
+            discount_mode="full",
         )
 
         assert result.total_payment == 1000.0
@@ -992,6 +1010,7 @@ class TestEdgeCases:
             month=3,
             year=2026,
             payment_overrides={teacher.ci: 1000.0},
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -1026,6 +1045,7 @@ class TestEdgeCases:
             month=3,
             year=2026,
             payment_overrides={f"{teacher.ci}:{d1.id}": 500.0},
+            discount_mode="full",
         )
 
         # Model C: d2 has no override → uses calculated_payment = payable_hours × 70 = 12 × 70 = 840
@@ -1045,6 +1065,7 @@ class TestEdgeCases:
             month=3,
             year=2026,
             payment_overrides={teacher.ci: 1000.0, f"{teacher.ci}:{d1.id}": 500.0},
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -1074,6 +1095,7 @@ class TestEdgeCases:
             month=3,
             year=2026,
             payment_overrides={teacher.ci: 1000.0, f"{teacher.ci}:{d1.id}": 500.0},
+            discount_mode="full",
         )
 
         wb = load_workbook(result.file_path)
@@ -1096,7 +1118,7 @@ class TestEdgeCases:
         seed_attendance(db, teacher.ci, desig.id, day=14, month=2, year=2028)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result = gen.generate(db, month=2, year=2028)
+        result = gen.generate(db, month=2, year=2028, discount_mode="full")
 
         wb = load_workbook(result.file_path)
         ws = wb["Planilla"]
@@ -1112,8 +1134,8 @@ class TestEdgeCases:
         seed_attendance(db, teacher.ci, desig.id, day=5)
 
         gen = PlanillaGenerator(output_dir=temp_output_dir)
-        result1 = gen.generate(db, month=5, year=2026)
-        result2 = gen.generate(db, month=5, year=2026)
+        result1 = gen.generate(db, month=5, year=2026, discount_mode="full")
+        result2 = gen.generate(db, month=5, year=2026, discount_mode="full")
 
         # Should be same ID (upserted)
         assert result1.planilla_output_id == result2.planilla_output_id

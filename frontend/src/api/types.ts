@@ -356,7 +356,7 @@ export interface ProcessAttendancePayload {
 export interface ExcludedDay {
   date: string                           // ISO 8601 "YYYY-MM-DD"
   scope: 'global' | 'semester' | 'subject'
-  semester_id?: string                   // required when scope=semester
+  semester_id?: string                   // required for new semester/subject exclusions; absent in legacy subject data
   subject_id?: string                    // required when scope=subject
   group_id?: string                      // required when scope=subject
   reason?: string

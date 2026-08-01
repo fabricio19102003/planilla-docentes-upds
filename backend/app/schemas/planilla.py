@@ -9,19 +9,29 @@ from app.schemas.attendance import MonthlyAttendanceSummaryResponse
 from app.schemas.biometric import BiometricUploadResponse
 
 
+def validate_optional_period(start_date: date | None, end_date: date | None) -> None:
+    if (start_date is None) != (end_date is None):
+        raise ValueError("start_date y end_date deben enviarse juntos, o ambos deben omitirse")
+    if start_date is None or end_date is None:
+        return
+    if start_date > end_date:
+        raise ValueError("start_date no puede ser posterior a end_date")
+    if (end_date - start_date).days + 1 > 63:
+        raise ValueError("el período no puede superar 63 días")
+
+
 class ExcludedDaySchema(BaseModel):
     """Represents a day excluded from planilla calculation.
 
     Scopes:
       - global: excludes the date for ALL teachers, subjects, and semesters.
       - semester: excludes the date only for a specific semester (requires semester_id).
-      - subject: excludes the date only for a specific (subject, group) pair.
-                 The combination (subject_id, group_id) is unique and irrepetible —
-                 the same subject+group never exists in two different semesters, so
-                 semester_id is NOT needed for subject scope.
+      - subject: excludes the date only for a specific subject, group, and semester.
+                 Historical entries without semester_id retain their legacy broad
+                 subject+group behavior.
 
     Field names match the published API contract:
-      - semester_id: required when scope=semester ONLY
+      - semester_id: required when scope=semester; expected for new subject entries
       - subject_id:  required when scope=subject
       - group_id:    required when scope=subject
     """
@@ -72,6 +82,11 @@ class PlanillaGenerateRequest(BaseModel):
     discount_mode: Literal["attendance", "full"] = "attendance"
     excluded_days: list[ExcludedDaySchema] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_period(self) -> "PlanillaGenerateRequest":
+        validate_optional_period(self.start_date, self.end_date)
+        return self
+
 
 class PlanillaGenerateResponse(BaseModel):
     """Response after triggering planilla generation."""
@@ -100,6 +115,11 @@ class SalaryReportRequest(BaseModel):
     # [] (explicit empty list) → no exclusions (overrides stored)
     # [<entries>] → use caller-supplied exclusions (overrides stored)
     excluded_days: Optional[list[ExcludedDaySchema]] = None
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "SalaryReportRequest":
+        validate_optional_period(self.start_date, self.end_date)
+        return self
 
 
 class DashboardSummaryResponse(BaseModel):

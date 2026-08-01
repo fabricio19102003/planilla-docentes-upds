@@ -43,7 +43,7 @@ from openpyxl.worksheet.page import PageMargins
 from sqlalchemy.orm import Session
 
 from app.models.teacher import Teacher
-from app.services.planilla_generator import PlanillaGenerator
+from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 
 if TYPE_CHECKING:
     from app.schemas.planilla import ExcludedDaySchema
@@ -251,8 +251,10 @@ class SalaryReportGenerator:
                 return []
             return [ExcludedDaySchema.model_validate(item) for item in stored.excluded_days_json]
         except Exception as exc:
-            logger.warning("Could not load stored exclusions for %d/%d: %s", month, year, exc)
-            return []
+            raise PayrollDataError(
+                "La planilla almacenada contiene exclusiones inválidas; regenerala antes de generar salarios",
+                code="invalid_stored_exclusions",
+            ) from exc
 
     # ------------------------------------------------------------------
     # Column widths

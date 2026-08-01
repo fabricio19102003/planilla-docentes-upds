@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import date, time
 from typing import Literal
+
+from app.schemas.planilla import validate_optional_period
 
 
 class PracticeAttendanceCreate(BaseModel):
@@ -22,6 +24,11 @@ class PracticeAttendanceBulkCreate(BaseModel):
     year: int
     start_date: date | None = None
     end_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "PracticeAttendanceBulkCreate":
+        validate_optional_period(self.start_date, self.end_date)
+        return self
 
 
 class PracticeAttendanceUpdate(BaseModel):

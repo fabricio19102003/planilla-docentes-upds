@@ -193,7 +193,10 @@ def test_docente_billing_excluded_days_are_filtered_and_deduplicated():
     excluded_days = [
         {"date": "2026-04-21", "scope": "global", "reason": "Feriado institucional"},
         {"date": "2026-04-30", "scope": "semester", "semester_id": "1", "reason": "Clase magistral"},
-        {"date": "2026-04-30", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Taller docente"},
+        {"date": "2026-04-30", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "semester_id": "1", "reason": "Taller docente"},
+        {"date": "2026-05-03", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "semester_id": "2", "reason": "Mismo grupo, otro semestre"},
+        {"date": "2026-05-04", "scope": "subject", "subject_id": "Anatomía", "group_id": "A", "reason": "Exclusión histórica"},
+        {"date": "2026-05-05", "scope": "subject", "subject_id": "Anatomía", "group_id": "B", "semester_id": "1", "reason": "Otro grupo"},
         {"date": "2026-05-02", "scope": "semester", "semester_id": "9", "reason": "No aplica"},
         {"date": "2026-05-09", "scope": "subject", "subject_id": "Pediatría", "group_id": "B", "reason": "No aplica"},
     ]
@@ -203,4 +206,8 @@ def test_docente_billing_excluded_days_are_filtered_and_deduplicated():
     assert [day.model_dump() for day in filtered] == [
         {"date": "2026-04-21", "reason": "Feriado institucional"},
         {"date": "2026-04-30", "reason": "Clase magistral; Taller docente"},
+        {"date": "2026-05-04", "reason": "Exclusión histórica"},
     ]
+    assert [day.model_dump() for day in _filter_excluded_days_for_teacher(
+        [excluded_days[0]], {"designations": []}
+    )] == [{"date": "2026-04-21", "reason": "Feriado institucional"}]

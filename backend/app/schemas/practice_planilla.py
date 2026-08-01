@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import date, datetime
 from typing import Literal, Optional
 from decimal import Decimal
 
-from app.schemas.planilla import ExcludedDaySchema
+from app.schemas.planilla import ExcludedDaySchema, validate_optional_period
 
 
 class PracticePlanillaGenerateRequest(BaseModel):
@@ -18,6 +18,11 @@ class PracticePlanillaGenerateRequest(BaseModel):
     end_date: date | None = None
     discount_mode: Literal["attendance", "full"] = "attendance"
     excluded_days: list[ExcludedDaySchema] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "PracticePlanillaGenerateRequest":
+        validate_optional_period(self.start_date, self.end_date)
+        return self
 
 
 class PracticePlanillaGenerateResponse(BaseModel):

@@ -69,10 +69,6 @@ function getSubjectOptionKey(option: PracticeDesignationOption): string {
   return `${option.subject}||${option.group_code}||${option.semester}`
 }
 
-function getSubjectGroupKey(option: PracticeDesignationOption): string {
-  return `${option.subject}||${option.group_code}`
-}
-
 function getUniqueSubjects(options: PracticeDesignationOption[]): string[] {
   return Array.from(new Set(options.map(o => o.subject))).sort((a, b) => a.localeCompare(b))
 }
@@ -81,7 +77,7 @@ function getGroupsForSubject(options: PracticeDesignationOption[], subject: stri
   const seen = new Set<string>()
   return options.filter((o) => {
     if (o.subject !== subject) return false
-    const key = getSubjectGroupKey(o)
+    const key = getSubjectOptionKey(o)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -97,6 +93,7 @@ function expandExcludedDays(rows: ExclusionRow[]): ExcludedDay[] {
         scope: 'subject' as const,
         subject_id: s.subject,
         group_id: s.group_code,
+        semester_id: s.semester || undefined,
         reason: row.reason,
       }))
     }
@@ -139,7 +136,12 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
     const selectedSubjects = current?.selectedSubjects ?? []
     const subject = excluded.subject_id
     const group = excluded.group_id
-    const hasSelection = subjectSelections.some(s => s.subject === subject && s.group_code === group)
+    const semester = excluded.semester_id ?? ''
+    const hasSelection = subjectSelections.some(s => (
+      s.subject === subject
+      && s.group_code === group
+      && s.semester === semester
+    ))
     rows.set(key, {
       date: excluded.date,
       scope: 'subject',
@@ -148,7 +150,7 @@ function hydrateExclusionRows(excludedDays: ExcludedDay[]): ExclusionRow[] {
         ? [...selectedSubjects, subject]
         : selectedSubjects,
       subjectSelections: subject && group && !hasSelection
-        ? [...subjectSelections, { subject, group_code: group, semester: '' }]
+        ? [...subjectSelections, { subject, group_code: group, semester }]
         : subjectSelections,
     })
   }
@@ -696,7 +698,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                                               }}
                                               className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                             />
-                                            <span>{option.group_code}</span>
+                                            <span>{option.group_code} · Sem. {option.semester}</span>
                                           </label>
                                         )
                                       })}
@@ -763,7 +765,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                               <div className="flex flex-wrap gap-1">
                                 {((row.subjectSelections ?? []) as PracticeDesignationOption[]).map((s) => (
                                   <span key={getSubjectOptionKey(s)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
-                                    {s.subject} ({s.group_code})
+                                    {s.subject} ({s.group_code}, Sem. {s.semester || 'legacy'})
                                   </span>
                                 ))}
                               </div>

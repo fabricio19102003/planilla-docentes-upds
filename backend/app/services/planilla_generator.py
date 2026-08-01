@@ -41,8 +41,9 @@ from __future__ import annotations
 import calendar
 import logging
 import os
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -60,7 +61,6 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from app.models.attendance import AttendanceRecord
-from app.models.biometric import BiometricRecord, BiometricUpload
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
@@ -296,6 +296,45 @@ class PlanillaResult:
     discount_mode: str = "attendance"
 
 
+@dataclass(frozen=True)
+class ScheduledSlot:
+    slot_date: date
+    scheduled_start: time
+    scheduled_end: time
+    academic_hours: int
+
+
+@dataclass(frozen=True)
+class EffectiveDesignationRange:
+    requested_start: date
+    requested_end: date
+    start: date | None
+    end: date | None
+    is_explicit: bool
+
+    @property
+    def is_contract_limited(self) -> bool:
+        return self.start != self.requested_start or self.end != self.requested_end
+
+
+class PayrollDataError(ValueError):
+    """Blocking payroll validation error with an actionable API payload."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "invalid_payroll_data",
+        sample: list[str] | None = None,
+    ):
+        self.code = code
+        self.sample = sample or []
+        super().__init__(message)
+
+    def as_detail(self) -> dict[str, object]:
+        return {"message": str(self), "code": self.code, "sample": self.sample}
+
+
 # ---------------------------------------------------------------------------
 # Period-based hour calculation
 # ---------------------------------------------------------------------------
@@ -304,6 +343,7 @@ class PlanillaResult:
 # attendance_engine to guarantee consistency between attendance processing
 # and payment calculation.  No local copies — single source of truth.
 from app.services.attendance_engine import WEEKDAY_MAP, _normalize_day
+from app.services.exclusion_matching import exclusion_matches_designation
 
 
 def _is_excluded(
@@ -322,9 +362,8 @@ def _is_excluded(
     Scope rules:
       - ``global``   — matches any designation on that date.
       - ``semester`` — matches when ``exclusion.semester_id == semester``.
-      - ``subject``  — matches when subject_id + group_id both match.
-                       The combination (subject_id, group_id) is unique across all
-                       semesters, so semester_id is NOT checked for subject scope.
+      - ``subject``  — matches subject_id + group_id + semester_id. Historical
+                       entries without semester_id match by subject+group.
 
     Args:
         target_date: The calendar date to check.
@@ -339,17 +378,235 @@ def _is_excluded(
     for exc in exclusions:
         if exc.date != target_date:
             continue
-        if exc.scope == "global":
-            return True
-        if exc.scope == "semester" and exc.semester_id == semester:
-            return True
-        if (
-            exc.scope == "subject"
-            and exc.subject_id == subject
-            and exc.group_id == group_code
+        if exclusion_matches_designation(
+            exc,
+            semester=semester,
+            subject=subject,
+            group_code=group_code,
         ):
             return True
     return False
+
+
+def _resolve_payroll_period(
+    month: int,
+    year: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> tuple[date, date, bool]:
+    """Resolve a full month or a complete custom range of at most 63 days."""
+    if (start_date is None) != (end_date is None):
+        raise PayrollDataError(
+            "start_date y end_date deben enviarse juntos, o ambos deben omitirse",
+            code="incomplete_date_range",
+        )
+    if start_date is not None and end_date is not None:
+        if start_date > end_date:
+            raise PayrollDataError(
+                "start_date no puede ser posterior a end_date",
+                code="invalid_date_range",
+            )
+        days = (end_date - start_date).days + 1
+        if days > 63:
+            raise PayrollDataError(
+                f"El período tiene {days} días; el máximo permitido es 63",
+                code="date_range_too_large",
+            )
+        return start_date, end_date, True
+
+    if not 1 <= month <= 12:
+        raise PayrollDataError("El mes debe estar entre 1 y 12", code="invalid_month")
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last_day), False
+
+
+def _effective_designation_range(
+    designation: Designation,
+    month: int,
+    year: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> EffectiveDesignationRange:
+    requested_start, requested_end, is_explicit = _resolve_payroll_period(
+        month, year, start_date, end_date,
+    )
+    contract_start = getattr(designation, "contract_start_date", None)
+    contract_end = getattr(designation, "contract_end_date", None)
+    if not isinstance(contract_start, date):
+        contract_start = None
+    if not isinstance(contract_end, date):
+        contract_end = None
+    if contract_start and contract_end and contract_start > contract_end:
+        raise PayrollDataError(
+            f"La designación {designation.id} tiene fechas contractuales incoherentes: "
+            f"{contract_start} > {contract_end}",
+            code="invalid_contract_range",
+        )
+
+    effective_start = max(requested_start, contract_start) if contract_start else requested_start
+    effective_end = min(requested_end, contract_end) if contract_end else requested_end
+    if effective_start > effective_end:
+        effective_start = None
+        effective_end = None
+
+    return EffectiveDesignationRange(
+        requested_start=requested_start,
+        requested_end=requested_end,
+        start=effective_start,
+        end=effective_end,
+        is_explicit=is_explicit,
+    )
+
+
+def _parse_schedule_time(raw: object) -> time | None:
+    if isinstance(raw, time):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    try:
+        hour, minute = raw.strip().split(":", 1)
+        return time(int(hour), int(minute))
+    except (TypeError, ValueError):
+        return None
+
+
+def _expand_schedule_to_slots(
+    schedule_json: list[dict],
+    start_date: date,
+    end_date: date,
+    *,
+    designation_id: int | None = None,
+) -> list[ScheduledSlot]:
+    """Strictly expand a designation schedule into canonical dated slots."""
+    _resolve_payroll_period(start_date.month, start_date.year, start_date, end_date)
+    slots_by_weekday: dict[str, list[tuple[time, time, int]]] = {}
+    invalid: list[str] = []
+    for index, slot in enumerate(schedule_json or []):
+        weekday = _normalize_day(slot.get("dia", ""))
+        slot_start = _parse_schedule_time(slot.get("hora_inicio"))
+        slot_end = _parse_schedule_time(slot.get("hora_fin"))
+        try:
+            hours = int(slot.get("horas_academicas", 0) or 0)
+        except (TypeError, ValueError):
+            hours = 0
+        if weekday not in WEEKDAY_MAP.values() or slot_start is None or slot_end is None or hours <= 0:
+            invalid.append(f"slot {index + 1}: {slot!r}")
+            continue
+        if slot_start >= slot_end:
+            invalid.append(f"slot {index + 1}: hora_inicio debe ser anterior a hora_fin")
+            continue
+        slots_by_weekday.setdefault(weekday, []).append((slot_start, slot_end, hours))
+
+    if invalid:
+        label = f" de la designación {designation_id}" if designation_id is not None else ""
+        raise PayrollDataError(
+            f"El horario{label} contiene datos inválidos; corregilos antes de generar la planilla",
+            code="invalid_schedule",
+            sample=invalid[:10],
+        )
+
+    result: list[ScheduledSlot] = []
+    current = start_date
+    while current <= end_date:
+        weekday = WEEKDAY_MAP[current.weekday()]
+        for slot_start, slot_end, hours in slots_by_weekday.get(weekday, []):
+            result.append(ScheduledSlot(current, slot_start, slot_end, hours))
+        current += timedelta(days=1)
+
+    keys = [(slot.slot_date, slot.scheduled_start) for slot in result]
+    duplicates = [key for key, count in Counter(keys).items() if count > 1]
+    if duplicates:
+        label = f"La designación {designation_id}" if designation_id is not None else "El horario"
+        raise PayrollDataError(
+            f"{label} contiene slots duplicados con la misma fecha y hora de inicio",
+            code="duplicate_schedule_slot",
+            sample=[
+                f"{day.isoformat()} {slot_start.strftime('%H:%M')}"
+                for day, slot_start in duplicates[:10]
+            ],
+        )
+    return result
+
+
+def _calculate_designation_base_hours(
+    designation: Designation,
+    effective_range: EffectiveDesignationRange,
+    excluded_days: "list[ExcludedDaySchema]",
+) -> int:
+    """Calculate payable base before absences using contract and exclusion rules."""
+    if effective_range.start is None or effective_range.end is None:
+        return 0
+
+    schedule = designation.schedule_json or []
+    monthly_hours = int(designation.monthly_hours or 0)
+    if monthly_hours > 0 and not schedule:
+        raise PayrollDataError(
+            f"La designación {designation.id} tiene {monthly_hours} horas mensuales pero no tiene horario",
+            code="missing_schedule",
+        )
+
+    exact_calendar = effective_range.is_explicit or effective_range.is_contract_limited
+    if exact_calendar:
+        slots = _expand_schedule_to_slots(
+            schedule,
+            effective_range.start,
+            effective_range.end,
+            designation_id=designation.id,
+        )
+        return sum(
+            slot.academic_hours
+            for slot in slots
+            if not _is_excluded(
+                slot.slot_date,
+                designation.semester,
+                designation.subject,
+                designation.group_code,
+                excluded_days,
+            )
+        )
+
+    excluded_scheduled_hours = 0
+    if excluded_days:
+        slots = _expand_schedule_to_slots(
+            schedule,
+            effective_range.start,
+            effective_range.end,
+            designation_id=designation.id,
+        )
+        excluded_scheduled_hours = sum(
+            slot.academic_hours
+            for slot in slots
+            if _is_excluded(
+                slot.slot_date,
+                designation.semester,
+                designation.subject,
+                designation.group_code,
+                excluded_days,
+            )
+        )
+    return max(0, monthly_hours - excluded_scheduled_hours)
+
+
+def _reconcile_daily_hours(
+    daily_hours: dict[date, int],
+    daily_status: dict[date, str],
+    target_hours: int,
+) -> None:
+    """Cap visible hours chronologically so Excel day cells equal payable hours."""
+    remaining = target_hours
+    for slot_date in sorted(daily_hours):
+        if daily_status.get(slot_date) == "EXCLUDED":
+            daily_hours[slot_date] = 0
+            continue
+        visible = max(0, int(daily_hours[slot_date] or 0))
+        daily_hours[slot_date] = min(visible, remaining)
+        remaining -= daily_hours[slot_date]
+    if remaining:
+        raise PayrollDataError(
+            f"El horario visible solo representa {target_hours - remaining}h, "
+            f"pero el cálculo pagable exige {target_hours}h",
+            code="schedule_hours_mismatch",
+        )
 
 
 def _index_schedule_by_weekday(schedule_json: list[dict]) -> dict[str, int]:
@@ -476,17 +733,12 @@ def _build_day_window(
 
     Otherwise falls back to days 1..N of the target month (legacy behavior).
     """
-    if start_date and end_date:
-        if start_date > end_date:
-            raise ValueError(
-                f"start_date ({start_date}) cannot be after end_date ({end_date})"
-            )
-        num_days = (end_date - start_date).days + 1
-        if num_days > 62:
-            raise ValueError(
-                f"Day window is too large ({num_days} days). Maximum supported is 62."
-            )
-        return [start_date + timedelta(days=i) for i in range(num_days)]
+    if start_date is not None or end_date is not None:
+        resolved_start, resolved_end, _ = _resolve_payroll_period(
+            month, year, start_date, end_date,
+        )
+        num_days = (resolved_end - resolved_start).days + 1
+        return [resolved_start + timedelta(days=i) for i in range(num_days)]
 
     # Fallback: full target month
     _, days_in_month = calendar.monthrange(year, month)
@@ -505,10 +757,8 @@ def _build_month_blocks(
     the same calendar month): returns ONE block covering the target month
     with the full month as the active range.
 
-    Cross-month (``start_date``/``end_date`` cross a month boundary, e.g.
-    ``Mar 21 → Apr 20``): returns TWO blocks — one for the previous month
-    (days 1..N of that month, active range = ``start_date.day``..N) and one
-    for the target month (days 1..M, active range = 1..``end_date.day``).
+    Cross-month ranges return one block for every intersected month, including
+    middle months in ranges such as Apr 30 through Jun 30.
 
     A 1-column visual spacer between blocks is NOT part of the block itself;
     it is implied by the gap between ``blocks[0].col_start + blocks[0].days_in_month``
@@ -517,31 +767,25 @@ def _build_month_blocks(
     Raises:
         ValueError: if ``start_date > end_date`` or the total span exceeds 62 days.
     """
-    # Validation mirrors _build_day_window
-    if start_date and end_date:
-        if start_date > end_date:
-            raise ValueError(
-                f"start_date ({start_date}) cannot be after end_date ({end_date})"
-            )
-        num_days = (end_date - start_date).days + 1
-        if num_days > 62:
-            raise ValueError(
-                f"Day window is too large ({num_days} days). Maximum supported is 62."
-            )
+    requested_start, requested_end, is_explicit = _resolve_payroll_period(
+        month, year, start_date, end_date,
+    )
 
     # Same-month case: ONE block covering the target calendar month fully.
     if (
-        start_date is None
-        or end_date is None
-        or (start_date.month == end_date.month and start_date.year == end_date.year)
+        not is_explicit
+        or (
+            requested_start.month == requested_end.month
+            and requested_start.year == requested_end.year
+        )
     ):
         # When the cutoff fits in one month but differs from the target
         # (unlikely but possible), honor the provided month/year of the range.
-        if start_date and end_date:
-            blk_month = start_date.month
-            blk_year = start_date.year
-            active_start = start_date.day
-            active_end = end_date.day
+        if is_explicit:
+            blk_month = requested_start.month
+            blk_year = requested_start.year
+            active_start = requested_start.day
+            active_end = requested_end.day
         else:
             blk_month = month
             blk_year = year
@@ -561,41 +805,32 @@ def _build_month_blocks(
             )
         ]
 
-    # Cross-month case: TWO blocks.
-    # Block 0: start_date's month (active range = start_date.day .. end-of-month)
-    prev_month = start_date.month
-    prev_year = start_date.year
-    _, days_in_prev = calendar.monthrange(prev_year, prev_month)
-
-    # Block 1: end_date's month (active range = 1 .. end_date.day)
-    tgt_month = end_date.month
-    tgt_year = end_date.year
-    _, days_in_tgt = calendar.monthrange(tgt_year, tgt_month)
-
-    # Block 0 starts at DAY_COL_START; Block 1 starts after days_in_prev cols + 1 spacer.
-    block0_col_start = DAY_COL_START
-    block1_col_start = DAY_COL_START + days_in_prev + 1  # +1 spacer column
-
-    return [
-        MonthBlock(
-            month=prev_month,
-            year=prev_year,
-            month_name=MONTH_NAMES.get(prev_month, str(prev_month)),
-            days_in_month=days_in_prev,
-            col_start=block0_col_start,
-            active_start=start_date.day,
-            active_end=days_in_prev,
-        ),
-        MonthBlock(
-            month=tgt_month,
-            year=tgt_year,
-            month_name=MONTH_NAMES.get(tgt_month, str(tgt_month)),
-            days_in_month=days_in_tgt,
-            col_start=block1_col_start,
-            active_start=1,
-            active_end=end_date.day,
-        ),
-    ]
+    blocks: list[MonthBlock] = []
+    block_year = requested_start.year
+    block_month = requested_start.month
+    col_start = DAY_COL_START
+    while (block_year, block_month) <= (requested_end.year, requested_end.month):
+        days_in_month = calendar.monthrange(block_year, block_month)[1]
+        is_first = (block_year, block_month) == (requested_start.year, requested_start.month)
+        is_last = (block_year, block_month) == (requested_end.year, requested_end.month)
+        blocks.append(
+            MonthBlock(
+                month=block_month,
+                year=block_year,
+                month_name=MONTH_NAMES.get(block_month, str(block_month)),
+                days_in_month=days_in_month,
+                col_start=col_start,
+                active_start=requested_start.day if is_first else 1,
+                active_end=requested_end.day if is_last else days_in_month,
+            )
+        )
+        col_start += days_in_month + 1
+        if block_month == 12:
+            block_month = 1
+            block_year += 1
+        else:
+            block_month += 1
+    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -738,31 +973,11 @@ class PlanillaGenerator:
         discount_mode: str = "attendance",
         excluded_days: "list[ExcludedDaySchema] | None" = None,
     ) -> tuple[list[PlanillaRow], list[DetailRow], list[str]]:
-        """
-        Build PlanillaRow and DetailRow lists from DB data.
-
-        Model C logic:
-          - Iterates ALL designations (not just those with attendance records).
-          - Teachers WITHOUT any biometric record for this period get full pay.
-          - Teachers WITH biometric records: deduct only ABSENT hours from monthly_hours.
-          - When discount_mode="full", ALL teachers get full pay regardless of attendance.
-
-        Args:
-            start_date: When provided, attendance records are filtered to >= start_date.
-            end_date:   When provided, attendance records are filtered to <= end_date.
-            discount_mode: "attendance" (default, apply discounts) or "full" (no discounts).
-            excluded_days: Optional list of day exclusions. Empty/None = no exclusions.
-        """
+        """Build canonical payroll rows shared by every regular-planilla consumer."""
         warnings: list[str] = []
-
-        # Rate and active period are pulled once per generation from app_settings.
+        exclusions = excluded_days or []
         hourly_rate = app_settings_service.get_hourly_rate(db)
         active_period = app_settings_service.get_active_academic_period(db)
-
-        # ── Step 1: Load REGULAR designations (scoped to active academic period) ──
-        # Practice designations (designation_type="practice") are handled by
-        # PracticePlanillaGenerator — they have a different rate and attendance
-        # source, so they must NOT appear in the regular planilla.
         all_designations: list[Designation] = (
             db.query(Designation)
             .filter(
@@ -776,94 +991,46 @@ class PlanillaGenerator:
             warnings.append("No hay designaciones en la base de datos")
             return [], [], warnings
 
-        # ── discount_mode="full": skip attendance & biometric entirely ──
-        # When the admin chooses "sin descuentos", biometric data is irrelevant
-        # — everyone gets full pay regardless of attendance. We skip the
-        # attendance query, biometric lookup, and indexing to avoid unnecessary
-        # DB work and to allow generating planillas without any biometric upload.
-        if discount_mode == "full":
-            logger.info(
-                "discount_mode=full — skipping attendance/biometric queries, "
-                "all teachers receive full pay"
+        period_start, period_end, _ = _resolve_payroll_period(
+            month, year, start_date, end_date,
+        )
+        effective_ranges = {
+            desig.id: _effective_designation_range(
+                desig, month, year, start_date, end_date,
             )
-            att_records = []
-            att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
-            cis_with_biometric: set[str] = set()
-        else:
-            # ── Step 2: Load attendance records for this period ─────────────
-            # When both start_date and end_date are provided (cross-month cutoff),
-            # filter ONLY by the date range — NOT by the target month/year columns,
-            # because records from the previous month (e.g. March records when the
-            # target is April) were tagged with month=3 during ingestion.
-            if start_date is not None and end_date is not None:
-                att_query = db.query(AttendanceRecord).filter(
-                    AttendanceRecord.date >= start_date,
-                    AttendanceRecord.date <= end_date,
-                )
-            else:
-                att_query = db.query(AttendanceRecord).filter(
-                    AttendanceRecord.month == month,
-                    AttendanceRecord.year == year,
-                )
-                if start_date is not None:
-                    att_query = att_query.filter(AttendanceRecord.date >= start_date)
-                if end_date is not None:
-                    att_query = att_query.filter(AttendanceRecord.date <= end_date)
+            for desig in all_designations
+        }
 
+        if discount_mode == "full":
+            logger.info("discount_mode=full — skipping regular attendance queries")
+            att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
+        else:
+            designation_ids = [desig.id for desig in all_designations]
+            att_query = db.query(AttendanceRecord).filter(
+                AttendanceRecord.designation_id.in_(designation_ids),
+                AttendanceRecord.date >= period_start,
+                AttendanceRecord.date <= period_end,
+            )
             att_records: list[AttendanceRecord] = (
                 att_query
-                .order_by(AttendanceRecord.teacher_ci, AttendanceRecord.date)
+                .order_by(
+                    AttendanceRecord.designation_id,
+                    AttendanceRecord.date,
+                    AttendanceRecord.scheduled_start,
+                )
                 .all()
             )
-
-            if not att_records:
-                logger.info(
-                    "No attendance records found for %d/%d — all docentes get full pay (Model C)",
-                    month,
-                    year,
-                )
-                warnings.append(
-                    f"Sin registros de asistencia para {MONTH_NAMES.get(month)} {year} — "
-                    f"todos los docentes recibirán pago completo (sin biométrico)"
-                )
-
-            # ── Step 3: Index attendance by (teacher_ci, designation_id) ───
+            self._validate_attendance_coverage(
+                all_designations,
+                att_records,
+                effective_ranges,
+                exclusions,
+            )
             att_index = {}
             for rec in att_records:
                 key = (rec.teacher_ci, rec.designation_id)
                 att_index.setdefault(key, []).append(rec)
 
-            # ── Step 3b: Determine which teachers have REAL biometric data ──
-            # When cross-month (both start_date and end_date provided), query by
-            # date range on BiometricRecord.date so we include uploads from both
-            # months (e.g. March upload + April upload for a Mar 21 → Apr 20 window).
-            # When single-month (no cutoff dates), scope to the target month/year
-            # to avoid treating a teacher with March-only biometric data as "has bio"
-            # in a standalone April planilla.
-            bio_query = (
-                db.query(BiometricRecord.teacher_ci)
-                .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
-            )
-            if start_date is not None and end_date is not None:
-                bio_query = bio_query.filter(
-                    BiometricRecord.date >= start_date,
-                    BiometricRecord.date <= end_date,
-                )
-            else:
-                bio_query = bio_query.filter(
-                    BiometricUpload.month == month,
-                    BiometricUpload.year == year,
-                )
-            cis_with_biometric = {
-                row[0] for row in bio_query.distinct().all()
-            }
-
-        logger.info(
-            "_build_planilla_data: %d teacher CIs with real biometric records",
-            len(cis_with_biometric),
-        )
-
-        # ── Step 4: Bulk-load teachers ──────────────────────────────────
         all_teacher_cis = {d.teacher_ci for d in all_designations}
         teachers: dict[str, Teacher] = {
             t.ci: t
@@ -872,39 +1039,48 @@ class PlanillaGenerator:
 
         planilla_rows: list[PlanillaRow] = []
         detail_rows: list[DetailRow] = []
-
-        # ── Step 5: One PlanillaRow per designation ─────────────────────
         for desig in all_designations:
             ci = desig.teacher_ci
             teacher = teachers.get(ci)
-
             if teacher is None:
-                warnings.append(f"Docente CI {ci} no encontrado en la base (designación {desig.id})")
-                continue
+                raise PayrollDataError(
+                    f"La designación {desig.id} referencia al docente CI {ci}, que no existe",
+                    code="missing_teacher",
+                )
 
             key = (ci, desig.id)
-            records = att_index.get(key, [])
-
-            # A teacher "has biometric" if ANY attendance record exists for them this month.
-            # If they have no attendance records at all, they get full pay.
-            has_biometric = ci in cis_with_biometric
+            effective_range = effective_ranges[desig.id]
+            records = [
+                record
+                for record in att_index.get(key, [])
+                if effective_range.start is not None
+                and effective_range.end is not None
+                and effective_range.start <= record.date <= effective_range.end
+                and not _is_excluded(
+                    record.date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    exclusions,
+                )
+            ]
 
             row = self._build_row(
                 teacher,
                 desig,
                 records,
-                has_biometric=has_biometric,
+                has_biometric=bool(records),
                 discount_mode=discount_mode,
                 hourly_rate=hourly_rate,
                 start_date=start_date,
                 end_date=end_date,
                 month=month,
                 year=year,
-                excluded_days=excluded_days or [],
+                excluded_days=exclusions,
+                effective_range=effective_range,
             )
             planilla_rows.append(row)
 
-            # Build detail rows for each attendance slot (only when records exist)
             for rec in records:
                 detail_rows.append(
                     DetailRow(
@@ -923,18 +1099,119 @@ class PlanillaGenerator:
                     )
                 )
 
-        # Sort planilla rows: by teacher name, then subject, then group
         planilla_rows.sort(key=lambda r: (r.teacher_name, r.subject, r.group_code))
         detail_rows.sort(key=lambda r: (r.teacher_name, r.date, r.scheduled_start))
-
         logger.info(
-            "_build_planilla_data: %d rows (%d with biometric, %d without), %d detail records",
+            "_build_planilla_data: %d rows, %d detail records",
             len(planilla_rows),
-            len(cis_with_biometric),
-            len({d.teacher_ci for d in all_designations} - cis_with_biometric),
             len(detail_rows),
         )
         return planilla_rows, detail_rows, warnings
+
+    def _validate_attendance_coverage(
+        self,
+        designations: list[Designation],
+        records: list[AttendanceRecord],
+        effective_ranges: dict[int, EffectiveDesignationRange],
+        excluded_days: "list[ExcludedDaySchema]",
+    ) -> None:
+        records_by_designation: dict[int, list[AttendanceRecord]] = {}
+        for record in records:
+            records_by_designation.setdefault(record.designation_id, []).append(record)
+
+        issues: list[str] = []
+        missing_count = duplicate_count = unexpected_count = invalid_count = 0
+        valid_statuses = {"ATTENDED", "LATE", "ABSENT", "NO_EXIT"}
+        for desig in designations:
+            effective_range = effective_ranges[desig.id]
+            if effective_range.start is None or effective_range.end is None:
+                continue
+            if int(desig.monthly_hours or 0) > 0 and not (desig.schedule_json or []):
+                raise PayrollDataError(
+                    f"La designación {desig.id} tiene horas mensuales pero no tiene horario",
+                    code="missing_schedule",
+                )
+            slots = _expand_schedule_to_slots(
+                desig.schedule_json or [],
+                effective_range.start,
+                effective_range.end,
+                designation_id=desig.id,
+            )
+            expected = {
+                (desig.teacher_ci, desig.id, slot.slot_date, slot.scheduled_start): slot
+                for slot in slots
+                if not _is_excluded(
+                    slot.slot_date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    excluded_days,
+                )
+            }
+            relevant = [
+                record
+                for record in records_by_designation.get(desig.id, [])
+                if effective_range.start <= record.date <= effective_range.end
+                and not _is_excluded(
+                    record.date,
+                    desig.semester,
+                    desig.subject,
+                    desig.group_code,
+                    excluded_days,
+                )
+            ]
+            actual: dict[tuple[str, int, date, time], list[AttendanceRecord]] = {}
+            for record in relevant:
+                key = (record.teacher_ci, record.designation_id, record.date, record.scheduled_start)
+                actual.setdefault(key, []).append(record)
+
+            for key, slot in expected.items():
+                matches = actual.get(key, [])
+                label = (
+                    f"designación {desig.id}, CI {desig.teacher_ci}, "
+                    f"{slot.slot_date.isoformat()} {slot.scheduled_start.strftime('%H:%M')}"
+                )
+                if not matches:
+                    missing_count += 1
+                    issues.append(f"Falta AttendanceRecord: {label}")
+                    continue
+                if len(matches) > 1:
+                    duplicate_count += len(matches) - 1
+                    issues.append(f"AttendanceRecord duplicado: {label}")
+                    continue
+                record = matches[0]
+                status_value = (record.status or "").upper()
+                expected_hours = 0 if status_value == "ABSENT" else slot.academic_hours
+                if (
+                    status_value not in valid_statuses
+                    or record.scheduled_end != slot.scheduled_end
+                    or record.academic_hours != expected_hours
+                ):
+                    invalid_count += 1
+                    issues.append(
+                        f"AttendanceRecord incoherente: {label}, estado={record.status!r}, "
+                        f"fin={record.scheduled_end}, horas={record.academic_hours}; "
+                        f"esperado fin={slot.scheduled_end}, horas={expected_hours}"
+                    )
+
+            unexpected = set(actual) - set(expected)
+            unexpected_count += len(unexpected)
+            issues.extend(
+                "AttendanceRecord sin slot programado: "
+                f"designación {key[1]}, CI {key[0]}, "
+                f"{key[2].isoformat()} {key[3].strftime('%H:%M')}"
+                for key in sorted(unexpected, key=lambda value: (value[1], value[2], value[3]))
+            )
+
+        if issues:
+            raise PayrollDataError(
+                "La cobertura regular está incompleta o contiene datos incoherentes "
+                f"(faltantes={missing_count}, duplicados={duplicate_count}, "
+                f"sobrantes={unexpected_count}, inválidos={invalid_count}). "
+                "Reprocesá la asistencia antes de generar la planilla",
+                code="regular_attendance_coverage",
+                sample=issues[:10],
+            )
 
     def _build_row(
         self,
@@ -949,6 +1226,7 @@ class PlanillaGenerator:
         month: int = 0,
         year: int = 0,
         excluded_days: "list[ExcludedDaySchema] | None" = None,
+        effective_range: EffectiveDesignationRange | None = None,
     ) -> PlanillaRow:
         """
         Build a single PlanillaRow using Payment Model C.
@@ -977,6 +1255,13 @@ class PlanillaGenerator:
         absent_count = 0
         absent_count_by_day: dict[date, int] = {}  # track per-day for exclusion undo
         observations: list[str] = []
+
+        if effective_range is None and (month and year or start_date is not None or end_date is not None):
+            range_month = month or (start_date.month if start_date is not None else 0)
+            range_year = year or (start_date.year if start_date is not None else 0)
+            effective_range = _effective_designation_range(
+                desig, range_month, range_year, start_date, end_date,
+            )
 
         for rec in records:
             day = rec.date   # full date — supports cross-month day windows
@@ -1030,20 +1315,20 @@ class PlanillaGenerator:
         #   - Does NOT bump attended_hours (these are scheduled, not verified)
         #   - Works for both cross-month (start/end provided) and single-month (derived)
         if desig.schedule_json:
-            # Derive effective window: use cutoff dates if provided, else full target month
-            if start_date and end_date:
-                eff_start, eff_end = start_date, end_date
-            elif month and year:
-                _, last_day = calendar.monthrange(year, month)
-                eff_start = date(year, month, 1)
-                eff_end = date(year, month, last_day)
-            else:
-                eff_start, eff_end = None, None
+            eff_start = effective_range.start if effective_range else None
+            eff_end = effective_range.end if effective_range else None
 
             if eff_start and eff_end:
-                scheduled_daily = _expand_schedule_to_daily(
-                    desig.schedule_json, eff_start, eff_end
-                )
+                scheduled_daily: dict[date, int] = {}
+                for slot in _expand_schedule_to_slots(
+                    desig.schedule_json,
+                    eff_start,
+                    eff_end,
+                    designation_id=desig.id,
+                ):
+                    scheduled_daily[slot.slot_date] = (
+                        scheduled_daily.get(slot.slot_date, 0) + slot.academic_hours
+                    )
                 for d, hrs in scheduled_daily.items():
                     if d not in daily_hours:
                         daily_hours[d] = hrs
@@ -1069,106 +1354,12 @@ class PlanillaGenerator:
                     daily_hours[d] = 0
                     daily_status[d] = "EXCLUDED"
 
-        # ── Model C payment calculation ─────────────────────────────────
-        # When a cutoff period is specified (start_date + end_date), calculate
-        # hours from the ACTUAL calendar days in the period instead of using
-        # the static monthly_hours (which assumes 4 weeks per month).
-        # This ensures a teacher with 5 Mondays in the period gets paid for 5,
-        # not the fixed 4 assumed by the old weekly×4 formula.
-        if start_date and end_date and desig.schedule_json:
-            calendar_hours = _calculate_period_hours(
-                desig.schedule_json, start_date, end_date,
-                semester=desig.semester,
-                subject=desig.subject,
-                group_code=desig.group_code,
-                excluded_days=excluded_days,
+        if effective_range is not None:
+            base_monthly_hours = _calculate_designation_base_hours(
+                desig, effective_range, excluded_days,
             )
-            if calendar_hours > 0:
-                base_monthly_hours = calendar_hours
-            elif calendar_hours == 0 and excluded_days:
-                # Zero hours with exclusions present — but was it because
-                # exclusions removed all scheduled hours, or because the
-                # schedule never matched the period? Compare raw hours.
-                raw_hours = _calculate_period_hours(
-                    desig.schedule_json, start_date, end_date,
-                )
-                if raw_hours > 0:
-                    # All scheduled hours were excluded — intentional zero pay.
-                    base_monthly_hours = 0
-                else:
-                    # Schedule mismatch (no weekdays matched) — use fallback.
-                    fallback_raw = desig.monthly_hours or 0
-                    if fallback_raw > 0:
-                        num_days = (end_date - start_date).days + 1
-                        base_monthly_hours = round(fallback_raw * num_days / 30)
-                        logger.warning(
-                            "Designation %d (CI=%s, %s): calendar hours=0 from schedule_json "
-                            "— falling back to scaled monthly_hours (%d × %d/30 = %d). "
-                            "Check schedule_json day names: %s",
-                            desig.id, desig.teacher_ci, desig.subject,
-                            fallback_raw, num_days, base_monthly_hours,
-                            desig.schedule_json,
-                        )
-                        observations.append(
-                            f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
-                        )
-                    else:
-                        base_monthly_hours = 0
-            else:
-                # Schedule present but no weekday matched the period.
-                # This likely means malformed day names in schedule_json.
-                # Fall back to monthly_hours scaled proportionally to the period
-                # length to approximate the correct value without paying a full
-                # standard-month amount for a partial/custom window.
-                fallback_raw = desig.monthly_hours or 0
-                if fallback_raw > 0:
-                    num_days = (end_date - start_date).days + 1
-                    # Scale proportionally: monthly_hours assumes ~30 days
-                    base_monthly_hours = round(fallback_raw * num_days / 30)
-                    logger.warning(
-                        "Designation %d (CI=%s, %s): calendar hours=0 from schedule_json "
-                        "— falling back to scaled monthly_hours (%d × %d/30 = %d). "
-                        "Check schedule_json day names: %s",
-                        desig.id, desig.teacher_ci, desig.subject,
-                        fallback_raw, num_days, base_monthly_hours,
-                        desig.schedule_json,
-                    )
-                    observations.append(
-                        f"Horario no coincide con período — horas estimadas ({base_monthly_hours}h)"
-                    )
-                else:
-                    base_monthly_hours = 0
         else:
-            # No cutoff window — use static monthly_hours.
-            # When exclusions are present AND schedule_json exists, compute
-            # the exact hours for the full target month excluding skipped days.
-            base_monthly_hours = desig.monthly_hours or 0
-            if excluded_days and desig.schedule_json and month and year:
-                _, last_day = calendar.monthrange(year, month)
-                m_start = date(year, month, 1)
-                m_end = date(year, month, last_day)
-                try:
-                    raw_month_hours = _calculate_period_hours(
-                        desig.schedule_json, m_start, m_end,
-                    )
-                    month_hours = _calculate_period_hours(
-                        desig.schedule_json, m_start, m_end,
-                        semester=desig.semester,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
-                        excluded_days=excluded_days,
-                    )
-                    # Only apply exclusion-adjusted hours when the schedule
-                    # actually matched (raw > 0) and exclusions reduced it.
-                    if raw_month_hours > 0 and month_hours < base_monthly_hours:
-                        base_monthly_hours = month_hours
-                except ValueError:
-                    pass  # Keep static value on computation error
-
-        if not has_biometric:
-            # No biometric data at all → full pay, 0 deductions
-            absent_hours = 0
-            absent_count = 0
+            base_monthly_hours = int(desig.monthly_hours or 0)
 
         # discount_mode="full" → override: pay full assigned hours, zero deductions
         if discount_mode == "full":
@@ -1185,6 +1376,8 @@ class PlanillaGenerator:
             absent_hours = base_monthly_hours
 
         payable_hours = max(0, base_monthly_hours - absent_hours)
+        if desig.schedule_json and effective_range is not None:
+            _reconcile_daily_hours(daily_hours, daily_status, payable_hours)
         calculated_payment = payable_hours * hourly_rate
 
         # RC-IVA 13% retention
@@ -1204,8 +1397,6 @@ class PlanillaGenerator:
         obs_parts: list[str] = []
         if discount_mode == "full":
             obs_parts.append("Modo sin descuentos — pago completo")
-        if not has_biometric:
-            obs_parts.append("Sin biométrico — pago completo")
         if has_biometric and discount_mode != "full":
             if late_count > 0:
                 obs_parts.append(f"{late_count} tardanza{'s' if late_count > 1 else ''}")

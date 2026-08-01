@@ -86,6 +86,7 @@ def seed_core_data(db_session):
         total_hours=2,
         total_payment=Decimal("140.00"),
         status="generated",
+        discount_mode="full",
     )
     db_session.add(output)
     db_session.commit()

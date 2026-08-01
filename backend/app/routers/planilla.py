@@ -29,7 +29,7 @@ from app.schemas.planilla import (
 )
 from app.services import app_settings_service
 from app.services.attendance_engine import AttendanceEngine
-from app.services.planilla_generator import PlanillaGenerator
+from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.salary_report_generator import SalaryReportGenerator
 from app.services.activity_logger import log_activity
@@ -120,6 +120,12 @@ def generate_planilla(
     except HTTPException:
         db.rollback()
         raise
+    except PayrollDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Planilla generation failed: %s", exc)
@@ -313,6 +319,12 @@ def generate_salary_report(
     except HTTPException:
         db.rollback()
         raise
+    except PayrollDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Salary report generation failed: %s", exc)
@@ -441,8 +453,11 @@ def get_planilla_detail(
                         ExcludedDaySchema.model_validate(item)
                         for item in stored_for_exclusions.excluded_days_json
                     ]
-                except Exception:
-                    effective_exclusions = []
+                except Exception as exc:
+                    raise PayrollDataError(
+                        "La planilla almacenada contiene exclusiones inválidas; regenerala antes de previsualizar",
+                        code="invalid_stored_exclusions",
+                    ) from exc
 
         generator = PlanillaGenerator()
         rows, _detail_rows, warnings = generator._build_planilla_data(
@@ -585,6 +600,11 @@ def get_planilla_detail(
         return response
     except HTTPException:
         raise
+    except PayrollDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         logger.exception("Failed to load planilla detail: %s", exc)
         raise HTTPException(
@@ -852,8 +872,11 @@ def dashboard_summary(
                             ExcludedDaySchema.model_validate(item)
                             for item in stored_planilla.excluded_days_json
                         ]
-                    except Exception:
-                        pass  # If stored JSON is corrupt, proceed without exclusions
+                    except Exception as exc:
+                        raise PayrollDataError(
+                            "La planilla almacenada contiene exclusiones inválidas; regenerala antes de usar el dashboard",
+                            code="invalid_stored_exclusions",
+                        ) from exc
 
                 gen = PlanillaGenerator()
                 # Top earners require per-teacher rows. Totals use stored snapshots below
@@ -902,8 +925,11 @@ def dashboard_summary(
                             ExcludedDaySchema.model_validate(item)
                             for item in stored_practice_planilla.excluded_days_json
                         ]
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        raise PayrollDataError(
+                            "La planilla práctica almacenada contiene exclusiones inválidas; regenerala antes de usar el dashboard",
+                            code="invalid_stored_exclusions",
+                        ) from exc
 
                 practice_gen = PracticePlanillaGenerator()
                 practice_rows, _ = practice_gen._build_planilla_data(
@@ -936,6 +962,8 @@ def dashboard_summary(
                     else practice_total
                 )
                 top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
+            except PayrollDataError:
+                raise
             except Exception:
                 logger.warning("Could not compute top earners for dashboard")
 
@@ -977,6 +1005,11 @@ def dashboard_summary(
             billing_period_year=latest_period.year if latest_period else None,
             pending_requests=pending_requests,
         )
+    except PayrollDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as exc:
         logger.exception("Failed to load dashboard summary: %s", exc)
         raise HTTPException(

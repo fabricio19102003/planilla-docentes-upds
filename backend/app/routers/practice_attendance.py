@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from calendar import monthrange
 from datetime import date, time as time_type
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -25,6 +24,11 @@ from app.services.activity_logger import log_activity
 from app.services.practice_attendance_export import (
     generate_practice_attendance_pdf,
     generate_practice_attendance_excel,
+)
+from app.services.planilla_generator import (
+    PayrollDataError,
+    _effective_designation_range,
+    _resolve_payroll_period,
 )
 from app.utils.auth import require_admin
 
@@ -62,17 +66,13 @@ def _parse_time(t: str) -> time_type | None:
 
 def _resolve_period(month: int, year: int, start_date: date | None, end_date: date | None) -> tuple[date, date]:
     """Resolve optional date bounds against the selected month."""
-    month_start = date(year, month, 1)
-    _, last_day = monthrange(year, month)
-    month_end = date(year, month, last_day)
-
-    period_start = start_date or month_start
-    period_end = end_date or month_end
-
-    if period_start > period_end:
-        raise HTTPException(400, detail="start_date no puede ser posterior a end_date")
-
-    return period_start, period_end
+    try:
+        period_start, period_end, _ = _resolve_payroll_period(
+            month, year, start_date, end_date,
+        )
+        return period_start, period_end
+    except PayrollDataError as exc:
+        raise HTTPException(400, detail=exc.as_detail()) from exc
 
 
 @router.post("/generate")
@@ -130,11 +130,18 @@ def generate_practice_attendance(
         existing.add((row[0], row[1], row[2], row[3]))
 
     created = 0
-    num_days = (period_end - period_start).days + 1
-
     for desig in practice_designations:
         schedule_json = desig.schedule_json or []
         if not schedule_json:
+            continue
+        effective_range = _effective_designation_range(
+            desig,
+            month,
+            year,
+            payload.start_date,
+            payload.end_date,
+        )
+        if effective_range.start is None or effective_range.end is None:
             continue
 
         # Build weekday → list of slots mapping
@@ -147,8 +154,9 @@ def generate_practice_attendance(
         # Iterate each day in the range
         from datetime import timedelta
 
-        for i in range(num_days):
-            current_date = period_start + timedelta(days=i)
+        effective_days = (effective_range.end - effective_range.start).days + 1
+        for i in range(effective_days):
+            current_date = effective_range.start + timedelta(days=i)
             weekday_name = WEEKDAY_MAP.get(current_date.weekday(), "")
             day_slots = slots_by_weekday.get(weekday_name, [])
 
