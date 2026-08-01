@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
@@ -55,7 +56,13 @@ class DesignationBilling(BaseModel):
     group: str
     hours: int
     semester: str
-    payment: float = 0.0
+    gross_payment: float
+    retention_rate: float
+    retention_amount: float
+    admin_adjustment: float
+    net_payment: float
+    payment: float  # Compatibility alias for net_payment; do not use for new calculations.
+    has_admin_override: bool
 
 
 class ExcludedDayInfo(BaseModel):
@@ -73,11 +80,17 @@ class BillingResponse(BaseModel):
     excluded_days: list[ExcludedDayInfo] = []
     total_hours: int
     rate_per_hour: float
+    gross_payment: float
+    retention_rate: float
+    retention_amount: float
+    admin_adjustment: float
+    net_payment: float
+    has_admin_override: bool
+    # Compatibility aliases for existing API consumers.
     total_payment: float
     adjusted_payment: Optional[float] = None
     has_retention: bool = False
-    retention_amount: float = 0.0
-    final_payment: float = 0.0
+    final_payment: float
     designations: list[DesignationBilling]
 
 
@@ -89,15 +102,105 @@ class BillingHistoryItem(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     excluded_days: list[ExcludedDayInfo] = []
-    total_hours: int
-    total_payment: float
+    data_status: Literal["available", "legacy_unavailable"] = "available"
+    unavailable_reason: Optional[str] = None
+    total_hours: Optional[int] = None
+    rate_per_hour: Optional[float] = None
+    gross_payment: Optional[float] = None
+    retention_rate: Optional[float] = None
+    retention_amount: Optional[float] = None
+    admin_adjustment: Optional[float] = None
+    net_payment: Optional[float] = None
+    has_admin_override: bool = False
+    # Compatibility aliases for existing API consumers.
+    total_payment: Optional[float] = None
     adjusted_payment: Optional[float] = None
+    has_retention: bool = False
+    final_payment: Optional[float] = None
     designations: list[DesignationBilling] = []
 
 
+class BillingUnavailableResponse(BaseModel):
+    month: int
+    year: int
+    month_name: str
+    planilla_type: str
+    data_status: Literal["published_unavailable"] = "published_unavailable"
+    unavailable_reason: str
+    total_hours: None = None
+    gross_payment: None = None
+    net_payment: None = None
+
+
 class CombinedBillingResponse(BaseModel):
-    regular: Optional[BillingResponse] = None
-    practice: Optional[BillingResponse] = None
+    regular: Optional[BillingResponse | BillingUnavailableResponse] = None
+    practice: Optional[BillingResponse | BillingUnavailableResponse] = None
+
+
+_MONEY_QUANTUM = Decimal("0.01")
+
+
+def _money(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value if value is not None else 0)).quantize(
+            _MONEY_QUANTUM,
+            rounding=ROUND_HALF_UP,
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0.00")
+
+
+def _designation_billing_from_snapshot(data: dict[str, Any], has_retention: bool) -> DesignationBilling:
+    financials = _snapshot_financials({**data, "has_retention": has_retention})
+    return DesignationBilling(
+        subject=str(data.get("subject", "")),
+        group=str(data.get("group", data.get("group_code", ""))),
+        hours=int(data.get("payable_hours", data.get("hours", 0)) or 0),
+        semester=str(data.get("semester", "")),
+        **financials,
+        payment=financials["net_payment"],
+    )
+
+
+def _snapshot_financials(teacher_data: dict[str, Any]) -> dict[str, Any]:
+    retention = _money(teacher_data.get("retention_amount", 0))
+    net = _money(
+        teacher_data.get(
+            "net_payment",
+            teacher_data.get(
+                "final_payment",
+                teacher_data.get("total_payment", teacher_data.get("payment", 0)),
+            ),
+        )
+    )
+    gross = (
+        _money(teacher_data["gross_payment"])
+        if "gross_payment" in teacher_data
+        else _money(net + retention)
+    )
+    rate_value = teacher_data.get("retention_rate")
+    try:
+        retention_rate = Decimal(str(rate_value)) if rate_value is not None else None
+        if retention_rate is not None and not (retention_rate.is_finite() and 0 <= retention_rate <= 1):
+            retention_rate = None
+    except (InvalidOperation, TypeError, ValueError):
+        retention_rate = None
+    if retention > 0 and retention_rate is None:
+        retention_rate = retention / gross if gross else Decimal("0")
+    elif retention == 0 and retention_rate is None and teacher_data.get("has_retention") and gross > 0:
+        retention_rate = Decimal("0.13")
+        retention = _money(gross * retention_rate)
+    retention_rate = retention_rate if retention_rate is not None else Decimal("0")
+    adjustment = _money(teacher_data.get("admin_adjustment", net - (gross - retention)))
+    has_override = bool(teacher_data.get("has_admin_override", adjustment != Decimal("0.00")))
+    return {
+        "gross_payment": gross,
+        "retention_rate": retention_rate,
+        "retention_amount": retention,
+        "admin_adjustment": adjustment,
+        "net_payment": net,
+        "has_admin_override": has_override,
+    }
 
 
 class ProfileResponse(BaseModel):
@@ -345,6 +448,12 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla
         is not None
     )
 
+    teacher_obj = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
+    has_retention = (
+        (teacher_obj.invoice_retention or "").strip().upper() == "RETENCION"
+        if teacher_obj else False
+    )
+
     designations: list[DesignationBilling] = []
     total_hours = 0
 
@@ -389,18 +498,19 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla
                 group=d.group_code,
                 hours=payable,
                 semester=d.semester,
-                payment=round(payable * rate, 2),
+                gross_payment=_money(payable * rate),
+                retention_rate=Decimal("0.13") if has_retention else Decimal("0"),
+                retention_amount=_money(payable * rate * (0.13 if has_retention else 0)),
+                admin_adjustment=Decimal("0.00"),
+                net_payment=_money(payable * rate * (0.87 if has_retention else 1)),
+                payment=_money(payable * rate * (0.87 if has_retention else 1)),
+                has_admin_override=False,
             )
         )
 
     total_payment = round(total_hours * rate, 2)
 
     # RC-IVA 13% retention
-    teacher_obj = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
-    has_retention = (
-        (teacher_obj.invoice_retention or "").strip().upper() == "RETENCION"
-        if teacher_obj else False
-    )
     retention_rate = 0.13 if has_retention else 0.0
     retention_amount = round(total_payment * retention_rate, 2)
     final_payment = round(total_payment - retention_amount, 2)
@@ -411,12 +521,17 @@ def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla
         month_name=MONTH_NAMES.get(month, str(month)),
         planilla_type=planilla_type,
         total_hours=total_hours,
-        rate_per_hour=rate,
-        total_payment=total_payment,
+        rate_per_hour=_money(rate),
+        gross_payment=_money(total_payment),
+        retention_rate=Decimal(str(retention_rate)),
+        retention_amount=_money(retention_amount),
+        admin_adjustment=Decimal("0.00"),
+        net_payment=_money(final_payment),
+        has_admin_override=False,
+        total_payment=_money(total_payment),
         adjusted_payment=None,
         has_retention=has_retention,
-        retention_amount=retention_amount,
-        final_payment=final_payment,
+        final_payment=_money(final_payment),
         designations=designations,
     )
 
@@ -436,7 +551,7 @@ def _build_billing_response_from_publication(
     """Build a BillingResponse from a published BillingPublication for a specific teacher.
 
     Returns None if the teacher has no data in this publication's snapshot.
-    Falls back to live calculation for legacy publications without snapshot.
+    Publications without snapshots are never reconstructed from mutable live data.
     """
     snapshot = pub.billing_snapshot
     ptype = pub.planilla_type or "regular"
@@ -448,20 +563,18 @@ def _build_billing_response_from_publication(
         )
         if teacher_data:
             designations = [
-                DesignationBilling(
-                    subject=d["subject"],
-                    group=d["group"],
-                    hours=d["payable_hours"],
-                    semester=d["semester"],
-                    payment=d["payment"],
-                )
+                _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
                 for d in teacher_data.get("designations", [])
             ]
             excluded_days = snapshot.get("excluded_days_json")
-            snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
             snap_has_retention = teacher_data.get("has_retention", False)
-            snap_retention_amount = teacher_data.get("retention_amount", 0.0)
-            snap_final_payment = teacher_data.get("final_payment", teacher_data["total_payment"])
+            financials = _snapshot_financials(teacher_data)
+            total_hours = int(teacher_data.get("total_hours", 0) or 0)
+            fallback_rate = (
+                financials["gross_payment"] / total_hours
+                if total_hours
+                else Decimal("0")
+            )
             return BillingResponse(
                 month=month,
                 year=year,
@@ -473,22 +586,21 @@ def _build_billing_response_from_publication(
                     excluded_days if isinstance(excluded_days, list) else [],
                     teacher_data,
                 ),
-                total_hours=teacher_data["total_hours"],
-                rate_per_hour=snapshot["rate_per_hour"] if "rate_per_hour" in snapshot else app_settings_service.get_hourly_rate(db),
-                total_payment=snap_gross,
-                adjusted_payment=None,
+                total_hours=total_hours,
+                rate_per_hour=_money(snapshot.get("rate_per_hour", fallback_rate)),
+                **financials,
+                total_payment=financials["gross_payment"],
+                adjusted_payment=(
+                    financials["net_payment"] if financials["has_admin_override"] else None
+                ),
                 has_retention=snap_has_retention,
-                retention_amount=snap_retention_amount,
-                final_payment=snap_final_payment,
+                final_payment=financials["net_payment"],
                 designations=designations,
             )
         # Teacher not in snapshot — they have no data in this publication
         return None
 
-    # Fallback: recalculate (legacy publications without snapshot)
-    if ptype == "regular":
-        return _build_billing(teacher_ci, month, year, db, planilla_type="regular")
-    # Practice publications without snapshots cannot be reconstructed from attendance data
+    # Legacy publications cannot be reconstructed safely from current settings/designations.
     return None
 
 
@@ -521,12 +633,24 @@ def get_current_billing(
             detail="La facturación de este mes aún no ha sido publicada",
         )
 
-    regular_billing: Optional[BillingResponse] = None
-    practice_billing: Optional[BillingResponse] = None
+    regular_billing: Optional[BillingResponse | BillingUnavailableResponse] = None
+    practice_billing: Optional[BillingResponse | BillingUnavailableResponse] = None
 
     for pub in publications:
         ptype = pub.planilla_type or "regular"
-        billing = _build_billing_response_from_publication(pub, teacher.ci, now.month, now.year, db)
+        if pub.billing_snapshot is None:
+            billing: BillingResponse | BillingUnavailableResponse | None = BillingUnavailableResponse(
+                month=now.month,
+                year=now.year,
+                month_name=MONTH_NAMES.get(now.month, str(now.month)),
+                planilla_type=ptype,
+                unavailable_reason=(
+                    "La facturación está publicada, pero sus horas y montos no están disponibles "
+                    "porque esta publicación no conserva el detalle conciliado."
+                ),
+            )
+        else:
+            billing = _build_billing_response_from_publication(pub, teacher.ci, now.month, now.year, db)
         if billing is None:
             continue
         if ptype == "practice":
@@ -578,19 +702,17 @@ def get_billing_history(
             )
             if teacher_data:
                 designations = [
-                    DesignationBilling(
-                        subject=d["subject"],
-                        group=d["group"],
-                        hours=d["payable_hours"],
-                        semester=d["semester"],
-                        payment=d["payment"],
-                    )
+                    _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
                     for d in teacher_data.get("designations", [])
                 ]
                 excluded_days = snapshot.get("excluded_days_json")
-                # gross_payment added in CRITICAL#1; old snapshots fall back to total_payment
-                snap_gross = teacher_data.get("gross_payment", teacher_data["total_payment"])
-                snap_final = teacher_data.get("final_payment", teacher_data["total_payment"])
+                financials = _snapshot_financials(teacher_data)
+                total_hours = int(teacher_data.get("total_hours", 0) or 0)
+                fallback_rate = (
+                    financials["gross_payment"] / total_hours
+                    if total_hours
+                    else Decimal("0")
+                )
                 history.append(
                     BillingHistoryItem(
                         month=pub.month,
@@ -603,9 +725,16 @@ def get_billing_history(
                             excluded_days if isinstance(excluded_days, list) else [],
                             teacher_data,
                         ),
-                        total_hours=teacher_data["total_hours"],
-                        total_payment=snap_gross,   # Bruto
-                        adjusted_payment=snap_final if snap_gross != snap_final else None,
+                        data_status="available",
+                        total_hours=total_hours,
+                        rate_per_hour=_money(snapshot.get("rate_per_hour", fallback_rate)),
+                        **financials,
+                        total_payment=financials["gross_payment"],
+                        adjusted_payment=(
+                            financials["net_payment"] if financials["has_admin_override"] else None
+                        ),
+                        has_retention=bool(teacher_data.get("has_retention", False)),
+                        final_payment=financials["net_payment"],
                         designations=designations,
                     )
                 )
@@ -613,25 +742,8 @@ def get_billing_history(
             # Teacher not in snapshot — skip this publication entry for this teacher
             continue
 
-        # Fallback: recalculate (backwards-compat for regular publications without snapshot)
-        if ptype == "regular":
-            billing = _build_billing(teacher.ci, pub.month, pub.year, db, planilla_type="regular")
-            history.append(
-                BillingHistoryItem(
-                    month=billing.month,
-                    year=billing.year,
-                    month_name=billing.month_name,
-                    planilla_type=billing.planilla_type,
-                    start_date=billing.start_date,
-                    end_date=billing.end_date,
-                    excluded_days=billing.excluded_days,
-                    total_hours=billing.total_hours,
-                    total_payment=billing.total_payment,
-                    adjusted_payment=billing.adjusted_payment,
-                    designations=billing.designations,
-                )
-            )
-        # Practice publications without snapshots cannot be reconstructed — skip silently
+        # Never infer personal history membership from current designations.
+        continue
 
     return history
 

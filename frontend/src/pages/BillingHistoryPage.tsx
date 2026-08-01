@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/shared/StatCard'
 import { TrendingUp, Receipt, Clock, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
-import type { BillingInfo } from '@/api/types'
+import type { BillingHistoryInfo } from '@/api/types'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -15,26 +15,26 @@ function BillingRow({
   isExpanded,
   onToggle,
 }: {
-  billing: BillingInfo
+  billing: BillingHistoryInfo
   isExpanded: boolean
   onToggle: () => void
 }) {
-  const displayPayment = billing.adjusted_payment ?? billing.total_payment
   const isPractice = billing.planilla_type === 'practice'
+  const isAvailable = billing.data_status === 'available'
 
   return (
     <>
       <tr
-        className="border-b hover:bg-blue-50 transition-colors cursor-pointer"
-        onClick={onToggle}
+        className={`border-b transition-colors ${isAvailable ? 'hover:bg-blue-50 cursor-pointer' : 'bg-amber-50/50'}`}
+        onClick={isAvailable ? onToggle : undefined}
       >
         <td className="px-4 py-3 font-medium text-gray-800">
           <div className="flex items-center gap-2">
-            {isExpanded ? (
+            {isAvailable && isExpanded ? (
               <ChevronDown size={14} className="text-gray-400" />
-            ) : (
+            ) : isAvailable ? (
               <ChevronRight size={14} className="text-gray-400" />
-            )}
+            ) : <AlertCircle size={14} className="text-amber-600" />}
             {billing.month_name}
           </div>
         </td>
@@ -50,40 +50,79 @@ function BillingRow({
             </Badge>
           )}
         </td>
-        <td className="px-4 py-3 text-gray-700 font-semibold">{billing.total_hours}h</td>
+        <td className="px-4 py-3 text-gray-700 font-semibold">
+          {isAvailable && billing.total_hours !== null ? `${billing.total_hours}h` : '—'}
+        </td>
         <td className="px-4 py-3 font-semibold" style={{ color: '#003366' }}>
-          {formatBs(displayPayment)}
-          {billing.adjusted_payment !== null && (
+          {isAvailable && billing.net_payment !== null ? formatBs(billing.net_payment) : 'Dato no disponible'}
+          {billing.has_admin_override && (
             <Badge className="ml-2 bg-yellow-100 text-yellow-700 border-yellow-200 text-xs">
               Ajustado
             </Badge>
           )}
         </td>
         <td className="px-4 py-3 text-gray-500 text-xs">
-          {(billing.designations?.length ?? 0)} materia{(billing.designations?.length ?? 0) !== 1 ? 's' : ''}
+          {isAvailable
+            ? `${billing.designations.length} materia${billing.designations.length !== 1 ? 's' : ''}`
+            : 'Histórico incompleto'}
         </td>
       </tr>
 
-      {/* Expanded detail rows */}
-      {isExpanded && (billing.designations ?? []).map((d, i) => (
-        <tr
-          key={i}
-          className="bg-blue-50/50 border-b last:border-0"
-        >
-          <td className="pl-10 pr-4 py-2 text-gray-600 text-sm">{d.subject}</td>
-          <td className="px-4 py-2" />
-          <td className="px-4 py-2">
-            <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-mono text-xs">
-              {d.group}
-            </Badge>
+      {!isAvailable && (
+        <tr className="border-b bg-amber-50/50">
+          <td colSpan={6} className="px-10 py-3 text-sm text-amber-800">
+            {billing.unavailable_reason ?? 'El detalle histórico no está disponible.'}
           </td>
-          <td className="px-4 py-2 text-gray-500 text-sm">{d.hours}h</td>
-          <td className="px-4 py-2 text-sm font-medium" style={{ color: '#0066CC' }}>
-            {formatBs(d.payment)}
-          </td>
-          <td className="px-4 py-2" />
         </tr>
-      ))}
+      )}
+
+      {isAvailable && isExpanded && (
+        <tr className="border-b bg-blue-50/50">
+          <td colSpan={6} className="px-6 py-4">
+            <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div><span className="text-gray-500">Bruto:</span> <strong>{formatBs(billing.gross_payment ?? 0)}</strong></div>
+              <div><span className="text-gray-500">RC-IVA / retención:</span> <strong className="text-red-700">- {formatBs(billing.retention_amount ?? 0)}</strong></div>
+              {billing.has_admin_override && (
+                <div><span className="text-gray-500">Ajuste administrativo:</span> <strong className="text-yellow-700">{formatBs(billing.admin_adjustment ?? 0)}</strong></div>
+              )}
+              <div><span className="text-gray-500">Neto final:</span> <strong style={{ color: '#003366' }}>{formatBs(billing.net_payment ?? 0)}</strong></div>
+            </div>
+            <div className="overflow-x-auto rounded border border-blue-100 bg-white">
+              <table className="w-full text-xs">
+                <thead className="bg-blue-100 text-blue-900">
+                  <tr>
+                    {[
+                      'Materia', 'Semestre', 'Grupo', 'Horas', 'Bruto', 'Retención',
+                      ...(billing.has_admin_override ? ['Ajuste'] : []),
+                      'Neto',
+                    ].map((heading) => (
+                      <th key={heading} className="px-3 py-2 text-left font-semibold">{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {billing.designations.map((designation, index) => (
+                    <tr key={`${designation.subject}-${designation.semester}-${designation.group}-${index}`} className="border-t">
+                      <td className="px-3 py-2 font-medium">{designation.subject}</td>
+                      <td className="px-3 py-2">{designation.semester}</td>
+                      <td className="px-3 py-2">{designation.group}</td>
+                      <td className="px-3 py-2">{designation.hours}h</td>
+                      <td className="px-3 py-2">{formatBs(designation.gross_payment)}</td>
+                      <td className="px-3 py-2 text-red-700">- {formatBs(designation.retention_amount)}</td>
+                      {billing.has_admin_override && (
+                        <td className="px-3 py-2 text-yellow-700">
+                          {designation.has_admin_override ? formatBs(designation.admin_adjustment) : '—'}
+                        </td>
+                      )}
+                      <td className="px-3 py-2 font-semibold">{formatBs(designation.net_payment)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
     </>
   )
 }
@@ -123,8 +162,9 @@ export function BillingHistoryPage() {
     )
   }
 
-  const totalPayment = history.reduce((sum, b) => sum + (b.adjusted_payment ?? b.total_payment), 0)
-  const totalHours = history.reduce((sum, b) => sum + b.total_hours, 0)
+  const availableHistory = history.filter((billing) => billing.data_status === 'available')
+  const totalPayment = availableHistory.reduce((sum, billing) => sum + (billing.net_payment ?? 0), 0)
+  const totalHours = availableHistory.reduce((sum, billing) => sum + (billing.total_hours ?? 0), 0)
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -148,7 +188,7 @@ export function BillingHistoryPage() {
           icon={TrendingUp}
           title="Total Acumulado"
           value={formatBs(totalPayment)}
-          subtitle="facturación total"
+          subtitle="solo datos conciliables"
           color="#4DA8DA"
         />
       </div>
@@ -168,7 +208,7 @@ export function BillingHistoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
-                  {['Mes', 'Año', 'Tipo', 'Horas', 'Pago Total', 'Materias'].map((h) => (
+                  {['Mes', 'Año', 'Tipo', 'Horas', 'Neto Final', 'Materias'].map((h) => (
                     <th
                       key={h}
                       className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"

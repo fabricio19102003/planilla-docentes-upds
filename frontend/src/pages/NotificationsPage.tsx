@@ -1,9 +1,14 @@
 import { useNotifications, useMarkRead, useMarkAllRead } from '@/api/hooks/useNotifications'
-import { Bell, CheckCheck, Clock, Receipt } from 'lucide-react'
+import { AlertCircle, Bell, CheckCheck, Clock, Receipt } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
+function getNotificationErrorMessage(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  return typeof detail === 'string' ? detail : fallback
+}
+
 export function NotificationsPage() {
-  const { data: notifications, isLoading } = useNotifications()
+  const { data: notifications, isLoading, error, refetch, isFetching } = useNotifications()
   const markRead = useMarkRead()
   const markAllRead = useMarkAllRead()
 
@@ -11,6 +16,27 @@ export function NotificationsPage() {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+        <AlertCircle size={40} className="text-red-500 mx-auto mb-3" />
+        <p className="text-red-700 font-medium">No se pudieron cargar tus notificaciones</p>
+        <p className="text-red-600 text-sm mt-1">
+          {getNotificationErrorMessage(error, 'Ocurrió un problema al consultar el servidor.')}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+        >
+          {isFetching ? 'Reintentando...' : 'Reintentar'}
+        </Button>
       </div>
     )
   }
@@ -32,14 +58,33 @@ export function NotificationsPage() {
             variant="outline"
             size="sm"
             className="gap-2 text-sm"
-            onClick={() => markAllRead.mutate()}
-            disabled={markAllRead.isPending}
+            onClick={() => {
+              markAllRead.reset()
+              markAllRead.mutate()
+            }}
+            disabled={markAllRead.isPending || markRead.isPending}
           >
             <CheckCheck size={14} />
-            Marcar todo como leído
+            {markAllRead.isPending ? 'Marcando...' : 'Marcar todo como leído'}
           </Button>
         )}
       </div>
+
+      {(markRead.error || markAllRead.error) && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {getNotificationErrorMessage(
+            markRead.error ?? markAllRead.error,
+            'No se pudo actualizar la notificación. Intentá de nuevo.',
+          )}
+        </div>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {markAllRead.isPending
+          ? 'Marcando todas las notificaciones como leídas.'
+          : markRead.isPending
+            ? 'Marcando la notificación como leída.'
+            : ''}
+      </p>
 
       {/* Notifications list */}
       {!notifications?.length ? (
@@ -60,8 +105,12 @@ export function NotificationsPage() {
               <button
               key={notif.id}
               onClick={() => {
-                if (!notif.is_read) markRead.mutate(notif.id)
+                if (!notif.is_read && !markRead.isPending && !markAllRead.isPending) {
+                  markRead.reset()
+                  markRead.mutate(notif.id)
+                }
               }}
+              disabled={markRead.isPending || markAllRead.isPending || notif.is_read}
               className={`w-full text-left card-3d-static p-4 flex items-start gap-3 transition-all ${
                 !notif.is_read ? 'border-l-4 border-l-[#0066CC] bg-blue-50/30' : ''
               }`}

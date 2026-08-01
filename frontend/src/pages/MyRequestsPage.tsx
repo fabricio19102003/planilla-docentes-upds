@@ -20,8 +20,13 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { PlusCircle, MessageSquare, Eye } from 'lucide-react'
+import { AlertCircle, PlusCircle, MessageSquare, Eye } from 'lucide-react'
 import type { DetailRequestInfo } from '@/api/types'
+
+function getRequestErrorMessage(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  return typeof detail === 'string' ? detail : fallback
+}
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
   biometric_detail: 'Detalle Biométrico',
@@ -82,13 +87,15 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
       })
       setForm({ month: currentMonth, year: currentYear, request_type: '', message: '' })
       onClose()
-    } catch {
-      setError('No se pudo enviar la solicitud. Intentá de nuevo.')
+    } catch (err: unknown) {
+      setError(getRequestErrorMessage(err, 'No se pudo enviar la solicitud. Intentá de nuevo.'))
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen && !createReq.isPending) onClose()
+    }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle style={{ color: '#003366' }}>Nueva Solicitud</DialogTitle>
@@ -155,13 +162,13 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
               {error}
             </p>
           )}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={createReq.isPending}>
               Cancelar
             </Button>
             <Button
@@ -252,7 +259,7 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
 }
 
 export function MyRequestsPage() {
-  const { data: requests, isLoading } = useMyRequests()
+  const { data: requests, isLoading, error, refetch, isFetching } = useMyRequests()
   const [createOpen, setCreateOpen] = useState(false)
   const [viewTarget, setViewTarget] = useState<DetailRequestInfo | null>(null)
 
@@ -260,6 +267,27 @@ export function MyRequestsPage() {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
+        <AlertCircle size={40} className="text-red-500 mx-auto mb-3" />
+        <p className="text-red-700 font-medium">No se pudieron cargar tus solicitudes</p>
+        <p className="text-red-600 text-sm mt-1">
+          {getRequestErrorMessage(error, 'Ocurrió un problema al consultar el servidor.')}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+        >
+          {isFetching ? 'Reintentando...' : 'Reintentar'}
+        </Button>
       </div>
     )
   }

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/layout/Logo'
 import { AlertCircle, LogIn, Eye, EyeOff, ShieldAlert } from 'lucide-react'
+import { AUTH_LOGOUT_REASON_KEY } from '@/api/client'
 
 export function LoginPage() {
   const { login } = useAuth()
@@ -13,6 +14,13 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sessionMessage] = useState(() => {
+    const reason = sessionStorage.getItem(AUTH_LOGOUT_REASON_KEY)
+    sessionStorage.removeItem(AUTH_LOGOUT_REASON_KEY)
+    return reason === 'session-expired'
+      ? 'Tu sesión venció. Ingresá nuevamente para continuar donde estabas.'
+      : null
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -144,6 +152,16 @@ export function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {sessionMessage && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-xl px-4 py-3 bg-yellow-50 border border-yellow-200"
+              >
+                <AlertCircle size={16} className="text-yellow-700 flex-shrink-0 mt-0.5" />
+                <p className="text-sm leading-snug text-yellow-900">{sessionMessage}</p>
+              </div>
+            )}
+
             {/* CI */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-gray-700">
@@ -189,6 +207,7 @@ export function LoginPage() {
             {/* Error */}
             {error && (
               <div
+                role="alert"
                 className={`flex items-start gap-2.5 rounded-xl px-4 py-3 ${
                   error.includes('deshabilitada')
                     ? 'bg-sky-50 border border-sky-200'

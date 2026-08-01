@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '@/api/client'
+import { api, consumePostLoginReturnUrl } from '@/api/client'
 import type { AuthUser, LoginResponse } from '@/api/types'
 
 interface AuthContextType {
@@ -71,12 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Redirect based on role
-    if (loggedUser.role === 'admin') {
-      navigate('/')
-    } else {
-      navigate('/portal')
-    }
+    const returnUrl = consumePostLoginReturnUrl(loggedUser.role)
+    navigate(returnUrl ?? (loggedUser.role === 'admin' ? '/' : '/portal'))
   }, [navigate])
 
   const refreshUser = useCallback(async () => {

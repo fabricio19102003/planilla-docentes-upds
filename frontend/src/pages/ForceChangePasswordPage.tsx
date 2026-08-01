@@ -5,6 +5,7 @@ import { useChangePassword } from '@/api/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { consumePostLoginReturnUrl } from '@/api/client'
 import { AlertCircle, CheckCircle2, XCircle, Lock, Eye, EyeOff } from 'lucide-react'
 
 // ─── Password strength bar ────────────────────────────────────────────────────
@@ -106,7 +107,8 @@ export function ForceChangePasswordPage() {
   }
   const allChecksPassed = Object.values(checks).every(Boolean)
   const passwordsMatch = form.newPwd === form.confirm && form.confirm.length > 0
-  const canSubmit = form.current.length > 0 && allChecksPassed && passwordsMatch
+  const isDifferentPassword = form.newPwd.length > 0 && form.newPwd !== form.current
+  const canSubmit = form.current.length > 0 && allChecksPassed && passwordsMatch && isDifferentPassword
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -122,11 +124,8 @@ export function ForceChangePasswordPage() {
       setSuccess(true)
       // Redirect after short delay
       setTimeout(() => {
-        if (nextUser.role === 'admin') {
-          navigate('/')
-        } else {
-          navigate('/portal')
-        }
+        const returnUrl = consumePostLoginReturnUrl(nextUser.role)
+        navigate(returnUrl ?? (nextUser.role === 'admin' ? '/' : '/portal'))
       }, 1500)
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } }
@@ -190,7 +189,7 @@ export function ForceChangePasswordPage() {
         </div>
 
         {success ? (
-          <div className="flex flex-col items-center gap-3 py-6">
+          <div aria-live="polite" className="flex flex-col items-center gap-3 py-6">
             <div className="w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
               <CheckCircle2 size={32} className="text-green-400" />
             </div>
@@ -287,12 +286,13 @@ export function ForceChangePasswordPage() {
                 <ValidationItem passes={checks.upper} label="Al menos una mayúscula" />
                 <ValidationItem passes={checks.lower} label="Al menos una minúscula" />
                 <ValidationItem passes={checks.digit} label="Al menos un número" />
+                <ValidationItem passes={isDifferentPassword} label="Debe ser diferente de la contraseña actual" />
               </div>
             )}
 
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-2.5 bg-red-500/15 border border-red-500/30 rounded-lg px-3 py-2.5">
+              <div role="alert" className="flex items-start gap-2.5 bg-red-500/15 border border-red-500/30 rounded-lg px-3 py-2.5">
                 <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
                 <p className="text-red-300 text-sm leading-snug">{error}</p>
               </div>

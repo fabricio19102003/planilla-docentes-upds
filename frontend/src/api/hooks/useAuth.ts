@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type {
   AuthUser,
-  BillingInfo,
+  BillingHistoryInfo,
   CombinedBillingInfo,
   DetailRequestCreate,
   DetailRequestInfo,
@@ -83,7 +83,7 @@ export function useBillingHistory() {
   return useQuery({
     queryKey: ['billing', 'history'],
     queryFn: async () => {
-      const res = await api.get<BillingInfo[]>('/portal/billing/history')
+      const res = await api.get<BillingHistoryInfo[]>('/portal/billing/history')
       return res.data
     },
   })

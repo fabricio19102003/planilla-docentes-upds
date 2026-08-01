@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -32,6 +33,34 @@ MONTH_NAMES = {
     5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
     9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
 }
+
+_MONEY_QUANTUM = Decimal("0.01")
+
+
+def _money(value) -> Decimal:
+    return Decimal(str(value if value is not None else 0)).quantize(
+        _MONEY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def _serialize_teacher_financials(teacher_map: dict[str, dict]) -> list[dict]:
+    monetary_fields = (
+        "gross_payment",
+        "total_payment",
+        "retention_amount",
+        "admin_adjustment",
+        "final_payment",
+        "net_payment",
+    )
+    details: list[dict] = []
+    for teacher in teacher_map.values():
+        details.append({
+            **teacher,
+            **{field: float(_money(teacher[field])) for field in monetary_fields},
+            "retention_rate": float(Decimal(str(teacher["retention_rate"]))),
+        })
+    return details
 
 
 # ------------------------------------------------------------------
@@ -187,17 +216,23 @@ def publish_billing(
                         "has_retention": row.has_retention,
                         "designations": [],
                         "total_hours": 0,
-                        "gross_payment": 0.0,
-                        "total_payment": 0.0,
-                        "retention_amount": 0.0,
-                        "final_payment": 0.0,
+                        "gross_payment": Decimal("0.00"),
+                        "total_payment": Decimal("0.00"),
+                        "retention_rate": Decimal("0.13") if row.has_retention else Decimal("0"),
+                        "retention_amount": Decimal("0.00"),
+                        "admin_adjustment": Decimal("0.00"),
+                        "final_payment": Decimal("0.00"),
+                        "net_payment": Decimal("0.00"),
+                        "has_admin_override": False,
                     }
                 t = teacher_map[row.teacher_ci]
 
                 row_key = f"{row.teacher_ci}:{row.designation_id}"
-                effective_payment = resolved_payments.get(row_key, row.final_payment)
-
-                row_retention = row.retention_amount if row_key not in resolved_payments else 0.0
+                row_gross = _money(row.calculated_payment)
+                row_retention = _money(row.retention_amount)
+                row_net = _money(resolved_payments.get(row_key, row.final_payment))
+                row_adjustment = _money(row_net - (row_gross - row_retention))
+                has_override = row_key in resolved_payments
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -205,15 +240,22 @@ def publish_billing(
                     "base_hours": row.base_monthly_hours,
                     "absent_hours": row.absent_hours,
                     "payable_hours": row.payable_hours,
-                    "gross_payment": round(row.calculated_payment, 2),   # Bruto (before retention)
-                    "retention_amount": round(row_retention, 2),
-                    "payment": round(effective_payment, 2),               # Neto (after retention + overrides)
+                    "gross_payment": float(row_gross),
+                    "retention_rate": float(Decimal(str(getattr(row, "retention_rate", 0.13 if row.has_retention else 0)))),
+                    "retention_amount": float(row_retention),
+                    "admin_adjustment": float(row_adjustment),
+                    "net_payment": float(row_net),
+                    "has_admin_override": has_override,
+                    "payment": float(row_net),
                 })
                 t["total_hours"] += row.payable_hours
-                t["gross_payment"] = round(t.get("gross_payment", 0.0) + row.calculated_payment, 2)
-                t["retention_amount"] = round(t.get("retention_amount", 0.0) + row_retention, 2)
-                t["total_payment"] += effective_payment
-                t["final_payment"] = round(float(t["total_payment"]), 2)
+                t["gross_payment"] += row_gross
+                t["retention_amount"] += row_retention
+                t["admin_adjustment"] += row_adjustment
+                t["total_payment"] += row_net
+                t["final_payment"] = t["total_payment"]
+                t["net_payment"] = t["total_payment"]
+                t["has_admin_override"] = t["has_admin_override"] or has_override
 
             total_payment = float(stored_planilla.total_payment)
             planilla_id = stored_planilla.id
@@ -223,7 +265,7 @@ def publish_billing(
             )
 
             billing_snapshot = {
-                "teacher_details": list(teacher_map.values()),
+                "teacher_details": _serialize_teacher_financials(teacher_map),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
                 "rate_per_hour": app_settings_service.get_hourly_rate(db),
@@ -299,14 +341,17 @@ def publish_billing(
         ).delete()
         db.flush()
 
-        # Create notifications for ALL active docente users and keep their linked
-        # Teacher row available for the post-commit email step (email fallback + CI match).
-        docente_users = (
+        # Notify only docentes represented in this immutable publication snapshot.
+        published_teacher_cis = set(teacher_map)
+        docente_users = [
+            user for user in (
             db.query(User)
             .options(joinedload(User.teacher))
             .filter(User.role == "docente", User.is_active == True)
             .all()
-        )
+            )
+            if user.teacher_ci in published_teacher_cis
+        ]
         month_name = MONTH_NAMES.get(month, str(month))
 
         for docente in docente_users:
@@ -714,15 +759,22 @@ def publish_practice_billing(
                         "has_retention": row.has_retention,
                         "designations": [],
                         "total_hours": 0,
-                        "gross_payment": 0.0,
-                        "total_payment": 0.0,
-                        "retention_amount": 0.0,
-                        "final_payment": 0.0,
+                        "gross_payment": Decimal("0.00"),
+                        "total_payment": Decimal("0.00"),
+                        "retention_rate": Decimal("0.13") if row.has_retention else Decimal("0"),
+                        "retention_amount": Decimal("0.00"),
+                        "admin_adjustment": Decimal("0.00"),
+                        "final_payment": Decimal("0.00"),
+                        "net_payment": Decimal("0.00"),
+                        "has_admin_override": False,
                     }
                 t = teacher_map[row.teacher_ci]
                 row_key = f"{row.teacher_ci}:{row.designation_id}"
-                effective_payment = resolved_payments.get(row_key, row.final_payment)
-                row_retention = row.retention_amount if row_key not in resolved_payments else 0.0
+                row_gross = _money(row.calculated_payment)
+                row_retention = _money(row.retention_amount)
+                row_net = _money(resolved_payments.get(row_key, row.final_payment))
+                row_adjustment = _money(row_net - (row_gross - row_retention))
+                has_override = row_key in resolved_payments
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -730,15 +782,22 @@ def publish_practice_billing(
                     "base_hours": row.base_monthly_hours,
                     "absent_hours": row.absent_hours,
                     "payable_hours": row.payable_hours,
-                    "gross_payment": round(row.calculated_payment, 2),
-                    "retention_amount": round(row_retention, 2),
-                    "payment": round(effective_payment, 2),
+                    "gross_payment": float(row_gross),
+                    "retention_rate": float(Decimal(str(getattr(row, "retention_rate", 0.13 if row.has_retention else 0)))),
+                    "retention_amount": float(row_retention),
+                    "admin_adjustment": float(row_adjustment),
+                    "net_payment": float(row_net),
+                    "has_admin_override": has_override,
+                    "payment": float(row_net),
                 })
                 t["total_hours"] += row.payable_hours
-                t["gross_payment"] = round(t.get("gross_payment", 0.0) + row.calculated_payment, 2)
-                t["retention_amount"] = round(t.get("retention_amount", 0.0) + row_retention, 2)
-                t["total_payment"] += effective_payment
-                t["final_payment"] = round(float(t["total_payment"]), 2)
+                t["gross_payment"] += row_gross
+                t["retention_amount"] += row_retention
+                t["admin_adjustment"] += row_adjustment
+                t["total_payment"] += row_net
+                t["final_payment"] = t["total_payment"]
+                t["net_payment"] = t["total_payment"]
+                t["has_admin_override"] = t["has_admin_override"] or has_override
 
             total_payment = float(stored_planilla.total_payment)
             planilla_id = stored_planilla.id
@@ -749,7 +808,7 @@ def publish_practice_billing(
 
             practice_rate = app_settings_service.get_practice_hourly_rate(db)
             billing_snapshot = {
-                "teacher_details": list(teacher_map.values()),
+                "teacher_details": _serialize_teacher_financials(teacher_map),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
                 "rate_per_hour": practice_rate,
@@ -826,12 +885,16 @@ def publish_practice_billing(
         ).delete()
         db.flush()
 
-        docente_users = (
+        published_teacher_cis = set(teacher_map)
+        docente_users = [
+            user for user in (
             db.query(User)
             .options(joinedload(User.teacher))
             .filter(User.role == "docente", User.is_active == True)
             .all()
-        )
+            )
+            if user.teacher_ci in published_teacher_cis
+        ]
 
         for docente in docente_users:
             notif = Notification(

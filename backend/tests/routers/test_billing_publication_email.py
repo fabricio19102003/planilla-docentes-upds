@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
+from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.services.auth_service import auth_service
@@ -45,7 +46,7 @@ def test_publish_billing_survives_email_service_failure_and_keeps_notifications(
     import app.routers.billing_publication as billing_publication_router
 
     _seed_approved_planilla(db_session)
-    docente = _seed_docente(db_session, ci="EMAIL-DOC-2", email="docente2@example.com")
+    docente = _seed_docente(db_session, ci="EMAIL-DOC-1", email="docente2@example.com")
 
     class FailingEmailService:
         def send_billing_published(self, publication, docente_users):
@@ -69,6 +70,68 @@ def test_publish_billing_survives_email_service_failure_and_keeps_notifications(
         .one()
     )
     assert notification.title == "Facturación Mayo 2026 publicada"
+
+
+def test_regular_publication_notifies_only_docentes_present_in_snapshot(client, db_session, monkeypatch):
+    import app.routers.billing_publication as billing_publication_router
+
+    _seed_approved_planilla(db_session)
+    included = _seed_docente(db_session, ci="EMAIL-DOC-1", email="included@example.com")
+    excluded = _seed_docente(db_session, ci="EMAIL-DOC-ABSENT", email="excluded@example.com")
+
+    class RecordingEmailService:
+        def send_billing_published(self, publication, docente_users):
+            assert [user.id for user in docente_users] == [included.id]
+            return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
+
+    monkeypatch.setattr(billing_publication_router.PlanillaGenerator, "_build_planilla_data", _fake_planilla_rows)
+    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_hourly_rate", lambda db: 70.0)
+    monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
+
+    response = client.post("/api/billing/publish", json={"month": 5, "year": 2026})
+
+    assert response.status_code == 200
+    notified_ids = {
+        notification.user_id
+        for notification in db_session.query(Notification)
+        .filter(Notification.notification_type == "billing_published")
+        .all()
+    }
+    assert included.id in notified_ids
+    assert excluded.id not in notified_ids
+
+
+def test_practice_publication_notifies_only_docentes_present_in_snapshot(client, db_session, monkeypatch):
+    import app.routers.billing_publication as billing_publication_router
+
+    _seed_approved_practice_planilla(db_session)
+    included = _seed_docente(db_session, ci="PRACTICE-DOC-1", email="practice@example.com")
+    excluded = _seed_docente(db_session, ci="PRACTICE-DOC-ABSENT", email="absent@example.com")
+
+    class RecordingEmailService:
+        def send_billing_published(self, publication, docente_users):
+            assert [user.id for user in docente_users] == [included.id]
+            return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
+
+    monkeypatch.setattr(
+        billing_publication_router.PracticePlanillaGenerator,
+        "_build_planilla_data",
+        _fake_practice_planilla_rows,
+    )
+    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_practice_hourly_rate", lambda db: 50.0)
+    monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
+
+    response = client.post("/api/billing/practice/publish", json={"month": 5, "year": 2026})
+
+    assert response.status_code == 200
+    notified_ids = {
+        notification.user_id
+        for notification in db_session.query(Notification)
+        .filter(Notification.notification_type == "practice_billing_published")
+        .all()
+    }
+    assert included.id in notified_ids
+    assert excluded.id not in notified_ids
 
 
 def test_send_billing_emails_filters_selected_active_docentes(client, db_session, monkeypatch):
@@ -155,6 +218,24 @@ def _seed_publication(db_session, *, status="published"):
     return publication
 
 
+def _seed_approved_practice_planilla(db_session):
+    output = PracticePlanillaOutput(
+        month=5,
+        year=2026,
+        generated_at=datetime(2026, 5, 31, 12, 0, 0),
+        total_teachers=1,
+        total_hours=8,
+        total_payment=Decimal("400.00"),
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 31),
+        status="approved",
+        discount_mode="attendance",
+    )
+    db_session.add(output)
+    db_session.commit()
+    return output
+
+
 def _seed_docente(db_session, *, ci: str, email: str, is_active: bool = True):
     teacher = Teacher(ci=ci, full_name=f"Docente {ci}", email=email)
     user = User(
@@ -189,8 +270,43 @@ def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, d
                 final_payment=560.0,
                 has_biometric=True,
                 has_retention=False,
+                retention_rate=0.0,
             )
         ],
         [],
+        [],
+    )
+
+
+def _fake_practice_planilla_rows(
+    self,
+    db,
+    month,
+    year,
+    start_date=None,
+    end_date=None,
+    discount_mode=None,
+    excluded_days=None,
+):
+    return (
+        [
+            SimpleNamespace(
+                teacher_ci="PRACTICE-DOC-1",
+                teacher_name="Docente PRACTICE-DOC-1",
+                designation_id=201,
+                subject="Práctica Clínica",
+                group_code="P-1",
+                semester="2",
+                base_monthly_hours=8,
+                absent_hours=0,
+                payable_hours=8,
+                calculated_payment=400.0,
+                retention_rate=0.0,
+                retention_amount=0.0,
+                final_payment=400.0,
+                has_biometric=True,
+                has_retention=False,
+            )
+        ],
         [],
     )

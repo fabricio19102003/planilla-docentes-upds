@@ -99,6 +99,12 @@ def change_password(
             detail="Contraseña actual incorrecta",
         )
 
+    if auth_service.verify_password(payload.new_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La nueva contraseña debe ser diferente de la contraseña actual",
+        )
+
     updated = auth_service.reset_password(db=db, user_id=current_user.id, new_password=payload.new_password)
     updated.must_change_password = False  # Clear forced change flag
 

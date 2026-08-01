@@ -39,8 +39,15 @@ export interface UserUpdate {
 export interface BillingDesignation {
   subject: string
   group: string
+  semester: string
   hours: number
-  payment: number
+  gross_payment: number
+  retention_rate: number
+  retention_amount: number
+  admin_adjustment: number
+  net_payment: number
+  payment: number  // Compatibility alias for net_payment; do not use for new calculations.
+  has_admin_override: boolean
 }
 
 export interface BillingInfo {
@@ -53,17 +60,51 @@ export interface BillingInfo {
   excluded_days?: { date: string; reason: string | null }[]
   total_hours: number
   rate_per_hour: number
-  total_payment: number
-  adjusted_payment: number | null
-  has_retention?: boolean
-  retention_amount?: number
-  final_payment?: number
+  gross_payment: number
+  retention_rate: number
+  retention_amount: number
+  admin_adjustment: number
+  net_payment: number
+  has_admin_override: boolean
+  designations: BillingDesignation[]
+}
+
+export interface BillingUnavailableInfo {
+  month: number
+  year: number
+  month_name: string
+  planilla_type: 'regular' | 'practice'
+  data_status: 'published_unavailable'
+  unavailable_reason: string
+  total_hours: null
+  gross_payment: null
+  net_payment: null
+}
+
+export interface BillingHistoryInfo {
+  month: number
+  year: number
+  month_name: string
+  planilla_type?: string
+  start_date?: string | null
+  end_date?: string | null
+  excluded_days?: { date: string; reason: string | null }[]
+  data_status: 'available' | 'legacy_unavailable'
+  unavailable_reason: string | null
+  total_hours: number | null
+  rate_per_hour: number | null
+  gross_payment: number | null
+  retention_rate: number | null
+  retention_amount: number | null
+  admin_adjustment: number | null
+  net_payment: number | null
+  has_admin_override: boolean
   designations: BillingDesignation[]
 }
 
 export interface CombinedBillingInfo {
-  regular: BillingInfo | null
-  practice: BillingInfo | null
+  regular: BillingInfo | BillingUnavailableInfo | null
+  practice: BillingInfo | BillingUnavailableInfo | null
 }
 
 // ─── Detail Requests ──────────────────────────────────────────────────────────

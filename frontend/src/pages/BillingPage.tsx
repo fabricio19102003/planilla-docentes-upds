@@ -2,7 +2,7 @@ import { useCurrentBilling } from '@/api/hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff, BookOpen } from 'lucide-react'
-import type { BillingInfo } from '@/api/types'
+import type { BillingInfo, BillingUnavailableInfo } from '@/api/types'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -24,7 +24,8 @@ const PRACTICE_GRADIENT = 'linear-gradient(135deg, #1a5c3a 0%, #2d8a5a 60%, #5ab
 function BillingCard({ billing }: { billing: BillingInfo }) {
   const isPractice = billing.planilla_type === 'practice'
   const gradient = isPractice ? PRACTICE_GRADIENT : REGULAR_GRADIENT
-  const displayPayment = billing.adjusted_payment ?? billing.final_payment ?? billing.total_payment
+  const displayPayment = billing.net_payment
+  const hasAdjustments = billing.has_admin_override
   const hasBillingPeriod = Boolean(billing.start_date && billing.end_date)
   const hasExcludedDays = Boolean(billing.excluded_days?.length)
 
@@ -56,13 +57,13 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
             <p className="text-5xl font-black tracking-tight mt-4">
               {formatBs(displayPayment)}
             </p>
-            {billing.adjusted_payment !== null && (
+            {billing.has_admin_override && (
               <div className="mt-2 flex items-center gap-2">
                 <Badge className="bg-yellow-400/20 text-yellow-200 border-yellow-300/30 text-xs">
                   Ajustado
                 </Badge>
                 <span className="text-white/50 text-sm line-through">
-                  {formatBs(billing.total_payment)}
+                  Base luego de retención: {formatBs(billing.gross_payment - billing.retention_amount)}
                 </span>
               </div>
             )}
@@ -90,6 +91,30 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
           </div>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
+            Conciliación del pago
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between gap-4"><span>Bruto</span><strong>{formatBs(billing.gross_payment)}</strong></div>
+          <div className="flex justify-between gap-4 text-red-700">
+            <span>RC-IVA / retención ({(billing.retention_rate * 100).toFixed(0)}%)</span>
+            <strong>- {formatBs(billing.retention_amount)}</strong>
+          </div>
+          {billing.has_admin_override && (
+            <div className="flex justify-between gap-4 text-yellow-700">
+              <span>Ajuste administrativo</span>
+              <strong>{billing.admin_adjustment >= 0 ? '+ ' : '- '}{formatBs(Math.abs(billing.admin_adjustment))}</strong>
+            </div>
+          )}
+          <div className="flex justify-between gap-4 border-t pt-2 text-base" style={{ color: '#003366' }}>
+            <span className="font-semibold">Neto final</span><strong>{formatBs(billing.net_payment)}</strong>
+          </div>
+        </CardContent>
+      </Card>
 
       {(hasBillingPeriod || hasExcludedDays) && (
         <Card>
@@ -150,7 +175,11 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
-                  {['Materia', 'Grupo', 'Horas', 'Pago'].map((h) => (
+                  {[
+                    'Materia', 'Semestre', 'Grupo', 'Horas', 'Bruto', 'Retención',
+                    ...(hasAdjustments ? ['Ajuste'] : []),
+                    'Neto',
+                  ].map((h) => (
                     <th
                       key={h}
                       className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
@@ -163,7 +192,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
               <tbody>
                 {!billing.designations.length ? (
                   <tr>
-                    <td colSpan={4} className="text-center py-8 text-gray-400">
+                    <td colSpan={hasAdjustments ? 8 : 7} className="text-center py-8 text-gray-400">
                       Sin designaciones este mes
                     </td>
                   </tr>
@@ -174,14 +203,24 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                       className={`border-b last:border-0 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}
                     >
                       <td className="px-4 py-3 font-medium text-gray-800">{d.subject}</td>
+                      <td className="px-4 py-3 text-gray-600">{d.semester}</td>
                       <td className="px-4 py-3 text-gray-600">
                         <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-mono">
                           {d.group}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-gray-700 font-semibold">{d.hours}h</td>
+                      <td className="px-4 py-3 text-gray-700">{formatBs(d.gross_payment)}</td>
+                      <td className="px-4 py-3 text-red-700">- {formatBs(d.retention_amount)}</td>
+                      {hasAdjustments && (
+                        <td className="px-4 py-3 text-yellow-700">
+                          {d.has_admin_override
+                            ? `${d.admin_adjustment >= 0 ? '+' : '-'} ${formatBs(Math.abs(d.admin_adjustment))}`
+                            : '—'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 font-semibold" style={{ color: '#003366' }}>
-                        {formatBs(d.payment)}
+                        {formatBs(d.net_payment)}
                       </td>
                     </tr>
                   ))
@@ -190,12 +229,19 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
               {billing.designations.length > 0 && (
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td colSpan={2} className="px-4 py-3 text-right font-semibold text-gray-600">
+                    <td colSpan={3} className="px-4 py-3 text-right font-semibold text-gray-600">
                       TOTAL
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-800">
                       {billing.total_hours}h
                     </td>
+                    <td className="px-4 py-3 font-bold text-gray-800">{formatBs(billing.gross_payment)}</td>
+                    <td className="px-4 py-3 font-bold text-red-700">- {formatBs(billing.retention_amount)}</td>
+                    {hasAdjustments && (
+                      <td className="px-4 py-3 font-bold text-yellow-700">
+                        {`${billing.admin_adjustment >= 0 ? '+' : '-'} ${formatBs(Math.abs(billing.admin_adjustment))}`}
+                      </td>
+                    )}
                     <td className="px-4 py-3 font-bold text-lg" style={{ color: '#003366' }}>
                       {formatBs(displayPayment)}
                     </td>
@@ -208,18 +254,28 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
       </Card>
 
       {/* Note if adjusted */}
-      {billing.adjusted_payment !== null && (
+      {billing.has_admin_override && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 flex items-start gap-3">
           <AlertCircle size={16} className="text-yellow-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-yellow-800 font-medium text-sm">Pago ajustado por administración</p>
             <p className="text-yellow-600 text-xs mt-0.5">
-              El monto de {formatBs(billing.total_payment)} fue ajustado a {formatBs(billing.adjusted_payment)}.
+              El ajuste administrativo de {formatBs(billing.admin_adjustment)} deja un neto final de {formatBs(billing.net_payment)}.
               Para más información contactá al área de planillas.
             </p>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function BillingUnavailableNotice({ billing }: { billing: BillingUnavailableInfo }) {
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+      <Receipt size={40} className="text-blue-400 mx-auto mb-3" />
+      <p className="text-blue-700 font-medium">Facturación publicada sin detalle disponible</p>
+      <p className="text-blue-600 text-sm mt-1">{billing.unavailable_reason}</p>
     </div>
   )
 }
@@ -282,7 +338,9 @@ export function BillingPage() {
               Teóricas
             </h2>
           )}
-          <BillingCard billing={regular} />
+          {'data_status' in regular
+            ? <BillingUnavailableNotice billing={regular} />
+            : <BillingCard billing={regular} />}
         </div>
       )}
 
@@ -293,7 +351,9 @@ export function BillingPage() {
               Prácticas Internas
             </h2>
           )}
-          <BillingCard billing={practice} />
+          {'data_status' in practice
+            ? <BillingUnavailableNotice billing={practice} />
+            : <BillingCard billing={practice} />}
         </div>
       )}
     </div>
