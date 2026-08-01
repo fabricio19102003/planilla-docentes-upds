@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useId, useState, useRef } from 'react'
 import { useMySchedule, downloadSchedulePDF } from '@/api/hooks/useAuth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -153,6 +153,8 @@ function StatsBar({ allSlots }: { allSlots: FlatSlot[] }) {
 // ─── View: Por Día ────────────────────────────────────────────────────────────
 
 function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
+  const headingIdPrefix = useId()
+
   return (
     <div className="space-y-4">
       {WEEKDAYS.map((day) => {
@@ -164,13 +166,17 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
         if (daySlots.length === 0) return null
 
         return (
-          <div key={day} className="card-3d-static overflow-hidden">
+          <section
+            key={day}
+            aria-labelledby={`${headingIdPrefix}-${dayNorm}`}
+            className="card-3d-static overflow-hidden"
+          >
             <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
               <div
                 className="w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: DAY_COLORS[day] ?? '#003366' }}
               />
-              <h4 className="text-sm font-semibold text-gray-800 capitalize">{day}</h4>
+              <h4 id={`${headingIdPrefix}-${dayNorm}`} className="text-sm font-semibold text-gray-800 capitalize">{day}</h4>
               <span className="text-xs text-gray-400 ml-auto">{daySlots.length} clase(s)</span>
             </div>
             <div className="divide-y divide-gray-100">
@@ -197,7 +203,7 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )
       })}
       {allSlots.length === 0 && (
