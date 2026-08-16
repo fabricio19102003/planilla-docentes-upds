@@ -2,10 +2,10 @@
 schema: spec-driven
 
 context: |
-  Tech stack: Python FastAPI + SQLAlchemy 2.0 + PostgreSQL/SQLite (backend), React 19 + TypeScript + Vite 8 + TanStack Query + Tailwind 4 + shadcn/ui (frontend)
-  Architecture: Layered — routers/services/models (backend), pages/components/api/hooks (frontend), Alembic migrations + runtime column migrations
-  Testing: pytest 8 + pytest-asyncio + httpx (backend), no frontend test runner
-  Style: ESLint flat config + typescript-eslint (frontend), no linter configured (backend)
+  Tech stack: Python 3.11 backend with FastAPI, SQLAlchemy 2.x, Alembic, PostgreSQL runtime with SQLite test fallback; React 19 + TypeScript + Vite 8 frontend with TanStack Query, Tailwind 4, shadcn/ui, and React Router 7
+  Architecture: Layered backend (routers/services/models/schemas/utils), componentized frontend (pages/components/api/hooks/context/lib), Alembic migrations + runtime column migrations, Vite dev proxy to backend API
+  Testing: pytest 8 + pytest-asyncio + httpx backend tests, Playwright E2E frontend tests, no frontend unit runner
+  Style: ESLint flat config + typescript-eslint + TypeScript strict mode (frontend), no backend linter/type checker/formatter configured
   Auth: JWT (python-jose + passlib/bcrypt), role-based (admin/docente)
   PDF generation: ReportLab (contracts, retention letters, schedules, audit reports)
 
@@ -13,7 +13,7 @@ strict_tdd: false
 
 testing:
   strict_tdd: false
-  detected: "2026-04-19"
+  detected: "2026-08-15"
   backend:
     runner:
       command: "pytest"
@@ -21,7 +21,7 @@ testing:
     layers:
       unit: true
       integration: true
-      e2e: false
+      e2e: true
     integration_tools: "httpx + FastAPI TestClient"
     coverage:
       available: false
@@ -33,22 +33,21 @@ testing:
       formatter: null
   frontend:
     runner:
-      command: null
-      framework: null
-      note: "No test runner detected — install vitest: npm i -D vitest @testing-library/react @testing-library/jest-dom"
+      command: "playwright test"
+      framework: "@playwright/test"
     layers:
       unit: false
       integration: false
-      e2e: false
+      e2e: true
     coverage:
       available: false
     quality:
       linter:
         available: true
-        command: "npx eslint ."
+        command: "npm run lint"
       type_checker:
         available: true
-        command: "tsc -b"
+        command: "npm run build"
       formatter:
         available: false
         note: "Consider adding prettier"
@@ -75,7 +74,7 @@ rules:
     test_command: "pytest"
   verify:
     test_command: "pytest"
-    build_command: "tsc -b && vite build"
+    build_command: "cd frontend && npm run build"
     coverage_threshold: 0
   archive:
     - Warn before merging destructive deltas (large removals)
