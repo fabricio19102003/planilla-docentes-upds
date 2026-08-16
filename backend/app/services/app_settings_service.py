@@ -35,6 +35,7 @@ KEY_HOURLY_RATE = "HOURLY_RATE"
 KEY_PRACTICE_HOURLY_RATE = "PRACTICE_HOURLY_RATE"
 KEY_DOCENTE_CAN_EDIT_PROFILE = "DOCENTE_CAN_EDIT_PROFILE"
 KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
+KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -46,6 +47,7 @@ _DEFAULTS: dict[str, str] = {
     KEY_PRACTICE_HOURLY_RATE: "50.0",
     KEY_DOCENTE_CAN_EDIT_PROFILE: "false",
     KEY_DOCENTE_CAN_EDIT_PHOTO: "false",
+    KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
 }
 
 # ── In-memory cache ────────────────────────────────────────────────────────
@@ -183,9 +185,19 @@ def get_docente_can_edit_photo(db: Session) -> bool:
     return _parse_bool(raw, default=False)
 
 
+def get_medicine_schedule_assistant_enabled(db: Session) -> bool:
+    raw = get_setting(db, KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED,
+                      _DEFAULTS[KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED])
+    return _parse_bool(raw, default=False)
+
+
 def set_docente_can_edit_profile(db: Session, value: bool) -> AppSetting:
     return update_setting(db, KEY_DOCENTE_CAN_EDIT_PROFILE, _format_bool(value))
 
 
 def set_docente_can_edit_photo(db: Session, value: bool) -> AppSetting:
     return update_setting(db, KEY_DOCENTE_CAN_EDIT_PHOTO, _format_bool(value))
+
+
+def set_medicine_schedule_assistant_enabled(db: Session, value: bool) -> AppSetting:
+    return update_setting(db, KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED, _format_bool(value))

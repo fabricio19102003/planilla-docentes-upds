@@ -40,6 +40,7 @@ class SettingsResponse(BaseModel):
     practice_hourly_rate: float
     docente_can_edit_profile: bool
     docente_can_edit_photo: bool
+    medicine_schedule_assistant_enabled: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +53,7 @@ class SettingsUpdateRequest(BaseModel):
     practice_hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
     docente_can_edit_profile: Optional[bool] = None
     docente_can_edit_photo: Optional[bool] = None
+    medicine_schedule_assistant_enabled: Optional[bool] = None
 
 
 def _current_settings(db: Session) -> SettingsResponse:
@@ -63,6 +65,7 @@ def _current_settings(db: Session) -> SettingsResponse:
         practice_hourly_rate=app_settings_service.get_practice_hourly_rate(db),
         docente_can_edit_profile=app_settings_service.get_docente_can_edit_profile(db),
         docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
+        medicine_schedule_assistant_enabled=app_settings_service.get_medicine_schedule_assistant_enabled(db),
     )
 
 
@@ -133,6 +136,12 @@ def update_settings(
         if payload.docente_can_edit_photo is not None:
             app_settings_service.set_docente_can_edit_photo(db, payload.docente_can_edit_photo)
             changes["docente_can_edit_photo"] = payload.docente_can_edit_photo
+
+        if payload.medicine_schedule_assistant_enabled is not None:
+            app_settings_service.set_medicine_schedule_assistant_enabled(
+                db, payload.medicine_schedule_assistant_enabled
+            )
+            changes["medicine_schedule_assistant_enabled"] = payload.medicine_schedule_assistant_enabled
 
         if changes:
             log_activity(
