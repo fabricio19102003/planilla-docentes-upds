@@ -24,6 +24,7 @@ from app.routers import (
     admin_settings_router,
     practice_attendance_router,
     practice_planilla_router,
+    medicine_schedules_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -236,6 +237,7 @@ async def lifespan(app: FastAPI):
                 ("PRACTICE_HOURLY_RATE", "50.0", "Tarifa por hora académica en Bs (docentes asistenciales / prácticas)"),
                 ("DOCENTE_CAN_EDIT_PROFILE", "false", "Permite a docentes editar sus datos de perfil desde el portal"),
                 ("DOCENTE_CAN_EDIT_PHOTO", "false", "Permite a docentes subir o eliminar su propia foto de perfil"),
+                ("MEDICINE_SCHEDULE_ASSISTANT_ENABLED", "false", "Habilita el asistente de horarios de Medicina"),
             ]
             added = 0
             for key, value, desc in defaults_spec:
@@ -336,6 +338,7 @@ app.include_router(admin_router)
 app.include_router(admin_settings_router)
 app.include_router(practice_attendance_router)
 app.include_router(practice_planilla_router)
+app.include_router(medicine_schedules_router)
 
 
 @app.get("/health", tags=["system"])

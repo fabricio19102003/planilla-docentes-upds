@@ -14,6 +14,10 @@ from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.practice_planilla import PracticePlanillaOutput
+from app.models.medicine_schedule import (
+    MedicineCorrection, MedicineImportIssue, MedicineMeeting, MedicineOffering,
+    MedicineScheduleVersion, MedicineSimulation, MedicineVersionEvent,
+)
 
 __all__ = [
     "Teacher",
@@ -31,4 +35,11 @@ __all__ = [
     "AppSetting",
     "PracticeAttendanceLog",
     "PracticePlanillaOutput",
+    "MedicineScheduleVersion",
+    "MedicineOffering",
+    "MedicineMeeting",
+    "MedicineImportIssue",
+    "MedicineCorrection",
+    "MedicineVersionEvent",
+    "MedicineSimulation",
 ]
