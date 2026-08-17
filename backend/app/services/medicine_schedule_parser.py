@@ -196,7 +196,7 @@ def parse_medicine_workbook(content: bytes) -> MedicineWorkbookPreview:
                     offering = groups.setdefault(key, MedicineOfferingPreview(
                         category=category, semester=semester, subject_raw=subject, subject_key=subject_key,
                         group_code=group, shift=shift, source_sheet=ws.title, source_row=data_row,
-                        raw_payload={"metadata": metadata, "subject": subject}))
+                        raw_payload={"metadata": metadata, "subject": subject, "subject_cell": subject_cell.coordinate}))
                     offering.meetings.append(MedicineMeetingPreview(
                         activity=activity, teacher_raw=teacher, teacher_key=teacher_key,
                         day=day, start_time=parsed_time[0], end_time=parsed_time[1],
