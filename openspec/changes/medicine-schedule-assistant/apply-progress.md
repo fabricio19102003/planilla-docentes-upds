@@ -1,6 +1,6 @@
 # Apply Progress: Medicine Schedule Assistant
 **Mode**: Standard
-**Delivery**: stacked-to-main; PR 1 merged, PR 2 `pr2-schemas-parser`; no size exception
+**Delivery**: stacked-to-main; PR 1/2 merged, PR 3 `pr3-version-service`; no size exception
 **Correction**: Maintainer-authorized native reset `pr1-rescope-correction`; prior 399-line/generic-404 evidence superseded after independent verification measured 442 lines.
 ## Completed Tasks
 - [x] 1.1 Ownership boundary approved previously.
@@ -9,6 +9,8 @@
 - [x] 1.4 Medicine API schemas completed in PR 2.
 - [x] 2.1 Strict workbook parser behavior tests completed in PR 2.
 - [x] 2.2 Strict Medicine workbook parser completed in PR 2.
+- [x] 2.3 Version-service persistence and lifecycle tests completed in PR 3.
+- [x] 2.4 Medicine version service completed in PR 3.
 ## Work Unit Evidence
 | Evidence | Exact result |
 |---|---|
@@ -25,3 +27,9 @@
 | Runtime parser harness | Read-only `/home/pedro/projects/planilla-docuentes/horarios-med.xlsx`: before 306 offerings/1,629 meetings/686 errors/0 Convalidación; after 520 offerings/2,614 meetings/10 errors/8 Convalidación. Semester 7 remained deferred. |
 | Foundation regression/imports | `pytest -q tests/test_medicine_schedule_versioning.py` → exit 0; 2 passed, 6 warnings. Real parser/schema imports → `ok`; actual categories regular=512, convalidacion=8. |
 | Scope and rollback | Remaining genuine errors: 5 blocks without explicit group metadata, 4 explicit group/shift contradictions, 1 non-normalizable time. `git diff --check` → exit 0. Revert only Medicine schema/parser/tests and task/progress marks; candidate exactly 400 lines. |
+## PR 3 Work Unit and Adversarial Correction Evidence
+| Evidence | Exact result |
+|---|---|
+| Focused tests / runtime harness | Python 3.14 venv: versioning suite → 4 passed; parser→persist→lifecycle harness → 1 passed. Subject accepts only exact `B4`; teacher rejects subject `B4` and accepts only normalized `teacher_cell` `B5`. List-shaped location/raw lineage rejects as stable domain error with zero canonical/issue/audit/session mutation. |
+| Regressions / imports | Parser suite → 11 passed. Prior actor, warning, activation, audit, legacy, parser, and exact-cell behavior remains covered; imports and diff checks pass. PostgreSQL was unavailable; conflict translation remains deterministically tested around the nested savepoint. |
+| Scope / rollback | Revert version service, focused test additions, and task/progress marks only. No HTTP, recommendation, PDF, snapshot, frontend, designation, attendance, or payroll writes. Candidate exactly 400 lines. |
