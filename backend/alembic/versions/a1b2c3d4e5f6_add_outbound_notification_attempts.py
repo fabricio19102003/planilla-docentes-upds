@@ -4,6 +4,7 @@ Revision ID: a1b2c3d4e5f6
 Revises: c9d0e1f2a3b4
 """
 
+import re
 from typing import Sequence, Union
 
 from alembic import op
@@ -60,8 +61,15 @@ def upgrade() -> None:
 
 def _validate_existing_table(inspector: Inspector) -> None:
     table = "outbound_notification_attempts"
+    dialect_name = inspector.bind.dialect.name
+    default_schema = inspector.default_schema_name
+    id_default = (
+        ("postgresql_sequence", default_schema, f"{table}_id_seq")
+        if dialect_name == "postgresql"
+        else None
+    )
     expected_columns = {
-        "id": (("integer",), False, None),
+        "id": (("integer",), False, id_default),
         "idempotency_key": (("string", 64), False, None),
         "publication_id": (("integer",), False, None),
         "publication_version": (("integer",), False, None),
@@ -79,7 +87,12 @@ def _validate_existing_table(inspector: Inspector) -> None:
         column["name"]: (
             _type_signature(column["type"]),
             bool(column["nullable"]),
-            _default_signature(column.get("default")),
+            _default_signature(
+                column.get("default"),
+                dialect_name=dialect_name,
+                column_name=column["name"],
+                default_schema=default_schema,
+            ),
         )
         for column in inspector.get_columns(table)
     }
@@ -138,10 +151,33 @@ def _type_signature(column_type: sa.types.TypeEngine) -> tuple[object, ...]:
     return (column_type.__class__.__name__.lower(),)
 
 
-def _default_signature(value: object) -> str | None:
+_POSTGRES_NEXTVAL_RE = re.compile(
+    r"^nextval\('(?:(?P<schema>[a-z_][a-z0-9_$]*)\.)?"
+    r"(?P<sequence>[a-z_][a-z0-9_$]*)'::regclass\)$"
+)
+
+
+def _default_signature(
+    value: object,
+    *,
+    dialect_name: str,
+    column_name: str,
+    default_schema: str | None,
+) -> object:
     if value is None:
         return None
-    return str(value).strip()
+    normalized = str(value).strip()
+    if dialect_name == "postgresql" and column_name == "id":
+        match = _POSTGRES_NEXTVAL_RE.fullmatch(normalized)
+        if match is not None:
+            schema = match.group("schema") or default_schema
+            sequence = match.group("sequence")
+            if (
+                schema == default_schema
+                and sequence == "outbound_notification_attempts_id_seq"
+            ):
+                return ("postgresql_sequence", schema, sequence)
+    return normalized
 
 
 def downgrade() -> None:
