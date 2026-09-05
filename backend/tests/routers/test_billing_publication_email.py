@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from copy import deepcopy
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
+from app.models.outbound_notification_attempt import OutboundNotificationAttempt
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.services.auth_service import auth_service
+from app.services.billing_notification_service import _attempt_key
+from app.services.monetary_snapshot import build_calculation_snapshot
 
 
 def test_publish_billing_sends_email_after_successful_commit(client, db_session, monkeypatch):
@@ -27,10 +33,14 @@ def test_publish_billing_sends_email_after_successful_commit(client, db_session,
             assert publication.id is not None
             assert publication.billing_snapshot["source"] == "planilla_output"
             assert publication.billing_snapshot["teacher_details"][0]["teacher_ci"] == active_docente.teacher_ci
+            assert publication.billing_snapshot["calculation_snapshot_version"] == 1
+            assert sum(
+                row["net_payment"]
+                for teacher in publication.billing_snapshot["teacher_details"]
+                for row in teacher["designations"]
+            ) == publication.billing_snapshot["total_payment"]
             return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
 
-    monkeypatch.setattr(billing_publication_router.PlanillaGenerator, "_build_planilla_data", _fake_planilla_rows)
-    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_hourly_rate", lambda db: 70.0)
     monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
 
     response = client.post("/api/billing/publish", json={"month": 5, "year": 2026})
@@ -40,6 +50,13 @@ def test_publish_billing_sends_email_after_successful_commit(client, db_session,
     assert len(sent_calls) == 1
     assert [user.id for user in sent_calls[0][1]] == [active_docente.id]
     assert sent_calls[0][1][0].teacher.email == "docente@example.com"
+    attempt = db_session.query(OutboundNotificationAttempt).one()
+    assert attempt.channel == "email"
+    assert attempt.provider == "resend"
+    assert attempt.status == "sent"
+    assert attempt.user_id == active_docente.id
+    assert attempt.provider_message_id is None
+    assert attempt.error_code is None
 
 
 def test_publish_billing_survives_email_service_failure_and_keeps_notifications(client, db_session, monkeypatch):
@@ -52,8 +69,6 @@ def test_publish_billing_survives_email_service_failure_and_keeps_notifications(
         def send_billing_published(self, publication, docente_users):
             raise RuntimeError("provider down")
 
-    monkeypatch.setattr(billing_publication_router.PlanillaGenerator, "_build_planilla_data", _fake_planilla_rows)
-    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_hourly_rate", lambda db: 70.0)
     monkeypatch.setattr(billing_publication_router, "EmailService", FailingEmailService)
 
     response = client.post("/api/billing/publish", json={"month": 5, "year": 2026})
@@ -84,8 +99,6 @@ def test_regular_publication_notifies_only_docentes_present_in_snapshot(client, 
             assert [user.id for user in docente_users] == [included.id]
             return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
 
-    monkeypatch.setattr(billing_publication_router.PlanillaGenerator, "_build_planilla_data", _fake_planilla_rows)
-    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_hourly_rate", lambda db: 70.0)
     monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
 
     response = client.post("/api/billing/publish", json={"month": 5, "year": 2026})
@@ -113,12 +126,6 @@ def test_practice_publication_notifies_only_docentes_present_in_snapshot(client,
             assert [user.id for user in docente_users] == [included.id]
             return SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0)
 
-    monkeypatch.setattr(
-        billing_publication_router.PracticePlanillaGenerator,
-        "_build_planilla_data",
-        _fake_practice_planilla_rows,
-    )
-    monkeypatch.setattr(billing_publication_router.app_settings_service, "get_practice_hourly_rate", lambda db: 50.0)
     monkeypatch.setattr(billing_publication_router, "EmailService", RecordingEmailService)
 
     response = client.post("/api/billing/practice/publish", json={"month": 5, "year": 2026})
@@ -163,6 +170,44 @@ def test_send_billing_emails_filters_selected_active_docentes(client, db_session
     assert sent_calls[0][1][0].teacher.email == "selected@example.com"
 
 
+def test_send_billing_emails_reports_historical_success_as_skipped(
+    client, db_session, monkeypatch
+):
+    import app.routers.billing_publication as billing_publication_router
+    import app.services.billing_notification_service as notification_service
+
+    user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
+    publication = _seed_publication(db_session)
+    monkeypatch.setattr(notification_service.default_settings, "WHATSAPP_ENABLED", False)
+
+    class MustNotSendEmail:
+        def send_billing_published(self, _publication, _users):
+            raise AssertionError("historical success must not call Resend")
+
+    monkeypatch.setattr(billing_publication_router, "EmailService", MustNotSendEmail)
+    db_session.add(
+        OutboundNotificationAttempt(
+            idempotency_key=_attempt_key(publication, user.id, "email", "resend"),
+            publication_id=publication.id,
+            publication_version=publication.version,
+            user_id=user.id,
+            channel="email",
+            provider="resend",
+            mode="fallback",
+            status="sent",
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/billing/send-emails",
+        json={"month": 5, "year": 2026, "teacher_cis": ["EMAIL-DOC-1"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"sent": 0, "failed": 0, "skipped": 1}
+
+
 def test_send_billing_emails_requires_published_publication(client, db_session):
     _seed_publication(db_session, status="draft")
 
@@ -175,7 +220,51 @@ def test_send_billing_emails_requires_published_publication(client, db_session):
     assert response.json()["detail"] == "La facturación no está publicada para este período"
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "seed"),
+    [
+        ("/api/billing/publish", "regular"),
+        ("/api/billing/practice/publish", "practice"),
+    ],
+)
+@pytest.mark.parametrize("snapshot_state", ["missing", "mutated"])
+def test_publication_rejects_invalid_approved_snapshot(client, db_session, endpoint, seed, snapshot_state):
+    output = _seed_approved_planilla(db_session) if seed == "regular" else _seed_approved_practice_planilla(db_session)
+    if snapshot_state == "missing":
+        output.calculation_snapshot = None
+    else:
+        snapshot = deepcopy(output.calculation_snapshot)
+        snapshot["designations"][0]["teacher_name"] = "Mutated after approval"
+        output.calculation_snapshot = snapshot
+    db_session.commit()
+
+    response = client.post(endpoint, json={"month": 5, "year": 2026})
+
+    assert response.status_code == 409
+    expected_code = "snapshot_missing" if snapshot_state == "missing" else "snapshot_mismatch"
+    assert response.json()["detail"]["code"] == expected_code
+
+
+def test_publication_rejects_duplicate_snapshot(client, db_session, monkeypatch):
+    import app.routers.billing_publication as billing_publication_router
+
+    _seed_approved_planilla(db_session)
+    _seed_docente(db_session, ci="EMAIL-DOC-1", email="docente@example.com")
+    monkeypatch.setattr(
+        billing_publication_router.EmailService,
+        "send_billing_published",
+        lambda *args: SimpleNamespace(eligible=1, sent=1, failed=0, skipped=0),
+    )
+
+    assert client.post("/api/billing/publish", json={"month": 5, "year": 2026}).status_code == 200
+    response = client.post("/api/billing/publish", json={"month": 5, "year": 2026})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "snapshot_already_published"
+
+
 def _seed_approved_planilla(db_session):
+    rows = _fake_planilla_rows(None, None, 5, 2026)[0]
     output = PlanillaOutput(
         month=5,
         year=2026,
@@ -187,6 +276,7 @@ def _seed_approved_planilla(db_session):
         end_date=date(2026, 5, 31),
         status="approved",
         discount_mode="attendance",
+        calculation_snapshot=_calculation_snapshot(rows, Decimal("560.00")),
     )
     db_session.add(output)
     db_session.commit()
@@ -219,6 +309,7 @@ def _seed_publication(db_session, *, status="published"):
 
 
 def _seed_approved_practice_planilla(db_session):
+    rows = _fake_practice_planilla_rows(None, None, 5, 2026)[0]
     output = PracticePlanillaOutput(
         month=5,
         year=2026,
@@ -230,6 +321,7 @@ def _seed_approved_practice_planilla(db_session):
         end_date=date(2026, 5, 31),
         status="approved",
         discount_mode="attendance",
+        calculation_snapshot=_calculation_snapshot(rows, Decimal("400.00")),
     )
     db_session.add(output)
     db_session.commit()
@@ -252,6 +344,20 @@ def _seed_docente(db_session, *, ci: str, email: str, is_active: bool = True):
     return user
 
 
+def _calculation_snapshot(rows, total: Decimal):
+    return build_calculation_snapshot(
+        rows=rows,
+        row_amounts=[total],
+        month=5,
+        year=2026,
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 31),
+        discount_mode="attendance",
+        payment_overrides={},
+        excluded_days=[],
+    )
+
+
 def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, discount_mode=None, excluded_days=None):
     return (
         [
@@ -265,6 +371,7 @@ def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, d
                 base_monthly_hours=8,
                 absent_hours=0,
                 payable_hours=8,
+                rate_per_hour=70,
                 calculated_payment=560.0,
                 retention_amount=0.0,
                 final_payment=560.0,
@@ -300,6 +407,7 @@ def _fake_practice_planilla_rows(
                 base_monthly_hours=8,
                 absent_hours=0,
                 payable_hours=8,
+                rate_per_hour=50,
                 calculated_payment=400.0,
                 retention_rate=0.0,
                 retention_amount=0.0,

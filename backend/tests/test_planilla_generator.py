@@ -989,6 +989,9 @@ class TestEdgeCases:
         )
 
         assert result.total_payment == 1000.0
+        stored = db.query(PlanillaOutput).filter_by(month=3, year=2026).one()
+        assert stored.payment_overrides_json == {teacher.ci: "1000.00"}
+        assert stored.calculation_snapshot["overrides"] == {teacher.ci: "1000.00"}
 
     def test_teacher_total_override_is_distributed_across_multiple_rows(self, db, temp_output_dir):
         """
