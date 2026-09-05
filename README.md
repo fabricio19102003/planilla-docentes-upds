@@ -442,9 +442,8 @@ planilla-docentes-upds/
 │   ├── public/                  # Logos UPDS
 │   └── package.json
 │
-├── Designaciones_UPDS_*.json    # Designacion docente oficial
-├── lista_docentes_*.xlsx        # Lista del plantel docente
-├── REPORTE DOCENTES *.xls       # Reporte biometrico
+├── backend/tests/fixtures/
+│   └── designations.synthetic.json  # Artificial designation test data
 └── README.md
 ```
 
@@ -686,21 +685,31 @@ python -m pytest tests/test_exclusion_dias_planilla.py -v
 # Solo tests de designation loader
 python -m pytest tests/test_designation_loader.py -v
 
-# Test E2E con datos reales (requiere archivos en raiz del repo)
-python -m pytest tests/test_e2e_real_data.py -s
+# Synthetic designation-loader integration coverage
+python -m pytest tests/test_designation_loader.py -s
 ```
 
 **226+ tests** cubriendo: carga de designaciones, calculo de pagos (Model C + retencion + overrides), procesamiento de asistencia, APIs, normalizacion de nombres.
 
-## Datos de Ejemplo
+## Test Data and External Real-Data E2E
 
-El repositorio incluye datos de ejemplo:
+The repository contains only the artificial fixture
+`backend/tests/fixtures/designations.synthetic.json`. It uses clearly synthetic
+teachers, subjects, groups, and schedules and is safe for normal automated tests.
 
-| Archivo | Descripcion |
-|---------|-------------|
-| `Designaciones_UPDS_*.json` | Designacion docente oficial (formato UPDS, 400 entradas, 133 docentes) |
-| `lista_docentes_*.xlsx` | Lista del plantel docente con datos personales y bancarios |
-| `REPORTE DOCENTES *.xls` | Reporte biometrico del sistema de control de acceso |
+Official designation, teacher, banking, and biometric files are operational
+data and are not distributed with the source repository. The destructive
+real-data E2E is explicitly opt-in and accepts external fixture paths:
+
+```bash
+SIPAD_REAL_DATA_E2E=1 \
+SIPAD_E2E_BIOMETRIC_FILE=/secure/path/biometric.xls \
+SIPAD_E2E_DESIGNATIONS_FILE=/secure/path/designations.json \
+python -m pytest tests/test_e2e_real_data.py -v -s
+```
+
+Keep those paths and files outside the repository. Without the opt-in flag and
+both existing inputs, the real-data E2E skips safely.
 
 ### Orden de carga recomendado
 

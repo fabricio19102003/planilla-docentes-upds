@@ -1,0 +1,70 @@
+[
+  {
+    "docente": "SYNTHETIC TEACHER ALPHA",
+    "materias": "SYNTHETIC SUBJECT ONE",
+    "semestre": "SYNTHETIC SEMESTER",
+    "grupo": "TEST-GROUP-1",
+    "carga_horaria": 10,
+    "mes": 8,
+    "semana": 2,
+    "horario": "SYNTHETIC MONDAY SLOT",
+    "horario_detalle": [
+      {
+        "dia": "Lunes",
+        "hora_inicio": "08:00",
+        "hora_fin": "09:30"
+      }
+    ]
+  },
+  {
+    "docente": "SYNTHETIC TEACHER ALPHA",
+    "materias": "SYNTHETIC SUBJECT TWO",
+    "semestre": "SYNTHETIC SEMESTER",
+    "grupo": "TEST-GROUP-2",
+    "carga_horaria": 10,
+    "mes": 8,
+    "semana": 2,
+    "horario": "SYNTHETIC TUESDAY SLOT",
+    "horario_detalle": [
+      {
+        "dia": "Martes",
+        "hora_inicio": "10:00",
+        "hora_fin": "11:30"
+      }
+    ]
+  },
+  {
+    "docente": "SYNTHETIC TEACHER BETA",
+    "materias": "SYNTHETIC SUBJECT THREE",
+    "semestre": "SYNTHETIC SEMESTER",
+    "grupo": "TEST-GROUP-3",
+    "carga_horaria": 10,
+    "mes": 8,
+    "semana": 2,
+    "horario": "SYNTHETIC WEDNESDAY SLOT",
+    "horario_detalle": [
+      {
+        "dia": "Miércoles",
+        "hora_inicio": "12:00",
+        "hora_fin": "13:30"
+      }
+    ]
+  },
+  {
+    "docente": null,
+    "materias": "SYNTHETIC UNASSIGNED SUBJECT",
+    "semestre": "SYNTHETIC SEMESTER",
+    "grupo": "TEST-GROUP-4",
+    "carga_horaria": 10,
+    "mes": 8,
+    "semana": 2,
+    "horario": "SYNTHETIC THURSDAY SLOT",
+    "horario_detalle": [
+      {
+        "dia": "Jueves",
+        "hora_inicio": "14:00",
+        "hora_fin": "15:30"
+      }
+    ]
+  }
+]
