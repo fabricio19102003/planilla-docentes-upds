@@ -68,3 +68,66 @@ export function useSendBillingEmails() {
     },
   })
 }
+
+export interface BillingNotificationReadiness {
+  ready: boolean
+  reason?: string
+  capacity?: { available: boolean; requested?: number; remaining?: number | null; exceeded?: boolean | null }
+}
+
+export interface BillingNotificationRecipient {
+  teacher_ci: string
+  phone_masked: string | null
+  channel: 'whatsapp' | 'email' | 'blocked' | 'skipped'
+  reason: string
+}
+
+export interface BillingNotificationPreview {
+  digest: string
+  recipients: BillingNotificationRecipient[]
+  readiness: BillingNotificationReadiness
+}
+
+export interface BillingNotificationBatchStatus {
+  batch_id: number
+  digest: string
+  status: string
+  created_at: string
+  jobs: Array<{ channel: string; status: string }>
+}
+
+export function useBillingNotificationReadiness(enabled: boolean) {
+  return useQuery({
+    queryKey: ['billing-notification-readiness'],
+    queryFn: async () => (await api.get<BillingNotificationReadiness>('/billing/notifications/readiness')).data,
+    enabled,
+    refetchInterval: 30000,
+  })
+}
+
+export function usePreviewBillingNotifications() {
+  return useMutation({
+    mutationFn: async (data: { month: number; year: number; teacher_cis: string[] }) => (
+      await api.post<BillingNotificationPreview>('/billing/notifications/preview', data)
+    ).data,
+  })
+}
+
+export function useConfirmBillingNotifications() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { month: number; year: number; teacher_cis: string[]; digest: string }) => (
+      await api.post<{ batch_id: number; digest: string; status: string }>('/billing/notifications/confirm', data)
+    ).data,
+    onSuccess: (result) => void qc.invalidateQueries({ queryKey: ['billing-notification-batch', result.batch_id] }),
+  })
+}
+
+export function useBillingNotificationBatch(batchId: number | null) {
+  return useQuery({
+    queryKey: ['billing-notification-batch', batchId],
+    queryFn: async () => (await api.get<BillingNotificationBatchStatus>('/billing/notifications/batches/' + batchId)).data,
+    enabled: batchId !== null,
+    refetchInterval: 15000,
+  })
+}
