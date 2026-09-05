@@ -9,6 +9,8 @@ import {
   useDeleteOwnProfilePhoto,
 } from '@/api/hooks/useAuth'
 import { useAuth } from '@/context/AuthContext'
+import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
+import type { TeacherType } from '@/domain/teacherTypes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -46,7 +48,7 @@ interface ProfileData {
   email: string | null
   phone: string | null
   gender: string | null
-  external_permanent: string | null
+  external_permanent: TeacherType | null
   academic_level: string | null
   profession: string | null
   specialty: string | null
@@ -64,7 +66,7 @@ interface ProfileForm {
   email: string
   phone: string
   gender: string
-  external_permanent: string
+  external_permanent: TeacherType | ''
   academic_level: string
   profession: string
   specialty: string
@@ -94,7 +96,7 @@ function nullableText(value: string): string | null {
 const SELECT_EMPTY = '__empty__'
 
 const GENDER_OPTIONS = ['Femenino', 'Masculino', 'Otro', 'Prefiero no indicar']
-const EXTERNAL_PERMANENT_OPTIONS = ['Externo', 'Permanente']
+const EXTERNAL_PERMANENT_OPTIONS = TEACHER_TYPE_OPTIONS.map((option) => option.value)
 const ACADEMIC_LEVEL_OPTIONS = ['Técnico Superior', 'Licenciatura', 'Especialidad', 'Maestría', 'Doctorado']
 
 function assignmentLabel(subjectCount = 0, groupCount = 0): string {
@@ -241,7 +243,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
         email: nullableText(editForm.email),
         phone: nullableText(editForm.phone),
         gender: nullableText(editForm.gender),
-        external_permanent: nullableText(editForm.external_permanent),
+        external_permanent: editForm.external_permanent || null,
         academic_level: nullableText(editForm.academic_level),
         profession: nullableText(editForm.profession),
         specialty: nullableText(editForm.specialty),
@@ -342,7 +344,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
             <InfoRow icon={BookOpen} label="Nivel Académico" value={p.academic_level} />
             <InfoRow icon={BookOpen} label="Profesión" value={p.profession} />
             <InfoRow icon={BookOpen} label="Especialidad" value={p.specialty} />
-            <InfoRow icon={User} label="Externo/Permanente" value={p.external_permanent} />
+            <InfoRow icon={User} label="Tipo docente" value={teacherTypeLabel(p.external_permanent)} />
             <InfoRow icon={Mail} label="Email" value={p.email} />
             <InfoRow icon={Phone} label="Teléfono" value={p.phone} />
             <InfoRow icon={CreditCard} label="Banco" value={p.bank} />
@@ -373,7 +375,7 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                 label="Tipo docente"
                 value={editForm.external_permanent}
                 options={EXTERNAL_PERMANENT_OPTIONS}
-                onChange={(external_permanent) => setEditFormOverride((f) => ({ ...f, external_permanent }))}
+                onChange={(external_permanent) => setEditFormOverride((f) => ({ ...f, external_permanent: external_permanent as TeacherType }))}
                 invalid={Boolean(saveError)}
                 errorId="profile-save-error"
               />

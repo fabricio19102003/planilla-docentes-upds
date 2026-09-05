@@ -6,11 +6,12 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
+from app.domain.teacher_types import TeacherType, normalize_teacher_type
 from app.models.attendance import AttendanceRecord
 from app.models.billing_publication import BillingPublication
 from app.models.designation import Designation
@@ -211,7 +212,7 @@ class ProfileResponse(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     gender: Optional[str] = None
-    external_permanent: Optional[str] = None
+    external_permanent: Optional[TeacherType] = None
     academic_level: Optional[str] = None
     profession: Optional[str] = None
     specialty: Optional[str] = None
@@ -224,17 +225,27 @@ class ProfileResponse(BaseModel):
     subject_count: int = 0
     group_count: int = 0
 
+    @field_validator("external_permanent", mode="before")
+    @classmethod
+    def validate_teacher_type(cls, value):
+        return normalize_teacher_type(value)
+
 
 class ProfileUpdateRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     gender: Optional[str] = None
-    external_permanent: Optional[str] = None
+    external_permanent: Optional[TeacherType] = None
     academic_level: Optional[str] = None
     profession: Optional[str] = None
     specialty: Optional[str] = None
     bank: Optional[str] = None
     account_number: Optional[str] = None
+
+    @field_validator("external_permanent", mode="before")
+    @classmethod
+    def validate_teacher_type(cls, value):
+        return normalize_teacher_type(value)
 
 
 def _clean_optional_text(value: Optional[str]) -> Optional[str]:
