@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import type { Designation, PaginatedResponse, Teacher, TeacherDetail, TeacherPhotoPayload } from '@/api/types'
+import type { TeacherType } from '@/domain/teacherTypes'
 
 interface TeachersParams {
   search?: string
@@ -51,7 +52,7 @@ export function useCreateTeacher() {
       email?: string
       phone?: string
       gender?: string
-      external_permanent?: string
+      external_permanent?: TeacherType
       academic_level?: string
       profession?: string
       specialty?: string
