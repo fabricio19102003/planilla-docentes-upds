@@ -26,6 +26,8 @@ import {
 } from '@/components/ui/select'
 
 import type { Teacher } from '@/api/types'
+import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
+import type { TeacherType } from '@/domain/teacherTypes'
 
 // ─── Create Teacher Dialog ────────────────────────────────────────────────────
 function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -61,7 +63,7 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
         email: form.email || undefined,
         phone: form.phone || undefined,
         gender: form.gender || undefined,
-        external_permanent: form.external_permanent || undefined,
+        external_permanent: (form.external_permanent || undefined) as TeacherType | undefined,
         academic_level: form.academic_level || undefined,
         profession: form.profession || undefined,
         specialty: form.specialty || undefined,
@@ -188,8 +190,9 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
                     <SelectValue placeholder="Seleccionar..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="EXTERNO">Externo</SelectItem>
-                    <SelectItem value="PERMANENTE">Permanente</SelectItem>
+                    {TEACHER_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -494,11 +497,7 @@ export function TeachersPage() {
                         <td className="px-3 py-2.5 text-gray-600">{teacher.email ?? '—'}</td>
                         <td className="px-3 py-2.5 text-gray-600">{teacher.profession ?? '—'}</td>
                         <td className="px-3 py-2.5 text-gray-600">
-                          {!teacher.external_permanent
-                            ? '—'
-                            : teacher.external_permanent === 'EXTERNO'
-                              ? 'Externo'
-                              : 'Permanente'}
+                          {teacherTypeLabel(teacher.external_permanent)}
                         </td>
                         <td className="px-3 py-2.5">
                           <button

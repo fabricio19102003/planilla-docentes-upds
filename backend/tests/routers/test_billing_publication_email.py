@@ -9,11 +9,13 @@ import pytest
 
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
+from app.models.outbound_notification_attempt import OutboundNotificationAttempt
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.services.auth_service import auth_service
+from app.services.billing_notification_service import _attempt_key
 from app.services.monetary_snapshot import build_calculation_snapshot
 
 
@@ -48,6 +50,13 @@ def test_publish_billing_sends_email_after_successful_commit(client, db_session,
     assert len(sent_calls) == 1
     assert [user.id for user in sent_calls[0][1]] == [active_docente.id]
     assert sent_calls[0][1][0].teacher.email == "docente@example.com"
+    attempt = db_session.query(OutboundNotificationAttempt).one()
+    assert attempt.channel == "email"
+    assert attempt.provider == "resend"
+    assert attempt.status == "sent"
+    assert attempt.user_id == active_docente.id
+    assert attempt.provider_message_id is None
+    assert attempt.error_code is None
 
 
 def test_publish_billing_survives_email_service_failure_and_keeps_notifications(client, db_session, monkeypatch):
@@ -159,6 +168,44 @@ def test_send_billing_emails_filters_selected_active_docentes(client, db_session
     assert sent_calls[0][0].status == "published"
     assert [user.id for user in sent_calls[0][1]] == [selected_docente.id]
     assert sent_calls[0][1][0].teacher.email == "selected@example.com"
+
+
+def test_send_billing_emails_reports_historical_success_as_skipped(
+    client, db_session, monkeypatch
+):
+    import app.routers.billing_publication as billing_publication_router
+    import app.services.billing_notification_service as notification_service
+
+    user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
+    publication = _seed_publication(db_session)
+    monkeypatch.setattr(notification_service.default_settings, "WHATSAPP_ENABLED", False)
+
+    class MustNotSendEmail:
+        def send_billing_published(self, _publication, _users):
+            raise AssertionError("historical success must not call Resend")
+
+    monkeypatch.setattr(billing_publication_router, "EmailService", MustNotSendEmail)
+    db_session.add(
+        OutboundNotificationAttempt(
+            idempotency_key=_attempt_key(publication, user.id, "email", "resend"),
+            publication_id=publication.id,
+            publication_version=publication.version,
+            user_id=user.id,
+            channel="email",
+            provider="resend",
+            mode="fallback",
+            status="sent",
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/billing/send-emails",
+        json={"month": 5, "year": 2026, "teacher_cis": ["EMAIL-DOC-1"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"sent": 0, "failed": 0, "skipped": 1}
 
 
 def test_send_billing_emails_requires_published_publication(client, db_session):
