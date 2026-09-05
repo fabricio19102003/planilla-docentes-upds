@@ -4,23 +4,27 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Literal, Optional
+from types import SimpleNamespace
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models.billing_publication import BillingPublication
+from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
-from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
-from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.activity_logger import log_activity
-from app.services import app_settings_service
 from app.services.email_service import EmailService
+from app.services.monetary_snapshot import SnapshotReconciliationError, require_reconciled_snapshot
+from app.services.publication_revisions import (
+    PublicationRevisionError,
+    append_publication_revision,
+    validate_publication_revision,
+)
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -63,6 +67,33 @@ def _serialize_teacher_financials(teacher_map: dict[str, dict]) -> list[dict]:
     return details
 
 
+def _rows_from_calculation_snapshot(snapshot: dict, expected_total) -> list[SimpleNamespace]:
+    require_reconciled_snapshot(snapshot, expected_total)
+    overrides = snapshot.get("overrides", {})
+    rows = []
+    for item in snapshot["designations"]:
+        row_key = f'{item["teacher_ci"]}:{item["designation_id"]}'
+        rows.append(SimpleNamespace(
+            designation_id=item["designation_id"],
+            teacher_ci=item["teacher_ci"],
+            teacher_name=item["teacher_name"],
+            has_biometric=item["has_biometric"],
+            has_retention=item["has_retention"],
+            subject=item["subject"],
+            group_code=item["group"],
+            semester=item["semester"],
+            base_monthly_hours=item["base_hours"],
+            absent_hours=item["absent_hours"],
+            payable_hours=item["payable_hours"],
+            calculated_payment=item["gross"],
+            retention_amount=item["retention"],
+            retention_rate=item["retention_rate"],
+            final_payment=item["amount"],
+            has_admin_override=item["teacher_ci"] in overrides or row_key in overrides,
+        ))
+    return rows
+
+
 # ------------------------------------------------------------------
 # Schemas
 # ------------------------------------------------------------------
@@ -97,12 +128,74 @@ class PublicationResponse(BaseModel):
     year: int
     planilla_type: str = "regular"
     status: str
+    version: int
     total_teachers: int
     total_payment: float
     published_by: Optional[int]
     published_at: Optional[datetime]
     unpublished_at: Optional[datetime]
     notes: Optional[str]
+
+
+class PublicationRevisionSummary(BaseModel):
+    version: int
+    status: str
+    calculation_digest: str
+    billing_digest: str
+    created_at: datetime
+    total_teachers: int
+    total_payment: float
+
+
+class PublicationRevisionDetail(PublicationRevisionSummary):
+    """Admin-only evidence; CI is the stable payroll join key and name makes the salary record human-auditable."""
+
+    calculation_snapshot: dict[str, Any]
+    billing_snapshot: dict[str, Any]
+
+
+class PublicationRevisionCurrent(BaseModel):
+    publication_status: str
+    revision_count: int
+    current_revision: PublicationRevisionSummary
+
+
+def _revision_context(
+    db: Session, planilla_type: str, month: int, year: int,
+) -> tuple[BillingPublication, list[BillingPublicationRevision]]:
+    publication = db.query(BillingPublication).filter_by(
+        month=month, year=year, planilla_type=planilla_type,
+    ).first()
+    if publication is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publication not found")
+    revisions = db.query(BillingPublicationRevision).filter_by(
+        publication_id=publication.id,
+    ).order_by(BillingPublicationRevision.version.asc()).all()
+    if not revisions:
+        error = PublicationRevisionError(
+            "legacy_revision_missing", "Existing publication has no revision lineage; manual backfill is required",
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=error.as_detail())
+    return publication, revisions
+
+
+def _revision_data(revision: BillingPublicationRevision, *, detail: bool = False) -> dict[str, Any]:
+    try:
+        calculation, billing = validate_publication_revision(revision)
+    except PublicationRevisionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_detail()) from exc
+    data = {
+        "version": revision.version,
+        "status": revision.status,
+        "calculation_digest": revision.calculation_digest,
+        "billing_digest": revision.billing_digest,
+        "created_at": revision.created_at,
+        "total_teachers": billing["total_teachers"],
+        "total_payment": float(billing["total_payment"]),
+    }
+    if detail:
+        data.update(calculation_snapshot=calculation, billing_snapshot=billing)
+    return data
 
 
 # ------------------------------------------------------------------
@@ -148,62 +241,11 @@ def publish_billing(
                 detail=f"La planilla debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
             )
 
-        generator = PlanillaGenerator()
         billing_snapshot = None
         try:
-            # Retrieve stored overrides if a planilla was generated with admin adjustments
-            stored_overrides: dict[str, float] = {}
-            if stored_planilla.payment_overrides_json:
-                stored_overrides = stored_planilla.payment_overrides_json
-
-            # Use stored start/end dates and discount_mode from the approved planilla.
-            # `discount_mode` is a NOT NULL column with a default of "attendance",
-            # so direct attribute access is always safe — no defensive getattr needed.
-            sd = stored_planilla.start_date
-            ed = stored_planilla.end_date
-            dm = stored_planilla.discount_mode
-
-            # Load stored exclusions so published amounts match the approved planilla
-            stored_exclusions = None
-            if stored_planilla.excluded_days_json:
-                try:
-                    from app.schemas.planilla import ExcludedDaySchema
-                    stored_exclusions = [
-                        ExcludedDaySchema.model_validate(item)
-                        for item in stored_planilla.excluded_days_json
-                    ]
-                except Exception as exc:
-                    raise PayrollDataError(
-                        "La planilla aprobada contiene exclusiones inválidas; regenerala antes de publicar",
-                        code="invalid_stored_exclusions",
-                    ) from exc
-
-            rows, _detail_rows, _warnings = generator._build_planilla_data(
-                db, month=month, year=year, start_date=sd, end_date=ed,
-                discount_mode=dm,
-                excluded_days=stored_exclusions,
-            )
+            snapshot = stored_planilla.calculation_snapshot
+            rows = _rows_from_calculation_snapshot(snapshot, stored_planilla.total_payment)
             total_teachers = len({r.teacher_ci for r in rows})
-
-            # Resolve overrides using the generator's canonical logic
-            # (handles teacher-level override minus row-level overrides correctly)
-            resolved_payments: dict[str, float] = {}  # "teacher_ci:designation_id" → effective_payment
-            if stored_overrides:
-                for row in rows:
-                    row_key = f"{row.teacher_ci}:{row.designation_id}"
-                    override = generator._resolve_override(row.teacher_ci, row.designation_id, stored_overrides)
-                    if override is not None:
-                        # Simple row-level or plain teacher-level — use as-is only if no
-                        # teacher-level allocation is needed (allocations take precedence)
-                        teacher_rows = [r for r in rows if r.teacher_ci == row.teacher_ci]
-                        allocations = generator._get_teacher_override_allocations(teacher_rows, stored_overrides)
-                        if allocations is not None and row.designation_id in allocations:
-                            resolved_payments[row_key] = float(allocations[row.designation_id])
-                        elif allocations is None:
-                            # No teacher-level override: check row-level directly
-                            row_level = stored_overrides.get(row_key)
-                            if row_level is not None:
-                                resolved_payments[row_key] = float(row_level)
 
             # Build per-teacher snapshot
             teacher_map: dict[str, dict] = {}
@@ -227,12 +269,11 @@ def publish_billing(
                     }
                 t = teacher_map[row.teacher_ci]
 
-                row_key = f"{row.teacher_ci}:{row.designation_id}"
                 row_gross = _money(row.calculated_payment)
                 row_retention = _money(row.retention_amount)
-                row_net = _money(resolved_payments.get(row_key, row.final_payment))
+                row_net = _money(row.final_payment)
                 row_adjustment = _money(row_net - (row_gross - row_retention))
-                has_override = row_key in resolved_payments
+                has_override = row.has_admin_override
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -261,25 +302,26 @@ def publish_billing(
             planilla_id = stored_planilla.id
             logger.info(
                 "Publish: using approved PlanillaOutput id=%d for %d/%d (total=%.2f, overrides=%d)",
-                stored_planilla.id, month, year, total_payment, len(stored_overrides),
+                stored_planilla.id, month, year, total_payment, len(snapshot["overrides"]),
             )
 
             billing_snapshot = {
                 "teacher_details": _serialize_teacher_financials(teacher_map),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
-                "rate_per_hour": app_settings_service.get_hourly_rate(db),
-                "start_date": str(stored_planilla.start_date) if stored_planilla.start_date else None,
-                "end_date": str(stored_planilla.end_date) if stored_planilla.end_date else None,
-                "excluded_days_json": stored_planilla.excluded_days_json or [],
-                "generated_at": datetime.now().isoformat(),
+                "rate_per_hour": float(snapshot["rates"][0]) if snapshot["rates"] else 0.0,
+                "start_date": snapshot["period"]["start"],
+                "end_date": snapshot["period"]["end"],
+                "excluded_days_json": snapshot["excluded_days"],
                 "source": "planilla_output",
                 "planilla_id": planilla_id,
-                "discount_mode": dm,
+                "discount_mode": snapshot["discount_mode"],
+                "calculation_snapshot_version": snapshot["schema_version"],
+                "calculation_snapshot_digest": snapshot["digest"],
             }
         except HTTPException:
             raise
-        except PayrollDataError as exc:
+        except SnapshotReconciliationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=exc.as_detail(),
@@ -291,7 +333,7 @@ def publish_billing(
                 detail="No se pudo generar la facturación. Verificá que existan designaciones y datos de asistencia para este período.",
             ) from exc
 
-        # Create or update BillingPublication
+        # A publication is immutable once this period/type has a snapshot.
         now = datetime.now()
         publication = (
             db.query(BillingPublication)
@@ -308,32 +350,23 @@ def publish_billing(
                 month=month,
                 year=year,
                 planilla_type="regular",
-                status="published",
-                version=1,
-                total_teachers=total_teachers,
-                total_payment=total_payment,
-                published_by=current_user.id,
-                published_at=now,
-                unpublished_at=None,
+                status="draft",
+                version=0,
+                total_teachers=0,
+                total_payment=0,
                 notes=payload.notes,
-                billing_snapshot=billing_snapshot,
             )
             db.add(publication)
-        else:
-            publication.status = "published"
-            publication.version = (publication.version or 1) + 1  # increment on each re-publish
-            publication.total_teachers = total_teachers
-            publication.total_payment = total_payment
-            publication.published_by = current_user.id
-            publication.published_at = now
-            publication.unpublished_at = None
-            publication.billing_snapshot = billing_snapshot
-            if payload.notes is not None:
-                publication.notes = payload.notes
+        elif payload.notes is not None:
+            publication.notes = payload.notes
 
-        db.flush()  # Get ID if new
+        db.flush()
+        append_publication_revision(
+            db, publication, snapshot, billing_snapshot,
+            actor_id=current_user.id, published_at=now,
+        )
 
-        # Remove old notifications for this period to prevent spam on re-publish
+        # Defensive cleanup for notifications left by legacy publication attempts.
         db.query(Notification).filter(
             Notification.notification_type == "billing_published",
             Notification.reference_month == month,
@@ -417,6 +450,7 @@ def publish_billing(
             year=publication.year,
             planilla_type=publication.planilla_type,
             status=publication.status,
+            version=publication.version,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
             published_by=publication.published_by,
@@ -428,6 +462,9 @@ def publish_billing(
     except HTTPException:
         db.rollback()
         raise
+    except PublicationRevisionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_detail()) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Failed to publish billing: %s", exc)
@@ -552,6 +589,7 @@ def unpublish_billing(
             year=publication.year,
             planilla_type=publication.planilla_type,
             status=publication.status,
+            version=publication.version,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
             published_by=publication.published_by,
@@ -593,6 +631,7 @@ def list_publications(
                 year=p.year,
                 planilla_type=p.planilla_type,
                 status=p.status,
+                version=p.version,
                 total_teachers=p.total_teachers,
                 total_payment=float(p.total_payment),
                 published_by=p.published_by,
@@ -643,6 +682,7 @@ def get_publication(
         year=publication.year,
         planilla_type=publication.planilla_type,
         status=publication.status,
+        version=publication.version,
         total_teachers=publication.total_teachers,
         total_payment=float(publication.total_payment),
         published_by=publication.published_by,
@@ -652,11 +692,68 @@ def get_publication(
     )
 
 
+@router.get(
+    "/revisions/{planilla_type}/{month}/{year}",
+    response_model=list[PublicationRevisionSummary],
+)
+def list_publication_revisions(
+    planilla_type: Literal["regular", "practice"],
+    month: int,
+    year: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[PublicationRevisionSummary]:
+    """List integrity-checked revision metadata without teacher PII."""
+    _, revisions = _revision_context(db, planilla_type, month, year)
+    return [PublicationRevisionSummary(**_revision_data(item)) for item in revisions]
+
+
+@router.get(
+    "/revisions/{planilla_type}/{month}/{year}/current",
+    response_model=PublicationRevisionCurrent,
+)
+def get_current_publication_revision(
+    planilla_type: Literal["regular", "practice"],
+    month: int,
+    year: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> PublicationRevisionCurrent:
+    """Return current publication status and latest integrity-checked revision."""
+    publication, revisions = _revision_context(db, planilla_type, month, year)
+    current = PublicationRevisionSummary(**_revision_data(revisions[-1]))
+    return PublicationRevisionCurrent(
+        publication_status=publication.status,
+        revision_count=len(revisions),
+        current_revision=current,
+    )
+
+
+@router.get(
+    "/revisions/{planilla_type}/{month}/{year}/{version}",
+    response_model=PublicationRevisionDetail,
+)
+def get_publication_revision(
+    planilla_type: Literal["regular", "practice"],
+    month: int,
+    year: int,
+    version: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> PublicationRevisionDetail:
+    """Return one immutable revision after validating both stored snapshots."""
+    _, revisions = _revision_context(db, planilla_type, month, year)
+    revision = next((item for item in revisions if item.version == version), None)
+    if revision is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publication revision not found")
+    return PublicationRevisionDetail(**_revision_data(revision, detail=True))
+
+
 # ==================================================================
 # Practice billing publication endpoints
 # Same flow as regular, but:
 #   - Reads from PracticePlanillaOutput (not PlanillaOutput)
-#   - Uses PracticePlanillaGenerator (not PlanillaGenerator)
+#   - Reads the approved practice calculation snapshot
 #   - Sets planilla_type="practice" on BillingPublication
 # ==================================================================
 
@@ -697,57 +794,11 @@ def publish_practice_billing(
                 detail=f"La planilla de prácticas debe estar aprobada antes de publicar (estado actual: {stored_planilla.status})",
             )
 
-        generator = PracticePlanillaGenerator()
         billing_snapshot = None
         try:
-            stored_overrides: dict[str, float] = {}
-            if stored_planilla.payment_overrides_json:
-                stored_overrides = stored_planilla.payment_overrides_json
-
-            sd = stored_planilla.start_date
-            ed = stored_planilla.end_date
-            dm = stored_planilla.discount_mode
-
-            stored_exclusions = None
-            if stored_planilla.excluded_days_json:
-                try:
-                    from app.schemas.planilla import ExcludedDaySchema
-                    stored_exclusions = [
-                        ExcludedDaySchema.model_validate(item)
-                        for item in stored_planilla.excluded_days_json
-                    ]
-                except Exception as exc:
-                    raise PayrollDataError(
-                        "La planilla práctica aprobada contiene exclusiones inválidas; regenerala antes de publicar",
-                        code="invalid_stored_exclusions",
-                    ) from exc
-
-            rows, _warnings = generator._build_planilla_data(
-                db, month=month, year=year, start_date=sd, end_date=ed,
-                discount_mode=dm,
-                excluded_days=stored_exclusions,
-            )
+            snapshot = stored_planilla.calculation_snapshot
+            rows = _rows_from_calculation_snapshot(snapshot, stored_planilla.total_payment)
             total_teachers = len({r.teacher_ci for r in rows})
-
-            resolved_payments: dict[str, float] = {}
-            if stored_overrides:
-                rows_by_teacher: dict[str, list] = {}
-                for row in rows:
-                    rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
-
-                teacher_allocations: dict[str, dict[int, float]] = {}
-                for teacher_ci, teacher_rows in rows_by_teacher.items():
-                    allocations = generator._get_teacher_override_allocations(teacher_rows, stored_overrides)
-                    if allocations is not None:
-                        teacher_allocations[teacher_ci] = allocations
-
-                for row in rows:
-                    row_key = f"{row.teacher_ci}:{row.designation_id}"
-                    allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
-                    if allocation is not None:
-                        resolved_payments[row_key] = float(allocation)
-                    elif row_key in stored_overrides:
-                        resolved_payments[row_key] = float(stored_overrides[row_key])
 
             teacher_map: dict[str, dict] = {}
             for row in rows:
@@ -769,12 +820,11 @@ def publish_practice_billing(
                         "has_admin_override": False,
                     }
                 t = teacher_map[row.teacher_ci]
-                row_key = f"{row.teacher_ci}:{row.designation_id}"
                 row_gross = _money(row.calculated_payment)
                 row_retention = _money(row.retention_amount)
-                row_net = _money(resolved_payments.get(row_key, row.final_payment))
+                row_net = _money(row.final_payment)
                 row_adjustment = _money(row_net - (row_gross - row_retention))
-                has_override = row_key in resolved_payments
+                has_override = row.has_admin_override
                 t["designations"].append({
                     "subject": row.subject,
                     "group": row.group_code,
@@ -806,23 +856,23 @@ def publish_practice_billing(
                 planilla_id, month, year, total_payment,
             )
 
-            practice_rate = app_settings_service.get_practice_hourly_rate(db)
             billing_snapshot = {
                 "teacher_details": _serialize_teacher_financials(teacher_map),
                 "total_payment": float(total_payment),
                 "total_teachers": total_teachers,
-                "rate_per_hour": practice_rate,
-                "start_date": str(stored_planilla.start_date) if stored_planilla.start_date else None,
-                "end_date": str(stored_planilla.end_date) if stored_planilla.end_date else None,
-                "excluded_days_json": stored_planilla.excluded_days_json or [],
-                "generated_at": datetime.now().isoformat(),
+                "rate_per_hour": float(snapshot["rates"][0]) if snapshot["rates"] else 0.0,
+                "start_date": snapshot["period"]["start"],
+                "end_date": snapshot["period"]["end"],
+                "excluded_days_json": snapshot["excluded_days"],
                 "source": "practice_planilla_output",
                 "planilla_id": planilla_id,
-                "discount_mode": dm,
+                "discount_mode": snapshot["discount_mode"],
+                "calculation_snapshot_version": snapshot["schema_version"],
+                "calculation_snapshot_digest": snapshot["digest"],
             }
         except HTTPException:
             raise
-        except PayrollDataError as exc:
+        except SnapshotReconciliationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=exc.as_detail(),
@@ -834,7 +884,7 @@ def publish_practice_billing(
                 detail="No se pudo generar la facturación de prácticas. Verificá que existan designaciones y datos de asistencia para este período.",
             ) from exc
 
-        # Create or update BillingPublication with planilla_type="practice"
+        # A publication is immutable once this period/type has a snapshot.
         now = datetime.now()
         publication = (
             db.query(BillingPublication)
@@ -851,30 +901,21 @@ def publish_practice_billing(
                 month=month,
                 year=year,
                 planilla_type="practice",
-                status="published",
-                version=1,
-                total_teachers=total_teachers,
-                total_payment=total_payment,
-                published_by=current_user.id,
-                published_at=now,
-                unpublished_at=None,
+                status="draft",
+                version=0,
+                total_teachers=0,
+                total_payment=0,
                 notes=payload.notes,
-                billing_snapshot=billing_snapshot,
             )
             db.add(publication)
-        else:
-            publication.status = "published"
-            publication.version = (publication.version or 1) + 1
-            publication.total_teachers = total_teachers
-            publication.total_payment = total_payment
-            publication.published_by = current_user.id
-            publication.published_at = now
-            publication.unpublished_at = None
-            publication.billing_snapshot = billing_snapshot
-            if payload.notes is not None:
-                publication.notes = payload.notes
+        elif payload.notes is not None:
+            publication.notes = payload.notes
 
         db.flush()
+        append_publication_revision(
+            db, publication, snapshot, billing_snapshot,
+            actor_id=current_user.id, published_at=now,
+        )
 
         month_name = MONTH_NAMES.get(month, str(month))
 
@@ -960,6 +1001,7 @@ def publish_practice_billing(
             year=publication.year,
             planilla_type=publication.planilla_type,
             status=publication.status,
+            version=publication.version,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
             published_by=publication.published_by,
@@ -971,6 +1013,9 @@ def publish_practice_billing(
     except HTTPException:
         db.rollback()
         raise
+    except PublicationRevisionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_detail()) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Failed to publish practice billing: %s", exc)
@@ -1029,6 +1074,7 @@ def unpublish_practice_billing(
             year=publication.year,
             planilla_type=publication.planilla_type,
             status=publication.status,
+            version=publication.version,
             total_teachers=publication.total_teachers,
             total_payment=float(publication.total_payment),
             published_by=publication.published_by,
