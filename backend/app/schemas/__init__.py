@@ -13,6 +13,9 @@ from app.schemas.designation import (
     DesignationCreate,
     DesignationContractDatesUpdate,
     DesignationResponse,
+    DesignationImportApplyResponse,
+    DesignationImportCounts,
+    DesignationImportPreviewResponse,
     DesignationUploadResponse,
 )
 from app.schemas.biometric import (
@@ -57,6 +60,9 @@ __all__ = [
     "DesignationCreate",
     "DesignationContractDatesUpdate",
     "DesignationResponse",
+    "DesignationImportApplyResponse",
+    "DesignationImportCounts",
+    "DesignationImportPreviewResponse",
     "DesignationUploadResponse",
     "BiometricUploadResponse",
     "BiometricRecordBase",
