@@ -318,3 +318,27 @@ def test_whatsapp_preference_requires_evidenced_consent_and_records_opt_out_revi
     assert preference.opted_out_at is not None
     assert preference.opt_out_evidence == "twilio-stop-event"
     assert preference.consent_revision == 3
+
+
+def test_billing_notification_persistence_has_durable_intent_constraints():
+    from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+
+    assert {constraint.name for constraint in BillingNotificationBatch.__table__.constraints} >= {
+        "uq_billing_notification_batch_digest"
+    }
+    assert {constraint.name for constraint in BillingNotificationJob.__table__.constraints} >= {
+        "uq_billing_notification_job_intent"
+    }
+    assert {index.name for index in BillingNotificationJob.__table__.indexes} >= {
+        "ix_billing_notification_job_claim"
+    }
+
+
+def test_billing_notification_provider_sids_accept_message_and_media_shapes():
+    from app.models.billing_notification import BillingNotificationJob, WhatsAppEvent
+
+    assert BillingNotificationJob.is_provider_sid("SM" + "a" * 32)
+    assert BillingNotificationJob.is_provider_sid("MM" + "b" * 32)
+    assert WhatsAppEvent.is_provider_sid("SM" + "c" * 32)
+    assert not BillingNotificationJob.is_provider_sid("SM" + "a" * 31)
+    assert not BillingNotificationJob.is_provider_sid("XX" + "a" * 32)
