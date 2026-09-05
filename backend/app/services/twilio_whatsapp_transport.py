@@ -49,9 +49,17 @@ class TwilioWhatsAppTransport:
                         auth=(self.api_key_sid, self.api_key_secret),
                         data=payload,
                     )
+        except httpx.ConnectError:
+            logger.warning("Twilio WhatsApp request could not connect")
+            return WhatsAppSendResult(status="failed", error_code="twilio_connect_error")
         except httpx.RequestError:
-            logger.warning("Twilio WhatsApp request failed with a network error")
-            return WhatsAppSendResult(status="failed", error_code="twilio_network_error")
+            # Once request dispatch begins, a timeout/write/read failure cannot
+            # prove whether Twilio accepted the message. Treat it as ambiguous
+            # rather than triggering an email that could duplicate delivery.
+            logger.warning("Twilio WhatsApp request ended with an ambiguous network outcome")
+            return WhatsAppSendResult(
+                status="ambiguous", error_code="twilio_delivery_ambiguous"
+            )
 
         if 200 <= response.status_code < 300:
             provider_message_id = _message_sid(response)
