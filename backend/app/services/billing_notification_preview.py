@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.billing_notification_policy import BillingChannelPolicy, BillingDigestPlanner
+from app.services.billing_pdf_service import BillingPdfService
+from app.config import settings
 
 @dataclass(frozen=True)
 class NotificationPlan:
@@ -54,16 +56,22 @@ class BillingNotificationPreviewService:
         batch = BillingNotificationBatch(publication_id=publication.id, publication_version=publication.version, digest=plan.digest, readiness_snapshot=plan.readiness, status="queued")
         self.db.add(batch)
         self.db.flush()
+        details = {str(item.get("teacher_ci")): item for item in (publication.billing_snapshot or {}).get("teacher_details", []) if isinstance(item, dict)}
         for recipient in plan.recipients:
             if recipient["channel"] != "blocked":
-                self.db.add(BillingNotificationJob(batch_id=batch.id, teacher_ci=recipient["teacher_ci"], channel=recipient["channel"], content_sid=recipient["content_sid"], media_snapshot={"sha256": recipient["pdf_sha256"], "size": recipient["pdf_size"]}, status="queued"))
+                job = BillingNotificationJob(batch_id=batch.id, teacher_ci=recipient["teacher_ci"], channel=recipient["channel"], content_sid=recipient["content_sid"], status="queued")
+                self.db.add(job)
+                self.db.flush()
+                if job.channel == "whatsapp":
+                    media = BillingPdfService(self.db).issue(batch, job, details[job.teacher_ci], commit=False)
+                    job.media_snapshot = {"token_id": media.token_id, "artifact_hash": media.artifact_hash, "artifact_size": media.artifact_size}
         self.db.flush()
         return batch
 
     def _recipient(self, teacher_ci: str, detail: dict[str, Any], preference: Any | None) -> dict[str, Any]:
         decision = self.policy.select(preference)
         encoded = json.dumps(detail, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
-        return {"teacher_ci": teacher_ci, "phone_masked": self._mask_phone(getattr(preference, "phone_e164", None)), "consent_revision": self.policy.consent_snapshot(preference)["consent_revision"], "channel": decision.channel, "reason": decision.reason, "content_sid": None, "pdf_sha256": hashlib.sha256(encoded).hexdigest(), "pdf_size": len(encoded)}
+        return {"teacher_ci": teacher_ci, "phone_masked": self._mask_phone(getattr(preference, "phone_e164", None)), "consent_revision": self.policy.consent_snapshot(preference)["consent_revision"], "channel": decision.channel, "reason": decision.reason, "content_sid": settings.TWILIO_OFFICIAL_CONTENT_SID, "pdf_sha256": hashlib.sha256(encoded).hexdigest(), "pdf_size": len(encoded)}
 
     def _capacity_forecast(self, requested: int) -> dict[str, Any]:
         capacity = self.readiness.get("capacity")

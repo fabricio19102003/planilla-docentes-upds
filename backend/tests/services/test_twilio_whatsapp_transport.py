@@ -100,3 +100,28 @@ def test_transport_maps_timeout_to_ambiguous_delivery_outcome():
     assert result.status == "ambiguous"
     assert result.error_code == "twilio_delivery_ambiguous"
     assert "private" not in result.error_code
+
+
+def test_official_content_transport_uses_only_content_contract():
+    from app.services.twilio_content_transport import TwilioContentTransport
+
+    captured = {}
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["form"] = parse_qs(request.content.decode())
+        return httpx.Response(201, json={"sid": "SM" + "a" * 32})
+
+    result = TwilioContentTransport("AC1", "SK1", "secret", "+14150000000", "https://callback/status", client=httpx.Client(transport=httpx.MockTransport(handler))).send(to="+59170000000", content_sid="HX" + "b" * 32, content_variables='{"media":"https://media/pdf"}')
+    assert result.status == "sent"
+    assert "Body" not in captured["form"]
+    assert "MediaUrl" not in captured["form"]
+    assert captured["form"]["ContentSid"] == ["HX" + "b" * 32]
+    assert captured["form"]["ContentVariables"] == ['{"media":"https://media/pdf"}']
+    assert captured["form"]["StatusCallback"] == ["https://callback/status"]
+
+
+def test_readiness_adapter_fails_closed_for_missing_capacity():
+    from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
+
+    readiness = TwilioReadinessAdapter().evaluate({"sender_status": "ONLINE", "templates_approved": True})
+    assert readiness["ready"] is False
+    assert readiness["capacity"]["available"] is False
