@@ -1,11 +1,16 @@
 """
 E2E Integration Test - Planilla Docentes UPDS
-Phase 5: Full end-to-end validation using REAL data files.
+Phase 5: Opt-in end-to-end validation using external real-data files.
 
 Run from backend/ directory:
+    SIPAD_REAL_DATA_E2E=1 \
+    SIPAD_E2E_BIOMETRIC_FILE=/secure/path/biometric.xls \
+    SIPAD_E2E_DESIGNATIONS_FILE=/secure/path/designations.json \
     python -m pytest tests/test_e2e_real_data.py -v -s
   or directly:
-    python tests/test_e2e_real_data.py
+    use the same environment variables with python tests/test_e2e_real_data.py
+
+The external fixtures are never committed to the repository.
 """
 from __future__ import annotations
 
@@ -29,9 +34,16 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-PROJECT_ROOT = BACKEND_DIR.parent
-BIOMETRIC_FILE = PROJECT_ROOT / "reporte biometrico marzo_docentes.xls"
-DESIGNATIONS_FILE = PROJECT_ROOT / "designacion_new.json"
+REAL_DATA_E2E_ENABLED = os.getenv("SIPAD_REAL_DATA_E2E") == "1"
+
+
+def _path_from_env(name: str) -> Path | None:
+    value = os.getenv(name)
+    return Path(value).expanduser() if value else None
+
+
+BIOMETRIC_FILE = _path_from_env("SIPAD_E2E_BIOMETRIC_FILE")
+DESIGNATIONS_FILE = _path_from_env("SIPAD_E2E_DESIGNATIONS_FILE")
 OUTPUT_DIR = BACKEND_DIR / "data" / "output"
 OUTPUT_FILE = OUTPUT_DIR / "planilla_marzo_2026.xlsx"
 
@@ -40,6 +52,25 @@ YEAR = 2026
 
 # ── Test results accumulator ─────────────────────────────────────────────────
 results: list[dict] = []
+
+
+def _require_external_fixture(path: Path | None, env_name: str) -> Path:
+    if path is None or not path.is_file():
+        raise RuntimeError(f"External fixture from {env_name} is unavailable")
+    return path
+
+
+def _real_data_e2e_skip_reason() -> str | None:
+    if not REAL_DATA_E2E_ENABLED:
+        return "Set SIPAD_REAL_DATA_E2E=1 to opt into destructive external-data E2E"
+    if BIOMETRIC_FILE is None or not BIOMETRIC_FILE.is_file():
+        return "Set SIPAD_E2E_BIOMETRIC_FILE to an existing external fixture"
+    if DESIGNATIONS_FILE is None or not DESIGNATIONS_FILE.is_file():
+        return "Set SIPAD_E2E_DESIGNATIONS_FILE to an existing external fixture"
+    return None
+
+
+REAL_DATA_E2E_SKIP_REASON = _real_data_e2e_skip_reason()
 
 
 def step(name: str):
@@ -131,13 +162,16 @@ def step2_load_designations():
     with step("Step 2: Load designations from JSON"):
         from app.services.designation_loader import DesignationLoader
 
-        assert DESIGNATIONS_FILE.exists(), f"Designations file not found: {DESIGNATIONS_FILE}"
+        designations_file = _require_external_fixture(
+            DESIGNATIONS_FILE,
+            "SIPAD_E2E_DESIGNATIONS_FILE",
+        )
 
         db = get_real_db_session()
         try:
             loader = DesignationLoader()
             t0 = time.perf_counter()
-            result = loader.load_from_json(db=db, json_path=str(DESIGNATIONS_FILE))
+            result = loader.load_from_json(db=db, json_path=str(designations_file))
             elapsed = time.perf_counter() - t0
 
             print(f"  Teachers created : {result.teachers_created}")
@@ -172,13 +206,16 @@ def step3_parse_biometric():
     with step("Step 3: Parse biometric XLS report"):
         from app.services.biometric_parser import BiometricParser
 
-        assert BIOMETRIC_FILE.exists(), f"Biometric file not found: {BIOMETRIC_FILE}"
+        biometric_file = _require_external_fixture(
+            BIOMETRIC_FILE,
+            "SIPAD_E2E_BIOMETRIC_FILE",
+        )
 
         db = get_real_db_session()
         try:
             parser = BiometricParser()
             t0 = time.perf_counter()
-            parse_result = parser.parse_file(str(BIOMETRIC_FILE))
+            parse_result = parser.parse_file(str(biometric_file))
             elapsed_parse = time.perf_counter() - t0
 
             print(f"  Teachers found   : {parse_result.stats['total_teachers']}")
@@ -197,7 +234,7 @@ def step3_parse_biometric():
                 parse_result=parse_result,
                 month=MONTH,
                 year=YEAR,
-                filename=BIOMETRIC_FILE.name,
+                filename=biometric_file.name,
             )
             db.commit()
             elapsed_save = time.perf_counter() - t1
@@ -644,8 +681,10 @@ def print_final_report():
 
     # Data quality summary
     print(f"\n  DATA QUALITY:")
-    print(f"  • Biometric file  : {BIOMETRIC_FILE.name}")
-    print(f"  • Designations    : {DESIGNATIONS_FILE.name}")
+    biometric_file = _require_external_fixture(BIOMETRIC_FILE, "SIPAD_E2E_BIOMETRIC_FILE")
+    designations_file = _require_external_fixture(DESIGNATIONS_FILE, "SIPAD_E2E_DESIGNATIONS_FILE")
+    print(f"  • Biometric file  : {biometric_file.name}")
+    print(f"  • Designations    : {designations_file.name}")
     if step6_generate_planilla.file_path:
         file_p = Path(step6_generate_planilla.file_path)
         size = file_p.stat().st_size if file_p.exists() else 0
@@ -662,8 +701,8 @@ def print_final_report():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.skipif(
-    not BIOMETRIC_FILE.exists(),
-    reason=f"E2E fixture file not found: {BIOMETRIC_FILE}. Provide the real biometric XLS to run this test.",
+    REAL_DATA_E2E_SKIP_REASON is not None,
+    reason=REAL_DATA_E2E_SKIP_REASON or "External real-data E2E is unavailable",
 )
 def test_e2e_full_flow():
     """Single pytest test that runs the complete E2E flow."""
@@ -687,6 +726,10 @@ def test_e2e_full_flow():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    if REAL_DATA_E2E_SKIP_REASON is not None:
+        print(f"Real-data E2E disabled: {REAL_DATA_E2E_SKIP_REASON}")
+        sys.exit(2)
+
     print(f"\nPlanilla Docentes UPDS — E2E Integration Test")
     print(f"Working dir: {BACKEND_DIR}")
     print(f"Biometric  : {BIOMETRIC_FILE}")

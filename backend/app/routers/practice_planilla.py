@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -34,6 +35,12 @@ from app.services.practice_planilla_generator import (
 )
 from app.services.planilla_generator import PayrollDataError
 from app.services.activity_logger import log_activity
+from app.services.monetary_snapshot import (
+    SnapshotReconciliationError,
+    calculation_snapshot_rows,
+    require_reconciled_snapshot,
+)
+from app.services.payment_overrides import PaymentOverrideError
 from app.utils.auth import require_admin
 
 MONTH_NAMES = {
@@ -132,6 +139,9 @@ def generate_practice_planilla(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.as_detail(),
         ) from exc
+    except PaymentOverrideError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.as_detail()) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Practice planilla generation failed: %s", exc)
@@ -157,7 +167,16 @@ def practice_planilla_history(
             .order_by(PracticePlanillaOutput.generated_at.desc())
             .all()
         )
-        return [PracticePlanillaOutputResponse.model_validate(row) for row in rows]
+        result = []
+        for row in rows:
+            item = PracticePlanillaOutputResponse.model_validate(row).model_dump()
+            try:
+                require_reconciled_snapshot(row.calculation_snapshot, row.total_payment)
+                item["total_payment"] = Decimal(row.calculation_snapshot["total"])
+            except SnapshotReconciliationError as exc:
+                item.update(total_payment=None, data_status="legacy_unavailable", unavailable_reason=exc.code)
+            result.append(PracticePlanillaOutputResponse(**item))
+        return result
     except Exception as exc:
         logger.exception("Failed to load practice planilla history: %s", exc)
         raise HTTPException(
@@ -264,6 +283,14 @@ def approve_practice_planilla(
                 f"(estado actual: {planilla.status})"
             ),
         )
+
+    try:
+        require_reconciled_snapshot(planilla.calculation_snapshot, planilla.total_payment)
+    except SnapshotReconciliationError as exc:
+        if exc.code == "snapshot_missing":
+            planilla.status = "snapshot_missing"
+            db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_detail()) from exc
 
     planilla.status = "approved"
 
@@ -392,13 +419,20 @@ def get_practice_planilla_detail(
                         code="invalid_stored_exclusions",
                     ) from exc
 
-        generator = PracticePlanillaGenerator()
-        rows, warnings = generator._build_planilla_data(
-            db, month=month, year=year,
-            start_date=start_date, end_date=end_date,
-            discount_mode=discount_mode,
-            excluded_days=effective_exclusions,
+        stored = (
+            db.query(PracticePlanillaOutput)
+            .filter(PracticePlanillaOutput.month == month, PracticePlanillaOutput.year == year)
+            .order_by(PracticePlanillaOutput.generated_at.desc())
+            .first()
         )
+        if stored is not None:
+            rows = calculation_snapshot_rows(stored.calculation_snapshot, stored.total_payment)
+            warnings = []
+        else:
+            rows, warnings = PracticePlanillaGenerator()._build_planilla_data(
+                db, month=month, year=year, start_date=start_date, end_date=end_date,
+                discount_mode=discount_mode, excluded_days=effective_exclusions,
+            )
 
         row_list = []
         for row in rows:
@@ -441,7 +475,7 @@ def get_practice_planilla_detail(
         }
     except HTTPException:
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.as_detail(),
@@ -512,12 +546,9 @@ def generate_practice_salary_report(
 ) -> FileResponse:
     """Generate and return the salary report Excel for practice teachers.
 
-    Reuses PracticePlanillaGenerator to build rows, then formats them
-    using the same salary-report template style.
+    Formats reconciled snapshot rows using the shared salary-report template.
     """
     try:
-        from app.services.practice_planilla_generator import PracticePlanillaGenerator as PPG
-
         # Resolve discount_mode from stored planilla if available
         stored = (
             db.query(PracticePlanillaOutput)
@@ -528,66 +559,11 @@ def generate_practice_salary_report(
             .order_by(PracticePlanillaOutput.generated_at.desc())
             .first()
         )
-        effective_mode = payload.discount_mode
-        effective_sd = payload.start_date
-        effective_ed = payload.end_date
-        effective_exclusions = payload.excluded_days or None
-        stored_overrides: dict[str, float] = {}
-        if stored is not None:
-            if stored.discount_mode in ("attendance", "full"):
-                if payload.discount_mode == "attendance" and stored.discount_mode == "full":
-                    effective_mode = "full"
-            if effective_sd is None and stored.start_date is not None:
-                effective_sd = stored.start_date
-            if effective_ed is None and stored.end_date is not None:
-                effective_ed = stored.end_date
-            if effective_exclusions is None and stored.excluded_days_json:
-                try:
-                    from app.schemas.planilla import ExcludedDaySchema
-                    effective_exclusions = [
-                        ExcludedDaySchema.model_validate(item)
-                        for item in stored.excluded_days_json
-                    ]
-                except Exception as exc:
-                    raise PayrollDataError(
-                        "La planilla práctica almacenada contiene exclusiones inválidas; regenerala antes de generar salarios",
-                        code="invalid_stored_exclusions",
-                    ) from exc
-            if stored.payment_overrides_json:
-                stored_overrides = stored.payment_overrides_json
-
-        # Build rows using practice generator
-        gen = PPG()
-        rows, _warnings = gen._build_planilla_data(
-            db,
-            month=payload.month,
-            year=payload.year,
-            start_date=effective_sd,
-            end_date=effective_ed,
-            discount_mode=effective_mode,
-            excluded_days=effective_exclusions,
+        rows = calculation_snapshot_rows(
+            stored.calculation_snapshot if stored else None,
+            stored.total_payment if stored else 0,
+            require_profiles=True,
         )
-
-        if stored_overrides:
-            rows_by_teacher: dict[str, list] = {}
-            for row in rows:
-                rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
-
-            teacher_allocations: dict[str, dict[int, float]] = {}
-            for teacher_ci, teacher_rows in rows_by_teacher.items():
-                allocations = gen._get_teacher_override_allocations(teacher_rows, stored_overrides)
-                if allocations is not None:
-                    teacher_allocations[teacher_ci] = allocations
-
-            for row in rows:
-                row_key = f"{row.teacher_ci}:{row.designation_id}"
-                override = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
-                if override is None and row_key in stored_overrides:
-                    override = stored_overrides[row_key]
-                if override is not None:
-                    row.calculated_payment = float(override)
-                    row.retention_amount = 0.0
-                    row.final_payment = float(override)
         rows.sort(key=lambda r: (r.teacher_name, r.subject, r.group_code))
 
         # Build salary report using the shared SalaryReportGenerator template
@@ -596,12 +572,7 @@ def generate_practice_salary_report(
         output_dir = _output_dir()
         salary_gen = SalaryReportGenerator(output_dir=str(output_dir))
 
-        # Bulk-load teachers
-        cis = {r.teacher_ci for r in rows}
-        teachers: dict[str, Teacher] = {
-            t.ci: t
-            for t in db.query(Teacher).filter(Teacher.ci.in_(cis)).all()
-        } if cis else {}
+        teachers: dict[str, Teacher] = {}
 
         from openpyxl import Workbook
 
@@ -644,7 +615,7 @@ def generate_practice_salary_report(
             details={
                 "month": payload.month,
                 "year": payload.year,
-                "discount_mode": effective_mode,
+                "discount_mode": stored.discount_mode,
                 "file": str(file_path),
             },
             request=request,
@@ -659,7 +630,7 @@ def generate_practice_salary_report(
     except HTTPException:
         db.rollback()
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

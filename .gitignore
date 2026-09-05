@@ -70,3 +70,11 @@ nul
 
 # Local agent artifacts
 .atl/
+
+# Local production deployment state
+/deploy/state/
+
+# External operational fixtures must never be committed
+/designacion_new.json
+/reporte biometrico*
+/real-data-fixtures/

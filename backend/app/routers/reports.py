@@ -15,6 +15,7 @@ from app.models.user import User
 from app.services import app_settings_service
 from app.services.report_generator import ReportGenerator
 from app.services.planilla_generator import PayrollDataError
+from app.services.monetary_snapshot import SnapshotReconciliationError
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -117,7 +118,7 @@ def generate_report(
         }
     except HTTPException:
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except Exception as exc:
@@ -165,79 +166,10 @@ def preview_report(
 
     try:
         if report_type == 'financial':
-            from app.services.planilla_generator import PlanillaGenerator
-            gen = PlanillaGenerator()
-            # Respect the discount_mode stored on the approved planilla (if any).
-            # Otherwise the preview would always recalculate in "attendance" mode and
-            # differ from the actual published totals when the planilla was generated
-            # in "full" mode.
-            stored_fin = (
-                db.query(PlanillaOutput)
-                .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-                .order_by(PlanillaOutput.generated_at.desc())
-                .first()
+            return ReportGenerator().build_financial_dataset(
+                db, month=month, year=year, teacher_ci=teacher_ci,
+                semester=semester, group_code=group_code, subject=subject,
             )
-            fin_dm = stored_fin.discount_mode if stored_fin else "attendance"
-            fin_sd = stored_fin.start_date if stored_fin else None
-            fin_ed = stored_fin.end_date if stored_fin else None
-            planilla_rows, detail_rows, gen_warnings = gen._build_planilla_data(
-                db,
-                month=month,
-                year=year,
-                start_date=fin_sd,
-                end_date=fin_ed,
-                discount_mode=fin_dm,
-                excluded_days=ReportGenerator._load_planilla_exclusions(stored_fin),
-            )
-            rows = planilla_rows
-            if teacher_ci:
-                rows = [r for r in rows if r.teacher_ci == teacher_ci]
-            if semester:
-                rows = [r for r in rows if r.semester and r.semester.upper() == semester.upper()]
-            if group_code:
-                rows = [r for r in rows if r.group_code == group_code]
-            if subject:
-                rows = [r for r in rows if subject.lower() in r.subject.lower()]
-
-            # Prefer stored PlanillaOutput total (reflects admin overrides) when no row filter
-            if not teacher_ci and not semester and not group_code and not subject:
-                stored = (
-                    db.query(PlanillaOutput)
-                    .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-                    .order_by(PlanillaOutput.generated_at.desc())
-                    .first()
-                )
-                total_payment = float(stored.total_payment) if stored else sum(r.final_payment for r in rows)
-            else:
-                total_payment = sum(r.final_payment for r in rows)
-
-            return {
-                "report_type": "financial",
-                "total_teachers": len(set(r.teacher_ci for r in rows)),
-                "total_designations": len(rows),
-                "total_base_hours": sum(r.base_monthly_hours for r in rows),
-                "total_absent_hours": sum(r.absent_hours for r in rows),
-                "total_payable_hours": sum(r.payable_hours for r in rows),
-                "total_gross_payment": sum(r.calculated_payment for r in rows),
-                "total_retention": sum(r.retention_amount for r in rows),
-                "total_payment": total_payment,  # net — after retention (stored when available)
-                "rows": [
-                    {
-                        "teacher_ci": r.teacher_ci,
-                        "teacher_name": r.teacher_name,
-                        "subject": r.subject,
-                        "group_code": r.group_code,
-                        "semester": r.semester,
-                        "base_monthly_hours": r.base_monthly_hours,
-                        "absent_hours": r.absent_hours,
-                        "payable_hours": r.payable_hours,
-                        "calculated_payment": r.calculated_payment,  # gross
-                        "retention_amount": r.retention_amount,
-                        "final_payment": r.final_payment,            # net
-                    }
-                    for r in sorted(rows, key=lambda x: (-x.final_payment, x.teacher_name))
-                ],
-            }
 
         elif report_type == 'attendance':
             query = db.query(AttendanceRecord).filter(
@@ -559,7 +491,7 @@ def preview_report(
 
     except HTTPException:
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except Exception as exc:
         logger.exception("Report preview failed: %s", exc)

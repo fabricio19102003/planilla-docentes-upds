@@ -40,3 +40,29 @@ class BillingPublication(Base):
 
     def __repr__(self) -> str:
         return f"<BillingPublication {self.month}/{self.year} status={self.status}>"
+
+
+class BillingPublicationRevision(Base):
+    __tablename__ = "billing_publication_revisions"
+    __table_args__ = (
+        UniqueConstraint("publication_id", "version", name="uq_billing_revision_version"),
+        UniqueConstraint(
+            "publication_id", "calculation_digest",
+            name="uq_billing_revision_calculation_digest",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    publication_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("billing_publications.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
+    calculation_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    billing_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    calculation_snapshot: Mapped[Any] = mapped_column(JSON, nullable=False)
+    billing_snapshot: Mapped[Any] = mapped_column(JSON, nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
