@@ -115,6 +115,24 @@ def test_public_media_rejects_durable_token_with_mismatched_job_artifact(client,
     assert client.get(f"/api/public/billing-media/{issued.token}").status_code == 404
 
 
+def test_rollback_cancels_only_unleased_jobs_and_revokes_their_media_tokens(db_session, tmp_path):
+    from app.workers.official_whatsapp_runner import rollback_unleased
+
+    batch = _batch(db_session)
+    queued = _job(db_session, batch)
+    db_session.add(Teacher(ci="MEDIA-2", full_name="Leased Teacher"))
+    leased = BillingNotificationJob(batch_id=batch.id, teacher_ci="MEDIA-2", channel="whatsapp", status="leased", lease_owner="worker")
+    db_session.add(leased)
+    leased.lease_owner = "worker"; leased.status = "leased"
+    service = BillingPdfService(db_session, storage_dir=tmp_path)
+    issued = service.issue(batch, queued, {"net_payment": 123.45})
+    db_session.commit()
+
+    assert rollback_unleased(db_session, now=datetime(2030, 1, 1)) == 1
+    assert queued.status == "cancelled" and leased.status == "leased"
+    assert db_session.query(BillingMediaToken).filter_by(token_hash=issued.token_hash).one().revoked_at == datetime(2030, 1, 1)
+
+
 def test_confirm_issues_media_from_immutable_teacher_snapshot(db_session, tmp_path, monkeypatch):
     from app.models.whatsapp_preference import WhatsAppPreference
     from app.services import billing_pdf_service

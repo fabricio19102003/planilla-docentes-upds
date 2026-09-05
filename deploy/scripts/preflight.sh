@@ -58,4 +58,20 @@ validate_bootstrap_password ADMIN_DEFAULT_PASSWORD false
 [[ "$(env_value AUTO_SCHEMA_BOOTSTRAP)" == "false" ]] || die "AUTO_SCHEMA_BOOTSTRAP must be false in production"
 
 compose config --quiet
+
+if [[ "$(env_value OFFICIAL_WHATSAPP_ENABLED)" == "true" || "$(env_value WHATSAPP_DISPATCH_ENABLED)" == "true" ]]; then
+  [[ "$(env_value OFFICIAL_WHATSAPP_ENABLED)" == "true" && "$(env_value WHATSAPP_DISPATCH_ENABLED)" == "true" ]] || die "Official WhatsApp flags must be enabled together"
+  official_keys=(TWILIO_ACCOUNT_SID TWILIO_API_KEY_SID TWILIO_API_KEY_SECRET BILLING_MEDIA_PUBLIC_BASE_URL TWILIO_OFFICIAL_FROM TWILIO_OFFICIAL_SENDER_SID TWILIO_OFFICIAL_CONTENT_SID TWILIO_STATUS_CALLBACK_URL TWILIO_INBOUND_CALLBACK_URL TWILIO_AUTH_TOKEN TWILIO_OFFICIAL_MEDIA_MPS TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT)
+  for key in "${official_keys[@]}"; do
+    [[ -n "$(env_value "$key")" ]] || die "$key is required when official WhatsApp dispatch is enabled"
+  done
+  for key in TWILIO_OFFICIAL_MEDIA_MPS TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT; do
+    [[ "$(env_value "$key")" =~ ^[1-9][0-9]*(\.[0-9]+)?$ ]] || die "$key must be positive numeric"
+  done
+  base="$(env_value BILLING_MEDIA_PUBLIC_BASE_URL)"
+  [[ "$base" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "BILLING_MEDIA_PUBLIC_BASE_URL must be a canonical HTTPS origin"
+  [[ "$(env_value TWILIO_STATUS_CALLBACK_URL)" == "$base/api/twilio/whatsapp/status" ]] || die "TWILIO_STATUS_CALLBACK_URL must be the canonical status callback"
+  [[ "$(env_value TWILIO_INBOUND_CALLBACK_URL)" == "$base/api/twilio/whatsapp/inbound" ]] || die "TWILIO_INBOUND_CALLBACK_URL must be the canonical inbound callback"
+fi
+
 info "Preflight passed without exposing environment values"
