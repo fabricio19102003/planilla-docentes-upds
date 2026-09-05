@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test:dates": "node scripts/check-bolivia-dates.mjs",
     "test:planilla-detail": "node --experimental-strip-types scripts/check-planilla-detail-state.mjs",
+    "test:designation-import": "node scripts/check-designation-import-state.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"

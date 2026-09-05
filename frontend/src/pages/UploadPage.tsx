@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
-import { useUploadBiometric, useUploadDesignations, useUploadHistory, useUploadTeacherList } from '@/api/hooks/useBiometric'
+import { usePreviewDesignations, useUploadBiometric, useUploadDesignations, useUploadHistory, useUploadTeacherList } from '@/api/hooks/useBiometric'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { BiometricUploadResult, DesignationUploadResponse, TeacherUploadResponse, BiometricUpload } from '@/api/types'
+import type { BiometricUploadResult, DesignationImportPreview, DesignationUploadResponse, TeacherUploadResponse, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 const MONTH_NAMES: Record<number, string> = {
@@ -25,7 +25,8 @@ function formatDate(dateStr: string): string {
 }
 
 function getUploadErrorDetail(error: unknown): string {
-  return (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  const detail = (error as { response?: { data?: { detail?: string | { message?: string } } } })?.response?.data?.detail
+  return (typeof detail === 'string' ? detail : detail?.message)
     ?? 'Verificá el formato e intentá de nuevo.'
 }
 
@@ -72,14 +73,15 @@ export function UploadPage() {
 
   // Designations state
   const [desFile, setDesFile] = useState<File | null>(null)
+  const [desPreview, setDesPreview] = useState<DesignationImportPreview | null>(null)
   const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
-  // Start empty — filled by server config. Falls back to 'I/2026' if the request fails.
+  // The server value is only a suggested selection; importing never activates a period.
   const [academicPeriod, setAcademicPeriod] = useState('')
 
   useEffect(() => {
     api.get<{ academic_period: string }>('/config/active-period')
       .then(res => setAcademicPeriod(res.data.academic_period))
-      .catch(() => setAcademicPeriod('I/2026'))
+      .catch(() => setAcademicPeriod(''))
   }, [])
 
   // Teacher list state
@@ -87,6 +89,7 @@ export function UploadPage() {
   const [teacherResult, setTeacherResult] = useState<TeacherUploadResponse | null>(null)
 
   const uploadBiometric = useUploadBiometric()
+  const previewDesignations = usePreviewDesignations()
   const uploadDesignations = useUploadDesignations()
   const uploadTeacherList = useUploadTeacherList()
   const { data: history, isLoading: historyLoading } = useUploadHistory()
@@ -105,17 +108,23 @@ export function UploadPage() {
     )
   }
 
-  const handleDesSubmit = () => {
-    if (!desFile) return
+  const handleDesPreview = () => {
+    if (!desFile || !academicPeriod.trim()) return
+    setDesPreview(null)
     setDesResult(null)
-    uploadDesignations.mutate(
+    previewDesignations.mutate(
       { file: desFile, academic_period: academicPeriod },
       {
-        onSuccess: (data) => {
-          setDesResult(data)
-          setDesFile(null)
-        },
+        onSuccess: setDesPreview,
       },
+    )
+  }
+
+  const handleDesApply = () => {
+    if (!desFile || !desPreview?.can_apply) return
+    uploadDesignations.mutate(
+      { file: desFile, academic_period: academicPeriod, confirmation_digest: desPreview.digest },
+      { onSuccess: (data) => { setDesResult(data); setDesPreview(null); setDesFile(null) } },
     )
   }
 
@@ -231,45 +240,69 @@ export function UploadPage() {
               accept=".json,.xlsx"
               label="Seleccioná el archivo de designaciones"
               description="Archivo JSON o Excel con las designaciones del semestre"
-              onFileSelect={(f) => setDesFile(f)}
+              onFileSelect={(f) => { setDesFile(f); setDesPreview(null); setDesResult(null) }}
             />
 
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-gray-700">Período Académico</Label>
               <Input
                 value={academicPeriod}
-                onChange={e => setAcademicPeriod(e.target.value)}
+                onChange={e => { setAcademicPeriod(e.target.value); setDesPreview(null); setDesResult(null) }}
                 placeholder="Ej: I/2026, II/2025"
                 className="text-sm"
               />
-              <p className="text-xs text-gray-400">Identificador del semestre para esta carga de designaciones</p>
+              <p className="text-xs text-gray-400">La importación usa este período, pero no lo activa automáticamente.</p>
             </div>
 
             <Button
-              onClick={handleDesSubmit}
-              disabled={!desFile || uploadDesignations.isPending}
+              onClick={handleDesPreview}
+              disabled={!desFile || !academicPeriod.trim() || previewDesignations.isPending || uploadDesignations.isPending}
               className="w-full h-10"
               style={{ backgroundColor: '#003366' }}
             >
-              {uploadDesignations.isPending ? (
+              {previewDesignations.isPending ? (
                 <>
                   <Loader2 size={16} className="animate-spin mr-2" />
-                  Procesando...
+                  Validando...
                 </>
               ) : (
-                'Subir Designaciones'
+                'Generar vista previa'
               )}
             </Button>
 
-            {uploadDesignations.isError && (
+            {(previewDesignations.isError || uploadDesignations.isError) && (
               <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
                 <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
                   <p className="text-xs text-red-500 mt-0.5">
-                    {getUploadErrorDetail(uploadDesignations.error)}
+                    {getUploadErrorDetail(previewDesignations.error ?? uploadDesignations.error)}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {desPreview && (
+              <div className={`space-y-3 rounded-lg border p-3 ${desPreview.can_apply ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'}`}>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Vista previa: {desPreview.total_rows} filas · {desPreview.academic_period}</p>
+                  <p className="text-xs text-gray-600 mt-1">Formato: {desPreview.parsed_format}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-1 text-xs text-gray-700">
+                  <p>Docentes: {desPreview.teachers.creates} nuevos · {desPreview.teachers.updates} actualizaciones · {desPreview.teachers.noops} sin cambios</p>
+                  <p>Designaciones: {desPreview.designations.creates} nuevas · {desPreview.designations.updates} actualizaciones · {desPreview.designations.noops} sin cambios</p>
+                  <p>Usuarios: {desPreview.users.creates} nuevos · {desPreview.users.updates} vinculaciones · {desPreview.users.noops} sin cambios</p>
+                </div>
+                {desPreview.warnings.map((warning, index) => <p key={`warning-${index}`} className="text-xs text-yellow-700">{warning}</p>)}
+                {desPreview.errors.map((error, index) => <p key={`error-${index}`} className="text-xs text-red-700">{error}</p>)}
+                <Button
+                  onClick={handleDesApply}
+                  disabled={!desPreview.can_apply || uploadDesignations.isPending}
+                  className="w-full h-10"
+                  style={{ backgroundColor: '#003366' }}
+                >
+                  {uploadDesignations.isPending ? <><Loader2 size={16} className="animate-spin mr-2" />Aplicando...</> : 'Confirmar e importar'}
+                </Button>
               </div>
             )}
 
@@ -280,9 +313,7 @@ export function UploadPage() {
                   <div>
                     <p className="text-sm font-semibold text-green-700">¡Designaciones cargadas!</p>
                     <p className="text-xs text-green-600 mt-0.5">
-                      {desResult.designations_loaded} designaciones · {desResult.teachers_created} docentes nuevos
-                      {desResult.teachers_reused > 0 && ` · ${desResult.teachers_reused} reutilizados`}
-                      {desResult.skipped > 0 && ` · ${desResult.skipped} omitidos`}
+                      {desResult.total_rows} filas aplicadas · {desResult.designations.creates} nuevas · {desResult.designations.updates} actualizadas · {desResult.designations.noops} sin cambios
                     </p>
                     {desResult.warnings.length > 0 && (
                       <p className="text-xs text-yellow-600 mt-1">
@@ -291,21 +322,16 @@ export function UploadPage() {
                     )}
                   </div>
                 </div>
-                {desResult.users_created > 0 && (
+                {desResult.users.creates > 0 && (
                   <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <Users size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-sm font-semibold text-blue-700">
-                        {desResult.users_created} usuarios docentes creados automáticamente
+                        {desResult.users.creates} usuarios docentes creados automáticamente
                       </p>
                       <p className="text-xs text-blue-600 mt-0.5">
                         Los docentes deberán solicitar el restablecimiento de su contraseña al administrador
                       </p>
-                          {desResult.users_skipped > 0 && (
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {desResult.users_skipped} usuario(s) no se pudieron crear (posible CI duplicado)
-                        </p>
-                      )}
                     </div>
                   </div>
                 )}

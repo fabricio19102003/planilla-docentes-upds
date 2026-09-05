@@ -362,14 +362,28 @@ export interface DashboardSummary {
   pending_requests: number
 }
 
-export interface DesignationUploadResponse {
-  teachers_created: number
-  teachers_reused: number
-  designations_loaded: number
-  skipped: number
-  users_created: number
-  users_skipped: number
+export interface DesignationImportCounts {
+  creates: number
+  updates: number
+  noops: number
+  conflicts: number
+}
+
+export interface DesignationImportPreview {
+  digest: string
+  parsed_format: string
+  academic_period: string
+  total_rows: number
+  can_apply: boolean
+  teachers: DesignationImportCounts
+  designations: DesignationImportCounts
+  users: DesignationImportCounts
   warnings: string[]
+  errors: string[]
+}
+
+export interface DesignationUploadResponse extends DesignationImportPreview {
+  applied: boolean
 }
 
 export interface PaginatedResponse<T> {
@@ -437,7 +451,8 @@ export interface UploadBiometricPayload {
 
 export interface UploadDesignationsPayload {
   file: File
-  academic_period?: string
+  academic_period: string
+  confirmation_digest?: string
   onProgress?: (progress: number) => void
 }
 

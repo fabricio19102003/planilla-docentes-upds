@@ -4,6 +4,7 @@ import { api } from '@/api/client'
 import type {
   BiometricUpload,
   BiometricUploadResult,
+  DesignationImportPreview,
   DesignationUploadResponse,
   TeacherUploadResponse,
   UploadBiometricPayload,
@@ -52,14 +53,29 @@ async function uploadBiometric(payload: UploadBiometricPayload) {
   return response.data
 }
 
-async function uploadDesignations(payload: UploadDesignationsPayload) {
+function designationForm(payload: UploadDesignationsPayload) {
   const formData = new FormData()
   formData.append('file', payload.file)
 
-  const period = payload.academic_period ?? 'I/2026'
-  const url = `/uploads/designations?academic_period=${encodeURIComponent(period)}`
+  return formData
+}
 
-  const response = await api.post<DesignationUploadResponse>(url, formData, {
+async function previewDesignations(payload: UploadDesignationsPayload) {
+  const url = `/uploads/designations/preview?academic_period=${encodeURIComponent(payload.academic_period)}`
+  const response = await api.post<DesignationImportPreview>(url, designationForm(payload), {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (event) => {
+      if (event.total) payload.onProgress?.(Math.round((event.loaded * 100) / event.total))
+    },
+  })
+  return response.data
+}
+
+async function uploadDesignations(payload: UploadDesignationsPayload) {
+  if (!payload.confirmation_digest) throw new Error('La confirmación de la vista previa es obligatoria.')
+  const url = `/uploads/designations?academic_period=${encodeURIComponent(payload.academic_period)}&confirmation_digest=${encodeURIComponent(payload.confirmation_digest)}`
+
+  const response = await api.post<DesignationUploadResponse>(url, designationForm(payload), {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -104,6 +120,10 @@ export function useUploadDesignations() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
     },
   })
+}
+
+export function usePreviewDesignations() {
+  return useMutation({ mutationFn: previewDesignations })
 }
 
 async function uploadTeacherList(file: File): Promise<TeacherUploadResponse> {
