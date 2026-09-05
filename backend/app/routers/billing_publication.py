@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.config import settings
 from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
@@ -184,6 +185,14 @@ class BillingNotificationConfirmResponse(BaseModel):
     batch_id: int
     digest: str
     status: str
+
+
+class BillingNotificationBatchStatusResponse(BaseModel):
+    batch_id: int
+    digest: str
+    status: str
+    created_at: datetime
+    jobs: list[dict[str, str]]
 
 
 class PublicationResponse(BaseModel):
@@ -550,9 +559,38 @@ def _notification_publication(db: Session, month: int, year: int) -> BillingPubl
     return publication
 
 
+def _official_notification_readiness() -> dict[str, Any]:
+    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+
+    runtime = OfficialWhatsAppRuntime.from_settings(settings)
+    return runtime.live_readiness() if runtime is not None else {
+        "ready": False, "reason": "official_readiness_unavailable", "capacity": {"available": False},
+    }
+
+
+@router.get("/notifications/readiness")
+def billing_notification_readiness(_: User = Depends(require_admin)) -> dict[str, Any]:
+    return _official_notification_readiness()
+
+
+@router.get("/notifications/batches/{batch_id}", response_model=BillingNotificationBatchStatusResponse)
+def billing_notification_batch_status(batch_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationBatchStatusResponse:
+    batch = db.query(BillingNotificationBatch).filter_by(id=batch_id).first()
+    if batch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="billing_notification_batch_not_found")
+    jobs = db.query(BillingNotificationJob).filter_by(batch_id=batch.id).order_by(BillingNotificationJob.id).all()
+    return BillingNotificationBatchStatusResponse(
+        batch_id=batch.id,
+        digest=batch.digest,
+        status=batch.status,
+        created_at=batch.created_at,
+        jobs=[{"channel": job.channel, "status": job.status} for job in jobs],
+    )
+
+
 @router.post("/notifications/preview", response_model=BillingNotificationPreviewResponse)
 def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationPreviewResponse:
-    plan = BillingNotificationPreviewService(db).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
+    plan = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
     recipients = [BillingNotificationRecipientResponse(**{key: item[key] for key in ("teacher_ci", "phone_masked", "channel", "reason")}) for item in plan.recipients]
     return BillingNotificationPreviewResponse(digest=plan.digest, recipients=recipients, readiness=plan.readiness)
 
@@ -560,7 +598,7 @@ def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _:
 @router.post("/notifications/confirm", response_model=BillingNotificationConfirmResponse)
 def confirm_billing_notifications(payload: BillingNotificationConfirmRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationConfirmResponse:
     try:
-        batch = BillingNotificationPreviewService(db).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
+        batch = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
         db.commit()
     except NotificationPlanError as exc:
         db.rollback()

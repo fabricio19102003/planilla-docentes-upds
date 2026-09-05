@@ -243,3 +243,23 @@ No bundled script automatically restores production.
 - [ ] Loopback and public readiness checks pass.
 - [ ] Non-destructive application smoke checks pass.
 - [ ] Restore drill and rollback owner are documented.
+
+## Official WhatsApp billing rollout and rollback
+
+Keep both official flags `false` until the sender is `ONLINE`, every configured
+Content SID is an approved Utility template, Advanced Opt-Out is active, and
+canonical HTTPS callback/media URLs resolve through the new vhost. Put Twilio
+keys, Auth Token, sender, Content SID, capacity limits, and URLs only in the
+private `deploy/.env.production` file; never put them in Git or logs.
+
+For a controlled validation, deploy the API and `official_whatsapp_worker`, run
+only a consented small cohort, confirm signed callback and repeated opaque PDF
+`HEAD`/`GET` behavior, then inspect bounded worker logs without secrets. Do not
+send Sandbox, email, or broad payroll notifications as a substitute.
+
+To roll back: set both official flags to `false`, stop
+`official_whatsapp_worker`, then run `docker compose --env-file deploy/.env.production -f deploy/compose.production.yml run --rm backend python -m app.workers.official_whatsapp_runner --rollback-unleased`. This cancels only unleased queued WhatsApp jobs, revokes only their bound media tokens, and preserves batches/events
+for audit. There is no email fallback for readiness, opt-out, blocked, pending,
+or ambiguous outcomes. These migrations are additive: image rollback is allowed
+only after schema compatibility is proven; database restore remains the separate
+approved backup-and-restore boundary documented above.
