@@ -10,6 +10,53 @@ from reportlab.lib.units import cm
 from app.services import contract_pdf
 
 
+def test_contract_signature_line_uses_start_date_instead_of_generation_date(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(contract_pdf, "_output_dir", lambda: tmp_path)
+
+    class FrozenDateTime:
+        @classmethod
+        def now(cls):
+            return cls()
+
+        def strftime(self, format_string):
+            assert format_string == "%Y%m%d_%H%M%S"
+            return "20300102_030405"
+
+    monkeypatch.setattr(contract_pdf, "datetime", FrozenDateTime)
+
+    paragraph_texts: list[str] = []
+    original_paragraph = contract_pdf.Paragraph
+
+    def recording_paragraph(text, *args, **kwargs):
+        paragraph_texts.append(text)
+        return original_paragraph(text, *args, **kwargs)
+
+    monkeypatch.setattr(contract_pdf, "Paragraph", recording_paragraph)
+
+    teacher = SimpleNamespace(full_name="Docente de Prueba", ci="1234567")
+    designation = SimpleNamespace(
+        subject="Materia de Prueba",
+        semester="I",
+        semester_hours=40,
+    )
+
+    output_path = contract_pdf.generate_contract_pdf(
+        teacher=teacher,
+        designations=[designation],
+        department="Pando",
+        duration_text="4 meses y 8 días",
+        start_date="10 de agosto de 2026",
+        end_date="18 de diciembre de 2026",
+    )
+
+    assert tmp_path.joinpath(output_path).is_file()
+    assert "Cobija, 10 de agosto de 2026." in paragraph_texts
+    assert "Cobija, 02 de enero de 2030." not in paragraph_texts
+
+
 def test_generated_contract_uses_exact_8_5_by_13_inch_media_box(tmp_path, monkeypatch):
     monkeypatch.setattr(contract_pdf, "_output_dir", lambda: tmp_path)
     teacher = SimpleNamespace(full_name="Docente de Prueba", ci="1234567")
