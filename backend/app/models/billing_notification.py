@@ -89,6 +89,7 @@ class BillingMediaToken(Base):
     __table_args__ = (UniqueConstraint("token_hash", name="uq_billing_media_token_hash"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("billing_notification_jobs.id", ondelete="CASCADE"), nullable=True, index=True)
     batch_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("billing_notification_batches.id", ondelete="CASCADE"), nullable=False, index=True
     )

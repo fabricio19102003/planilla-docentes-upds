@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     ASYNC_DATABASE_URL: str
     CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000"]'
     UPLOAD_DIR: str = "./data/uploads"
+    BILLING_MEDIA_DIR: str = "./data/billing-media"
+    BILLING_MEDIA_PUBLIC_BASE_URL: Optional[str] = None
 
     # App metadata
     APP_TITLE: str = "SIPAD — Sistema Integrado de Pago Docente"
@@ -82,6 +84,7 @@ class Settings(BaseSettings):
         "TWILIO_API_KEY_SECRET",
         "TWILIO_WHATSAPP_SANDBOX_FROM",
         "TWILIO_OFFICIAL_FROM",
+        "BILLING_MEDIA_PUBLIC_BASE_URL",
         "TWILIO_STATUS_CALLBACK_URL",
         "TWILIO_INBOUND_CALLBACK_URL",
         "TWILIO_AUTH_TOKEN",
