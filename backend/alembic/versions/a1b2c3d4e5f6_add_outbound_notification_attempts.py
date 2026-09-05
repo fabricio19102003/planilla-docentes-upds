@@ -8,6 +8,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.engine.reflection import Inspector
 
 
 revision: str = "a1b2c3d4e5f6"
@@ -20,14 +21,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if "outbound_notification_attempts" in inspector.get_table_names():
-        expected = {
-            "id", "idempotency_key", "publication_id", "publication_version",
-            "user_id", "channel", "provider", "mode", "status",
-            "provider_message_id", "error_code", "created_at", "updated_at",
-        }
-        actual = {column["name"] for column in inspector.get_columns("outbound_notification_attempts")}
-        if actual != expected:
-            raise RuntimeError("incompatible precreated outbound_notification_attempts table")
+        _validate_existing_table(inspector)
         return
 
     op.create_table(
@@ -62,6 +56,92 @@ def upgrade() -> None:
         ["user_id"],
         unique=False,
     )
+
+
+def _validate_existing_table(inspector: Inspector) -> None:
+    table = "outbound_notification_attempts"
+    expected_columns = {
+        "id": (("integer",), False, None),
+        "idempotency_key": (("string", 64), False, None),
+        "publication_id": (("integer",), False, None),
+        "publication_version": (("integer",), False, None),
+        "user_id": (("integer",), True, None),
+        "channel": (("string", 20), False, None),
+        "provider": (("string", 32), False, None),
+        "mode": (("string", 20), False, None),
+        "status": (("string", 20), False, None),
+        "provider_message_id": (("string", 100), True, None),
+        "error_code": (("text",), True, None),
+        "created_at": (("datetime",), False, None),
+        "updated_at": (("datetime",), False, None),
+    }
+    actual_columns = {
+        column["name"]: (
+            _type_signature(column["type"]),
+            bool(column["nullable"]),
+            _default_signature(column.get("default")),
+        )
+        for column in inspector.get_columns(table)
+    }
+    if actual_columns != expected_columns:
+        raise RuntimeError("incompatible precreated outbound_notification_attempts columns")
+
+    primary_key = inspector.get_pk_constraint(table)
+    if tuple(primary_key.get("constrained_columns") or ()) != ("id",):
+        raise RuntimeError("incompatible precreated outbound_notification_attempts primary key")
+
+    unique_constraints = {
+        (constraint.get("name"), tuple(constraint.get("column_names") or ()))
+        for constraint in inspector.get_unique_constraints(table)
+    }
+    if unique_constraints != {
+        ("uq_outbound_notification_attempt_key", ("idempotency_key",))
+    }:
+        raise RuntimeError("incompatible precreated outbound_notification_attempts unique constraints")
+
+    foreign_keys = {
+        (
+            tuple(foreign_key.get("constrained_columns") or ()),
+            foreign_key.get("referred_table"),
+            tuple(foreign_key.get("referred_columns") or ()),
+            (foreign_key.get("options") or {}).get("ondelete"),
+        )
+        for foreign_key in inspector.get_foreign_keys(table)
+    }
+    if foreign_keys != {
+        (("publication_id",), "billing_publications", ("id",), "CASCADE"),
+        (("user_id",), "users", ("id",), "SET NULL"),
+    }:
+        raise RuntimeError("incompatible precreated outbound_notification_attempts foreign keys")
+
+    indexes = {
+        (index.get("name"), tuple(index.get("column_names") or ()), bool(index.get("unique")))
+        for index in inspector.get_indexes(table)
+        if not index.get("duplicates_constraint")
+    }
+    if indexes != {
+        ("ix_outbound_notification_attempts_publication_id", ("publication_id",), False),
+        ("ix_outbound_notification_attempts_user_id", ("user_id",), False),
+    }:
+        raise RuntimeError("incompatible precreated outbound_notification_attempts indexes")
+
+
+def _type_signature(column_type: sa.types.TypeEngine) -> tuple[object, ...]:
+    if isinstance(column_type, sa.Text):
+        return ("text",)
+    if isinstance(column_type, sa.String):
+        return ("string", column_type.length)
+    if isinstance(column_type, sa.Integer):
+        return ("integer",)
+    if isinstance(column_type, sa.DateTime):
+        return ("datetime",)
+    return (column_type.__class__.__name__.lower(),)
+
+
+def _default_signature(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value).strip()
 
 
 def downgrade() -> None:
