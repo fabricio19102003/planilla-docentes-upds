@@ -258,7 +258,8 @@ def test_teacher_planilla_and_dashboard_endpoints(client, db_session, monkeypatc
 
     history_response = client.get("/api/planilla/history")
     assert history_response.status_code == 200
-    assert history_response.json()[0]["total_payment"] == "140.00"
+    assert history_response.json()[0]["total_payment"] is None
+    assert history_response.json()[0]["data_status"] == "legacy_unavailable"
 
     import app.routers.planilla as planilla_router_module
 

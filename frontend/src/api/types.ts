@@ -323,13 +323,16 @@ export interface PlanillaOutput {
   file_path: string | null
   total_teachers: number
   total_hours: number
-  total_payment: string
+  total_payment: string | null
+  data_status: PlanillaDataStatus
   status: string
   start_date: string | null
   end_date: string | null
   discount_mode: 'attendance' | 'full'
   excluded_days_json?: ExcludedDay[] | null
 }
+
+export type PlanillaDataStatus = 'available' | 'legacy_unavailable'
 
 export interface PlanillaGenerateResponse {
   planilla_id: number
