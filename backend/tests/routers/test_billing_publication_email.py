@@ -9,6 +9,7 @@ import pytest
 
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
+from app.models.outbound_notification_attempt import OutboundNotificationAttempt
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
@@ -48,6 +49,13 @@ def test_publish_billing_sends_email_after_successful_commit(client, db_session,
     assert len(sent_calls) == 1
     assert [user.id for user in sent_calls[0][1]] == [active_docente.id]
     assert sent_calls[0][1][0].teacher.email == "docente@example.com"
+    attempt = db_session.query(OutboundNotificationAttempt).one()
+    assert attempt.channel == "email"
+    assert attempt.provider == "resend"
+    assert attempt.status == "sent"
+    assert attempt.user_id == active_docente.id
+    assert attempt.provider_message_id is None
+    assert attempt.error_code is None
 
 
 def test_publish_billing_survives_email_service_failure_and_keeps_notifications(client, db_session, monkeypatch):
