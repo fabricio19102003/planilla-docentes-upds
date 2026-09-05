@@ -45,6 +45,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
       UPLOAD_DIR: /app/backend/data/uploads
+      BILLING_MEDIA_DIR: /app/backend/data/billing-media
+      BILLING_MEDIA_PUBLIC_BASE_URL: ${BILLING_MEDIA_PUBLIC_BASE_URL:-}
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-}
       DOCENTE_DEFAULT_PASSWORD: ${DOCENTE_DEFAULT_PASSWORD:?DOCENTE_DEFAULT_PASSWORD is required}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
@@ -56,10 +58,21 @@ services:
       EMAIL_TEST_RECIPIENT: ${EMAIL_TEST_RECIPIENT:-}
       WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
       WHATSAPP_MODE: ${WHATSAPP_MODE:-sandbox}
+      OFFICIAL_WHATSAPP_ENABLED: ${OFFICIAL_WHATSAPP_ENABLED:-false}
+      WHATSAPP_DISPATCH_ENABLED: ${WHATSAPP_DISPATCH_ENABLED:-false}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_API_KEY_SID: ${TWILIO_API_KEY_SID:-}
       TWILIO_API_KEY_SECRET: ${TWILIO_API_KEY_SECRET:-}
       TWILIO_WHATSAPP_SANDBOX_FROM: ${TWILIO_WHATSAPP_SANDBOX_FROM:-}
+      TWILIO_OFFICIAL_FROM: ${TWILIO_OFFICIAL_FROM:-}
+      TWILIO_OFFICIAL_SENDER_SID: ${TWILIO_OFFICIAL_SENDER_SID:-}
+      TWILIO_OFFICIAL_CONTENT_SID: ${TWILIO_OFFICIAL_CONTENT_SID:-}
+      TWILIO_STATUS_CALLBACK_URL: ${TWILIO_STATUS_CALLBACK_URL:-}
+      TWILIO_INBOUND_CALLBACK_URL: ${TWILIO_INBOUND_CALLBACK_URL:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_OFFICIAL_MEDIA_MPS: ${TWILIO_OFFICIAL_MEDIA_MPS:-0}
+      TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT: ${TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT:-0}
+      TWILIO_OFFICIAL_CAPACITY_WINDOW_SECONDS: ${TWILIO_OFFICIAL_CAPACITY_WINDOW_SECONDS:-86400}
       TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT: ${TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT:-}
       TWILIO_API_BASE_URL: ${TWILIO_API_BASE_URL:-https://api.twilio.com}
       WHATSAPP_TIMEOUT_SECONDS: ${WHATSAPP_TIMEOUT_SECONDS:-3.0}
@@ -76,6 +89,7 @@ services:
       - --forwarded-allow-ips=*
     volumes:
       - uploads_data:/app/backend/data/uploads
+      - billing_media_data:/app/backend/data/billing-media
       - output_data:/app/backend/data/output
       - reports_data:/app/backend/data/reports
       - contracts_data:/app/backend/data/contracts
@@ -105,6 +119,20 @@ services:
     mem_limit: ${BACKEND_MEMORY_LIMIT:-1g}
     cpus: 1.5
     logging: *default-logging
+
+  official_whatsapp_worker:
+    extends:
+      service: backend
+    command: ["python", "-m", "app.workers.official_whatsapp_runner"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          tr '\0' ' ' </proc/1/cmdline | grep -Fq app.workers.official_whatsapp_runner && python -c "from sqlalchemy import text; from app.database import SessionLocal; db=SessionLocal(); db.execute(text('SELECT 1')); db.close()"
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
 
   app:
     image: ${IMAGE_REGISTRY:-local}/sipad-app:${IMAGE_TAG:?IMAGE_TAG is required}
@@ -147,6 +175,7 @@ networks:
 volumes:
   postgres_data:
   uploads_data:
+  billing_media_data:
   output_data:
   reports_data:
   contracts_data:
