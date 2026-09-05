@@ -65,7 +65,7 @@ def test_transport_maps_provider_error_without_persisting_response_body():
     assert "private" not in result.error_code
 
 
-def test_transport_maps_network_error_to_stable_safe_code():
+def test_transport_maps_connect_error_to_stable_safe_code():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("private network details", request=request)
 
@@ -80,4 +80,23 @@ def test_transport_maps_network_error_to_stable_safe_code():
     result = transport.send_message(WhatsAppMessage(to="+59170000000", body="Hola"))
 
     assert result.status == "failed"
-    assert result.error_code == "twilio_network_error"
+    assert result.error_code == "twilio_connect_error"
+
+
+def test_transport_maps_timeout_to_ambiguous_delivery_outcome():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("private timeout details", request=request)
+
+    transport = TwilioWhatsAppTransport(
+        account_sid="AC123",
+        api_key_sid="SK123",
+        api_key_secret="secret-value",
+        from_number="+14155238886",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = transport.send_message(WhatsAppMessage(to="+59170000000", body="Hola"))
+
+    assert result.status == "ambiguous"
+    assert result.error_code == "twilio_delivery_ambiguous"
+    assert "private" not in result.error_code

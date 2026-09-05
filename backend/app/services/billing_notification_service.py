@@ -15,7 +15,7 @@ from app.services.whatsapp_service import WhatsAppSendResult, WhatsAppService
 
 
 logger = logging.getLogger(__name__)
-NotificationStatus = Literal["sent", "failed", "skipped"]
+NotificationStatus = Literal["sent", "failed", "skipped", "ambiguous"]
 
 
 @dataclass(frozen=True)
@@ -155,7 +155,7 @@ class BillingNotificationService:
         # Sandbox is a single explicitly joined test destination. Only one
         # representative teacher may be sent or fall back to email per batch.
         representative = docente_users[0]
-        whatsapp_attempt, prior_pending = self._send_whatsapp(publication, representative)
+        whatsapp_attempt, suppress_fallback = self._send_whatsapp(publication, representative)
         attempts = [whatsapp_attempt]
         remainder = max(0, len(docente_users) - 1)
 
@@ -167,7 +167,7 @@ class BillingNotificationService:
                 whatsapp_sent=1,
                 attempts=tuple(attempts),
             )
-        if prior_pending:
+        if suppress_fallback:
             return NotificationBatchResult(
                 eligible=1,
                 skipped=len(docente_users),
@@ -197,8 +197,10 @@ class BillingNotificationService:
         )
         if not claim.owned:
             if claim.status == "sent":
-                return NotificationAttempt(channel="whatsapp", status="sent"), False
-            if claim.status == "pending":
+                return NotificationAttempt(
+                    channel="whatsapp", status="skipped", error_code="already_sent"
+                ), True
+            if claim.status in {"pending", "ambiguous"}:
                 return NotificationAttempt(
                     channel="whatsapp", status="skipped", error_code="ambiguous_prior_attempt"
                 ), True
@@ -215,7 +217,7 @@ class BillingNotificationService:
         )
         return NotificationAttempt(
             channel="whatsapp", status=result.status, error_code=result.error_code
-        ), False
+        ), result.status == "ambiguous"
 
     def _send_email_batch(self, publication: Any, users: list[Any]) -> NotificationBatchResult:
         totals = NotificationBatchResult()
@@ -254,9 +256,10 @@ class BillingNotificationService:
             if claim.status == "sent":
                 return NotificationBatchResult(
                     eligible=1,
-                    sent=1,
-                    email_sent=1,
-                    attempts=(NotificationAttempt(channel="email", status="sent"),),
+                    skipped=1,
+                    attempts=(NotificationAttempt(
+                        channel="email", status="skipped", error_code="already_sent"
+                    ),),
                 )
             return NotificationBatchResult(
                 eligible=1,

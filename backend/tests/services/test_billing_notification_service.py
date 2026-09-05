@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from types import SimpleNamespace
+
+import httpx
+import sqlalchemy as sa
+from sqlalchemy.orm import sessionmaker
 
 from app.services.billing_notification_service import (
     AttemptClaim,
     BillingNotificationService,
+    NotificationAttempt,
+    SqlAlchemyAttemptStore,
 )
 from app.services.email_service import EmailAttemptResult, EmailBatchResult, EmailRecipient
-from app.services.whatsapp_service import WhatsAppSendResult
+from app.services.twilio_whatsapp_transport import TwilioWhatsAppTransport
+from app.services.whatsapp_service import WhatsAppSendResult, WhatsAppService
 
 
 class MemoryStore:
@@ -111,7 +120,10 @@ def test_completed_sandbox_claim_is_reused_without_second_provider_call():
     first = service.send_billing_published(_publication(), [_user(1)])
     second = service.send_billing_published(_publication(), [_user(1)])
 
-    assert first.sent == second.sent == 1
+    assert first.sent == 1
+    assert second.sent == 0
+    assert second.skipped == 1
+    assert second.attempts[0].error_code == "already_sent"
     assert len(whatsapp.calls) == 1
     assert email.calls == []
 
@@ -148,10 +160,103 @@ def test_whatsapp_disabled_preserves_resend_for_each_user_with_idempotency():
     first = service.send_billing_published(_publication(), users)
     second = service.send_billing_published(_publication(), users)
 
-    assert first.sent == second.sent == 2
-    assert first.email_sent == second.email_sent == 2
+    assert first.sent == 2
+    assert first.email_sent == 2
+    assert second.sent == 0
+    assert second.email_sent == 0
+    assert second.skipped == 2
+    assert {attempt.error_code for attempt in second.attempts} == {"already_sent"}
     assert len(email.calls) == 2
     assert whatsapp.calls == []
+
+
+def test_twilio_timeout_is_audited_as_ambiguous_without_email_fallback():
+    def timeout_after_dispatch(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("private timeout details", request=request)
+
+    store = MemoryStore()
+    transport = TwilioWhatsAppTransport(
+        account_sid="AC123",
+        api_key_sid="SK123",
+        api_key_secret="secret-value",
+        from_number="+14155238886",
+        client=httpx.Client(transport=httpx.MockTransport(timeout_after_dispatch)),
+    )
+    settings = SimpleNamespace(
+        WHATSAPP_ENABLED=True,
+        WHATSAPP_MODE="sandbox",
+        TWILIO_WHATSAPP_SANDBOX_FROM="+14155238886",
+        TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT="+59170000000",
+        TWILIO_ACCOUNT_SID="AC123",
+        TWILIO_API_KEY_SID="SK123",
+        TWILIO_API_KEY_SECRET="secret-value",
+    )
+    whatsapp = WhatsAppService(settings=settings, transport=transport)
+    email = StubEmailService()
+    service = BillingNotificationService(
+        store=store,
+        settings=settings,
+        whatsapp_service=whatsapp,
+        email_service=email,
+    )
+
+    first = service.send_billing_published(_publication(), [_user(1)])
+    second = service.send_billing_published(_publication(), [_user(1)])
+
+    assert first.sent == first.failed == 0
+    assert first.skipped == 1
+    assert first.attempts == (
+        NotificationAttempt(
+            channel="whatsapp",
+            status="ambiguous",
+            error_code="twilio_delivery_ambiguous",
+        ),
+    )
+    row = next(iter(store.rows.values()))
+    assert row["status"] == "ambiguous"
+    assert row["error_code"] == "twilio_delivery_ambiguous"
+    assert second.sent == second.failed == 0
+    assert second.skipped == 1
+    assert second.attempts[0].error_code == "ambiguous_prior_attempt"
+    assert email.calls == []
+
+
+def test_sqlalchemy_attempt_store_claim_is_atomic_under_concurrency(tmp_path):
+    database_path = tmp_path / "outbound-attempt-concurrency.sqlite3"
+    engine = sa.create_engine(
+        f"sqlite:///{database_path}",
+        connect_args={"timeout": 10},
+    )
+    from app.models.outbound_notification_attempt import OutboundNotificationAttempt
+
+    OutboundNotificationAttempt.__table__.create(engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    barrier = threading.Barrier(8)
+    publication = _publication()
+
+    def claim_once(_worker: int):
+        session = sessions()
+        try:
+            barrier.wait(timeout=5)
+            return SqlAlchemyAttemptStore(session).claim(
+                idempotency_key="a" * 64,
+                publication=publication,
+                user_id=None,
+                channel="whatsapp",
+                provider="twilio",
+                mode="sandbox",
+            )
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        claims = list(executor.map(claim_once, range(8)))
+
+    assert sum(claim.owned for claim in claims) == 1
+    assert {claim.status for claim in claims} == {"pending"}
+    with sessions() as session:
+        assert session.query(OutboundNotificationAttempt).count() == 1
+    engine.dispose()
 
 
 def _service(store, whatsapp, email, *, enabled):
