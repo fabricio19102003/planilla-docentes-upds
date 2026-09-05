@@ -43,6 +43,7 @@ import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
+import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import type { ExcludedDay } from '@/api/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -211,7 +212,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   const restoringHistoryRef = useRef(false)
 
   // Hooks
-  const { data: planillaStatus } = usePracticePlanillaStatus(month, year)
+  const { data: planillaStatus, isLoading: planillaStatusLoading } = usePracticePlanillaStatus(month, year)
   const { data: publication } = usePracticePublicationStatus(month, year)
   const { data: history, isLoading: historyLoading } = usePracticePlanillaHistory()
   const { data: designationOptions, isLoading: designationOptionsLoading } = usePracticeDesignationOptions(exclusionPanelOpen)
@@ -273,15 +274,19 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   const expandedExcludedDays = expandExcludedDays(excludedDays)
   const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
 
-  const { data: detail, isLoading: detailLoading } = usePracticePlanillaDetailWithExclusions(
+  const selectedHistoryState = planillaStatus ? getHistoricalPaymentState(planillaStatus) : null
+  const canUseSelectedSnapshot = !planillaStatusLoading && (!selectedHistoryState || selectedHistoryState.snapshotAvailable)
+  const detailQuery = usePracticePlanillaDetailWithExclusions(
     month,
     year,
-    true,
+    canUseSelectedSnapshot,
     startDate || undefined,
     endDate || undefined,
     effectiveDiscountMode,
     previewExclusions,
   )
+  const detail = getVisiblePlanillaDetail(detailQuery.data, detailQuery.isPlaceholderData, canUseSelectedSnapshot)
+  const detailLoading = detailQuery.isLoading
 
   const isBillingPublished = publication?.status === 'published'
 
@@ -898,7 +903,9 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((item, i) => (
+                  {history.map((item, i) => {
+                    const paymentState = getHistoricalPaymentState(item)
+                    return (
                     <tr
                       key={item.id}
                       className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
@@ -940,7 +947,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                       <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
                       <td className="px-4 py-3">
                         <span className="font-bold" style={{ color: '#003366' }}>
-                          {parseFloat(item.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                          {paymentState.display}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -955,7 +962,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        {item.file_path ? (
+                        {paymentState.snapshotAvailable && item.file_path ? (
                           <div className="flex items-center gap-1 flex-wrap">
                             <button
                               onClick={(e) => {
@@ -990,7 +997,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                         )}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -999,6 +1007,12 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
       </div>
 
       {/* Approval Status */}
+      {selectedHistoryState && !selectedHistoryState.snapshotAvailable && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Regeneración requerida: el historial legacy no permite aprobar, publicar, exportar ni abrir el detalle.
+        </div>
+      )}
+
       {planillaStatus && (
         <div className="card-3d-static overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -1025,7 +1039,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
               <div className="flex items-center gap-2">
                 <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1"
                   onClick={() => approvePlanilla.mutate(planillaStatus.id)}
-                  disabled={approvePlanilla.isPending}
+                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot}
+                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : undefined}
                 >
                   <Check size={14} /> Aprobar
                 </Button>
@@ -1082,8 +1097,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
               className="gap-2 text-white"
               style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited ? '#16a34a' : '#9ca3af' }}
               onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited}
-              title={exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
+              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot}
+              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
             >
               <Send size={14} />
               {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}

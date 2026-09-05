@@ -41,16 +41,30 @@ def test_engine():
 
 @pytest.fixture(scope="function")
 def db_session(test_engine):
-    """Create a fresh DB session for each test, rolled back after."""
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    """Create an isolated session whose commits/rollbacks stay inside a savepoint."""
     connection = test_engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
+    if test_engine.dialect.name == "sqlite":
+        # pysqlite otherwise defers BEGIN until the first write. Releasing the
+        # first SAVEPOINT would then commit test data outside our rollback.
+        connection.exec_driver_sql("BEGIN")
+        transaction = None
+    else:
+        transaction = connection.begin()
+    TestingSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+    )
+    session = TestingSessionLocal()
 
     yield session
 
     session.close()
-    transaction.rollback()
+    if transaction is not None:
+        transaction.rollback()
+    else:
+        connection.rollback()
     connection.close()
 
 
@@ -100,8 +114,13 @@ def client(db_session, admin_token):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        # Pre-set auth header for all requests from this client
-        test_client.headers["Authorization"] = f"Bearer {admin_token}"
+    # Do not enter the lifespan context here. Startup seeding uses the app's
+    # independent SessionLocal connection, which would contend with the
+    # per-test transaction and is not part of endpoint contract tests.
+    test_client = TestClient(app)
+    test_client.headers["Authorization"] = f"Bearer {admin_token}"
+    try:
         yield test_client
-    app.dependency_overrides.clear()
+    finally:
+        test_client.close()
+        app.dependency_overrides.clear()

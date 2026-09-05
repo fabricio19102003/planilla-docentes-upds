@@ -8,8 +8,9 @@ from app.models.planilla import PlanillaOutput
 from app.models.user import User
 from app.models.detail_request import DetailRequest
 from app.models.report import Report
-from app.models.billing_publication import BillingPublication
+from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.notification import Notification
+from app.models.outbound_notification_attempt import OutboundNotificationAttempt
 from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.practice_attendance import PracticeAttendanceLog
@@ -30,7 +31,9 @@ __all__ = [
     "DetailRequest",
     "Report",
     "BillingPublication",
+    "BillingPublicationRevision",
     "Notification",
+    "OutboundNotificationAttempt",
     "ActivityLog",
     "AppSetting",
     "PracticeAttendanceLog",

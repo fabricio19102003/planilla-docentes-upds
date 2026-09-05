@@ -5,13 +5,12 @@ Two test layers:
   1. Unit tests  — pure Python, no DB (test helpers and data structures)
   2. Integration tests — real SQLite in-memory DB (no PostgreSQL needed)
 
-Integration tests load the REAL designacion_new.json so they
-also serve as acceptance tests for T-005.
+Integration tests load a committed synthetic fixture so normal coverage never
+depends on operational designation data.
 """
 from __future__ import annotations
 
 import json
-import os
 from datetime import date, time
 from pathlib import Path
 
@@ -39,10 +38,9 @@ from app.services.designation_loader import (
 # Paths
 # ---------------------------------------------------------------------------
 
-# Resolve path to the real JSON regardless of where pytest is invoked from
+# Resolve the synthetic fixture regardless of where pytest is invoked from.
 _HERE = Path(__file__).parent
-_REPO_ROOT = _HERE.parent.parent  # backend/tests → backend → repo root
-REAL_JSON = _REPO_ROOT / "designacion_new.json"
+SYNTHETIC_JSON = _HERE / "fixtures" / "designations.synthetic.json"
 
 
 # ---------------------------------------------------------------------------
@@ -171,83 +169,69 @@ class TestDesignationLoadResult:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — real JSON file + SQLite in-memory DB
+# Integration tests — synthetic JSON file + SQLite in-memory DB
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(
-    not REAL_JSON.exists(),
-    reason=f"Real JSON not found at {REAL_JSON}",
-)
 class TestLoadFromJson:
     def test_file_not_found_raises(self, loader, db):
         with pytest.raises(FileNotFoundError):
             loader.load_from_json(db, "/nonexistent/path/designaciones.json")
 
     def test_load_returns_result(self, loader, db):
-        result = loader.load_from_json(db, str(REAL_JSON))
+        result = loader.load_from_json(db, str(SYNTHETIC_JSON))
         assert isinstance(result, DesignationLoadResult)
 
     def test_designations_count(self, loader, db):
         """
-        designacion_new.json contains 400 entries.
-        Of those, 2 have docente=null (with schedule) → skipped by loader.
-        Expected: 398 designations loaded.
+        The synthetic fixture contains three assigned entries and one
+        deliberately unassigned entry.
         """
-        result = loader.load_from_json(db, str(REAL_JSON))
-        assert result.designations_loaded == 398, (
-            f"Expected 398 designations (400 in JSON minus 2 null-docente), got {result.designations_loaded}"
-        )
+        result = loader.load_from_json(db, str(SYNTHETIC_JSON))
+        assert result.designations_loaded == 3
 
     def test_skipped_no_schedule(self, loader, db):
         """
-        The JSON already filtered the 43+1 schedule-less entries from the parser.
-        Inside the JSON, only 2 entries have docente=null (with schedule) → skipped.
+        The fixture includes one scheduled entry without a teacher.
         """
-        result = loader.load_from_json(db, str(REAL_JSON))
-        assert result.skipped_no_schedule == 2, (
-            f"Expected 2 skipped_no_schedule (null docente with schedule), got {result.skipped_no_schedule}"
-        )
+        result = loader.load_from_json(db, str(SYNTHETIC_JSON))
+        assert result.skipped_no_schedule == 1
 
     def test_teachers_created(self, loader, db):
         """
-        Expect exactly 130 unique teachers.
-        teachers_reused counts the same teacher's additional designations (not new teachers).
+        Two synthetic teachers own three designations; the second assignment
+        for ALPHA must reuse its teacher.
         """
-        result = loader.load_from_json(db, str(REAL_JSON))
-        # On first load, reused means the in-memory cache hit (same teacher, different designation)
-        # teachers_created = unique teacher records created = ~130
-        assert 125 <= result.teachers_created <= 135, (
-            f"Expected ~130 unique teachers, got {result.teachers_created}"
-        )
-        # reused + created = total designation assignments = 398
-        assert result.teachers_created + result.teachers_reused == 398, (
+        result = loader.load_from_json(db, str(SYNTHETIC_JSON))
+        assert result.teachers_created == 2
+        assert result.teachers_reused == 1
+        assert result.teachers_created + result.teachers_reused == 3, (
             "teachers_created + teachers_reused must equal total designations loaded"
         )
 
     def test_schedule_json_stored_correctly(self, loader, db):
-        """First designation for ABNER FLORES MAMANI should have 3 schedule slots."""
-        loader.load_from_json(db, str(REAL_JSON))
+        """The first synthetic designation stores its transformed schedule."""
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
 
-        temp_ci = _make_temp_ci("ABNER FLORES MAMANI")
+        temp_ci = _make_temp_ci("SYNTHETIC TEACHER ALPHA")
         designations = (
             db.query(Designation)
             .filter(Designation.teacher_ci == temp_ci)
             .order_by(Designation.id)
             .all()
         )
-        assert len(designations) > 0, "ABNER FLORES MAMANI should have designations"
+        assert len(designations) == 2
         first = designations[0]
         assert isinstance(first.schedule_json, list)
-        assert len(first.schedule_json) == 3  # lunes, martes, viernes
+        assert len(first.schedule_json) == 1
 
         slot = first.schedule_json[0]
         assert slot["dia"] == "lunes"
-        assert slot["hora_inicio"] == "06:30"
-        assert slot["hora_fin"] == "08:00"
+        assert slot["hora_inicio"] == "08:00"
+        assert slot["hora_fin"] == "09:30"
 
     def test_all_temp_cis(self, loader, db):
         """After loading from JSON alone, ALL teacher CIs should be TEMP-."""
-        loader.load_from_json(db, str(REAL_JSON))
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
         non_temp = (
             db.query(Teacher)
             .filter(~Teacher.ci.like("TEMP-%"))
@@ -257,10 +241,10 @@ class TestLoadFromJson:
 
     def test_idempotent_load(self, loader, db):
         """Loading twice must not double-create teachers."""
-        r1 = loader.load_from_json(db, str(REAL_JSON))
+        r1 = loader.load_from_json(db, str(SYNTHETIC_JSON))
         teacher_count_after_first = db.query(Teacher).count()
         designation_count_after_first = db.query(Designation).count()
-        r2 = loader.load_from_json(db, str(REAL_JSON))
+        r2 = loader.load_from_json(db, str(SYNTHETIC_JSON))
         assert r2.teachers_created == 0, "Second load must not create new teachers"
         # On second load all teacher lookups hit the DB or in-memory cache → all reused
         assert r2.teachers_reused == r2.designations_loaded, (
@@ -274,43 +258,37 @@ class TestLoadFromJson:
 # Integration tests — link_teachers_by_name
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(
-    not REAL_JSON.exists(),
-    reason=f"Real JSON not found at {REAL_JSON}",
-)
 class TestLinkTeachersByName:
     def test_exact_match_updates_ci(self, loader, db):
-        loader.load_from_json(db, str(REAL_JSON))
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
 
-        # Simulate biometric providing the real CI for ABNER FLORES MAMANI
-        ci_name_map = {"1234567": "ABNER FLORES MAMANI"}
+        ci_name_map = {"SYNTHETIC-CI-001": "SYNTHETIC TEACHER ALPHA"}
         updated = loader.link_teachers_by_name(db, ci_name_map)
         assert updated == 1
 
-        teacher = db.query(Teacher).filter(Teacher.ci == "1234567").first()
+        teacher = db.query(Teacher).filter(Teacher.ci == "SYNTHETIC-CI-001").first()
         assert teacher is not None
-        assert teacher.full_name == "ABNER FLORES MAMANI"
+        assert teacher.full_name == "SYNTHETIC TEACHER ALPHA"
 
     def test_designations_follow_ci_update(self, loader, db):
-        loader.load_from_json(db, str(REAL_JSON))
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
 
-        ci_name_map = {"9999999": "ABNER FLORES MAMANI"}
+        ci_name_map = {"SYNTHETIC-CI-002": "SYNTHETIC TEACHER ALPHA"}
         loader.link_teachers_by_name(db, ci_name_map)
 
         designations = (
             db.query(Designation)
-            .filter(Designation.teacher_ci == "9999999")
+            .filter(Designation.teacher_ci == "SYNTHETIC-CI-002")
             .all()
         )
         assert len(designations) >= 2, (
-            "ABNER FLORES MAMANI should have multiple designations transferred"
+            "The synthetic teacher should have multiple designations transferred"
         )
 
     def test_accent_normalisation_match(self, loader, db):
-        loader.load_from_json(db, str(REAL_JSON))
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
 
-        # Biometric might store accented version
-        ci_name_map = {"8888888": "ÁBNER FLÓRES MAMANI"}
+        ci_name_map = {"SYNTHETIC-CI-003": "SYNTHETÍC TEÁCHER ALPHA"}
         updated = loader.link_teachers_by_name(db, ci_name_map)
         assert updated == 1
 
@@ -524,19 +502,15 @@ class TestLinkTeachersByName:
 # Integration tests — get_teacher_designations
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(
-    not REAL_JSON.exists(),
-    reason=f"Real JSON not found at {REAL_JSON}",
-)
 class TestGetTeacherDesignations:
     def test_returns_list(self, loader, db):
-        loader.load_from_json(db, str(REAL_JSON))
-        temp_ci = _make_temp_ci("ABNER FLORES MAMANI")
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
+        temp_ci = _make_temp_ci("SYNTHETIC TEACHER ALPHA")
         result = loader.get_teacher_designations(db, temp_ci)
         assert isinstance(result, list)
         assert len(result) >= 1
 
     def test_unknown_ci_returns_empty(self, loader, db):
-        loader.load_from_json(db, str(REAL_JSON))
+        loader.load_from_json(db, str(SYNTHETIC_JSON))
         result = loader.get_teacher_designations(db, "CI-INEXISTENTE")
         assert result == []

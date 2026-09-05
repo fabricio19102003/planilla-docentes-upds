@@ -60,12 +60,14 @@ class PlanillaOutputResponse(BaseModel):
     file_path: Optional[str] = None
     total_teachers: int
     total_hours: int
-    total_payment: Decimal
+    total_payment: Optional[Decimal]
     status: str
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     discount_mode: Literal["attendance", "full"] = "attendance"
     excluded_days_json: Optional[list[dict]] = None
+    data_status: Literal["available", "legacy_unavailable"] = "available"
+    unavailable_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,7 +76,7 @@ class PlanillaGenerateRequest(BaseModel):
     """Request body to trigger planilla generation."""
     month: int
     year: int
-    payment_overrides: dict[str, float] = Field(default_factory=dict)
+    payment_overrides: dict[str, Decimal | float] = Field(default_factory=dict)
     start_date: date | None = None   # Optional: start of attendance period for filtering
     end_date: date | None = None     # Optional: end of attendance period for filtering
     # "attendance" = apply attendance-based discounts (default)
