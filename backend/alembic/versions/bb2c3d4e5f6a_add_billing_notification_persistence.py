@@ -14,6 +14,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if "billing_notification_batches" in sa.inspect(op.get_bind()).get_table_names():
+        return
     op.create_table(
         "billing_notification_batches",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
