@@ -13,7 +13,7 @@ class PracticePlanillaGenerateRequest(BaseModel):
 
     month: int
     year: int
-    payment_overrides: dict[str, float] = Field(default_factory=dict)
+    payment_overrides: dict[str, Decimal | float] = Field(default_factory=dict)
     start_date: date | None = None
     end_date: date | None = None
     discount_mode: Literal["attendance", "full"] = "attendance"
@@ -49,12 +49,14 @@ class PracticePlanillaOutputResponse(BaseModel):
     file_path: Optional[str] = None
     total_teachers: int
     total_hours: int
-    total_payment: Decimal
+    total_payment: Optional[Decimal]
     status: str
     discount_mode: Literal["attendance", "full"] = "attendance"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     payment_overrides_json: Optional[dict[str, float]] = None
     excluded_days_json: Optional[list[dict]] = None
+    data_status: Literal["available", "legacy_unavailable"] = "available"
+    unavailable_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
