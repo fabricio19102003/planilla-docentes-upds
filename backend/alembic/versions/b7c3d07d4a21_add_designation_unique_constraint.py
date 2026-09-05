@@ -38,16 +38,31 @@ def upgrade() -> None:
             """
         )
     )
-    op.create_unique_constraint(
-        "uq_designation_teacher_subject_semester_group",
-        "designations",
-        ["teacher_ci", "subject", "semester", "group_code"],
-    )
+    columns = ["teacher_ci", "subject", "semester", "group_code"]
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("designations") as batch_op:
+            batch_op.create_unique_constraint(
+                "uq_designation_teacher_subject_semester_group",
+                columns,
+            )
+    else:
+        op.create_unique_constraint(
+            "uq_designation_teacher_subject_semester_group",
+            "designations",
+            columns,
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "uq_designation_teacher_subject_semester_group",
-        "designations",
-        type_="unique",
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("designations") as batch_op:
+            batch_op.drop_constraint(
+                "uq_designation_teacher_subject_semester_group",
+                type_="unique",
+            )
+    else:
+        op.drop_constraint(
+            "uq_designation_teacher_subject_semester_group",
+            "designations",
+            type_="unique",
+        )

@@ -21,6 +21,7 @@ import type { PracticePlanillaGenerateResponse } from '@/api/hooks/usePracticePl
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { getHistoricalPaymentState } from '@/lib/planillaHistory'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -79,10 +80,12 @@ export function PracticePlanillaPage() {
 
   const generatePlanilla = useGeneratePracticePlanilla()
   const { data: history, isLoading: historyLoading } = usePracticePlanillaHistory()
+  const selectedHistory = history?.find((item) => item.month === month && item.year === year)
+  const selectedHistoryState = selectedHistory ? getHistoricalPaymentState(selectedHistory) : null
   const { data: detail, isLoading: detailLoading } = usePracticePlanillaDetail(
     month,
     year,
-    showDetail,
+    showDetail && (!selectedHistoryState || selectedHistoryState.snapshotAvailable),
     startDate || undefined,
     endDate || undefined,
     discountMode,
@@ -555,7 +558,9 @@ export function PracticePlanillaPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((item, i) => (
+                    {history.map((item, i) => {
+                      const paymentState = getHistoricalPaymentState(item)
+                      return (
                       <tr
                         key={item.id}
                         className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
@@ -587,7 +592,7 @@ export function PracticePlanillaPage() {
                         <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
                         <td className="px-4 py-3">
                           <span className="font-bold" style={{ color: '#003366' }}>
-                            {parseFloat(item.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                            {paymentState.display}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -596,7 +601,7 @@ export function PracticePlanillaPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
-                          {item.file_path ? (
+                          {paymentState.snapshotAvailable && item.file_path ? (
                             <div className="flex items-center gap-1 flex-wrap">
                               <button
                                 onClick={(e) => {
@@ -637,7 +642,8 @@ export function PracticePlanillaPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
