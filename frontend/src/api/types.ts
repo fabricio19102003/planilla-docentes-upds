@@ -1,3 +1,5 @@
+import type { TeacherType } from '@/domain/teacherTypes'
+
 // ─── Auth & Users ────────────────────────────────────────────────────────────
 export interface AuthUser {
   id: number
@@ -170,7 +172,7 @@ export interface Teacher {
   email: string | null
   phone: string | null
   gender: string | null
-  external_permanent: string | null
+  external_permanent: TeacherType | null
   academic_level: string | null
   profession: string | null
   specialty: string | null
@@ -193,12 +195,36 @@ export interface PortalPhotoPayload {
   file: File
 }
 
-export interface TeacherUploadResponse {
-  created: number
-  updated: number
-  skipped: number
-  total_processed: number
+export interface TeacherProfileFieldCoverage {
+  creates: number
+  fills: number
+  noops: number
+  conflicts: number
+  missing: number
+}
+
+export interface TeacherProfileImportPreview {
+  digest: string
+  parsed_format: string
+  academic_period: string
+  scope: string
+  policy: 'fill_empty_only'
+  total_rows: number
+  rows_with_fills: number
+  can_apply: boolean
+  identity: {
+    matched: number
+    missing: number
+    duplicates: number
+    conflicts: number
+  }
+  fields: Record<string, TeacherProfileFieldCoverage>
   warnings: string[]
+  errors: string[]
+}
+
+export interface TeacherProfileImportResult extends TeacherProfileImportPreview {
+  applied: boolean
 }
 
 export interface TeacherAttendanceSummary {
@@ -362,14 +388,28 @@ export interface DashboardSummary {
   pending_requests: number
 }
 
-export interface DesignationUploadResponse {
-  teachers_created: number
-  teachers_reused: number
-  designations_loaded: number
-  skipped: number
-  users_created: number
-  users_skipped: number
+export interface DesignationImportCounts {
+  creates: number
+  updates: number
+  noops: number
+  conflicts: number
+}
+
+export interface DesignationImportPreview {
+  digest: string
+  parsed_format: string
+  academic_period: string
+  total_rows: number
+  can_apply: boolean
+  teachers: DesignationImportCounts
+  designations: DesignationImportCounts
+  users: DesignationImportCounts
   warnings: string[]
+  errors: string[]
+}
+
+export interface DesignationUploadResponse extends DesignationImportPreview {
+  applied: boolean
 }
 
 export interface PaginatedResponse<T> {
@@ -437,7 +477,8 @@ export interface UploadBiometricPayload {
 
 export interface UploadDesignationsPayload {
   file: File
-  academic_period?: string
+  academic_period: string
+  confirmation_digest?: string
   onProgress?: (progress: number) => void
 }
 
@@ -446,7 +487,7 @@ export interface ProfileUpdatePayload {
   email?: string | null
   phone?: string | null
   gender?: string | null
-  external_permanent?: string | null
+  external_permanent?: TeacherType | null
   academic_level?: string | null
   profession?: string | null
   specialty?: string | null
