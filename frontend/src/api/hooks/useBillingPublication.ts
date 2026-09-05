@@ -6,6 +6,7 @@ export interface BillingPublication {
   month: number
   year: number
   status: 'published' | 'draft'
+  version: number
   total_teachers: number
   total_payment: number
   published_by: number | null

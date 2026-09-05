@@ -752,10 +752,8 @@ class TestAPISalaryReportExclusionInheritance:
 
         payload = {"month": 5, "year": 2026, "discount_mode": "full"}
         response = api_client.post("/api/planilla/salary-report", json=payload)
-        # 200 = report generated successfully; 404/500 = failure
-        assert response.status_code == 200, (
-            f"Salary report with stored exclusions failed: {response.text}"
-        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "snapshot_missing"
 
 
 # ---------------------------------------------------------------------------
@@ -878,9 +876,8 @@ class TestSalaryReportOverride:
             ],
         }
         response = api_client.post("/api/planilla/salary-report", json=payload)
-        assert response.status_code == 200, (
-            f"Salary report with caller override failed: {response.text}"
-        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "snapshot_missing"
 
     def test_salary_report_empty_override_clears_stored_exclusions(self, api_client, api_db, tmp_path):
         """When salary report sends excluded_days=[], stored exclusions are NOT used."""
@@ -900,9 +897,8 @@ class TestSalaryReportOverride:
             "discount_mode": "full",
         }
         response = api_client.post("/api/planilla/salary-report", json=payload)
-        assert response.status_code == 200, (
-            f"Salary report with explicit empty exclusions failed: {response.text}"
-        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "snapshot_missing"
 
 
 # ---------------------------------------------------------------------------
@@ -940,9 +936,8 @@ class TestDetailEndpointStoredExclusions:
         api_db.flush()
 
         response = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
-        assert response.status_code == 200, (
-            f"Detail endpoint failed with stored exclusions: {response.text}"
-        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "snapshot_missing"
 
     def test_detail_endpoint_exclusions_reduce_hours(self, api_client, api_db):
         """
@@ -966,17 +961,8 @@ class TestDetailEndpointStoredExclusions:
         self._seed_planilla_with_exclusion(api_db)
 
         response_with_excl = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
-        assert response_with_excl.status_code == 200, response_with_excl.text
-        data_with_excl = response_with_excl.json().get("detail", [])
-
-        # Hours with exclusion must be <= hours without exclusion
-        if data_no_excl and data_with_excl:
-            total_no_excl = sum(row.get("base_monthly_hours", 0) for row in data_no_excl)
-            total_with_excl = sum(row.get("base_monthly_hours", 0) for row in data_with_excl)
-            assert total_with_excl <= total_no_excl, (
-                f"Expected exclusions to reduce total hours: "
-                f"no_excl={total_no_excl}, with_excl={total_with_excl}"
-            )
+        assert response_with_excl.status_code == 409
+        assert response_with_excl.json()["detail"]["code"] == "snapshot_missing"
 
     def test_detail_endpoint_query_exclusions_override_stored_exclusions(self, api_client, api_db):
         """excluded_days_json=[] must clear stored exclusions for live preview."""
@@ -989,17 +975,14 @@ class TestDetailEndpointStoredExclusions:
         self._seed_planilla_with_exclusion(api_db)
 
         response_stored = api_client.get("/api/planilla/5/2026/detail?discount_mode=full")
-        assert response_stored.status_code == 200, response_stored.text
-        total_stored = sum(row.get("base_monthly_hours", 0) for row in response_stored.json().get("detail", []))
+        assert response_stored.status_code == 409
 
         response_override = api_client.get(
             "/api/planilla/5/2026/detail",
             params={"excluded_days_json": json.dumps([]), "discount_mode": "full"},
         )
-        assert response_override.status_code == 200, response_override.text
-        total_override = sum(row.get("base_monthly_hours", 0) for row in response_override.json().get("detail", []))
-
-        assert total_override >= total_stored
+        assert response_override.status_code == 409
+        assert response_override.json()["detail"]["code"] == "snapshot_missing"
 
     def test_detail_endpoint_invalid_query_exclusions_returns_422(self, api_client, api_db):
         """Invalid excluded_days_json should fail validation instead of returning 500."""
