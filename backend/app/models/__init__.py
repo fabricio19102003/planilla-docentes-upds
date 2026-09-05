@@ -52,6 +52,8 @@ from app.models.billing_notification import (
     BillingMediaToken,
     BillingNotificationBatch,
     BillingNotificationJob,
+    BillingNotificationCapacityReservation,
+    BillingNotificationCapacityWindow,
     WhatsAppEvent,
 )
 
@@ -59,6 +61,8 @@ __all__ += [
     "WhatsAppPreference",
     "BillingNotificationBatch",
     "BillingNotificationJob",
+    "BillingNotificationCapacityReservation",
+    "BillingNotificationCapacityWindow",
     "WhatsAppEvent",
     "BillingMediaToken",
 ]
