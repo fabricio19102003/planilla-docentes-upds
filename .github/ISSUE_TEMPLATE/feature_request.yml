@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose a product or platform capability
+title: "[Feature]: "
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the requested capability in one sentence.
+      placeholder: Add a concise feature summary
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain the user or operational problem this feature should solve.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the expected behavior and important constraints.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Select the primary area affected by the request.
+      options:
+        - Backend
+        - Frontend
+        - Infrastructure
+        - Full stack
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List the observable conditions required to consider the feature complete.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe alternatives or workarounds, if any.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Readiness
+      options:
+        - label: The request contains no credentials, secrets, or private personal data.
+          required: true
