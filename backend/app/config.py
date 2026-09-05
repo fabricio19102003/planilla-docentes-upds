@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     ASYNC_DATABASE_URL: str
     CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000"]'
     UPLOAD_DIR: str = "./data/uploads"
+    BILLING_MEDIA_DIR: str = "./data/billing-media"
+    BILLING_MEDIA_PUBLIC_BASE_URL: Optional[str] = None
 
     # App metadata
     APP_TITLE: str = "SIPAD — Sistema Integrado de Pago Docente"
@@ -65,7 +67,14 @@ class Settings(BaseSettings):
     TWILIO_API_KEY_SECRET: Optional[str] = None
     TWILIO_WHATSAPP_SANDBOX_FROM: Optional[str] = None
     TWILIO_OFFICIAL_FROM: Optional[str] = None
+    TWILIO_OFFICIAL_SENDER_SID: Optional[str] = None
+    TWILIO_OFFICIAL_CONTENT_SID: Optional[str] = None
+    TWILIO_OFFICIAL_MEDIA_MPS: float = 0.0
+    TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT: int = 0
+    TWILIO_OFFICIAL_CAPACITY_WINDOW_SECONDS: int = 86400
     TWILIO_STATUS_CALLBACK_URL: Optional[str] = None
+    TWILIO_INBOUND_CALLBACK_URL: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT: Optional[str] = None
     TWILIO_API_BASE_URL: str = "https://api.twilio.com"
     WHATSAPP_TIMEOUT_SECONDS: float = 3.0
@@ -80,7 +89,12 @@ class Settings(BaseSettings):
         "TWILIO_API_KEY_SECRET",
         "TWILIO_WHATSAPP_SANDBOX_FROM",
         "TWILIO_OFFICIAL_FROM",
+        "TWILIO_OFFICIAL_SENDER_SID",
+        "TWILIO_OFFICIAL_CONTENT_SID",
+        "BILLING_MEDIA_PUBLIC_BASE_URL",
         "TWILIO_STATUS_CALLBACK_URL",
+        "TWILIO_INBOUND_CALLBACK_URL",
+        "TWILIO_AUTH_TOKEN",
         "TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT",
         mode="before",
     )

@@ -30,6 +30,7 @@ class BillingNotificationJob(Base):
     __table_args__ = (
         UniqueConstraint("batch_id", "teacher_ci", "channel", name="uq_billing_notification_job_intent"),
         Index("ix_billing_notification_job_claim", "status", "lease_expires_at"),
+        Index("ix_billing_notification_job_due", "status", "next_attempt_at"),
         Index("ix_billing_notification_job_provider_sid", "provider_sid"),
     )
 
@@ -46,6 +47,8 @@ class BillingNotificationJob(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     lease_owner: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     provider_sid: Mapped[Optional[str]] = mapped_column(String(34), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
@@ -86,6 +89,7 @@ class BillingMediaToken(Base):
     __table_args__ = (UniqueConstraint("token_hash", name="uq_billing_media_token_hash"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("billing_notification_jobs.id", ondelete="CASCADE"), nullable=True, index=True)
     batch_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("billing_notification_batches.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -99,3 +103,28 @@ class BillingMediaToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
+
+
+class BillingNotificationCapacityWindow(Base):
+    """Singleton row used to serialize moving-recipient reservations."""
+
+    __tablename__ = "billing_notification_capacity_windows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_dispatch_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class BillingNotificationCapacityReservation(Base):
+    """A durable recipient slot in the provider's moving capacity window."""
+
+    __tablename__ = "billing_notification_capacity_reservations"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_billing_notification_capacity_job"),
+        Index("ix_billing_notification_capacity_reserved_at", "reserved_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    recipient_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    reserved_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
