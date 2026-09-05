@@ -3,64 +3,12 @@ from __future__ import annotations
 import copy
 import json
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import sessionmaker
-
-from app.database import Base, get_db
-from app.main import app
 from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.models.user import User
-from app.services.auth_service import AuthService, auth_service
-
-
-@pytest.fixture
-def db_session(test_engine):
-    """Give each test a disposable schema so endpoint commits remain isolated."""
-    Base.metadata.drop_all(bind=test_engine)
-    Base.metadata.create_all(bind=test_engine)
-    testing_session = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=test_engine,
-    )()
-    try:
-        yield testing_session
-    finally:
-        testing_session.close()
-        Base.metadata.drop_all(bind=test_engine)
-
-
-@pytest.fixture
-def admin_token(db_session) -> str:
-    admin = User(
-        ci="IMPORT_ADMIN_9999",
-        full_name="Synthetic Import Admin",
-        password_hash=auth_service.hash_password("synthetic-test-password"),
-        role="admin",
-        is_active=True,
-    )
-    db_session.add(admin)
-    db_session.flush()
-    return auth_service.create_access_token(data={"sub": str(admin.id), "role": "admin"})
-
-
-@pytest.fixture
-def client(db_session, admin_token):
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    test_client = TestClient(app)
-    test_client.headers["Authorization"] = f"Bearer {admin_token}"
-    try:
-        yield test_client
-    finally:
-        test_client.close()
-        app.dependency_overrides.clear()
+from app.services.auth_service import AuthService
 
 
 def synthetic_envelope(*, monthly_hours: int = 8, period: str = "II/2026") -> dict:
