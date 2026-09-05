@@ -21,8 +21,13 @@ from app.schemas.teacher import (
     TeacherDetailResponse,
     TeacherResponse,
     TeacherUpdate,
+    TeacherProfileImportPreviewResponse,
 )
 from app.services.activity_logger import log_activity
+from app.services.teacher_profile_import_service import (
+    TeacherProfileImportPlan,
+    TeacherProfileImportService,
+)
 from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
@@ -381,6 +386,57 @@ def update_designation_contract_dates(
         db.rollback()
         logger.exception("Failed to update designation %s contract dates: %s", designation_id, exc)
         raise HTTPException(status_code=500, detail="No se pudieron actualizar las fechas de contrato") from exc
+
+
+MAX_TEACHER_PROFILE_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _teacher_profile_json_bytes(file: UploadFile) -> bytes:
+    filename = file.filename or "upload.bin"
+    if Path(filename).suffix.lower() != ".json":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El importador seguro de perfiles admite únicamente archivos .json audit_envelope.",
+        )
+    content = await file.read(MAX_TEACHER_PROFILE_UPLOAD_BYTES + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+    if len(content) > MAX_TEACHER_PROFILE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="El archivo supera el límite de 10 MB.")
+    return content
+
+
+def _teacher_profile_response(plan: TeacherProfileImportPlan) -> TeacherProfileImportPreviewResponse:
+    return TeacherProfileImportPreviewResponse(
+        digest=plan.digest,
+        parsed_format=plan.parsed_format,
+        academic_period=plan.academic_period,
+        scope=plan.scope,
+        policy=plan.policy,
+        total_rows=plan.total_rows,
+        rows_with_fills=plan.rows_with_fills,
+        can_apply=plan.can_apply,
+        identity=plan.identity.__dict__,
+        fields={name: counts.__dict__ for name, counts in plan.fields.items()},
+        warnings=plan.warnings,
+        errors=plan.errors,
+    )
+
+
+@router.post("/import/preview", response_model=TeacherProfileImportPreviewResponse)
+async def preview_teacher_profiles(
+    file: UploadFile = File(...),
+    academic_period: str = Query(..., description="Período académico explícito, ej: II/2026"),
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TeacherProfileImportPreviewResponse:
+    try:
+        content = await _teacher_profile_json_bytes(file)
+        return _teacher_profile_response(
+            TeacherProfileImportService().preview(db, content, academic_period)
+        )
+    finally:
+        await file.close()
 
 
 def _normalize_teacher_data(raw: dict) -> dict:
