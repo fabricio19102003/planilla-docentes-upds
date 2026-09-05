@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     APP_TITLE: str = "SIPAD — Sistema Integrado de Pago Docente"
     APP_DESCRIPTION: str = "Sistema de gestión de planilla docente para UPDS Medicina"
     APP_VERSION: str = "1.0.0"
+    APP_ENV: str = "development"
+    # Development keeps the legacy convenience bootstrap. Production must run
+    # Alembic as a separate gate and set this to false.
+    AUTO_SCHEMA_BOOTSTRAP: bool = True
 
     # Payroll constants
     # NOTE: HOURLY_RATE, COMPANY_NAME, COMPANY_NIT, and ACTIVE_ACADEMIC_PERIOD
