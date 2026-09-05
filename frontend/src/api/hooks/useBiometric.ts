@@ -6,7 +6,8 @@ import type {
   BiometricUploadResult,
   DesignationImportPreview,
   DesignationUploadResponse,
-  TeacherUploadResponse,
+  TeacherProfileImportPreview,
+  TeacherProfileImportResult,
   UploadBiometricPayload,
   UploadDesignationsPayload,
 } from '@/api/types'
@@ -126,24 +127,51 @@ export function usePreviewDesignations() {
   return useMutation({ mutationFn: previewDesignations })
 }
 
-async function uploadTeacherList(file: File): Promise<TeacherUploadResponse> {
+interface TeacherProfileImportPayload {
+  file: File
+  academic_period: string
+  confirmation_digest?: string
+}
+
+function teacherProfileForm(file: File) {
   const formData = new FormData()
   formData.append('file', file)
+  return formData
+}
 
-  const response = await api.post<TeacherUploadResponse>('/teachers/upload', formData, {
+async function previewTeacherProfiles(payload: TeacherProfileImportPayload) {
+  const response = await api.post<TeacherProfileImportPreview>(
+    `/teachers/import/preview?academic_period=${encodeURIComponent(payload.academic_period)}`,
+    teacherProfileForm(payload.file),
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  return response.data
+}
+
+async function importTeacherProfiles(payload: TeacherProfileImportPayload) {
+  if (!payload.confirmation_digest) throw new Error('La confirmación de la vista previa es obligatoria.')
+  const response = await api.post<TeacherProfileImportResult>(
+    `/teachers/import?academic_period=${encodeURIComponent(payload.academic_period)}&confirmation_digest=${encodeURIComponent(payload.confirmation_digest)}`,
+    teacherProfileForm(payload.file),
+    {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
-  })
+    },
+  )
 
   return response.data
 }
 
-export function useUploadTeacherList() {
+export function usePreviewTeacherProfiles() {
+  return useMutation({ mutationFn: previewTeacherProfiles })
+}
+
+export function useImportTeacherProfiles() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: uploadTeacherList,
+    mutationFn: importTeacherProfiles,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teachers'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })

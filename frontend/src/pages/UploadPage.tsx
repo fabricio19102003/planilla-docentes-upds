@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
-import { usePreviewDesignations, useUploadBiometric, useUploadDesignations, useUploadHistory, useUploadTeacherList } from '@/api/hooks/useBiometric'
+import { useImportTeacherProfiles, usePreviewDesignations, usePreviewTeacherProfiles, useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/api/hooks/useBiometric'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
@@ -10,13 +10,20 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { BiometricUploadResult, DesignationImportPreview, DesignationUploadResponse, TeacherUploadResponse, BiometricUpload } from '@/api/types'
+import type { BiometricUploadResult, DesignationImportPreview, DesignationUploadResponse, TeacherProfileImportPreview, TeacherProfileImportResult, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
   5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
+
+const PROFILE_FIELD_LABELS: Record<string, string> = {
+  email: 'Correo', phone: 'Teléfono', gender: 'Género', external_permanent: 'Tipo',
+  academic_level: 'Nivel académico', profession: 'Profesión', specialty: 'Especialidad',
+  bank: 'Banco', account_number: 'N.º cuenta', nit: 'NIT', sap_code: 'Código SAP',
+  invoice_retention: 'Retención',
 }
 
 function formatDate(dateStr: string): string {
@@ -78,20 +85,23 @@ export function UploadPage() {
   // The server value is only a suggested selection; importing never activates a period.
   const [academicPeriod, setAcademicPeriod] = useState('')
 
-  useEffect(() => {
-    api.get<{ academic_period: string }>('/config/active-period')
-      .then(res => setAcademicPeriod(res.data.academic_period))
-      .catch(() => setAcademicPeriod(''))
-  }, [])
-
   // Teacher list state
   const [teacherFile, setTeacherFile] = useState<File | null>(null)
-  const [teacherResult, setTeacherResult] = useState<TeacherUploadResponse | null>(null)
+  const [teacherPeriod, setTeacherPeriod] = useState('')
+  const [teacherPreview, setTeacherPreview] = useState<TeacherProfileImportPreview | null>(null)
+  const [teacherResult, setTeacherResult] = useState<TeacherProfileImportResult | null>(null)
+
+  useEffect(() => {
+    api.get<{ academic_period: string }>('/config/active-period')
+      .then(res => { setAcademicPeriod(res.data.academic_period); setTeacherPeriod(res.data.academic_period) })
+      .catch(() => { setAcademicPeriod(''); setTeacherPeriod('') })
+  }, [])
 
   const uploadBiometric = useUploadBiometric()
   const previewDesignations = usePreviewDesignations()
   const uploadDesignations = useUploadDesignations()
-  const uploadTeacherList = useUploadTeacherList()
+  const previewTeacherProfiles = usePreviewTeacherProfiles()
+  const importTeacherProfiles = useImportTeacherProfiles()
   const { data: history, isLoading: historyLoading } = useUploadHistory()
 
   const handleBioSubmit = () => {
@@ -128,15 +138,22 @@ export function UploadPage() {
     )
   }
 
-  const handleTeacherSubmit = () => {
-    if (!teacherFile) return
+  const handleTeacherPreview = () => {
+    if (!teacherFile || !teacherPeriod.trim()) return
+    setTeacherPreview(null)
     setTeacherResult(null)
-    uploadTeacherList.mutate(teacherFile, {
-      onSuccess: (data) => {
-        setTeacherResult(data)
-        setTeacherFile(null)
-      },
-    })
+    previewTeacherProfiles.mutate(
+      { file: teacherFile, academic_period: teacherPeriod },
+      { onSuccess: setTeacherPreview },
+    )
+  }
+
+  const handleTeacherApply = () => {
+    if (!teacherFile || !teacherPreview?.can_apply) return
+    importTeacherProfiles.mutate(
+      { file: teacherFile, academic_period: teacherPeriod, confirmation_digest: teacherPreview.digest },
+      { onSuccess: (data) => { setTeacherResult(data); setTeacherPreview(null); setTeacherFile(null) } },
+    )
   }
 
   return (
@@ -343,76 +360,88 @@ export function UploadPage() {
         <div className="card-3d overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Docentes</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Subí la lista de docentes en formato Excel o JSON</p>
+            <p className="text-sm text-gray-500 mt-0.5">Completá perfiles existentes con vista previa y confirmación</p>
           </div>
           <div className="p-5 space-y-4">
             <FileUploader
-              accept=".json,.xlsx,.xls"
-              label="Seleccioná la lista de docentes"
-              description="Archivo Excel (.xlsx) o JSON con los docentes del semestre"
-              onFileSelect={(f) => setTeacherFile(f)}
+              accept=".json"
+              label="Seleccioná el sobre auditado de perfiles"
+              description="JSON audit_envelope; nunca sobrescribe valores existentes"
+              onFileSelect={(f) => { setTeacherFile(f); setTeacherPreview(null); setTeacherResult(null) }}
             />
 
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Período Académico</Label>
+              <Input
+                value={teacherPeriod}
+                onChange={e => { setTeacherPeriod(e.target.value); setTeacherPreview(null); setTeacherResult(null) }}
+                placeholder="Ej: II/2026"
+              />
+              <p className="text-xs text-gray-400">Sólo completa campos vacíos. No activa períodos, elimina datos ni modifica accesos.</p>
+            </div>
+
             <Button
-              onClick={handleTeacherSubmit}
-              disabled={!teacherFile || uploadTeacherList.isPending}
+              onClick={handleTeacherPreview}
+              disabled={!teacherFile || !teacherPeriod.trim() || previewTeacherProfiles.isPending || importTeacherProfiles.isPending}
               className="w-full h-10"
               style={{ backgroundColor: '#003366' }}
             >
-              {uploadTeacherList.isPending ? (
+              {previewTeacherProfiles.isPending ? (
                 <>
                   <Loader2 size={16} className="animate-spin mr-2" />
-                  Procesando...
+                  Validando...
                 </>
               ) : (
-                'Subir Lista de Docentes'
+                'Generar vista previa'
               )}
             </Button>
 
-            {uploadTeacherList.isError && (
+            {(previewTeacherProfiles.isError || importTeacherProfiles.isError) && (
               <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
                 <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
                   <p className="text-xs text-red-500 mt-0.5">
-                    {getUploadErrorDetail(uploadTeacherList.error)}
+                    {getUploadErrorDetail(previewTeacherProfiles.error ?? importTeacherProfiles.error)}
                   </p>
                 </div>
               </div>
             )}
 
-            {teacherResult && (
-              <div className="space-y-3">
-                <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                  <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-green-700">¡Lista cargada exitosamente!</p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      {teacherResult.created} nuevos
-                      {teacherResult.updated > 0 && ` · ${teacherResult.updated} actualizados`}
-                      {teacherResult.skipped > 0 && ` · ${teacherResult.skipped} omitidos`}
-                      {' '}· {teacherResult.total_processed} total
-                    </p>
-                    {teacherResult.warnings.length > 0 && (
-                      <p className="text-xs text-yellow-600 mt-1">
-                        {teacherResult.warnings.length} advertencia(s)
-                      </p>
-                    )}
-                  </div>
+            {teacherPreview && (
+              <div className={`space-y-3 rounded-lg border p-3 ${teacherPreview.can_apply ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'}`}>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Vista previa: {teacherPreview.total_rows} perfiles · {teacherPreview.academic_period}</p>
+                  <p className="text-xs text-gray-600 mt-1">Formato: {teacherPreview.parsed_format} · Alcance: {teacherPreview.scope} · Política: completar vacíos</p>
+                  <p className="text-xs text-gray-600 mt-1">Identidades: {teacherPreview.identity.matched} coincidentes · {teacherPreview.identity.missing} ausentes · {teacherPreview.identity.conflicts} conflictos</p>
                 </div>
-                {teacherResult.warnings.length > 0 && (
-                  <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <Users size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-semibold text-blue-700">Docentes vinculados</p>
-                      <ul className="mt-1 space-y-0.5">
-                        {teacherResult.warnings.map((w, i) => (
-                          <li key={i} className="text-xs text-blue-600">{w}</li>
-                        ))}
-                      </ul>
-                    </div>
+                <div className="max-h-56 overflow-auto rounded border border-gray-200 bg-white">
+                  <table className="w-full text-xs">
+                    <thead><tr className="bg-gray-50"><th className="p-1.5 text-left">Campo</th><th>Crear*</th><th>Completar</th><th>Igual</th><th>Conflicto</th><th>Sin dato</th></tr></thead>
+                    <tbody>
+                      {Object.entries(teacherPreview.fields).map(([name, counts]) => (
+                        <tr key={name} className="border-t"><td className="p-1.5">{PROFILE_FIELD_LABELS[name] ?? name}</td><td className="text-center text-red-600">{counts.creates}</td><td className="text-center">{counts.fills}</td><td className="text-center">{counts.noops}</td><td className="text-center text-red-600">{counts.conflicts}</td><td className="text-center">{counts.missing}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-gray-500">* “Crear” indica un CI ausente y bloquea la importación; este flujo no crea docentes.</p>
+                {teacherPreview.warnings.map((warning, index) => <p key={`teacher-warning-${index}`} className="text-xs text-yellow-700">{warning}</p>)}
+                {teacherPreview.errors.map((error, index) => <p key={`teacher-error-${index}`} className="text-xs text-red-700">{error}</p>)}
+                <Button onClick={handleTeacherApply} disabled={!teacherPreview.can_apply || importTeacherProfiles.isPending} className="w-full h-10" style={{ backgroundColor: '#003366' }}>
+                  {importTeacherProfiles.isPending ? <><Loader2 size={16} className="animate-spin mr-2" />Aplicando...</> : 'Confirmar e importar'}
+                </Button>
+              </div>
+            )}
+
+            {teacherResult && (
+              <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-green-700">¡Perfiles completados!</p>
+                  <p className="text-xs text-green-600 mt-0.5">{teacherResult.total_rows} filas confirmadas · {teacherResult.rows_with_fills} docentes con campos completados</p>
+                  <p className="text-xs text-green-600 mt-1">No se activó ningún período ni se modificaron contraseñas o accesos.</p>
                   </div>
-                )}
               </div>
             )}
           </div>

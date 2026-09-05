@@ -23,6 +23,7 @@ import {
   useDeleteTeacherPhoto,
 } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import { DataTable } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -516,7 +517,7 @@ export function TeacherDetailPage() {
                 <span className="text-white/70 text-sm">C.I.: {teacher.ci}</span>
                 {!editMode && teacher.external_permanent && (
                   <Badge className="bg-white/20 text-white border-white/30 text-xs">
-                    {teacher.external_permanent === 'EXTERNO' ? 'Externo' : 'Permanente'}
+                    {teacherTypeLabel(teacher.external_permanent)}
                   </Badge>
                 )}
                 {!editMode && teacher.gender && (
@@ -615,8 +616,9 @@ export function TeacherDetailPage() {
                         <SelectValue placeholder="Seleccionar..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="EXTERNO">Externo</SelectItem>
-                        <SelectItem value="PERMANENTE">Permanente</SelectItem>
+                        {TEACHER_TYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -713,7 +715,7 @@ export function TeacherDetailPage() {
               <InfoRow label="Correo Electrónico" value={teacher.email} />
               <InfoRow label="Teléfono" value={teacher.phone} />
               <InfoRow label="Género" value={teacher.gender} />
-              <InfoRow label="Tipo" value={teacher.external_permanent} />
+              <InfoRow label="Tipo" value={teacherTypeLabel(teacher.external_permanent)} />
               <InfoRow label="Nivel Académico" value={teacher.academic_level} />
               <InfoRow label="Profesión" value={teacher.profession} />
               <InfoRow label="Especialidad" value={teacher.specialty} />
