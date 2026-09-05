@@ -21,6 +21,7 @@ COPY --chown=sipad:sipad normalizar_horarios.py /app/normalizar_horarios.py
 
 RUN mkdir -p \
       /app/backend/data/uploads \
+      /app/backend/data/billing-media \
       /app/backend/data/output \
       /app/backend/data/reports \
       /app/backend/data/contracts \

@@ -12,12 +12,17 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.config import settings
+from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+from app.models.whatsapp_preference import WhatsAppPreference
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services.activity_logger import log_activity
+from app.services.billing_notification_preview import BillingNotificationPreviewService, NotificationPlanError
+from app.services.billing_notification_policy import BillingChannelPolicy
 from app.services.billing_notification_service import (
     BillingNotificationService,
     SqlAlchemyAttemptStore,
@@ -43,6 +48,33 @@ MONTH_NAMES = {
 }
 
 _MONEY_QUANTUM = Decimal("0.01")
+
+
+def _email_eligible_users(db: Session, publication: BillingPublication, users: list[User]) -> list[User]:
+    """Apply official durable channel state before any legacy Resend execution."""
+    if not users:
+        return []
+    cis = [user.teacher_ci for user in users if user.teacher_ci]
+    preferences = {row.teacher_ci: row for row in db.query(WhatsAppPreference).filter(WhatsAppPreference.teacher_ci.in_(cis)).all()}
+    jobs = (
+        db.query(BillingNotificationJob)
+        .join(BillingNotificationBatch, BillingNotificationJob.batch_id == BillingNotificationBatch.id)
+        .filter(BillingNotificationBatch.publication_id == publication.id, BillingNotificationBatch.publication_version == publication.version, BillingNotificationJob.teacher_ci.in_(cis), BillingNotificationJob.channel == "whatsapp")
+        .all()
+    )
+    statuses: dict[str, list[str]] = {}
+    for job in jobs:
+        statuses.setdefault(job.teacher_ci, []).append(job.status)
+    policy = BillingChannelPolicy()
+    def eligible(user: User) -> bool:
+        states = statuses.get(user.teacher_ci, [])
+        if states:
+            # A single unresolved intent dominates terminal rows; row order never decides fallback.
+            verified_failure = all(state in {"failed", "undelivered"} for state in states)
+            state = "failed" if verified_failure else "ambiguous"
+            return policy.select(preferences.get(user.teacher_ci), whatsapp_status=state, terminal_failure_verified=verified_failure).channel == "email"
+        return policy.select(preferences.get(user.teacher_ci)).channel == "email"
+    return [user for user in users if eligible(user)]
 
 
 def _money(value) -> Decimal:
@@ -124,6 +156,43 @@ class SendBillingEmailsResponse(BaseModel):
     sent: int
     failed: int
     skipped: int
+
+
+class BillingNotificationPreviewRequest(BaseModel):
+    month: int
+    year: int
+    teacher_cis: list[str]
+
+
+class BillingNotificationConfirmRequest(BillingNotificationPreviewRequest):
+    digest: str
+
+
+class BillingNotificationRecipientResponse(BaseModel):
+    teacher_ci: str
+    phone_masked: str | None
+    channel: str
+    reason: str
+
+
+class BillingNotificationPreviewResponse(BaseModel):
+    digest: str
+    recipients: list[BillingNotificationRecipientResponse]
+    readiness: dict[str, Any]
+
+
+class BillingNotificationConfirmResponse(BaseModel):
+    batch_id: int
+    digest: str
+    status: str
+
+
+class BillingNotificationBatchStatusResponse(BaseModel):
+    batch_id: int
+    digest: str
+    status: str
+    created_at: datetime
+    jobs: list[dict[str, str]]
 
 
 class PublicationResponse(BaseModel):
@@ -428,7 +497,7 @@ def publish_billing(
             notification_result = BillingNotificationService(
                 store=SqlAlchemyAttemptStore(db),
                 email_service=EmailService(),
-            ).send_billing_published(publication, docente_users)
+            ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
             logger.info(
                 "Billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
@@ -483,6 +552,60 @@ def publish_billing(
         ) from exc
 
 
+def _notification_publication(db: Session, month: int, year: int) -> BillingPublication:
+    publication = db.query(BillingPublication).filter_by(month=month, year=year, planilla_type="regular").first()
+    if publication is None or publication.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="billing_publication_not_found")
+    return publication
+
+
+def _official_notification_readiness() -> dict[str, Any]:
+    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+
+    runtime = OfficialWhatsAppRuntime.from_settings(settings)
+    return runtime.live_readiness() if runtime is not None else {
+        "ready": False, "reason": "official_readiness_unavailable", "capacity": {"available": False},
+    }
+
+
+@router.get("/notifications/readiness")
+def billing_notification_readiness(_: User = Depends(require_admin)) -> dict[str, Any]:
+    return _official_notification_readiness()
+
+
+@router.get("/notifications/batches/{batch_id}", response_model=BillingNotificationBatchStatusResponse)
+def billing_notification_batch_status(batch_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationBatchStatusResponse:
+    batch = db.query(BillingNotificationBatch).filter_by(id=batch_id).first()
+    if batch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="billing_notification_batch_not_found")
+    jobs = db.query(BillingNotificationJob).filter_by(batch_id=batch.id).order_by(BillingNotificationJob.id).all()
+    return BillingNotificationBatchStatusResponse(
+        batch_id=batch.id,
+        digest=batch.digest,
+        status=batch.status,
+        created_at=batch.created_at,
+        jobs=[{"channel": job.channel, "status": job.status} for job in jobs],
+    )
+
+
+@router.post("/notifications/preview", response_model=BillingNotificationPreviewResponse)
+def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationPreviewResponse:
+    plan = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
+    recipients = [BillingNotificationRecipientResponse(**{key: item[key] for key in ("teacher_ci", "phone_masked", "channel", "reason")}) for item in plan.recipients]
+    return BillingNotificationPreviewResponse(digest=plan.digest, recipients=recipients, readiness=plan.readiness)
+
+
+@router.post("/notifications/confirm", response_model=BillingNotificationConfirmResponse)
+def confirm_billing_notifications(payload: BillingNotificationConfirmRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationConfirmResponse:
+    try:
+        batch = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
+        db.commit()
+    except NotificationPlanError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    return BillingNotificationConfirmResponse(batch_id=batch.id, digest=batch.digest, status=batch.status)
+
+
 @router.post("/send-emails", response_model=SendBillingEmailsResponse)
 def send_billing_emails(
     payload: SendBillingEmailsRequest,
@@ -533,7 +656,7 @@ def send_billing_emails(
     notification_result = BillingNotificationService(
         store=SqlAlchemyAttemptStore(db),
         email_service=EmailService(),
-    ).send_billing_published(publication, docente_users)
+    ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
     logger.info(
         "Selective billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,
@@ -987,7 +1110,7 @@ def publish_practice_billing(
             notification_result = BillingNotificationService(
                 store=SqlAlchemyAttemptStore(db),
                 email_service=EmailService(),
-            ).send_billing_published(publication, docente_users)
+            ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
             logger.info(
                 "Practice billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
@@ -1162,7 +1285,7 @@ def send_practice_billing_emails(
     notification_result = BillingNotificationService(
         store=SqlAlchemyAttemptStore(db),
         email_service=EmailService(),
-    ).send_billing_published(publication, docente_users)
+    ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
     logger.info(
         "Selective practice billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,
