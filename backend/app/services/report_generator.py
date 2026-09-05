@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import calendar
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from reportlab.lib import colors
@@ -30,6 +32,7 @@ from app.models.teacher import Teacher
 from app.models.report import Report
 from app.services import app_settings_service
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
+from app.services.monetary_snapshot import calculation_snapshot_rows
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +235,60 @@ class ReportGenerator:
             rows = [r for r in rows if subject.lower() in r.subject.lower()]
         return rows
 
+    def build_financial_dataset(
+        self,
+        db: Session,
+        month: int,
+        year: int,
+        teacher_ci: str | None = None,
+        semester: str | None = None,
+        group_code: str | None = None,
+        subject: str | None = None,
+    ) -> dict[str, Any]:
+        stored = (
+            db.query(PlanillaOutput)
+            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
+            .order_by(PlanillaOutput.generated_at.desc()).first()
+        )
+        practice = (
+            db.query(PracticePlanillaOutput)
+            .filter(PracticePlanillaOutput.month == month, PracticePlanillaOutput.year == year)
+            .order_by(PracticePlanillaOutput.generated_at.desc()).first()
+        )
+        outputs = [(output, kind) for output, kind in ((stored, "regular"), (practice, "practice")) if output]
+        if not outputs:
+            calculation_snapshot_rows(None, 0)
+        rows = []
+        for output, planilla_type in outputs:
+            snapshot_rows = calculation_snapshot_rows(
+                output.calculation_snapshot,
+                output.total_payment,
+            )
+            for row in snapshot_rows:
+                row.planilla_type = planilla_type
+            rows.extend(snapshot_rows)
+        rows = self._filter_planilla_rows(rows, teacher_ci, semester, group_code, subject)
+        rows.sort(key=lambda row: (-row.final_payment, row.teacher_name, row.planilla_type))
+        serialized = [{
+            "teacher_ci": row.teacher_ci, "teacher_name": row.teacher_name,
+            "subject": row.subject, "group_code": row.group_code, "semester": row.semester,
+            "base_monthly_hours": row.base_monthly_hours, "absent_hours": row.absent_hours,
+            "payable_hours": row.payable_hours, "calculated_payment": row.calculated_payment,
+            "retention_amount": row.retention_amount, "final_payment": row.final_payment,
+            "planilla_type": row.planilla_type,
+        } for row in rows]
+        return {
+            "report_type": "financial", "total_teachers": len({row.teacher_ci for row in rows}),
+            "total_designations": len(rows),
+            "total_base_hours": sum(row.base_monthly_hours for row in rows),
+            "total_absent_hours": sum(row.absent_hours for row in rows),
+            "total_payable_hours": sum(row.payable_hours for row in rows),
+            "total_gross_payment": sum((row.calculated_payment for row in rows), Decimal("0.00")),
+            "total_retention": sum((row.retention_amount for row in rows), Decimal("0.00")),
+            "total_payment": sum((row.final_payment for row in rows), Decimal("0.00")),
+            "rows": serialized,
+        }
+
     @staticmethod
     def _load_planilla_exclusions(stored_planilla) -> list:
         if stored_planilla is None or not stored_planilla.excluded_days_json:
@@ -280,39 +337,18 @@ class ReportGenerator:
         generated_by: int | None = None,
         generated_by_name: str | None = None,
     ) -> Report:
-        from app.services.planilla_generator import PlanillaGenerator
-
-        gen = PlanillaGenerator()
-        # Use stored discount_mode so PDF matches the approved planilla
-        stored_po = (
-            db.query(PlanillaOutput)
-            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-            .order_by(PlanillaOutput.generated_at.desc())
-            .first()
+        dataset = self.build_financial_dataset(
+            db, month=month, year=year, teacher_ci=teacher_ci,
+            semester=semester, group_code=group_code, subject=subject,
         )
-        dm = stored_po.discount_mode if stored_po else "attendance"
-        sd = stored_po.start_date if stored_po else None
-        ed = stored_po.end_date if stored_po else None
-        rows, _, warnings = gen._build_planilla_data(
-            db,
-            month=month,
-            year=year,
-            start_date=sd,
-            end_date=ed,
-            discount_mode=dm,
-            excluded_days=self._load_planilla_exclusions(stored_po),
-        )
-        practice_rows, stored_practice = self._build_practice_planilla_rows(db, month, year)
-
-        rows = self._filter_planilla_rows(rows, teacher_ci, semester, group_code, subject)
-        practice_rows = self._filter_planilla_rows(practice_rows, teacher_ci, semester, group_code, subject)
+        rows = [SimpleNamespace(**row) for row in dataset["rows"] if row["planilla_type"] == "regular"]
+        practice_rows = [SimpleNamespace(**row) for row in dataset["rows"] if row["planilla_type"] == "practice"]
         all_rows = rows + practice_rows
 
         filter_parts = [f"{MONTH_NAMES.get(month, str(month))} {year}"]
         if teacher_ci:
-            t = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
-            if t:
-                filter_parts.append(f"Docente: {t.full_name}")
+            teacher_name = next((row.teacher_name for row in all_rows), teacher_ci)
+            filter_parts.append(f"Docente: {teacher_name}")
         if semester:
             filter_parts.append(f"Semestre: {semester}")
         if group_code:
@@ -338,25 +374,13 @@ class ReportGenerator:
         _add_branded_header(elements, self.styles, title, subtitle)
 
         # ── Summary ──────────────────────────────────────────────────────
-        total_gross = sum(r.calculated_payment for r in all_rows)
-        total_retention = sum(r.retention_amount for r in all_rows)
-        # Prefer stored PlanillaOutput total (reflects admin overrides) over live sum
-        stored_planilla = (
-            db.query(PlanillaOutput)
-            .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-            .order_by(PlanillaOutput.generated_at.desc())
-            .first()
-        )
-        if not teacher_ci and not semester and not group_code and not subject:
-            total_payment = 0.0
-            total_payment += float(stored_planilla.total_payment) if stored_planilla else sum(r.final_payment for r in rows)
-            total_payment += float(stored_practice.total_payment) if stored_practice else sum(r.final_payment for r in practice_rows)
-        else:
-            total_payment = sum(r.final_payment for r in all_rows)   # net — after retention
-        total_base = sum(r.base_monthly_hours for r in all_rows)
-        total_absent = sum(r.absent_hours for r in all_rows)
-        total_payable = sum(r.payable_hours for r in all_rows)
-        unique_teachers = len(set(r.teacher_ci for r in all_rows))
+        total_gross = dataset["total_gross_payment"]
+        total_retention = dataset["total_retention"]
+        total_payment = dataset["total_payment"]
+        total_base = dataset["total_base_hours"]
+        total_absent = dataset["total_absent_hours"]
+        total_payable = dataset["total_payable_hours"]
+        unique_teachers = dataset["total_teachers"]
 
         summary_data = [
             [_cell(h, cs["header"]) for h in ["Docentes", "Designaciones", "Hrs Asignadas", "Hrs Ausencia", "Hrs a Pagar", "Bruto (Bs)", "Ret. 13% (Bs)", "Neto (Bs)"]],

@@ -1,8 +1,15 @@
 import logging
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+
+from alembic.config import Config as AlembicConfig
+from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.config import settings
 from app.database import SessionLocal, create_tables, engine
@@ -28,6 +35,60 @@ from app.routers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_production() -> bool:
+    return settings.APP_ENV.strip().lower() == "production"
+
+
+def _validate_production_settings() -> None:
+    if not _is_production():
+        return
+
+    errors: list[str] = []
+    if settings.AUTO_SCHEMA_BOOTSTRAP:
+        errors.append("AUTO_SCHEMA_BOOTSTRAP must be false")
+    if len(settings.JWT_SECRET) < 64 or settings.JWT_SECRET == "planilla-docentes-upds-secret-key-change-in-production":
+        errors.append("JWT_SECRET must be a non-default secret of at least 64 characters")
+
+    def strong_bootstrap_password(value: str | None) -> bool:
+        if value is None:
+            return True
+        return (
+            len(value) >= 16
+            and any(character.isupper() for character in value)
+            and any(character.islower() for character in value)
+            and any(character.isdigit() for character in value)
+        )
+
+    if not strong_bootstrap_password(settings.DOCENTE_DEFAULT_PASSWORD):
+        errors.append("DOCENTE_DEFAULT_PASSWORD must contain 16+ characters, upper/lowercase, and a digit")
+    if not strong_bootstrap_password(settings.ADMIN_DEFAULT_PASSWORD):
+        errors.append("ADMIN_DEFAULT_PASSWORD must contain 16+ characters, upper/lowercase, and a digit")
+    if any("localhost" in origin or "127.0.0.1" in origin for origin in settings.get_cors_origins()):
+        errors.append("CORS_ORIGINS must not contain development origins")
+    if settings.EMAIL_ENABLED and (not settings.RESEND_API_KEY or not settings.RESEND_FROM_EMAIL):
+        errors.append("EMAIL_ENABLED requires RESEND_API_KEY and RESEND_FROM_EMAIL")
+    if errors:
+        raise RuntimeError("Invalid production configuration: " + "; ".join(errors))
+
+
+def _verify_database_schema() -> None:
+    """Fail unless the connected database exactly matches the packaged Alembic heads."""
+    alembic_ini = Path(__file__).resolve().parents[1] / "alembic.ini"
+    alembic_config = AlembicConfig(str(alembic_ini))
+    alembic_config.set_main_option("script_location", str(alembic_ini.parent / "alembic"))
+    script = ScriptDirectory.from_config(alembic_config)
+    expected_heads = set(script.get_heads())
+
+    with engine.connect() as connection:
+        current_heads = set(MigrationContext.configure(connection).get_current_heads())
+
+    if not current_heads or current_heads != expected_heads:
+        raise RuntimeError(
+            "Database schema is not on the packaged Alembic head; "
+            "run the separate migration gate before starting the API"
+        )
 
 
 def _ensure_teacher_photo_storage() -> str:
@@ -205,15 +266,22 @@ def _run_column_migrations() -> None:
 async def lifespan(app: FastAPI):
     """
     Application lifespan: runs on startup and shutdown.
-    On startup: create all DB tables and seed default admin if needed.
+    Development may bootstrap schema for convenience. Production verifies an
+    independently migrated Alembic head before running application seeds.
     """
-    try:
-        create_tables()
-    except Exception as exc:
-        logger.exception("Failed to create tables on startup: %s", exc)
+    _validate_production_settings()
 
-    # Ensure new columns exist on existing databases (create_all doesn't add columns)
-    _run_column_migrations()
+    if settings.AUTO_SCHEMA_BOOTSTRAP:
+        try:
+            create_tables()
+        except Exception as exc:
+            logger.exception("Failed to create tables on startup: %s", exc)
+
+        # Development-only compatibility path. Production uses Alembic.
+        _run_column_migrations()
+    else:
+        _verify_database_schema()
+        logger.info("Database schema matches the packaged Alembic head")
 
     # Ensure local storage for public docente profile photos exists.
     _ensure_teacher_photo_storage()
@@ -252,6 +320,8 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as exc:
         logger.exception("Failed to seed app_settings on startup: %s", exc)
+        if _is_production():
+            raise
 
     # Create default admin users if none exist (admin, daniel, pedro)
     try:
@@ -264,6 +334,8 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as exc:
         logger.exception("Failed to create default admin on startup: %s", exc)
+        if _is_production():
+            raise
 
     # Fix any unlinked docente users on startup
     try:
@@ -292,6 +364,8 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as exc:
         logger.warning("Failed to link users on startup: %s", exc)
+        if _is_production():
+            raise
 
     yield
     # Cleanup on shutdown (none needed for now)
@@ -349,3 +423,30 @@ def health_check():
         "version": settings.APP_VERSION,
         "service": settings.APP_TITLE,
     }
+
+
+@app.get("/ready", tags=["system"])
+def readiness_check():
+    """Verify database connectivity and writable persistent application paths."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+        data_root = Path(__file__).resolve().parents[1] / "data"
+        required_paths = [
+            Path(settings.UPLOAD_DIR),
+            data_root / "output",
+            data_root / "reports",
+            data_root / "contracts",
+            data_root / "schedules",
+            data_root / "retention_letters",
+            data_root / "backups",
+        ]
+        unavailable = [path for path in required_paths if not path.is_dir() or not os.access(path, os.W_OK)]
+        if unavailable:
+            raise RuntimeError("persistent storage is unavailable")
+    except Exception as exc:
+        logger.warning("Readiness check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Service is not ready") from exc
+
+    return {"status": "ready", "version": settings.APP_VERSION}

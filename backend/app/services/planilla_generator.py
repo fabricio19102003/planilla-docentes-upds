@@ -65,6 +65,13 @@ from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.teacher import Teacher
 from app.services import app_settings_service
+from app.services.monetary_snapshot import build_calculation_snapshot
+from app.services.payment_overrides import (
+    calculate_override_total,
+    get_teacher_override_allocations,
+    normalize_payment_overrides,
+    validate_payment_override_targets,
+)
 
 if TYPE_CHECKING:
     from app.schemas.planilla import ExcludedDaySchema
@@ -107,7 +114,7 @@ COL_EMAIL = 4            # D
 COL_PHONE = 5            # E
 COL_MATERIA = 6          # F
 COL_GRUPO = 7            # G
-COL_TIPO_DOCENTE = 8     # H  Externo/Permanente
+COL_TIPO_DOCENTE = 8     # H  Externo/Permanente/Titular
 COL_GENERO = 9           # I
 COL_SAP = 10             # J
 COL_FACTURA = 11         # K
@@ -217,7 +224,7 @@ class PlanillaRow:
     subject: str
     semester: str
     group_code: str
-    teacher_type: Optional[str]        # Externo/Permanente
+    teacher_type: Optional[str]        # Externo/Permanente/Titular
     gender: Optional[str]
     sap_code: Optional[str]
     invoice_retention: Optional[str]
@@ -226,6 +233,7 @@ class PlanillaRow:
     profession: Optional[str]
     specialty: Optional[str]
     bank: Optional[str]
+    nit: Optional[str] = None
 
     # Daily hours: {date: academic_hours} — keyed by full date to support
     # cross-month attendance windows (e.g. Mar 21 → Apr 20).
@@ -896,6 +904,7 @@ class PlanillaGenerator:
         """
         if payment_overrides is None:
             payment_overrides = {}
+        payment_overrides = normalize_payment_overrides(payment_overrides)
         if excluded_days is None:
             excluded_days = []
 
@@ -909,6 +918,7 @@ class PlanillaGenerator:
             db, month, year, start_date=start_date, end_date=end_date,
             discount_mode=discount_mode, excluded_days=excluded_days,
         )
+        validate_payment_override_targets(rows, payment_overrides)
         logger.info("Built %d planilla rows with %d detail slots", len(rows), len(detail_rows))
 
         # Step 2: Create workbook.
@@ -928,7 +938,22 @@ class PlanillaGenerator:
 
         # Step 4: Persist to DB — Model C: total payable hours
         total_hours = sum(r.payable_hours for r in rows)
-        total_payment = self._calculate_total_payment(rows, payment_overrides)
+        row_amounts = []
+        for row in rows:
+            override = self._get_row_override(row, payment_overrides, rows)
+            row_amounts.append(override if override is not None else row.final_payment)
+        snapshot = build_calculation_snapshot(
+            rows=rows,
+            row_amounts=row_amounts,
+            month=month,
+            year=year,
+            start_date=start_date,
+            end_date=end_date,
+            discount_mode=discount_mode,
+            payment_overrides=payment_overrides,
+            excluded_days=excluded_days,
+        )
+        total_payment = Decimal(snapshot["total"])
         unique_teachers = len({r.teacher_ci for r in rows})
 
         planilla_output = self._persist_planilla_output(
@@ -944,6 +969,7 @@ class PlanillaGenerator:
             end_date=end_date,
             discount_mode=discount_mode,
             excluded_days=excluded_days,
+            calculation_snapshot=snapshot,
         )
 
         return PlanillaResult(
@@ -1425,6 +1451,7 @@ class PlanillaGenerator:
             profession=teacher.profession,
             specialty=teacher.specialty,
             bank=teacher.bank,
+            nit=teacher.nit,
             daily_hours=daily_hours,
             daily_status=daily_status,
             # Model C fields
@@ -2367,6 +2394,7 @@ class PlanillaGenerator:
         end_date: Optional[date] = None,
         discount_mode: str = "attendance",
         excluded_days: "list[ExcludedDaySchema] | None" = None,
+        calculation_snapshot: dict | None = None,
     ) -> Optional[PlanillaOutput]:
         """
         Create or update a PlanillaOutput record in the DB.
@@ -2384,7 +2412,7 @@ class PlanillaGenerator:
                 .first()
             )
 
-            overrides_data = payment_overrides if payment_overrides else None
+            overrides_data = {key: format(value, ".2f") for key, value in payment_overrides.items()} or None
             exclusions_data = (
                 [exc.model_dump(mode="json") for exc in excluded_days]
                 if excluded_days
@@ -2398,6 +2426,7 @@ class PlanillaGenerator:
                 existing.total_payment = Decimal(str(total_payment))
                 existing.payment_overrides_json = overrides_data
                 existing.excluded_days_json = exclusions_data
+                existing.calculation_snapshot = calculation_snapshot
                 existing.start_date = start_date
                 existing.end_date = end_date
                 existing.discount_mode = discount_mode
@@ -2416,6 +2445,7 @@ class PlanillaGenerator:
                     total_payment=Decimal(str(total_payment)),
                     payment_overrides_json=overrides_data,
                     excluded_days_json=exclusions_data,
+                    calculation_snapshot=calculation_snapshot,
                     start_date=start_date,
                     end_date=end_date,
                     discount_mode=discount_mode,
@@ -2499,39 +2529,7 @@ class PlanillaGenerator:
         teacher_rows: list[PlanillaRow],
         payment_overrides: dict[str, float],
     ) -> dict[int, float] | None:
-        teacher_ci = teacher_rows[0].teacher_ci
-        teacher_override = payment_overrides.get(teacher_ci)
-        if teacher_override is None:
-            return None
-
-        allocations: dict[int, float] = {}
-        row_override_total = 0.0
-        rows_without_override: list[PlanillaRow] = []
-
-        for row in teacher_rows:
-            row_key = f"{row.teacher_ci}:{row.designation_id}"
-            row_override = payment_overrides.get(row_key)
-            if row_override is not None:
-                allocations[row.designation_id] = row_override
-                row_override_total += row_override
-            else:
-                rows_without_override.append(row)
-
-        remaining_override = teacher_override - row_override_total
-        if not rows_without_override:
-            return allocations
-
-        total_hours = sum(candidate.total_hours for candidate in rows_without_override)
-        if total_hours <= 0:
-            distributed_value = remaining_override / len(rows_without_override)
-            for row in rows_without_override:
-                allocations[row.designation_id] = distributed_value
-            return allocations
-
-        for row in rows_without_override:
-            allocations[row.designation_id] = remaining_override * (row.total_hours / total_hours)
-
-        return allocations
+        return get_teacher_override_allocations(teacher_rows, payment_overrides)
 
     def _calculate_total_payment(
         self,
@@ -2539,28 +2537,7 @@ class PlanillaGenerator:
         payment_overrides: dict[str, float],
     ) -> float:
         """Apply override precedence consistently across the full planilla."""
-        total_payment = 0.0
-
-        rows_by_teacher: dict[str, list[PlanillaRow]] = {}
-        for row in rows:
-            rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
-
-        teacher_allocations: dict[str, dict[int, float]] = {}
-        for teacher_ci, teacher_rows in rows_by_teacher.items():
-            allocations = self._get_teacher_override_allocations(teacher_rows, payment_overrides)
-            if allocations is not None:
-                teacher_allocations[teacher_ci] = allocations
-
-        for row in rows:
-            allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
-            if allocation is not None:
-                total_payment += allocation
-            elif f"{row.teacher_ci}:{row.designation_id}" in payment_overrides:
-                total_payment += payment_overrides[f"{row.teacher_ci}:{row.designation_id}"]
-            else:
-                total_payment += row.final_payment
-
-        return total_payment
+        return calculate_override_total(rows, payment_overrides)
 
 
 # ---------------------------------------------------------------------------

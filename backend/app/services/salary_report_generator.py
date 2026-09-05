@@ -18,15 +18,16 @@ Layout summary:
     Row 7+  : Data rows
     Row N+1 : Totals row (SUBTOTAL on J/K/L, merged TOTAL label on B..I)
 
-Retention logic:
-    - K column holds `=J{row}*13%` ONLY when the teacher has retention
-      (row.has_retention == True). Empty cell otherwise.
-    - L column is ALWAYS `=J{row}-K{row}` (Excel treats empty K as 0).
+Snapshot monetary logic:
+    - J/K/L contain exact gross, retention, and approved net amounts.
 
 M column (NIT):
-    - If teacher.nit is set, use teacher.nit.
+    - If the immutable payroll profile has NIT, use it.
     - Else if row.has_retention, use the literal "RETENCION".
     - Else leave empty.
+
+Contact and banking columns are materialized only from the signed calculation
+snapshot profile; salary exports never fall back to the live Teacher record.
 
 Print setup mirrors the template: landscape, scale=19, fitToHeight=0.
 """
@@ -42,7 +43,6 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.page import PageMargins
 from sqlalchemy.orm import Session
 
-from app.models.teacher import Teacher
 from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 
 if TYPE_CHECKING:
@@ -186,14 +186,7 @@ class SalaryReportGenerator:
         # Sort rows: teacher_name → subject → group_code (same as planilla)
         rows.sort(key=lambda r: (r.teacher_name, r.subject, r.group_code))
 
-        # Step 2: bulk-load teachers by CI for phone/email/nit/bank/account_number
-        cis = {r.teacher_ci for r in rows}
-        teachers: dict[str, Teacher] = {
-            t.ci: t
-            for t in db.query(Teacher).filter(Teacher.ci.in_(cis)).all()
-        } if cis else {}
-
-        # Step 3: build workbook
+        # Step 2: build workbook from row-bound payroll identity.
         wb = Workbook()
         # Remove default "Sheet" and create our named one
         default_sheet = wb.active
@@ -204,7 +197,7 @@ class SalaryReportGenerator:
         self._apply_column_widths(ws)
         self._write_title_block(ws, company_name, company_nit, month_name, year)
         self._write_header_row(ws)
-        last_data_row = self._write_data_rows(ws, rows, teachers)
+        last_data_row = self._write_data_rows(ws, rows)
         total_row = last_data_row + 1 if rows else DATA_ROW_START
         self._write_totals_row(ws, total_row, last_data_row if rows else DATA_ROW_START - 1)
         self._apply_print_setup(ws, total_row)
@@ -215,6 +208,33 @@ class SalaryReportGenerator:
         wb.save(str(file_path))
         logger.info("Saved salary report to %s", file_path)
 
+        return file_path
+
+    def generate_snapshot(
+        self,
+        *,
+        rows: list,
+        month: int,
+        year: int,
+        company_name: str,
+        company_nit: str,
+    ) -> Path:
+        """Build a salary workbook from already reconciled immutable rows."""
+        rows = sorted(rows, key=lambda row: (row.teacher_name, row.subject, row.group_code))
+        month_name = MONTH_NAMES_UPPER.get(month, str(month))
+        wb = Workbook()
+        if wb.active is not None:
+            wb.remove(wb.active)
+        ws = wb.create_sheet(title=f"{month_name} {year}")
+        self._apply_column_widths(ws)
+        self._write_title_block(ws, company_name, company_nit, month_name, year)
+        self._write_header_row(ws)
+        last_data_row = self._write_data_rows(ws, rows)
+        total_row = last_data_row + 1 if rows else DATA_ROW_START
+        self._write_totals_row(ws, total_row, last_data_row if rows else DATA_ROW_START - 1)
+        self._apply_print_setup(ws, total_row)
+        file_path = self.output_dir / f"planilla_salario_{month:02d}_{year}.xlsx"
+        wb.save(str(file_path))
         return file_path
 
     # ------------------------------------------------------------------
@@ -345,7 +365,7 @@ class SalaryReportGenerator:
     # Data rows (starting row 7)
     # ------------------------------------------------------------------
 
-    def _write_data_rows(self, ws, rows, teachers: dict[str, Teacher]) -> int:
+    def _write_data_rows(self, ws, rows, teachers: dict | None = None) -> int:
         """Write all data rows. Returns the excel row number of the LAST data row."""
         base_font = Font(name="Arial", size=9)
         black_font = Font(name="Arial", size=9, color=COLOR_BLACK)
@@ -359,7 +379,6 @@ class SalaryReportGenerator:
         for i, row in enumerate(rows):
             r = DATA_ROW_START + i
             ws.row_dimensions[r].height = DATA_ROW_HEIGHT
-            teacher = teachers.get(row.teacher_ci)
 
             # A: spacer (empty, but bordered)
             self._set_cell(
@@ -375,7 +394,7 @@ class SalaryReportGenerator:
             )
 
             # C: phone (center, format "0")
-            phone = teacher.phone if teacher else None
+            phone = getattr(row, "phone", None)
             phone_value = self._coerce_numeric(phone)
             self._set_cell(
                 ws, f"C{r}", value=phone_value,
@@ -385,7 +404,7 @@ class SalaryReportGenerator:
 
             # D: email (center)
             self._set_cell(
-                ws, f"D{r}", value=teacher.email if teacher else None,
+                ws, f"D{r}", value=getattr(row, "email", None),
                 font=base_font, alignment=align_center,
                 border=THIN_BORDER, number_format="General",
             )
@@ -432,25 +451,25 @@ class SalaryReportGenerator:
                 border=THIN_BORDER, number_format=CURRENCY_FORMAT,
             )
 
-            # K: retention formula only if has_retention
-            k_value = f"=J{r}*13%" if row.has_retention else None
+            # Snapshot exports preserve exact reconciled amounts, including overrides.
+            k_value = row.retention_amount if row.retention_amount else None
             self._set_cell(
                 ws, f"K{r}", value=k_value,
                 font=base_font, alignment=align_right_wrap,
                 border=THIN_BORDER, number_format=CURRENCY_FORMAT,
             )
 
-            # L: always J - K (Excel treats empty K as 0)
+            # L: exact net amount; it may include an approved admin adjustment.
             self._set_cell(
-                ws, f"L{r}", value=f"=J{r}-K{r}",
+                ws, f"L{r}", value=row.final_payment,
                 font=black_font, alignment=align_right,
                 border=THIN_BORDER, number_format=CURRENCY_FORMAT,
             )
 
             # M: NIT or "RETENCION"
             nit_value: Optional[str]
-            if teacher and teacher.nit:
-                nit_value = teacher.nit
+            if getattr(row, "nit", None):
+                nit_value = row.nit
             elif row.has_retention:
                 nit_value = "RETENCION"
             else:
@@ -462,7 +481,7 @@ class SalaryReportGenerator:
             )
 
             # N: account number (center, wrap, format "0")
-            account_raw = teacher.account_number if teacher else None
+            account_raw = getattr(row, "account_number", None)
             account_value = self._coerce_numeric(account_raw)
             self._set_cell(
                 ws, f"N{r}", value=account_value,
@@ -472,7 +491,7 @@ class SalaryReportGenerator:
 
             # O: bank (center, wrap, black)
             self._set_cell(
-                ws, f"O{r}", value=teacher.bank if teacher else None,
+                ws, f"O{r}", value=getattr(row, "bank", None),
                 font=black_font, alignment=align_center_wrap,
                 border=THIN_BORDER, number_format="General",
             )

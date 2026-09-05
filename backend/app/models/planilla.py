@@ -25,6 +25,7 @@ class PlanillaOutput(Base):
     total_payment: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     payment_overrides_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     excluded_days_json: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    calculation_snapshot: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     start_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="generated", nullable=False)
