@@ -14,9 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import mm, cm
+from reportlab.lib.units import mm, cm, inch
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
@@ -30,6 +29,9 @@ if TYPE_CHECKING:
     from app.models.designation import Designation
 
 logger = logging.getLogger(__name__)
+
+CONTRACT_PAGE_SIZE = (8.5 * inch, 13 * inch)
+_LEGACY_SUBJECT_TABLE_COLUMN_WEIGHTS = (1.0, 9.0, 3.0, 2.5)
 
 MONTH_NAMES = {
     1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
@@ -108,8 +110,18 @@ def _page_number_canvas(canvas, doc):
     canvas.setFont("Times-Roman", 9)
     page_num = canvas.getPageNumber()
     text = f"Página {page_num}"
-    canvas.drawCentredString(A4[0] / 2, 1.5 * cm, text)
+    canvas.drawCentredString(CONTRACT_PAGE_SIZE[0] / 2, 1.5 * cm, text)
     canvas.restoreState()
+
+
+def _subject_table_column_widths() -> tuple[float, float, float, float]:
+    """Scale the established subject-table proportions to the contract width."""
+    usable_width = CONTRACT_PAGE_SIZE[0] - 3.0 * cm - 2.5 * cm
+    total_weight = sum(_LEGACY_SUBJECT_TABLE_COLUMN_WEIGHTS)
+    return tuple(
+        usable_width * weight / total_weight
+        for weight in _LEGACY_SUBJECT_TABLE_COLUMN_WEIGHTS
+    )
 
 
 def generate_contract_pdf(
@@ -148,7 +160,7 @@ def generate_contract_pdf(
 
     doc = SimpleDocTemplate(
         str(filepath),
-        pagesize=A4,
+        pagesize=CONTRACT_PAGE_SIZE,
         leftMargin=3.0 * cm,
         rightMargin=2.5 * cm,
         topMargin=2.5 * cm,
@@ -247,14 +259,7 @@ def generate_contract_pdf(
             str(info["total_hours"]),
         ])
 
-    # Page width minus margins: A4 = 21cm, left=3cm, right=2.5cm → usable = 15.5cm
-    usable_width = A4[0] - 3.0 * cm - 2.5 * cm
-    col_widths = [
-        1.0 * cm,
-        usable_width - 1.0 * cm - 3.0 * cm - 2.5 * cm,
-        3.0 * cm,
-        2.5 * cm,
-    ]
+    col_widths = _subject_table_column_widths()
 
     subjects_table = Table(table_data, colWidths=col_widths, repeatRows=1)
     subjects_table.setStyle(TableStyle([
