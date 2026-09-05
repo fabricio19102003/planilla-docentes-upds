@@ -418,3 +418,79 @@ def _fake_practice_planilla_rows(
         ],
         [],
     )
+
+
+def test_whatsapp_preview_masks_numbers_and_returns_a_digest(client, db_session):
+    from app.models.whatsapp_preference import WhatsAppPreference
+
+    publication = _seed_publication(db_session)
+    snapshot = deepcopy(publication.billing_snapshot)
+    snapshot["teacher_details"][0]["teacher_ci"] = "WHATSAPP-DOC-1"
+    publication.billing_snapshot = snapshot
+    db_session.add(publication)
+    _seed_docente(db_session, ci="WHATSAPP-DOC-1", email="whatsapp@example.com")
+    db_session.add(WhatsAppPreference(teacher_ci="WHATSAPP-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="signed-consent", consent_revision=3))
+    db_session.commit()
+
+    response = client.post("/api/billing/notifications/preview", json={"month": 5, "year": 2026, "teacher_cis": ["WHATSAPP-DOC-1"]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["digest"]) == 64
+    assert body["recipients"] == [{"teacher_ci": "WHATSAPP-DOC-1", "phone_masked": "+591*****000", "channel": "whatsapp", "reason": "evidenced_consent"}]
+    assert body["readiness"]["ready"] is False
+    assert "+59170000000" not in response.text
+
+
+def test_whatsapp_confirm_rejects_stale_digest_without_creating_jobs(client, db_session):
+    from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+
+    _seed_publication(db_session)
+    _seed_docente(db_session, ci="WHATSAPP-DOC-1", email="whatsapp@example.com")
+    preview = client.post("/api/billing/notifications/preview", json={"month": 5, "year": 2026, "teacher_cis": ["WHATSAPP-DOC-1"]})
+    assert preview.status_code == 200
+
+    response = client.post("/api/billing/notifications/confirm", json={"month": 5, "year": 2026, "teacher_cis": ["WHATSAPP-DOC-1"], "digest": "0" * 64})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "stale_notification_plan"
+    assert db_session.query(BillingNotificationBatch).count() == 0
+    assert db_session.query(BillingNotificationJob).count() == 0
+
+
+def test_notification_plan_confirm_creates_one_durable_intent_when_ready(db_session):
+    from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+    from app.services.billing_notification_preview import BillingNotificationPreviewService
+
+    publication = _seed_publication(db_session)
+    plan_service = BillingNotificationPreviewService(db_session, readiness={"ready": True, "capacity": {"available": True, "remaining": 1}})
+    plan = plan_service.preview(publication, ["EMAIL-DOC-1"])
+    batch = plan_service.confirm(publication, ["EMAIL-DOC-1"], plan.digest)
+    db_session.commit()
+
+    assert db_session.query(BillingNotificationBatch).filter_by(id=batch.id).one().digest == plan.digest
+    assert db_session.query(BillingNotificationJob).filter_by(batch_id=batch.id).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("readiness", "expected"),
+    [
+        ({"ready": True, "capacity": {"available": True, "remaining": 2}}, {"available": True, "requested": 1, "remaining": 2, "exceeded": False}),
+        ({"ready": True, "capacity": {"available": True, "remaining": 0}}, {"available": True, "requested": 1, "remaining": 0, "exceeded": True}),
+        ({"ready": False}, {"available": False, "requested": 1, "remaining": None, "exceeded": None}),
+    ],
+)
+def test_notification_preview_reports_fail_closed_capacity_forecast(db_session, readiness, expected):
+    from app.services.billing_notification_preview import BillingNotificationPreviewService
+
+    from app.models.whatsapp_preference import WhatsAppPreference
+
+    publication = _seed_publication(db_session)
+    _seed_docente(db_session, ci="EMAIL-DOC-1", email="capacity@example.com")
+    db_session.add(WhatsAppPreference(teacher_ci="EMAIL-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="capacity-consent", consent_revision=1))
+    db_session.commit()
+    plan = BillingNotificationPreviewService(db_session, readiness=readiness).preview(
+        publication, ["EMAIL-DOC-1"]
+    )
+
+    assert plan.readiness["capacity"] == expected

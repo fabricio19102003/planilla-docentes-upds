@@ -18,6 +18,7 @@ from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services.activity_logger import log_activity
+from app.services.billing_notification_preview import BillingNotificationPreviewService, NotificationPlanError
 from app.services.billing_notification_service import (
     BillingNotificationService,
     SqlAlchemyAttemptStore,
@@ -124,6 +125,35 @@ class SendBillingEmailsResponse(BaseModel):
     sent: int
     failed: int
     skipped: int
+
+
+class BillingNotificationPreviewRequest(BaseModel):
+    month: int
+    year: int
+    teacher_cis: list[str]
+
+
+class BillingNotificationConfirmRequest(BillingNotificationPreviewRequest):
+    digest: str
+
+
+class BillingNotificationRecipientResponse(BaseModel):
+    teacher_ci: str
+    phone_masked: str | None
+    channel: str
+    reason: str
+
+
+class BillingNotificationPreviewResponse(BaseModel):
+    digest: str
+    recipients: list[BillingNotificationRecipientResponse]
+    readiness: dict[str, Any]
+
+
+class BillingNotificationConfirmResponse(BaseModel):
+    batch_id: int
+    digest: str
+    status: str
 
 
 class PublicationResponse(BaseModel):
@@ -481,6 +511,31 @@ def publish_billing(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo publicar la facturación",
         ) from exc
+
+
+def _notification_publication(db: Session, month: int, year: int) -> BillingPublication:
+    publication = db.query(BillingPublication).filter_by(month=month, year=year, planilla_type="regular").first()
+    if publication is None or publication.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="billing_publication_not_found")
+    return publication
+
+
+@router.post("/notifications/preview", response_model=BillingNotificationPreviewResponse)
+def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationPreviewResponse:
+    plan = BillingNotificationPreviewService(db).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
+    recipients = [BillingNotificationRecipientResponse(**{key: item[key] for key in ("teacher_ci", "phone_masked", "channel", "reason")}) for item in plan.recipients]
+    return BillingNotificationPreviewResponse(digest=plan.digest, recipients=recipients, readiness=plan.readiness)
+
+
+@router.post("/notifications/confirm", response_model=BillingNotificationConfirmResponse)
+def confirm_billing_notifications(payload: BillingNotificationConfirmRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationConfirmResponse:
+    try:
+        batch = BillingNotificationPreviewService(db).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
+        db.commit()
+    except NotificationPlanError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    return BillingNotificationConfirmResponse(batch_id=batch.id, digest=batch.digest, status=batch.status)
 
 
 @router.post("/send-emails", response_model=SendBillingEmailsResponse)
