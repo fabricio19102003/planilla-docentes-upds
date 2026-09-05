@@ -1,0 +1,95 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  issue-reference:
+    name: Check Issue Reference
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a closing issue reference
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const matches = [...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi)];
+            if (matches.length === 0) {
+              core.setFailed("PR body must contain Closes #N, Fixes #N, or Resolves #N.");
+            }
+
+  approved-issue:
+    name: Check Issue Has status:approved
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every linked issue to be approved
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const issueNumbers = [...new Set(
+              [...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi)]
+                .map((match) => Number(match[1]))
+            )];
+            if (issueNumbers.length === 0) {
+              core.setFailed("No closing issue reference was found.");
+              return;
+            }
+            for (const issue_number of issueNumbers) {
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+              });
+              const labels = issue.labels.map((label) =>
+                typeof label === "string" ? label : label.name
+              );
+              if (!labels.includes("status:approved")) {
+                core.setFailed(`Linked issue #${issue_number} is missing status:approved.`);
+                return;
+              }
+            }
+
+  type-label:
+    name: Check PR Has type:* Label
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require exactly one type label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map((label) => label.name);
+            const typeLabels = labels.filter((label) => label.startsWith("type:"));
+            if (typeLabels.length !== 1) {
+              core.setFailed(`Expected exactly one type:* label, found ${typeLabels.length}.`);
+            }
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check changed shell scripts
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(mktemp)"
+          git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" -- '*.sh' > "$changed_files"
+          if [[ ! -s "$changed_files" ]]; then
+            echo "No changed shell scripts."
+            exit 0
+          fi
+          xargs -0 --no-run-if-empty shellcheck -- < "$changed_files"
