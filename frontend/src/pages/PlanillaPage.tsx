@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail } from 'lucide-react'
+import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail, MessageCircle } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
-import { usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails } from '@/api/hooks/useBillingPublication'
+import { useBillingNotificationBatch, useBillingNotificationReadiness, useConfirmBillingNotifications, usePreviewBillingNotifications, usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails, type BillingNotificationPreview } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { api } from '@/api/client'
@@ -246,6 +246,9 @@ export function PlanillaPage() {
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const sendBillingEmails = useSendBillingEmails()
+  const whatsAppReadiness = useBillingNotificationReadiness(publication?.status === 'published')
+  const previewBillingNotifications = usePreviewBillingNotifications()
+  const confirmBillingNotifications = useConfirmBillingNotifications()
   const approvePlanilla = useApprovePlanilla()
   const rejectPlanilla = useRejectPlanilla()
 
@@ -291,6 +294,56 @@ export function PlanillaPage() {
 
   const [emailSendResult, setEmailSendResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null)
   const [emailSendError, setEmailSendError] = useState(false)
+  const [whatsAppPreview, setWhatsAppPreview] = useState<BillingNotificationPreview | null>(null)
+  const [whatsAppBatchId, setWhatsAppBatchId] = useState<number | null>(null)
+  const [whatsAppError, setWhatsAppError] = useState<string | null>(null)
+  const whatsAppBatch = useBillingNotificationBatch(whatsAppBatchId)
+
+  const hasSafeWhatsAppPreview = Boolean(
+    whatsAppPreview?.readiness.ready
+    && whatsAppPreview.readiness.capacity?.available
+    && !whatsAppPreview.readiness.capacity?.exceeded,
+  )
+
+  const handlePreviewWhatsAppNotifications = () => {
+    if (selectedTeachers.size === 0) return
+    setWhatsAppError(null)
+    setWhatsAppBatchId(null)
+    previewBillingNotifications.mutate(
+      { month, year, teacher_cis: Array.from(selectedTeachers) },
+      {
+        onSuccess: setWhatsAppPreview,
+        onError: () => setWhatsAppError('No se pudo generar una vista previa segura. No se creó ningún envío.'),
+      },
+    )
+  }
+
+  const handleConfirmWhatsAppNotifications = () => {
+    if (!whatsAppPreview || !hasSafeWhatsAppPreview) return
+    confirmBillingNotifications.mutate(
+      { month, year, teacher_cis: Array.from(selectedTeachers), digest: whatsAppPreview.digest },
+      {
+        onSuccess: ({ batch_id }) => {
+          setWhatsAppBatchId(batch_id)
+          setWhatsAppPreview(null)
+          setSelectedTeachers(new Set())
+        },
+        onError: (error: unknown) => {
+          const code = (error as { response?: { data?: { detail?: { code?: string } } } })?.response?.data?.detail?.code
+          setWhatsAppError(
+            code === 'stale_notification_plan'
+              ? 'La vista previa cambió. Generá una nueva antes de confirmar.'
+              : code === 'notification_capacity_exceeded'
+                ? 'La capacidad actual no alcanza para este grupo. No se creó ningún envío.'
+                : code === 'notification_readiness_unavailable'
+                  ? 'WhatsApp no está listo para enviar. No se creó ningún envío.'
+                  : 'No se pudo confirmar el envío. No se creó ningún envío.',
+          )
+          setWhatsAppPreview(null)
+        },
+      },
+    )
+  }
 
   const handleSendSelectedBillingEmails = () => {
     if (selectedTeachers.size === 0) return
@@ -1388,6 +1441,15 @@ export function PlanillaPage() {
                         <div className="flex flex-wrap items-center gap-3">
                           <Button
                             type="button"
+                            onClick={handlePreviewWhatsAppNotifications}
+                            disabled={previewBillingNotifications.isPending || confirmBillingNotifications.isPending}
+                            className="gap-2 bg-green-500 text-white font-semibold hover:bg-green-600"
+                          >
+                            {previewBillingNotifications.isPending ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
+                            Generar vista previa WhatsApp
+                          </Button>
+                          <Button
+                            type="button"
                             onClick={handleSendSelectedBillingEmails}
                             disabled={sendBillingEmails.isPending}
                             className="gap-2 bg-white text-[#003366] font-semibold hover:bg-[#f4b400] hover:text-[#003366] transition-all duration-200 shadow-md hover:shadow-lg"
@@ -1409,6 +1471,60 @@ export function PlanillaPage() {
                             Limpiar selección
                           </Button>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {(whatsAppReadiness.data || whatsAppReadiness.isError) && (
+                    <div className={`rounded-lg border px-4 py-3 text-sm ${whatsAppReadiness.data?.ready ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                      <strong>WhatsApp oficial:</strong>{' '}
+                      {whatsAppReadiness.data?.ready
+                        ? 'listo para una vista previa; la confirmación volverá a validar la capacidad.'
+                        : 'no está listo para enviar. La confirmación queda bloqueada hasta que la verificación en vivo sea válida.'}
+                    </div>
+                  )}
+
+                  {whatsAppPreview && (
+                    <div className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
+                      <div>
+                        <p className="font-semibold text-green-900">Vista previa de WhatsApp oficial</p>
+                        <p className="text-xs text-green-800">El resumen muestra solo teléfonos enmascarados. La confirmación usa este digest y se rechaza si cambia la preparación, la capacidad o el consentimiento.</p>
+                      </div>
+                      <div className="grid gap-2 text-sm sm:grid-cols-3">
+                        <span>WhatsApp: {whatsAppPreview.recipients.filter(item => item.channel === 'whatsapp').length}</span>
+                        <span>Correo alternativo: {whatsAppPreview.recipients.filter(item => item.channel === 'email').length}</span>
+                        <span>Bloqueados: {whatsAppPreview.recipients.filter(item => item.channel === 'blocked').length}</span>
+                      </div>
+                      <ul className="max-h-36 space-y-1 overflow-y-auto rounded bg-white p-3 text-xs text-gray-700">
+                        {whatsAppPreview.recipients.map(item => (
+                          <li key={item.teacher_ci}>{item.teacher_ci} · {item.phone_masked ?? 'sin número verificado'} · {item.channel}</li>
+                        ))}
+                      </ul>
+                      {!hasSafeWhatsAppPreview && <p className="text-sm font-medium text-amber-800">La preparación o la capacidad cambió/no está disponible. No podés confirmar este envío.</p>}
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" onClick={handleConfirmWhatsAppNotifications} disabled={!hasSafeWhatsAppPreview || confirmBillingNotifications.isPending} className="gap-2 bg-green-600 hover:bg-green-700">
+                          {confirmBillingNotifications.isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                          Confirmar envío
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => setWhatsAppPreview(null)} disabled={confirmBillingNotifications.isPending}>Cancelar</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {whatsAppError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{whatsAppError}</div>}
+
+                  {whatsAppBatch.data && (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                      <p className="font-semibold">Estado durable de WhatsApp · lote #{whatsAppBatch.data.batch_id}</p>
+                      <p className="mt-1">Estado: {whatsAppBatch.data.status}. {whatsAppBatch.data.jobs.length} intento(s) registrado(s).</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        {Object.entries(whatsAppBatch.data.jobs.reduce<Record<string, number>>((counts, job) => {
+                          const label = `${job.channel}: ${job.status}`
+                          counts[label] = (counts[label] ?? 0) + 1
+                          return counts
+                        }, {})).map(([label, count]) => (
+                          <Badge key={label} className="bg-blue-100 text-blue-800">{label} · {count}</Badge>
+                        ))}
                       </div>
                     </div>
                   )}
