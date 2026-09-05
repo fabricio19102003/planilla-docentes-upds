@@ -278,3 +278,43 @@ def _user(identifier):
         full_name=f"Docente {identifier}",
         teacher_ci=str(identifier),
     )
+
+
+def test_whatsapp_preference_requires_canonical_verified_e164_and_evidence():
+    from app.models.whatsapp_preference import WhatsAppPreference
+
+    preference = WhatsAppPreference(
+        teacher_ci="123",
+        phone_e164="+59170000000",
+        is_verified=True,
+        consent_evidence="signed-admin-record",
+        consent_revision=3,
+    )
+
+    assert preference.is_eligible_for_whatsapp is True
+    assert WhatsAppPreference.canonical_e164(" +59170000000 ") == "+59170000000"
+    assert WhatsAppPreference.canonical_e164("70000000") is None
+    assert WhatsAppPreference.canonical_e164("+012345678") is None
+
+
+def test_whatsapp_preference_requires_evidenced_consent_and_records_opt_out_revision():
+    from app.models.whatsapp_preference import WhatsAppPreference
+
+    preference = WhatsAppPreference(
+        teacher_ci="123",
+        phone_e164="+59170000000",
+        is_verified=True,
+        consent_evidence=None,
+        consent_revision=1,
+    )
+    assert preference.is_eligible_for_whatsapp is False
+
+    preference.record_consent("signed-admin-record")
+    assert preference.is_eligible_for_whatsapp is True
+    assert preference.consent_revision == 2
+
+    preference.record_opt_out("twilio-stop-event")
+    assert preference.is_eligible_for_whatsapp is False
+    assert preference.opted_out_at is not None
+    assert preference.opt_out_evidence == "twilio-stop-event"
+    assert preference.consent_revision == 3

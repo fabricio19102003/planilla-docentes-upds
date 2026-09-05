@@ -83,3 +83,5 @@ __all__ = [
     "PlanillaGenerateResponse",
     "DashboardSummaryResponse",
 ]
+
+from app.schemas.billing_notification import WhatsAppPreferenceResponse

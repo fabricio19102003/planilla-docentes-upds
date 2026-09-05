@@ -46,3 +46,5 @@ __all__ = [
     "MedicineVersionEvent",
     "MedicineSimulation",
 ]
+
+from app.models.whatsapp_preference import WhatsAppPreference
