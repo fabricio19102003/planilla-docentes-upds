@@ -4,7 +4,7 @@ schema: spec-driven
 context: |
   Tech stack: Python 3.11 backend with FastAPI, SQLAlchemy 2.x, Alembic, PostgreSQL runtime with SQLite test fallback; React 19 + TypeScript + Vite 8 frontend with TanStack Query, Tailwind 4, shadcn/ui, and React Router 7
   Architecture: Layered backend (routers/services/models/schemas/utils), componentized frontend (pages/components/api/hooks/context/lib), Alembic migrations + runtime column migrations, Vite dev proxy to backend API
-  Testing: pytest 8 + pytest-asyncio + httpx backend tests, Playwright E2E frontend tests, no frontend unit runner
+  Testing: pytest 8 + pytest-asyncio + httpx backend tests; Node assert/node:test frontend regression checks; Playwright E2E frontend tests; no workspace-wide test runner
   Style: ESLint flat config + typescript-eslint + TypeScript strict mode (frontend), no backend linter/type checker/formatter configured
   Auth: JWT (python-jose + passlib/bcrypt), role-based (admin/docente)
   PDF generation: ReportLab (contracts, retention letters, schedules, audit reports)
@@ -13,44 +13,47 @@ strict_tdd: false
 
 testing:
   strict_tdd: false
-  detected: "2026-08-15"
-  backend:
-    runner:
-      command: "pytest"
-      framework: "pytest 8.3.3"
-    layers:
-      unit: true
-      integration: true
-      e2e: true
-    integration_tools: "httpx + FastAPI TestClient"
-    coverage:
-      available: false
-      command: null
-      note: "pytest-cov not in requirements.txt — install with: pip install pytest-cov"
-    quality:
-      linter: null
-      type_checker: null
-      formatter: null
-  frontend:
-    runner:
-      command: "playwright test"
-      framework: "@playwright/test"
-    layers:
-      unit: false
-      integration: false
-      e2e: true
-    coverage:
-      available: false
-    quality:
-      linter:
-        available: true
-        command: "npm run lint"
-      type_checker:
-        available: true
-        command: "npm run build"
-      formatter:
+  detected: "2026-09-02"
+  workspace_test_command: null
+  projects:
+    - path: backend
+      stack: "Python 3.11 / FastAPI"
+      test_commands:
+        - "cd backend && pytest"
+      framework: "pytest 8.3.3, pytest-asyncio, FastAPI TestClient/httpx"
+      layers:
+        unit: true
+        integration: true
+        e2e: true
+      integration_tools: "FastAPI TestClient + httpx + SQLAlchemy SQLite fixtures"
+      coverage:
         available: false
-        note: "Consider adding prettier"
+        command: null
+      quality:
+        linter: null
+        type_checker: null
+        formatter: null
+    - path: frontend
+      stack: "React 19.2 / TypeScript 5.9 / Vite 8.2"
+      test_commands:
+        - "cd frontend && npm run test:dates"
+        - "cd frontend && npm run test:planilla-detail"
+        - "cd frontend && npm run test:designation-import"
+        - "cd frontend && npm run test:settings-form"
+        - "cd frontend && npm run test:teacher-profile-import"
+        - "cd frontend && npm run test:e2e"
+      framework: "Node assert/node:test regression checks; Playwright 1.62"
+      layers:
+        unit: true
+        integration: false
+        e2e: true
+      coverage:
+        available: false
+        command: null
+      quality:
+        linter: "cd frontend && npm run lint"
+        type_checker: "cd frontend && npm run build"
+        formatter: null
 
 rules:
   proposal:
@@ -71,9 +74,9 @@ rules:
       - Follow existing code patterns and conventions
       - Load relevant coding skills for the project stack
     tdd: false
-    test_command: "pytest"
+    test_command: ""
   verify:
-    test_command: "pytest"
+    test_command: ""
     build_command: "cd frontend && npm run build"
     coverage_threshold: 0
   archive:
