@@ -1,6 +1,6 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Optional
+from typing import List, Literal, Optional
 import json
 
 
@@ -51,11 +51,29 @@ class Settings(BaseSettings):
     EMAIL_TEST_MODE: bool = False
     EMAIL_TEST_RECIPIENT: Optional[str] = None
 
+    # WhatsApp / Twilio Sandbox. Production senders intentionally require a
+    # separate future configuration contract so a Sandbox release cannot be
+    # switched to a real sender by changing only a phone number.
+    WHATSAPP_ENABLED: bool = False
+    WHATSAPP_MODE: Literal["sandbox"] = "sandbox"
+    TWILIO_ACCOUNT_SID: Optional[str] = None
+    TWILIO_API_KEY_SID: Optional[str] = None
+    TWILIO_API_KEY_SECRET: Optional[str] = None
+    TWILIO_WHATSAPP_SANDBOX_FROM: Optional[str] = None
+    TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT: Optional[str] = None
+    TWILIO_API_BASE_URL: str = "https://api.twilio.com"
+    WHATSAPP_TIMEOUT_SECONDS: float = 3.0
+
     @field_validator(
         "ADMIN_DEFAULT_PASSWORD",
         "RESEND_API_KEY",
         "RESEND_FROM_EMAIL",
         "EMAIL_TEST_RECIPIENT",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_API_KEY_SID",
+        "TWILIO_API_KEY_SECRET",
+        "TWILIO_WHATSAPP_SANDBOX_FROM",
+        "TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT",
         mode="before",
     )
     @classmethod
