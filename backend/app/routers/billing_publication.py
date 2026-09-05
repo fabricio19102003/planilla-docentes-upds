@@ -18,6 +18,10 @@ from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services.activity_logger import log_activity
+from app.services.billing_notification_service import (
+    BillingNotificationService,
+    SqlAlchemyAttemptStore,
+)
 from app.services.email_service import EmailService
 from app.services.monetary_snapshot import SnapshotReconciliationError, require_reconciled_snapshot
 from app.services.publication_revisions import (
@@ -421,19 +425,24 @@ def publish_billing(
         db.refresh(publication)
 
         try:
-            email_result = EmailService().send_billing_published(publication, docente_users)
+            notification_result = BillingNotificationService(
+                store=SqlAlchemyAttemptStore(db),
+                email_service=EmailService(),
+            ).send_billing_published(publication, docente_users)
             logger.info(
-                "Billing publication email step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d",
+                "Billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
                 year,
-                email_result.eligible,
-                email_result.sent,
-                email_result.failed,
-                email_result.skipped,
+                notification_result.eligible,
+                notification_result.sent,
+                notification_result.failed,
+                notification_result.skipped,
+                notification_result.whatsapp_sent,
+                notification_result.email_sent,
             )
         except Exception as exc:  # pragma: no cover - defensive best-effort boundary
             logger.exception(
-                "Billing publication email step failed after commit for %d/%d: %s",
+                "Billing publication outbound step failed after commit for %d/%d: %s",
                 month,
                 year,
                 exc,
@@ -480,7 +489,7 @@ def send_billing_emails(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> SendBillingEmailsResponse:
-    """Send billing-published emails to selected active docentes."""
+    """Send billing-published notifications to selected active docentes."""
     if not (1 <= payload.month <= 12):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mes inválido")
     if payload.year < 2000 or payload.year > 2100:
@@ -521,22 +530,25 @@ def send_billing_emails(
         .all()
     )
 
-    email_result = EmailService().send_billing_published(publication, docente_users)
+    notification_result = BillingNotificationService(
+        store=SqlAlchemyAttemptStore(db),
+        email_service=EmailService(),
+    ).send_billing_published(publication, docente_users)
     logger.info(
-        "Selective billing email step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
+        "Selective billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,
         payload.year,
         len(teacher_cis),
-        email_result.eligible,
-        email_result.sent,
-        email_result.failed,
-        email_result.skipped,
+        notification_result.eligible,
+        notification_result.sent,
+        notification_result.failed,
+        notification_result.skipped,
     )
 
     return SendBillingEmailsResponse(
-        sent=email_result.sent,
-        failed=email_result.failed,
-        skipped=email_result.skipped,
+        sent=notification_result.sent,
+        failed=notification_result.failed,
+        skipped=notification_result.skipped,
     )
 
 
@@ -972,19 +984,24 @@ def publish_practice_billing(
         db.refresh(publication)
 
         try:
-            email_result = EmailService().send_billing_published(publication, docente_users)
+            notification_result = BillingNotificationService(
+                store=SqlAlchemyAttemptStore(db),
+                email_service=EmailService(),
+            ).send_billing_published(publication, docente_users)
             logger.info(
-                "Practice billing publication email step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d",
+                "Practice billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
                 year,
-                email_result.eligible,
-                email_result.sent,
-                email_result.failed,
-                email_result.skipped,
+                notification_result.eligible,
+                notification_result.sent,
+                notification_result.failed,
+                notification_result.skipped,
+                notification_result.whatsapp_sent,
+                notification_result.email_sent,
             )
         except Exception as exc:  # pragma: no cover - defensive best-effort boundary
             logger.exception(
-                "Practice billing publication email step failed after commit for %d/%d: %s",
+                "Practice billing publication outbound step failed after commit for %d/%d: %s",
                 month,
                 year,
                 exc,
@@ -1101,7 +1118,7 @@ def send_practice_billing_emails(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> SendBillingEmailsResponse:
-    """Send practice billing-published emails to selected active docentes."""
+    """Send practice billing-published notifications to selected active docentes."""
     if not (1 <= payload.month <= 12):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mes inválido")
     if payload.year < 2000 or payload.year > 2100:
@@ -1142,20 +1159,23 @@ def send_practice_billing_emails(
         .all()
     )
 
-    email_result = EmailService().send_billing_published(publication, docente_users)
+    notification_result = BillingNotificationService(
+        store=SqlAlchemyAttemptStore(db),
+        email_service=EmailService(),
+    ).send_billing_published(publication, docente_users)
     logger.info(
-        "Selective practice billing email step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
+        "Selective practice billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,
         payload.year,
         len(teacher_cis),
-        email_result.eligible,
-        email_result.sent,
-        email_result.failed,
-        email_result.skipped,
+        notification_result.eligible,
+        notification_result.sent,
+        notification_result.failed,
+        notification_result.skipped,
     )
 
     return SendBillingEmailsResponse(
-        sent=email_result.sent,
-        failed=email_result.failed,
-        skipped=email_result.skipped,
+        sent=notification_result.sent,
+        failed=notification_result.failed,
+        skipped=notification_result.skipped,
     )
