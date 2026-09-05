@@ -1,4 +1,4 @@
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, Text, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List
@@ -17,7 +17,7 @@ class Teacher(Base):
     external_permanent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Externo/Permanente
     academic_level: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     profession: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    specialty: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    specialty: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     bank: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     account_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     nit: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
