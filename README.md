@@ -348,7 +348,7 @@ planilla-docentes-upds/
 │   │   ├── routers/             # 15 routers FastAPI
 │   │   │   ├── auth.py                  # Login, cambio de contrasena
 │   │   │   ├── teachers.py              # CRUD docentes + upload lista + bulk delete
-│   │   │   ├── designations.py          # Upload designaciones (3 formatos)
+│   │   │   ├── designations.py          # Preview/apply de designaciones (4 formatos)
 │   │   │   ├── biometric.py             # Upload biometrico + date-range detection
 │   │   │   ├── attendance.py            # Procesar asistencia + auditoria
 │   │   │   ├── planilla.py              # Generar planilla + salary report + dashboard + approve/reject
@@ -368,7 +368,7 @@ planilla-docentes-upds/
 │   │   │   ├── salary_report_generator.py # Planilla de salarios Excel (formato UNIPANDO)
 │   │   │   ├── app_settings_service.py   # Configuracion de negocio (cache + CRUD)
 │   │   │   ├── attendance_engine.py      # Procesamiento de asistencia
-│   │   │   ├── designation_loader.py     # Carga de designaciones (3 formatos + HORARIO parser)
+│   │   │   ├── designation_loader.py     # Compatibilidad legacy + HORARIO parser
 │   │   │   ├── biometric_parser.py       # Parseo de archivos biometricos + CI aliasing
 │   │   │   ├── auth_service.py           # Autenticacion + JWT
 │   │   │   ├── report_generator.py       # PDFs: financiero, asistencia, comparativo, plantel, incidencias, conciliacion
@@ -516,11 +516,14 @@ Desde la pagina de Planilla, el admin puede descargar una **Planilla de Salarios
 
 | Formato | Deteccion | Campos clave |
 |---------|-----------|-------------|
+| **Sobre auditado** (recomendado para cargas conciliadas) | Objeto con `academic_period`, `contract` y `rows` | CI real, identidad validada, designación y horario canónico |
 | **UPDS Oficial** (recomendado) | `"NOMBRE COMPLETO"`, `"CI"` en UPPERCASE | CI real, email, telefono, NIT, banco, HORARIO string |
 | Formato intermedio | `"docente"`, `"materias"` en lowercase | horario_detalle parseado |
 | Formato legacy | Dict con `"designaciones"` | Formato viejo normalizado |
 
-El formato UPDS oficial es el mas completo — trae CI real (no TEMP), datos personales del docente, y el sistema parsea automaticamente el string de HORARIO a slots con dias, horas inicio/fin, duracion y horas academicas. Incluye correccion de typos (JUVES→JUEVES) y normalizacion de acentos.
+El formato UPDS oficial trae CI real (no TEMP), datos personales del docente, y el sistema parsea automaticamente el string de HORARIO a slots con dias, horas inicio/fin, duracion y horas academicas. Los formatos intermedio y legacy sin CI solo se aceptan cuando cada nombre coincide exactamente con un unico docente real ya existente; nunca crean identidades TEMP.
+
+La carga de designaciones siempre se realiza en dos pasos: primero **Generar vista previa**, que valida el archivo completo y muestra altas, actualizaciones, filas sin cambios y conflictos; luego **Confirmar e importar** usando el digest de esos mismos bytes y periodo. La aplicacion es atomica, no elimina filas ausentes y repetir exactamente un archivo produce operaciones sin cambios.
 
 ### CI Aliasing (Biometrico)
 
@@ -536,8 +539,9 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
    → Crea docentes con CI real + datos personales + NIT/retencion
    → Auto-crea usuarios docentes
 
-2. Subir Designacion Docente (JSON — 3 formatos soportados)
-   → Asigna materias, grupos, horarios por periodo academico
+2. Previsualizar y confirmar Designacion Docente (JSON o Excel)
+   → Valida identidades, materias, grupos y horarios antes de modificar datos
+   → Asigna designaciones al periodo seleccionado sin activarlo
    → Parsea HORARIO string automaticamente
    → Auto-crea usuarios si hay docentes nuevos
 
@@ -658,12 +662,12 @@ Al procesar asistencia o generar planilla, el sistema:
 
 ## Periodo Academico
 
-Las designaciones estan scoped por periodo academico (ej: `I/2026`, `II/2026`). Configurable via:
+Las designaciones estan scoped por periodo academico (ej: `I/2026`, `II/2026`). El periodo activo es configurable via:
 - Variable de entorno `ACTIVE_ACADEMIC_PERIOD`
 - Selector en la pagina de upload de designaciones
 - Endpoint `GET /api/config/active-period` para el frontend
 
-Al cambiar de semestre, solo necesitas cambiar `ACTIVE_ACADEMIC_PERIOD` y cargar las nuevas designaciones.
+Importar designaciones no cambia el periodo activo. La activacion sigue siendo una accion separada en Configuracion.
 
 ## Tests
 
