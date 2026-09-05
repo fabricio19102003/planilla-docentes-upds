@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import unicodedata
@@ -210,6 +211,40 @@ class TeacherProfileImportService:
                 total_rows=0,
                 errors=exc.errors,
             )
+
+    def apply(
+        self,
+        db: Session,
+        raw_bytes: bytes,
+        academic_period: str,
+        expected_digest: str,
+    ) -> TeacherProfileImportPlan:
+        actual_digest = confirmation_digest(raw_bytes, academic_period)
+        if not hmac.compare_digest(actual_digest, expected_digest):
+            raise TeacherProfileImportError(
+                ["El archivo o el período cambiaron después de la vista previa. Generá una nueva vista previa."]
+            )
+        rows, scope, policy = self._parse(raw_bytes, academic_period)
+        # Serialize the conflict check and fill-empty writes for these exact
+        # identities. SQLite ignores this in unit tests; PostgreSQL enforces it.
+        db.query(Teacher).filter(
+            Teacher.ci.in_([row.teacher_ci for row in rows])
+        ).with_for_update().all()
+        plan = self._build_plan(db, actual_digest, academic_period, rows, scope, policy)
+        if not plan.can_apply:
+            raise TeacherProfileImportError(plan.errors or ["La importación contiene conflictos sin resolver."])
+
+        teachers = {
+            teacher.ci: teacher
+            for teacher in db.query(Teacher).filter(Teacher.ci.in_([row.teacher_ci for row in rows])).all()
+        }
+        for row in rows:
+            teacher = teachers[row.teacher_ci]
+            for field_name, value in row.profile.items():
+                if value is not None and not getattr(teacher, field_name):
+                    setattr(teacher, field_name, value)
+        db.flush()
+        return plan
 
     def _parse(
         self,

@@ -123,3 +123,7 @@ class TeacherProfileImportPreviewResponse(BaseModel):
     fields: dict[str, TeacherProfileFieldCoverage]
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class TeacherProfileImportApplyResponse(TeacherProfileImportPreviewResponse):
+    applied: bool = True
