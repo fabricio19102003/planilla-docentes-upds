@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+from app.models.whatsapp_preference import WhatsAppPreference
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.notification import Notification
 from app.models.planilla import PlanillaOutput
@@ -19,6 +21,7 @@ from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services.activity_logger import log_activity
 from app.services.billing_notification_preview import BillingNotificationPreviewService, NotificationPlanError
+from app.services.billing_notification_policy import BillingChannelPolicy
 from app.services.billing_notification_service import (
     BillingNotificationService,
     SqlAlchemyAttemptStore,
@@ -44,6 +47,33 @@ MONTH_NAMES = {
 }
 
 _MONEY_QUANTUM = Decimal("0.01")
+
+
+def _email_eligible_users(db: Session, publication: BillingPublication, users: list[User]) -> list[User]:
+    """Apply official durable channel state before any legacy Resend execution."""
+    if not users:
+        return []
+    cis = [user.teacher_ci for user in users if user.teacher_ci]
+    preferences = {row.teacher_ci: row for row in db.query(WhatsAppPreference).filter(WhatsAppPreference.teacher_ci.in_(cis)).all()}
+    jobs = (
+        db.query(BillingNotificationJob)
+        .join(BillingNotificationBatch, BillingNotificationJob.batch_id == BillingNotificationBatch.id)
+        .filter(BillingNotificationBatch.publication_id == publication.id, BillingNotificationBatch.publication_version == publication.version, BillingNotificationJob.teacher_ci.in_(cis), BillingNotificationJob.channel == "whatsapp")
+        .all()
+    )
+    statuses: dict[str, list[str]] = {}
+    for job in jobs:
+        statuses.setdefault(job.teacher_ci, []).append(job.status)
+    policy = BillingChannelPolicy()
+    def eligible(user: User) -> bool:
+        states = statuses.get(user.teacher_ci, [])
+        if states:
+            # A single unresolved intent dominates terminal rows; row order never decides fallback.
+            verified_failure = all(state in {"failed", "undelivered"} for state in states)
+            state = "failed" if verified_failure else "ambiguous"
+            return policy.select(preferences.get(user.teacher_ci), whatsapp_status=state, terminal_failure_verified=verified_failure).channel == "email"
+        return policy.select(preferences.get(user.teacher_ci)).channel == "email"
+    return [user for user in users if eligible(user)]
 
 
 def _money(value) -> Decimal:
@@ -458,7 +488,7 @@ def publish_billing(
             notification_result = BillingNotificationService(
                 store=SqlAlchemyAttemptStore(db),
                 email_service=EmailService(),
-            ).send_billing_published(publication, docente_users)
+            ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
             logger.info(
                 "Billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
@@ -588,7 +618,7 @@ def send_billing_emails(
     notification_result = BillingNotificationService(
         store=SqlAlchemyAttemptStore(db),
         email_service=EmailService(),
-    ).send_billing_published(publication, docente_users)
+    ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
     logger.info(
         "Selective billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,
@@ -1042,7 +1072,7 @@ def publish_practice_billing(
             notification_result = BillingNotificationService(
                 store=SqlAlchemyAttemptStore(db),
                 email_service=EmailService(),
-            ).send_billing_published(publication, docente_users)
+            ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
             logger.info(
                 "Practice billing publication outbound step completed for %d/%d: eligible=%d sent=%d failed=%d skipped=%d whatsapp_sent=%d email_sent=%d",
                 month,
@@ -1217,7 +1247,7 @@ def send_practice_billing_emails(
     notification_result = BillingNotificationService(
         store=SqlAlchemyAttemptStore(db),
         email_service=EmailService(),
-    ).send_billing_published(publication, docente_users)
+    ).send_billing_published(publication, _email_eligible_users(db, publication, docente_users))
     logger.info(
         "Selective practice billing outbound step completed for %d/%d: requested=%d eligible=%d sent=%d failed=%d skipped=%d",
         payload.month,

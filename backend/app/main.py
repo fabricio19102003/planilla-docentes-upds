@@ -32,6 +32,7 @@ from app.routers import (
     practice_attendance_router,
     practice_planilla_router,
     medicine_schedules_router,
+    twilio_whatsapp_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -413,6 +414,7 @@ app.include_router(admin_settings_router)
 app.include_router(practice_attendance_router)
 app.include_router(practice_planilla_router)
 app.include_router(medicine_schedules_router)
+app.include_router(twilio_whatsapp_router)
 
 
 @app.get("/health", tags=["system"])

@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     TWILIO_WHATSAPP_SANDBOX_FROM: Optional[str] = None
     TWILIO_OFFICIAL_FROM: Optional[str] = None
     TWILIO_STATUS_CALLBACK_URL: Optional[str] = None
+    TWILIO_INBOUND_CALLBACK_URL: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT: Optional[str] = None
     TWILIO_API_BASE_URL: str = "https://api.twilio.com"
     WHATSAPP_TIMEOUT_SECONDS: float = 3.0
@@ -81,6 +83,8 @@ class Settings(BaseSettings):
         "TWILIO_WHATSAPP_SANDBOX_FROM",
         "TWILIO_OFFICIAL_FROM",
         "TWILIO_STATUS_CALLBACK_URL",
+        "TWILIO_INBOUND_CALLBACK_URL",
+        "TWILIO_AUTH_TOKEN",
         "TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT",
         mode="before",
     )

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.billing_publication import BillingPublication
+from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+from app.models.whatsapp_preference import WhatsAppPreference
 from app.models.notification import Notification
 from app.models.outbound_notification_attempt import OutboundNotificationAttempt
 from app.models.planilla import PlanillaOutput
@@ -206,6 +208,38 @@ def test_send_billing_emails_reports_historical_success_as_skipped(
 
     assert response.status_code == 200
     assert response.json() == {"sent": 0, "failed": 0, "skipped": 1}
+
+
+def test_official_policy_blocks_legacy_email_for_pending_or_ambiguous_but_allows_verified_failure(db_session):
+    from app.routers.billing_publication import _email_eligible_users
+
+    user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
+    publication = _seed_publication(db_session)
+    preference = WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_revision=1)
+    batch = BillingNotificationBatch(publication_id=publication.id, publication_version=publication.version, digest="f" * 64, readiness_snapshot={"ready": True}, status="queued")
+    db_session.add_all([preference, batch]); db_session.flush()
+    job = BillingNotificationJob(batch_id=batch.id, teacher_ci=user.teacher_ci, channel="whatsapp", status="pending")
+    db_session.add(job); db_session.commit()
+
+    assert _email_eligible_users(db_session, publication, [user]) == []
+    job.status = "ambiguous"; db_session.commit()
+    assert _email_eligible_users(db_session, publication, [user]) == []
+    job.status = "undelivered"; db_session.commit()
+    assert _email_eligible_users(db_session, publication, [user]) == [user]
+
+
+@pytest.mark.parametrize("states", [("undelivered", "ambiguous"), ("ambiguous", "undelivered")])
+def test_official_policy_ambiguous_job_dominates_terminal_job_regardless_of_row_order(db_session, states):
+    from app.routers.billing_publication import _email_eligible_users
+    user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
+    publication = _seed_publication(db_session)
+    db_session.add(WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_revision=1))
+    for index, state in enumerate(states):
+        batch = BillingNotificationBatch(publication_id=publication.id, publication_version=publication.version, digest=str(index) * 64, readiness_snapshot={"ready": True}, status="queued")
+        db_session.add(batch); db_session.flush()
+        db_session.add(BillingNotificationJob(batch_id=batch.id, teacher_ci=user.teacher_ci, channel="whatsapp", status=state))
+    db_session.commit()
+    assert _email_eligible_users(db_session, publication, [user]) == []
 
 
 def test_send_billing_emails_requires_published_publication(client, db_session):

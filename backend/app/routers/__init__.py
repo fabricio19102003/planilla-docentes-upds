@@ -16,6 +16,7 @@ from app.routers.admin_settings import router as admin_settings_router
 from app.routers.practice_attendance import router as practice_attendance_router
 from app.routers.practice_planilla import router as practice_planilla_router
 from app.routers.medicine_schedules import router as medicine_schedules_router
+from app.routers.twilio_whatsapp import router as twilio_whatsapp_router
 
 __all__ = [
     "teachers_router",
@@ -36,4 +37,5 @@ __all__ = [
     "practice_attendance_router",
     "practice_planilla_router",
     "medicine_schedules_router",
+    "twilio_whatsapp_router",
 ]
