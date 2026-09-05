@@ -114,7 +114,7 @@ COL_EMAIL = 4            # D
 COL_PHONE = 5            # E
 COL_MATERIA = 6          # F
 COL_GRUPO = 7            # G
-COL_TIPO_DOCENTE = 8     # H  Externo/Permanente
+COL_TIPO_DOCENTE = 8     # H  Externo/Permanente/Titular
 COL_GENERO = 9           # I
 COL_SAP = 10             # J
 COL_FACTURA = 11         # K
@@ -224,7 +224,7 @@ class PlanillaRow:
     subject: str
     semester: str
     group_code: str
-    teacher_type: Optional[str]        # Externo/Permanente
+    teacher_type: Optional[str]        # Externo/Permanente/Titular
     gender: Optional[str]
     sap_code: Optional[str]
     invoice_retention: Optional[str]
