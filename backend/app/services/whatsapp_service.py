@@ -7,7 +7,7 @@ from typing import Any, Literal, Protocol
 from app.config import settings as default_settings
 
 
-WhatsAppStatus = Literal["sent", "failed", "skipped"]
+WhatsAppStatus = Literal["sent", "failed", "skipped", "ambiguous"]
 _E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 _TWILIO_SANDBOX_NUMBER = "+14155238886"
 
@@ -61,7 +61,10 @@ class WhatsAppService:
         try:
             return transport.send_message(message)
         except Exception:
-            return WhatsAppSendResult(status="failed", error_code="twilio_transport_exception")
+            # An unexpected exception may happen after the provider accepted
+            # the request. Keep the outcome ambiguous so callers never send a
+            # duplicate notification through a fallback channel.
+            return WhatsAppSendResult(status="ambiguous", error_code="twilio_transport_exception")
 
     def _has_credentials(self) -> bool:
         return all(
