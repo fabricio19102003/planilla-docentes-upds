@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # separate future configuration contract so a Sandbox release cannot be
     # switched to a real sender by changing only a phone number.
     WHATSAPP_ENABLED: bool = False
+    # Official production dispatch is separately gated from the legacy Sandbox.
+    # Both flags default false so configuration alone cannot enable sending.
+    OFFICIAL_WHATSAPP_ENABLED: bool = False
+    WHATSAPP_DISPATCH_ENABLED: bool = False
     WHATSAPP_MODE: Literal["sandbox"] = "sandbox"
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_API_KEY_SID: Optional[str] = None
