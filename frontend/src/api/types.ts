@@ -1,3 +1,5 @@
+import type { TeacherType } from '@/domain/teacherTypes'
+
 // ─── Auth & Users ────────────────────────────────────────────────────────────
 export interface AuthUser {
   id: number
@@ -170,7 +172,7 @@ export interface Teacher {
   email: string | null
   phone: string | null
   gender: string | null
-  external_permanent: string | null
+  external_permanent: TeacherType | null
   academic_level: string | null
   profession: string | null
   specialty: string | null
@@ -193,12 +195,36 @@ export interface PortalPhotoPayload {
   file: File
 }
 
-export interface TeacherUploadResponse {
-  created: number
-  updated: number
-  skipped: number
-  total_processed: number
+export interface TeacherProfileFieldCoverage {
+  creates: number
+  fills: number
+  noops: number
+  conflicts: number
+  missing: number
+}
+
+export interface TeacherProfileImportPreview {
+  digest: string
+  parsed_format: string
+  academic_period: string
+  scope: string
+  policy: 'fill_empty_only'
+  total_rows: number
+  rows_with_fills: number
+  can_apply: boolean
+  identity: {
+    matched: number
+    missing: number
+    duplicates: number
+    conflicts: number
+  }
+  fields: Record<string, TeacherProfileFieldCoverage>
   warnings: string[]
+  errors: string[]
+}
+
+export interface TeacherProfileImportResult extends TeacherProfileImportPreview {
+  applied: boolean
 }
 
 export interface TeacherAttendanceSummary {
@@ -461,7 +487,7 @@ export interface ProfileUpdatePayload {
   email?: string | null
   phone?: string | null
   gender?: string | null
-  external_permanent?: string | null
+  external_permanent?: TeacherType | null
   academic_level?: string | null
   profession?: string | null
   specialty?: string | null
