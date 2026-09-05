@@ -1,3 +1,5 @@
+import type { TeacherType } from '@/domain/teacherTypes'
+
 // ─── Auth & Users ────────────────────────────────────────────────────────────
 export interface AuthUser {
   id: number
@@ -170,7 +172,7 @@ export interface Teacher {
   email: string | null
   phone: string | null
   gender: string | null
-  external_permanent: string | null
+  external_permanent: TeacherType | null
   academic_level: string | null
   profession: string | null
   specialty: string | null
@@ -461,7 +463,7 @@ export interface ProfileUpdatePayload {
   email?: string | null
   phone?: string | null
   gender?: string | null
-  external_permanent?: string | null
+  external_permanent?: TeacherType | null
   academic_level?: string | null
   profession?: string | null
   specialty?: string | null

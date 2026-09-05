@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
+
+from app.domain.teacher_types import TeacherType, normalize_teacher_type
 
 if TYPE_CHECKING:
     from app.schemas.designation import DesignationResponse
@@ -14,7 +16,7 @@ class TeacherBase(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     gender: Optional[str] = None
-    external_permanent: Optional[str] = None
+    external_permanent: Optional[TeacherType] = None
     academic_level: Optional[str] = None
     profession: Optional[str] = None
     specialty: Optional[str] = None
@@ -23,6 +25,11 @@ class TeacherBase(BaseModel):
     nit: Optional[str] = None
     sap_code: Optional[str] = None
     invoice_retention: Optional[str] = None
+
+    @field_validator("external_permanent", mode="before")
+    @classmethod
+    def validate_teacher_type(cls, value):
+        return normalize_teacher_type(value)
 
 
 class TeacherCreate(TeacherBase):
@@ -35,7 +42,7 @@ class TeacherUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     gender: Optional[str] = None
-    external_permanent: Optional[str] = None
+    external_permanent: Optional[TeacherType] = None
     academic_level: Optional[str] = None
     profession: Optional[str] = None
     specialty: Optional[str] = None
@@ -44,6 +51,11 @@ class TeacherUpdate(BaseModel):
     nit: Optional[str] = None
     sap_code: Optional[str] = None
     invoice_retention: Optional[str] = None
+
+    @field_validator("external_permanent", mode="before")
+    @classmethod
+    def validate_teacher_type(cls, value):
+        return normalize_teacher_type(value)
 
 
 class TeacherResponse(TeacherBase):
