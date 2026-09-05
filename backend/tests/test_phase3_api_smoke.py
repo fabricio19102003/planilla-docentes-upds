@@ -145,14 +145,23 @@ def test_upload_history_and_designation_upload(client, db_session, tmp_path):
     )
 
     with designation_file.open("rb") as handle:
+        preview_response = client.post(
+            "/api/uploads/designations/preview?academic_period=I/2026",
+            files={"file": (designation_file.name, handle, "application/json")},
+        )
+
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.json()
+    assert preview_payload["can_apply"] is True
+    with designation_file.open("rb") as handle:
         response = client.post(
-            "/api/uploads/designations",
+            f"/api/uploads/designations?academic_period=I/2026&confirmation_digest={preview_payload['digest']}",
             files={"file": (designation_file.name, handle, "application/json")},
         )
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["designations_loaded"] >= 1
+    assert payload["total_rows"] >= 1
 
 
 def test_biometric_upload_smoke(client, db_session, monkeypatch, tmp_path):
