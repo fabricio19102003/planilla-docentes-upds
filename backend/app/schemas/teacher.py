@@ -93,3 +93,37 @@ class TeacherDetailResponse(TeacherResponse):
     attendance_summary: TeacherAttendanceSummary = Field(default_factory=TeacherAttendanceSummary)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TeacherProfileFieldCoverage(BaseModel):
+    creates: int = 0
+    fills: int = 0
+    noops: int = 0
+    conflicts: int = 0
+    missing: int = 0
+
+
+class TeacherProfileIdentityCoverage(BaseModel):
+    matched: int = 0
+    missing: int = 0
+    duplicates: int = 0
+    conflicts: int = 0
+
+
+class TeacherProfileImportPreviewResponse(BaseModel):
+    digest: str
+    parsed_format: str
+    academic_period: str
+    scope: str
+    policy: str
+    total_rows: int
+    rows_with_fills: int
+    can_apply: bool
+    identity: TeacherProfileIdentityCoverage
+    fields: dict[str, TeacherProfileFieldCoverage]
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class TeacherProfileImportApplyResponse(TeacherProfileImportPreviewResponse):
+    applied: bool = True
