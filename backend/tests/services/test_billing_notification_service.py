@@ -318,3 +318,125 @@ def test_whatsapp_preference_requires_evidenced_consent_and_records_opt_out_revi
     assert preference.opted_out_at is not None
     assert preference.opt_out_evidence == "twilio-stop-event"
     assert preference.consent_revision == 3
+
+
+def test_billing_notification_persistence_has_durable_intent_constraints():
+    from app.models.billing_notification import BillingNotificationBatch, BillingNotificationJob
+
+    assert {constraint.name for constraint in BillingNotificationBatch.__table__.constraints} >= {
+        "uq_billing_notification_batch_digest"
+    }
+    assert {constraint.name for constraint in BillingNotificationJob.__table__.constraints} >= {
+        "uq_billing_notification_job_intent"
+    }
+    assert {index.name for index in BillingNotificationJob.__table__.indexes} >= {
+        "ix_billing_notification_job_claim"
+    }
+
+
+def test_billing_notification_provider_sids_accept_message_and_media_shapes():
+    from app.models.billing_notification import BillingNotificationJob, WhatsAppEvent
+
+    assert BillingNotificationJob.is_provider_sid("SM" + "a" * 32)
+    assert BillingNotificationJob.is_provider_sid("MM" + "b" * 32)
+    assert WhatsAppEvent.is_provider_sid("SM" + "c" * 32)
+    assert not BillingNotificationJob.is_provider_sid("SM" + "a" * 31)
+    assert not BillingNotificationJob.is_provider_sid("XX" + "a" * 32)
+
+
+def test_official_digest_is_canonical_and_binds_consent_channel_content_and_media():
+    from app.services.billing_notification_policy import BillingDigestPlanner
+
+    planner = BillingDigestPlanner()
+    first = planner.digest(
+        publication_id=9,
+        publication_version=3,
+        billing_digest="billing-v1",
+        recipients=[
+            {
+                "teacher_ci": "200",
+                "consent_revision": 4,
+                "channel": "whatsapp",
+                "reason": "evidenced_consent",
+                "content_sid": "HX" + "a" * 32,
+                "pdf_sha256": "b" * 64,
+                "pdf_size": 1024,
+            },
+            {
+                "teacher_ci": "100",
+                "consent_revision": 0,
+                "channel": "email",
+                "reason": "absent_consent",
+                "content_sid": None,
+                "pdf_sha256": "c" * 64,
+                "pdf_size": 2048,
+            },
+        ],
+    )
+    reordered = planner.digest(
+        publication_id=9,
+        publication_version=3,
+        billing_digest="billing-v1",
+        recipients=list(reversed([
+            {
+                "teacher_ci": "200", "consent_revision": 4, "channel": "whatsapp",
+                "reason": "evidenced_consent", "content_sid": "HX" + "a" * 32,
+                "pdf_sha256": "b" * 64, "pdf_size": 1024,
+            },
+            {
+                "teacher_ci": "100", "consent_revision": 0, "channel": "email",
+                "reason": "absent_consent", "content_sid": None,
+                "pdf_sha256": "c" * 64, "pdf_size": 2048,
+            },
+        ])),
+    )
+
+    assert first == reordered
+    assert len(first) == 64
+    assert first != planner.digest(
+        publication_id=9, publication_version=3, billing_digest="billing-v1",
+        recipients=[{
+            "teacher_ci": "100", "consent_revision": 0, "channel": "email",
+            "reason": "absent_consent", "content_sid": None,
+            "pdf_sha256": "c" * 64, "pdf_size": 2048,
+        }, {
+            "teacher_ci": "200", "consent_revision": 5, "channel": "whatsapp",
+            "reason": "evidenced_consent", "content_sid": "HX" + "a" * 32,
+            "pdf_sha256": "b" * 64, "pdf_size": 1024,
+        }],
+    )
+
+
+def test_official_policy_snapshots_consent_and_allows_email_only_for_two_safe_cases():
+    from app.services.billing_notification_policy import BillingChannelPolicy
+    from app.models.whatsapp_preference import WhatsAppPreference
+
+    policy = BillingChannelPolicy()
+    consented = WhatsAppPreference(
+        teacher_ci="123", phone_e164="+59170000000", is_verified=True,
+        consent_evidence="signed", consent_revision=7,
+    )
+    snapshot = policy.consent_snapshot(consented)
+    assert snapshot == {
+        "teacher_ci": "123", "consent_revision": 7,
+        "eligible": True, "opted_out": False,
+    }
+    assert policy.select(consented).channel == "whatsapp"
+    assert policy.select(None).channel == "email"
+    assert policy.select(consented, whatsapp_status="failed", terminal_failure_verified=True).channel == "email"
+
+    for status in ("pending", "ambiguous", "undelivered", "blocked", "readiness_failed"):
+        decision = policy.select(consented, whatsapp_status=status)
+        assert decision.channel != "email"
+
+
+def test_official_whatsapp_flags_default_to_disabled():
+    from app.config import Settings
+
+    settings = Settings(
+        DATABASE_URL="sqlite:///policy-test.db",
+        ASYNC_DATABASE_URL="sqlite+aiosqlite:///policy-test.db",
+    )
+
+    assert settings.OFFICIAL_WHATSAPP_ENABLED is False
+    assert settings.WHATSAPP_DISPATCH_ENABLED is False
