@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { ExcludedDay } from '@/api/types'
+import type { ExcludedDay, PlanillaDataStatus } from '@/api/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,7 +14,8 @@ export interface PracticePlanillaOutput {
   file_path: string | null
   total_teachers: number
   total_hours: number
-  total_payment: string
+  total_payment: string | null
+  data_status: PlanillaDataStatus
   status: string
   discount_mode: 'attendance' | 'full'
   start_date: string | null
@@ -286,7 +287,6 @@ export function usePracticePlanillaDetailWithExclusions(
       return res.data
     },
     enabled,
-    placeholderData: keepPreviousData,
   })
 }
 

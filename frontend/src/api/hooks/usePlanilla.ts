@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import type { ExcludedDay, GeneratePlanillaPayload, PlanillaDetailResponse, PlanillaGenerateResponse, PlanillaOutput, TeacherDesignationsResponse } from '@/api/types'
@@ -153,7 +153,6 @@ export function usePlanillaDetail(
       debouncedParams.excludedDaysJson,
     ),
     enabled,
-    placeholderData: keepPreviousData,
   })
 }
 

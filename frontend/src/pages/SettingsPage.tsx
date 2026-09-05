@@ -5,78 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAppSettings, useUpdateAppSettings } from '@/api/hooks/useAppSettings'
-import type { AppSettings, AppSettingsUpdate } from '@/api/types'
-
-interface FormState {
-  active_academic_period: string
-  company_name: string
-  company_nit: string
-  hourly_rate: string // keep as string to allow empty input; parsed on save
-  practice_hourly_rate: string
-  docente_can_edit_profile: boolean
-  docente_can_edit_photo: boolean
-}
-
-function toFormState(s: AppSettings): FormState {
-  return {
-    active_academic_period: s.active_academic_period,
-    company_name: s.company_name,
-    company_nit: s.company_nit,
-    hourly_rate: String(s.hourly_rate),
-    practice_hourly_rate: String(s.practice_hourly_rate),
-    docente_can_edit_profile: s.docente_can_edit_profile,
-    docente_can_edit_photo: s.docente_can_edit_photo,
-  }
-}
-
-/**
- * Build the minimal update payload containing only fields that changed.
- * Returning an empty object means the user pressed Save with no edits.
- */
-function buildPayload(form: FormState, server: AppSettings): AppSettingsUpdate {
-  const payload: AppSettingsUpdate = {}
-
-  const period = form.active_academic_period.trim()
-  if (period && period !== server.active_academic_period) {
-    payload.active_academic_period = period
-  }
-
-  const name = form.company_name.trim()
-  if (name && name !== server.company_name) {
-    payload.company_name = name
-  }
-
-  const nit = form.company_nit.trim()
-  if (nit && nit !== server.company_nit) {
-    payload.company_nit = nit
-  }
-
-  const rateStr = form.hourly_rate.trim()
-  if (rateStr) {
-    const rate = Number(rateStr)
-    if (!Number.isNaN(rate) && rate !== server.hourly_rate) {
-      payload.hourly_rate = rate
-    }
-  }
-
-  const practiceRateStr = form.practice_hourly_rate.trim()
-  if (practiceRateStr) {
-    const practiceRate = Number(practiceRateStr)
-    if (!Number.isNaN(practiceRate) && practiceRate !== server.practice_hourly_rate) {
-      payload.practice_hourly_rate = practiceRate
-    }
-  }
-
-  if (form.docente_can_edit_profile !== server.docente_can_edit_profile) {
-    payload.docente_can_edit_profile = form.docente_can_edit_profile
-  }
-
-  if (form.docente_can_edit_photo !== server.docente_can_edit_photo) {
-    payload.docente_can_edit_photo = form.docente_can_edit_photo
-  }
-
-  return payload
-}
+import {
+  buildSettingsPayload,
+  MONEY_INPUT_MIN,
+  MONEY_INPUT_STEP,
+  toSettingsFormState,
+  type SettingsFormState,
+} from '@/lib/settingsForm'
 
 function PermissionToggle({
   checked,
@@ -127,7 +62,7 @@ export function SettingsPage() {
   const { data: settings, isLoading, isError, error } = useAppSettings()
   const updateMutation = useUpdateAppSettings()
 
-  const [form, setForm] = useState<FormState | null>(null)
+  const [form, setForm] = useState<SettingsFormState | null>(null)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
@@ -135,7 +70,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (settings) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Settings form is intentionally hydrated from server data.
-      setForm(toFormState(settings))
+      setForm(toSettingsFormState(settings))
     }
   }, [settings])
 
@@ -185,7 +120,7 @@ export function SettingsPage() {
       return
     }
 
-    const payload = buildPayload(form, settings)
+    const payload = buildSettingsPayload(form, settings)
     if (Object.keys(payload).length === 0) {
       setValidationError('No hay cambios para guardar.')
       return
@@ -193,7 +128,7 @@ export function SettingsPage() {
 
     updateMutation.mutate(payload, {
       onSuccess: (data) => {
-        setForm(toFormState(data))
+        setForm(toSettingsFormState(data))
         setSavedMessage('Configuración guardada correctamente.')
       },
     })
@@ -296,9 +231,9 @@ export function SettingsPage() {
                 <Input
                   id="hourly_rate"
                   type="number"
-                  min={0.01}
+                  min={MONEY_INPUT_MIN}
                   max={10000}
-                  step={0.5}
+                  step={MONEY_INPUT_STEP}
                   placeholder="70"
                   value={form.hourly_rate}
                   onChange={(e) => setForm({ ...form, hourly_rate: e.target.value })}
@@ -315,9 +250,9 @@ export function SettingsPage() {
                 <Input
                   id="practice_hourly_rate"
                   type="number"
-                  min={0.01}
+                  min={MONEY_INPUT_MIN}
                   max={10000}
-                  step={0.5}
+                  step={MONEY_INPUT_STEP}
                   placeholder="50"
                   value={form.practice_hourly_rate}
                   onChange={(e) => setForm({ ...form, practice_hourly_rate: e.target.value })}

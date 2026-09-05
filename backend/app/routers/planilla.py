@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import json
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -33,6 +34,12 @@ from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.salary_report_generator import SalaryReportGenerator
 from app.services.activity_logger import log_activity
+from app.services.monetary_snapshot import (
+    SnapshotReconciliationError,
+    calculation_snapshot_rows,
+    require_reconciled_snapshot,
+)
+from app.services.payment_overrides import PaymentOverrideError
 from app.utils.auth import require_admin
 
 MONTH_NAMES = {
@@ -126,6 +133,9 @@ def generate_planilla(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.as_detail(),
         ) from exc
+    except PaymentOverrideError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.as_detail()) from exc
     except Exception as exc:
         db.rollback()
         logger.exception("Planilla generation failed: %s", exc)
@@ -151,6 +161,14 @@ def approve_planilla(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Solo se puede aprobar una planilla en estado 'generada' (estado actual: {planilla.status})",
         )
+
+    try:
+        require_reconciled_snapshot(planilla.calculation_snapshot, planilla.total_payment)
+    except SnapshotReconciliationError as exc:
+        if exc.code == "snapshot_missing":
+            planilla.status = "snapshot_missing"
+            db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_detail()) from exc
 
     planilla.status = "approved"
 
@@ -259,37 +277,19 @@ def generate_salary_report(
             .order_by(PlanillaOutput.generated_at.desc())
             .first()
         )
-        effective_mode = payload.discount_mode
-        # Inherit stored planilla settings when the caller doesn't override
-        effective_sd = payload.start_date
-        effective_ed = payload.end_date
-        if stored is not None:
-            if stored.discount_mode in ("attendance", "full"):
-                if payload.discount_mode == "attendance" and stored.discount_mode == "full":
-                    effective_mode = "full"
-            # Use stored cutoff dates when caller doesn't provide them
-            if effective_sd is None and stored.start_date is not None:
-                effective_sd = stored.start_date
-            if effective_ed is None and stored.end_date is not None:
-                effective_ed = stored.end_date
-
-        # Resolve exclusions: caller-supplied list overrides stored planilla's exclusions.
-        # excluded_days=None (field omitted) → pass None to generator → generator loads stored
-        # excluded_days=[] (explicit empty) → pass [] to generator → no exclusions (override)
-        # excluded_days=[<entries>] → pass list to generator → use caller's exclusions
-        effective_exclusions = payload.excluded_days  # None = inherit stored; list = override
+        rows = calculation_snapshot_rows(
+            stored.calculation_snapshot if stored else None,
+            stored.total_payment if stored else 0,
+            require_profiles=True,
+        )
 
         generator = SalaryReportGenerator(output_dir=str(_output_dir()))
-        file_path = generator.generate(
-            db=db,
+        file_path = generator.generate_snapshot(
+            rows=rows,
             month=payload.month,
             year=payload.year,
             company_name=payload.company_name or app_settings_service.get_company_name(db),
             company_nit=payload.company_nit or app_settings_service.get_company_nit(db),
-            discount_mode=effective_mode,
-            start_date=effective_sd,
-            end_date=effective_ed,
-            excluded_days=effective_exclusions,
         )
 
         month_name = MONTH_NAMES.get(payload.month, str(payload.month))
@@ -304,7 +304,7 @@ def generate_salary_report(
             details={
                 "month": payload.month,
                 "year": payload.year,
-                "discount_mode": effective_mode,
+                "discount_mode": stored.discount_mode,
                 "file": str(file_path),
             },
             request=request,
@@ -319,7 +319,7 @@ def generate_salary_report(
     except HTTPException:
         db.rollback()
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -459,14 +459,6 @@ def get_planilla_detail(
                         code="invalid_stored_exclusions",
                     ) from exc
 
-        generator = PlanillaGenerator()
-        rows, _detail_rows, warnings = generator._build_planilla_data(
-            db, month=month, year=year,
-            start_date=start_date, end_date=end_date,
-            discount_mode=discount_mode,
-            excluded_days=effective_exclusions,
-        )
-
         # Check if there is a stored planilla with potential admin overrides
         stored = (
             db.query(PlanillaOutput)
@@ -474,6 +466,15 @@ def get_planilla_detail(
             .order_by(PlanillaOutput.generated_at.desc())
             .first()
         )
+        generator = PlanillaGenerator()
+        if stored is not None:
+            rows = calculation_snapshot_rows(stored.calculation_snapshot, stored.total_payment)
+            warnings = []
+        else:
+            rows, _detail_rows, warnings = generator._build_planilla_data(
+                db, month=month, year=year, start_date=start_date, end_date=end_date,
+                discount_mode=discount_mode, excluded_days=effective_exclusions,
+            )
 
         stored_overrides: dict[str, float] = {}
         if stored is not None and stored.payment_overrides_json:
@@ -553,21 +554,21 @@ def get_planilla_detail(
                     "total_base_hours": 0,
                     "total_absent_hours": 0,
                     "total_payable_hours": 0,
-                    "total_payment": 0.0,
+                    "total_payment": Decimal("0.00"),
                     "designation_count": 0,
                     "has_biometric": row.has_biometric,
                     "has_retention": row.has_retention,
-                    "retention_amount": 0.0,
-                    "final_payment": 0.0,
+                    "retention_amount": Decimal("0.00"),
+                    "final_payment": Decimal("0.00"),
                 }
             teacher_totals[ci]["total_base_hours"] += row.base_monthly_hours
             teacher_totals[ci]["total_absent_hours"] += row.absent_hours
             teacher_totals[ci]["total_payable_hours"] += row.payable_hours
             row_key = f"{row.teacher_ci}:{row.designation_id}"
             effective_payment = resolved_payments.get(row_key, row.final_payment)
-            teacher_totals[ci]["total_payment"] += effective_payment
-            teacher_totals[ci]["retention_amount"] += row.retention_amount
-            teacher_totals[ci]["final_payment"] += effective_payment
+            teacher_totals[ci]["total_payment"] += Decimal(str(effective_payment))
+            teacher_totals[ci]["retention_amount"] += Decimal(str(row.retention_amount))
+            teacher_totals[ci]["final_payment"] += Decimal(str(effective_payment))
             teacher_totals[ci]["designation_count"] += 1
 
         computed_total = sum(r.final_payment for r in rows)
@@ -600,7 +601,7 @@ def get_planilla_detail(
         return response
     except HTTPException:
         raise
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.as_detail(),
@@ -684,7 +685,16 @@ def planilla_history(
 ) -> list[PlanillaOutputResponse]:
     try:
         rows = db.query(PlanillaOutput).order_by(PlanillaOutput.generated_at.desc()).all()
-        return [PlanillaOutputResponse.model_validate(row) for row in rows]
+        result = []
+        for row in rows:
+            item = PlanillaOutputResponse.model_validate(row).model_dump()
+            try:
+                require_reconciled_snapshot(row.calculation_snapshot, row.total_payment)
+                item["total_payment"] = Decimal(row.calculation_snapshot["total"])
+            except SnapshotReconciliationError as exc:
+                item.update(total_payment=None, data_status="legacy_unavailable", unavailable_reason=exc.code)
+            result.append(PlanillaOutputResponse(**item))
+        return result
     except Exception as exc:
         logger.exception("Failed to load planilla history: %s", exc)
         raise HTTPException(

@@ -69,12 +69,16 @@ def test_docente_profile_update_is_blocked_when_permission_disabled(client, db_s
 
 def test_docente_profile_update_is_allowed_when_permission_enabled(client, db_session):
     teacher = Teacher(ci="PERM-PROFILE-2", full_name="Permiso Perfil Dos", email="old2@example.com")
+    specialty = "P" * 408
     db_session.add(teacher)
     db_session.commit()
     user = _set_docente_token(client, db_session, teacher)
     _set_profile_permission(db_session, True)
 
-    response = client.put("/api/portal/profile", json={"email": "new2@example.com", "phone": " 777 "})
+    response = client.put(
+        "/api/portal/profile",
+        json={"email": "new2@example.com", "phone": " 777 ", "specialty": specialty},
+    )
 
     assert response.status_code == 200
     db_session.refresh(teacher)
@@ -82,6 +86,7 @@ def test_docente_profile_update_is_allowed_when_permission_enabled(client, db_se
     assert teacher.email == "new2@example.com"
     assert user.email == "new2@example.com"
     assert teacher.phone == "777"
+    assert teacher.specialty == specialty
 
 
 def test_docente_profile_response_includes_permissions_and_avatar_url(client, db_session):
