@@ -93,6 +93,51 @@ def test_compatible_existing_table_satisfies_full_contract():
     engine.dispose()
 
 
+@pytest.mark.parametrize(
+    "reflected_default",
+    [
+        "nextval('outbound_notification_attempts_id_seq'::regclass)",
+        "nextval('public.outbound_notification_attempts_id_seq'::regclass)",
+    ],
+)
+def test_postgresql_generated_id_sequence_default_is_canonicalized(reflected_default):
+    migration = _migration_module()
+
+    assert migration._default_signature(
+        reflected_default,
+        dialect_name="postgresql",
+        column_name="id",
+        default_schema="public",
+    ) == (
+        "postgresql_sequence",
+        "public",
+        "outbound_notification_attempts_id_seq",
+    )
+
+
+@pytest.mark.parametrize(
+    ("reflected_default", "column_name"),
+    [
+        ("nextval('other_table_id_seq'::regclass)", "id"),
+        ("nextval('private.outbound_notification_attempts_id_seq'::regclass)", "id"),
+        ("uuid_generate_v4()", "id"),
+        ("42", "id"),
+        ("nextval('outbound_notification_attempts_id_seq'::regclass)", "status"),
+    ],
+)
+def test_postgresql_unexpected_defaults_are_not_canonicalized(
+    reflected_default, column_name
+):
+    migration = _migration_module()
+
+    assert migration._default_signature(
+        reflected_default,
+        dialect_name="postgresql",
+        column_name=column_name,
+        default_schema="public",
+    ) == reflected_default
+
+
 def test_fresh_upgrade_creates_the_full_validated_contract(tmp_path, monkeypatch):
     database_path = tmp_path / "fresh-outbound-attempt.sqlite3"
     url = f"sqlite:///{database_path}"
