@@ -13,7 +13,7 @@ def _service(db: Session) -> BillingPdfService:
     return BillingPdfService(db)
 
 
-@router.api_route("/{token}", methods=["GET", "HEAD"])
+@router.api_route("/{token}.pdf", methods=["GET", "HEAD"])
 def download_billing_media(token: str, db: Session = Depends(get_db)) -> Response:
     resolved = _service(db).resolve(token)
     if resolved is None:

@@ -70,10 +70,11 @@ def test_public_media_rejects_unbound_expired_revoked_and_oversized_artifacts(cl
     job = _job(db_session, batch)
     issued = service.issue(batch, job, {"net_payment": 123.45})
 
-    head = client.head(f"/api/public/billing-media/{issued.token}")
-    get = client.get(f"/api/public/billing-media/{issued.token}")
-    repeated = client.get(f"/api/public/billing-media/{issued.token}")
+    head = client.head(f"/api/public/billing-media/{issued.token}.pdf")
+    get = client.get(f"/api/public/billing-media/{issued.token}.pdf")
+    repeated = client.get(f"/api/public/billing-media/{issued.token}.pdf")
     assert [response.status_code for response in (head, get, repeated)] == [200, 200, 200]
+    assert client.get(f"/api/public/billing-media/{issued.token}").status_code == 404
     assert head.headers["content-type"] == "application/pdf"
     assert head.headers["content-length"] == str(len(get.content))
     assert get.headers["cache-control"] == "no-store"
@@ -83,20 +84,20 @@ def test_public_media_rejects_unbound_expired_revoked_and_oversized_artifacts(cl
     row = db_session.query(BillingMediaToken).filter_by(token_hash=issued.token_hash).one()
     row.expires_at = datetime(2029, 12, 31)
     db_session.commit()
-    assert client.get(f"/api/public/billing-media/{issued.token}").status_code == 404
+    assert client.get(f"/api/public/billing-media/{issued.token}.pdf").status_code == 404
 
     revoked = service.issue(batch, job, {"net_payment": 123.45, "revision": 1})
     revoked_row = db_session.query(BillingMediaToken).filter_by(token_hash=revoked.token_hash).one()
     revoked_row.revoked_at = datetime(2030, 1, 1)
     db_session.commit()
-    assert client.get(f"/api/public/billing-media/{revoked.token}").status_code == 404
+    assert client.get(f"/api/public/billing-media/{revoked.token}.pdf").status_code == 404
 
-    assert client.get("/api/public/billing-media/not-a-real-token").status_code == 404
+    assert client.get("/api/public/billing-media/not-a-real-token.pdf").status_code == 404
 
     replacement = service.issue(batch, job, {"net_payment": 123.45, "revision": 2})
     replacement_row = db_session.query(BillingMediaToken).filter_by(token_hash=replacement.token_hash).one()
     Path(replacement_row.artifact_path).write_bytes(b"%PDF-" + b"x" * 15_000_000)
-    assert client.get(f"/api/public/billing-media/{replacement.token}").status_code == 404
+    assert client.get(f"/api/public/billing-media/{replacement.token}.pdf").status_code == 404
 
 
 def test_public_media_rejects_durable_token_with_mismatched_job_artifact(client, db_session, tmp_path, monkeypatch):
@@ -112,7 +113,7 @@ def test_public_media_rejects_durable_token_with_mismatched_job_artifact(client,
     job.media_snapshot = {"token_id": issued.token_id, "artifact_hash": "0" * 64, "artifact_size": issued.artifact_size}
     db_session.commit()
 
-    assert client.get(f"/api/public/billing-media/{issued.token}").status_code == 404
+    assert client.get(f"/api/public/billing-media/{issued.token}.pdf").status_code == 404
 
 
 def test_rollback_cancels_only_unleased_jobs_and_revokes_their_media_tokens(db_session, tmp_path):

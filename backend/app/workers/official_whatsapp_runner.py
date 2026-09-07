@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from time import sleep
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from app.database import SessionLocal
 from app.models.billing_notification import BillingMediaToken, BillingNotificationJob
@@ -113,7 +113,10 @@ class OfficialWhatsAppRuntime:
         return self.transport.send(
             to=phone_e164,
             content_sid=job.content_sid or self.default_content_sid,
-            content_variables=json.dumps({"twilio/media": urljoin(self.media_base_url + "/", f"api/public/billing-media/{media_token}")}, separators=(",", ":")),
+            content_variables=json.dumps(
+                {"1": f"api/public/billing-media/{media_token}.pdf"},
+                separators=(",", ":"),
+            ),
         )
 
 
