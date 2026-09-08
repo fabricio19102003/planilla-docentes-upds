@@ -1,7 +1,7 @@
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from app.database import Base
 
@@ -24,6 +24,7 @@ class DetailRequest(Base):
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     admin_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     responded_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

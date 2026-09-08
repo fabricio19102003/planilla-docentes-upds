@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -120,6 +120,59 @@ class DetailRequestCreate(BaseModel):
     message: Optional[str] = None
 
 
+class ScheduleResolutionSlot(BaseModel):
+    dia: str
+    hora_inicio: str
+    hora_fin: str
+    horas_academicas: int
+
+
+class ScheduleResolutionDesignation(BaseModel):
+    subject: str
+    semester: str
+    group_code: str
+    weekly_hours: Optional[int] = None
+    monthly_hours: Optional[int] = None
+    schedule: list[ScheduleResolutionSlot]
+
+
+class ScheduleResolutionSnapshot(BaseModel):
+    kind: Literal["schedule_detail"]
+    academic_period: str
+    designations: list[ScheduleResolutionDesignation]
+
+
+class HoursSummaryResolutionSnapshot(BaseModel):
+    kind: Literal["hours_summary"]
+    month: int
+    year: int
+    total_records: int
+    total_academic_hours: int
+    status_counts: dict[str, int]
+
+
+class BiometricResolutionRecord(BaseModel):
+    date: str
+    entry_time: Optional[str] = None
+    exit_time: Optional[str] = None
+    worked_minutes: Optional[int] = None
+    shift: Optional[str] = None
+
+
+class BiometricResolutionSnapshot(BaseModel):
+    kind: Literal["biometric_detail"]
+    month: int
+    year: int
+    records: list[BiometricResolutionRecord]
+
+
+DetailRequestResolutionSnapshot = Union[
+    ScheduleResolutionSnapshot,
+    HoursSummaryResolutionSnapshot,
+    BiometricResolutionSnapshot,
+]
+
+
 class DetailRequestResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,6 +185,7 @@ class DetailRequestResponse(BaseModel):
     message: Optional[str] = None
     status: str
     admin_response: Optional[str] = None
+    resolution_snapshot: Optional[DetailRequestResolutionSnapshot] = None
     responded_at: Optional[datetime] = None
     created_at: datetime
 
