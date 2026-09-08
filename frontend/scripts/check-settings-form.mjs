@@ -21,6 +21,14 @@ const seededSettings = {
   practice_hourly_rate: 50,
   docente_can_edit_profile: false,
   docente_can_edit_photo: false,
+  whatsapp_billing_delivery: {
+    requested_enabled: false,
+    effective_enabled: false,
+    can_enable: false,
+    blocking_reasons: ['worker_unavailable'],
+    readiness: { ready: false },
+    worker_heartbeat_at: null,
+  },
 }
 
 function isStepAligned(value, min, step) {
@@ -49,4 +57,19 @@ test('accepts centavo-aligned theory and practice rates, including integers and 
   assert.equal((page.match(/min=\{MONEY_INPUT_MIN\}/g) ?? []).length, 2)
   assert.equal((page.match(/step=\{MONEY_INPUT_STEP\}/g) ?? []).length, 2)
   assert.doesNotMatch(page, /step=\{0\.5\}/)
+})
+
+test('maps WhatsApp intent and renders an accessible non-optimistic switch', () => {
+  const form = {
+    ...toSettingsFormState(seededSettings),
+    whatsapp_billing_requested_enabled: true,
+  }
+
+  assert.deepEqual(buildSettingsPayload(form, seededSettings), {
+    whatsapp_billing_requested_enabled: true,
+  })
+  assert.match(page, /role="switch"/)
+  assert.match(page, /aria-checked=/)
+  assert.match(page, /whatsapp_billing_delivery\.effective_enabled/)
+  assert.match(page, /whatsapp_billing_delivery\.blocking_reasons/)
 })

@@ -672,6 +672,16 @@ export interface AppSettings {
   practice_hourly_rate: number
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
+  whatsapp_billing_delivery: WhatsAppBillingDeliveryStatus
+}
+
+export interface WhatsAppBillingDeliveryStatus {
+  requested_enabled: boolean
+  effective_enabled: boolean
+  can_enable: boolean
+  blocking_reasons: string[]
+  readiness: Record<string, unknown>
+  worker_heartbeat_at: string | null
 }
 
 export interface AppSettingsUpdate {
@@ -682,4 +692,5 @@ export interface AppSettingsUpdate {
   practice_hourly_rate?: number
   docente_can_edit_profile?: boolean
   docente_can_edit_photo?: boolean
+  whatsapp_billing_requested_enabled?: boolean
 }
