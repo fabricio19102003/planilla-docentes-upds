@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -1017,9 +1017,7 @@ def export_schedule_pdf(
     db: Session = Depends(get_db),
 ):
     """Generate and return a PDF of the docente's weekly schedule."""
-    from fastapi.responses import FileResponse
-
-    from app.services.schedule_pdf import generate_schedule_pdf
+    from app.services.schedule_pdf import generate_schedule_pdf, schedule_download_filename
 
     teacher = _get_teacher_or_raise(current_user, db)
     designations = (
@@ -1031,7 +1029,7 @@ def export_schedule_pdf(
         .all()
     )
 
-    pdf_path = generate_schedule_pdf(teacher, designations)
+    pdf = generate_schedule_pdf(teacher, designations)
 
     log_activity(
         db,
@@ -1044,14 +1042,13 @@ def export_schedule_pdf(
     )
     db.commit()
 
-    from datetime import datetime as dt
-
-    safe_name = teacher.full_name.replace(' ', '_')
-    year = dt.now().year
-    return FileResponse(
-        path=pdf_path,
-        filename=f"Horario_de_{safe_name}_Gestion_{year}.pdf",
+    return Response(
+        content=pdf,
         media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{schedule_download_filename(teacher.full_name)}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

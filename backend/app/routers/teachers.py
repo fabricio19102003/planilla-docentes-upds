@@ -25,7 +25,9 @@ from app.schemas.teacher import (
     TeacherProfileImportApplyResponse,
     TeacherProfileImportPreviewResponse,
 )
+from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.schedule_pdf import generate_schedule_pdf, schedule_download_filename
 from app.services.teacher_profile_import_service import (
     TeacherProfileImportError,
     TeacherProfileImportPlan,
@@ -367,6 +369,54 @@ def download_teacher_photo(
         filename=f"Foto_Docente_{safe_ci}{extension}",
         media_type=media_type,
         headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/{ci}/schedule/pdf")
+def download_teacher_schedule(
+    request: Request,
+    ci: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download the active-period weekly schedule for one teacher as a PDF grid."""
+    teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+    if teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+
+    active_period = app_settings_service.get_active_academic_period(db)
+    designations = (
+        db.query(Designation)
+        .filter(
+            Designation.teacher_ci == teacher.ci,
+            Designation.academic_period == active_period,
+        )
+        .order_by(Designation.subject.asc(), Designation.group_code.asc())
+        .all()
+    )
+    pdf = generate_schedule_pdf(teacher, designations)
+    log_activity(
+        db,
+        "export_teacher_schedule",
+        "teachers",
+        f"Horario de docente exportado en PDF: {teacher.full_name}",
+        user=current_user,
+        details={
+            "teacher_ci": teacher.ci,
+            "academic_period": active_period,
+            "designation_count": len(designations),
+        },
+        request=request,
+    )
+    db.commit()
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{schedule_download_filename(teacher.full_name)}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

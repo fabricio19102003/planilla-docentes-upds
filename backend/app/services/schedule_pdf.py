@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -51,17 +55,58 @@ DAY_NORM: dict[str, str] = {
 }
 
 
-def _output_dir() -> Path:
-    path = Path(__file__).resolve().parents[2] / "data" / "schedules"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _normalize_day(dia: str) -> str:
     return DAY_NORM.get(dia.lower(), dia.capitalize())
 
 
-def generate_schedule_pdf(teacher, designations) -> str:
+def schedule_download_filename(teacher_name: str) -> str:
+    ascii_name = unicodedata.normalize("NFKD", teacher_name).encode("ascii", "ignore").decode("ascii")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_name).strip("._-") or "docente"
+    return f"Horario_de_{safe_name}_Gestion_{datetime.now().year}.pdf"
+
+
+@dataclass(frozen=True)
+class ScheduleGrid:
+    all_slots: list[dict]
+    unique_times: list[str]
+    slots_by_cell: dict[tuple[str, str], list[dict]]
+    subject_color_map: dict[str, object]
+
+
+def collect_schedule_grid(designations) -> ScheduleGrid:
+    subject_color_map: dict[str, object] = {}
+    all_slots: list[dict] = []
+
+    for designation in designations:
+        if designation.subject not in subject_color_map:
+            subject_color_map[designation.subject] = SUBJECT_COLORS[
+                len(subject_color_map) % len(SUBJECT_COLORS)
+            ]
+
+        for slot in (designation.schedule_json or []):
+            all_slots.append({
+                'dia': _normalize_day(slot.get('dia', '')),
+                'hora_inicio': slot.get('hora_inicio', ''),
+                'hora_fin': slot.get('hora_fin', ''),
+                'horas_academicas': slot.get('horas_academicas', 0),
+                'subject': designation.subject,
+                'group_code': designation.group_code,
+                'semester': designation.semester,
+            })
+
+    slots_by_cell: dict[tuple[str, str], list[dict]] = {}
+    for slot in all_slots:
+        slots_by_cell.setdefault((slot['hora_inicio'], slot['dia']), []).append(slot)
+
+    return ScheduleGrid(
+        all_slots=all_slots,
+        unique_times=sorted({slot['hora_inicio'] for slot in all_slots}),
+        slots_by_cell=slots_by_cell,
+        subject_color_map=subject_color_map,
+    )
+
+
+def generate_schedule_pdf(teacher, designations) -> bytes:
     """Generate a professional landscape PDF schedule for a teacher.
 
     Args:
@@ -69,16 +114,14 @@ def generate_schedule_pdf(teacher, designations) -> str:
         designations: List of Designation ORM model instances.
 
     Returns:
-        Absolute path string to the generated PDF file.
+        PDF document bytes. No server-side file is retained.
     """
     styles = getSampleStyleSheet()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"horario_{teacher.ci}_{timestamp}.pdf"
-    filepath = _output_dir() / filename
+    output = BytesIO()
 
     doc = SimpleDocTemplate(
-        str(filepath),
+        output,
         pagesize=landscape(A4),
         leftMargin=12 * mm,
         rightMargin=12 * mm,
@@ -123,28 +166,12 @@ def generate_schedule_pdf(teacher, designations) -> str:
     elements.append(Spacer(1, 10))
 
     # ── Build flat slots + subject color map ─────────────────────────────────
-    subject_color_map: dict[str, object] = {}
-    color_idx = 0
-    all_slots: list[dict] = []
-
-    for d in designations:
-        if d.subject not in subject_color_map:
-            subject_color_map[d.subject] = SUBJECT_COLORS[color_idx % len(SUBJECT_COLORS)]
-            color_idx += 1
-
-        for slot in (d.schedule_json or []):
-            all_slots.append({
-                'dia': _normalize_day(slot.get('dia', '')),
-                'hora_inicio': slot.get('hora_inicio', ''),
-                'hora_fin': slot.get('hora_fin', ''),
-                'horas_academicas': slot.get('horas_academicas', 0),
-                'subject': d.subject,
-                'group_code': d.group_code,
-                'semester': d.semester,
-            })
+    grid = collect_schedule_grid(designations)
+    subject_color_map = grid.subject_color_map
+    all_slots = grid.all_slots
 
     # ── Weekly grid table ─────────────────────────────────────────────────────
-    unique_times = sorted(set(s['hora_inicio'] for s in all_slots))
+    unique_times = grid.unique_times
 
     cell_header = ParagraphStyle(
         'GridHeader', parent=styles['Normal'],
@@ -181,13 +208,12 @@ def generate_schedule_pdf(teacher, designations) -> str:
 
         row = [Paragraph(time_label, cell_time)]
         for day in WEEKDAYS:
-            matching = [
-                s for s in all_slots
-                if s['dia'] == day and s['hora_inicio'] == start_time
-            ]
+            matching = grid.slots_by_cell.get((start_time, day), [])
             if matching:
-                s = matching[0]
-                content = f"<b>{s['subject']}</b><br/>{s['group_code']}"
+                content = "<br/><br/>".join(
+                    f"<b>{slot['subject']}</b><br/>{slot['group_code']} ({slot['hora_fin']})"
+                    for slot in matching
+                )
                 row.append(Paragraph(content, cell_subject))
             else:
                 row.append(Paragraph('', cell_empty))
@@ -214,10 +240,7 @@ def generate_schedule_pdf(teacher, designations) -> str:
     # Color subject cells
     for row_idx, start_time in enumerate(unique_times, start=1):
         for col_idx, day in enumerate(WEEKDAYS, start=1):
-            matching = [
-                s for s in all_slots
-                if s['dia'] == day and s['hora_inicio'] == start_time
-            ]
+            matching = grid.slots_by_cell.get((start_time, day), [])
             if matching:
                 cell_color = subject_color_map.get(matching[0]['subject'], NAVY)
                 grid_style_cmds.append(
@@ -302,5 +325,6 @@ def generate_schedule_pdf(teacher, designations) -> str:
     ))
 
     doc.build(elements)
-    logger.info("Generated schedule PDF: %s", filename)
-    return str(filepath)
+    pdf = output.getvalue()
+    logger.info("Generated schedule PDF in memory for teacher %s", teacher.ci)
+    return pdf

@@ -22,6 +22,7 @@ import {
   useUploadTeacherPhoto,
   useDeleteTeacherPhoto,
   downloadTeacherPhoto,
+  downloadTeacherSchedule,
 } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
@@ -411,6 +412,8 @@ export function TeacherDetailPage() {
   const [editFormOverride, setEditFormOverride] = useState<Record<string, string> | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [scheduleDownloading, setScheduleDownloading] = useState(false)
+  const [scheduleDownloadError, setScheduleDownloadError] = useState<string | null>(null)
   const editForm = teacher ? (editFormOverride ?? toEditForm(teacher)) : {}
 
   const handleFieldChange = (field: string, value: string) => {
@@ -443,6 +446,19 @@ export function TeacherDetailPage() {
     setEditFormOverride(null)
     setEditError(null)
     setEditMode(false)
+  }
+
+  const handleScheduleDownload = async () => {
+    if (!teacher) return
+    setScheduleDownloadError(null)
+    setScheduleDownloading(true)
+    try {
+      await downloadTeacherSchedule(teacher.ci, teacher.full_name)
+    } catch {
+      setScheduleDownloadError('No se pudo descargar el horario del docente.')
+    } finally {
+      setScheduleDownloading(false)
+    }
   }
 
   if (isLoading) return <LoadingPage />
@@ -506,6 +522,15 @@ export function TeacherDetailPage() {
             <>
               <Button
                 variant="outline"
+                onClick={() => void handleScheduleDownload()}
+                disabled={scheduleDownloading}
+                className="gap-2"
+              >
+                <FileDown size={14} />
+                {scheduleDownloading ? 'Generando...' : 'Descargar horario'}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setEditMode(true)}
                 className="gap-2"
               >
@@ -524,6 +549,12 @@ export function TeacherDetailPage() {
           )}
         </div>
       </div>
+
+      {scheduleDownloadError && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+          {scheduleDownloadError}
+        </p>
+      )}
 
       {/* Teacher Info Card */}
       <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
