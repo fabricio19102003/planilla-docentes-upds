@@ -113,6 +113,7 @@ class BillingNotificationCapacityWindow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_dispatch_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    worker_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class BillingNotificationCapacityReservation(Base):

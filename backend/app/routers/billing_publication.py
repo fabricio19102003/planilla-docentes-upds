@@ -559,18 +559,15 @@ def _notification_publication(db: Session, month: int, year: int) -> BillingPubl
     return publication
 
 
-def _official_notification_readiness() -> dict[str, Any]:
-    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+def _official_notification_readiness(db: Session) -> dict[str, Any]:
+    from app.services.whatsapp_delivery_control import current_delivery_status
 
-    runtime = OfficialWhatsAppRuntime.from_settings(settings)
-    return runtime.live_readiness() if runtime is not None else {
-        "ready": False, "reason": "official_readiness_unavailable", "capacity": {"available": False},
-    }
+    return current_delivery_status(db)["readiness"]
 
 
 @router.get("/notifications/readiness")
-def billing_notification_readiness(_: User = Depends(require_admin)) -> dict[str, Any]:
-    return _official_notification_readiness()
+def billing_notification_readiness(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return _official_notification_readiness(db)
 
 
 @router.get("/notifications/batches/{batch_id}", response_model=BillingNotificationBatchStatusResponse)
@@ -590,7 +587,7 @@ def billing_notification_batch_status(batch_id: int, _: User = Depends(require_a
 
 @router.post("/notifications/preview", response_model=BillingNotificationPreviewResponse)
 def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationPreviewResponse:
-    plan = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
+    plan = BillingNotificationPreviewService(db, readiness=_official_notification_readiness(db)).preview(_notification_publication(db, payload.month, payload.year), payload.teacher_cis)
     recipients = [BillingNotificationRecipientResponse(**{key: item[key] for key in ("teacher_ci", "phone_masked", "channel", "reason")}) for item in plan.recipients]
     return BillingNotificationPreviewResponse(digest=plan.digest, recipients=recipients, readiness=plan.readiness)
 
@@ -598,7 +595,7 @@ def preview_billing_notifications(payload: BillingNotificationPreviewRequest, _:
 @router.post("/notifications/confirm", response_model=BillingNotificationConfirmResponse)
 def confirm_billing_notifications(payload: BillingNotificationConfirmRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> BillingNotificationConfirmResponse:
     try:
-        batch = BillingNotificationPreviewService(db, readiness=_official_notification_readiness()).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
+        batch = BillingNotificationPreviewService(db, readiness=_official_notification_readiness(db)).confirm(_notification_publication(db, payload.month, payload.year), payload.teacher_cis, payload.digest)
         db.commit()
     except NotificationPlanError as exc:
         db.rollback()

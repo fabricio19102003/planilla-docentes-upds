@@ -106,6 +106,29 @@ def test_readiness_drift_backs_off_without_transport_or_email_fallback(tmp_path)
     )
 
 
+def test_worker_rechecks_admin_gate_at_final_provider_boundary(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session)
+    gate = iter((True, False))
+    worker = BillingNotificationWorker(
+        session,
+        lambda: READY,
+        lambda _: (_ for _ in ()).throw(AssertionError("transport must not run")),
+        now=lambda: CLOCK,
+        dispatch_allowed=lambda: next(gate),
+    )
+
+    assert worker.process_one() == "cancelled"
+    job = session.query(BillingNotificationJob).one()
+    assert (job.status, job.next_attempt_at, job.lease_owner) == (
+        "queued",
+        CLOCK + timedelta(seconds=30),
+        None,
+    )
+    assert job.last_error_code == "official_dispatch_disabled"
+
+
 def test_future_retry_is_not_claimable_until_clock_reaches_it(tmp_path):
     _, Session = worker_session(tmp_path)
     session = Session()
