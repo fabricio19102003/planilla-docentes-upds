@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ------------------------------------------------------------------
@@ -24,6 +24,21 @@ class UserResponse(BaseModel):
     is_active: bool
     last_login: Optional[datetime] = None
     must_change_password: bool = False
+
+
+class UserListSummary(BaseModel):
+    total: int = 0
+    admins: int = 0
+    docentes: int = 0
+    active: int = 0
+
+
+class PaginatedUsersResponse(BaseModel):
+    items: list[UserResponse] = Field(default_factory=list)
+    total: int
+    page: int
+    per_page: int
+    summary: UserListSummary = Field(default_factory=UserListSummary)
 
 
 class UserCreate(BaseModel):
