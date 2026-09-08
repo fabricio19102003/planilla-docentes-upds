@@ -312,11 +312,11 @@ function RespondDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Respuesta al docente (opcional)</Label>
+            <Label>Observaciones para el docente (opcional)</Label>
             <Textarea
               value={adminResponse}
               onChange={(e) => setAdminResponse(e.target.value)}
-              placeholder="Ingresá una respuesta para el docente..."
+              placeholder="Agregá una observación sobre la resolución..."
               rows={3}
             />
           </div>

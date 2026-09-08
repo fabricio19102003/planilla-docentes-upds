@@ -127,9 +127,55 @@ export interface DetailRequestInfo {
   message?: string
   status: string
   admin_response?: string
+  resolution_snapshot?: DetailRequestResolutionSnapshot | null
   responded_at?: string
   created_at: string
 }
+
+export interface ScheduleResolutionSnapshot {
+  kind: 'schedule_detail'
+  academic_period: string
+  designations: Array<{
+    subject: string
+    semester: string
+    group_code: string
+    weekly_hours: number | null
+    monthly_hours: number | null
+    schedule: Array<{
+      dia: string
+      hora_inicio: string
+      hora_fin: string
+      horas_academicas: number
+    }>
+  }>
+}
+
+export interface HoursSummaryResolutionSnapshot {
+  kind: 'hours_summary'
+  month: number
+  year: number
+  total_records: number
+  total_academic_hours: number
+  status_counts: Record<string, number>
+}
+
+export interface BiometricResolutionSnapshot {
+  kind: 'biometric_detail'
+  month: number
+  year: number
+  records: Array<{
+    date: string
+    entry_time: string | null
+    exit_time: string | null
+    worked_minutes: number | null
+    shift: string | null
+  }>
+}
+
+export type DetailRequestResolutionSnapshot =
+  | ScheduleResolutionSnapshot
+  | HoursSummaryResolutionSnapshot
+  | BiometricResolutionSnapshot
 
 export interface DetailRequestAction {
   status: 'approved' | 'rejected'
