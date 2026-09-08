@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -21,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { AlertCircle, PlusCircle, MessageSquare, Eye } from 'lucide-react'
-import type { DetailRequestInfo } from '@/api/types'
+import type { DetailRequestInfo, DetailRequestResolutionSnapshot } from '@/api/types'
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
@@ -208,6 +209,9 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle style={{ color: '#003366' }}>Detalle de Solicitud</DialogTitle>
+          <DialogDescription className="sr-only">
+            Consulta la solicitud, la información histórica resuelta y las observaciones del administrador.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {/* Request info */}
@@ -238,9 +242,11 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
             </div>
           </div>
 
+          <ResolutionSnapshot snapshot={request.resolution_snapshot} />
+
           {/* Admin response */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Respuesta del administrador</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Observaciones del administrador</p>
             {request.admin_response ? (
               <div className={`border rounded-lg p-3 text-sm ${
                 request.status === 'approved'
@@ -269,6 +275,100 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ResolutionSnapshot({ snapshot }: { snapshot?: DetailRequestResolutionSnapshot | null }) {
+  if (!snapshot) return null
+
+  if (snapshot.kind === 'hours_summary') {
+    return (
+      <section aria-labelledby="request-resolution-title" className="space-y-2">
+        <h3 id="request-resolution-title" className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          Información resuelta
+        </h3>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-gray-700">
+          <p><span className="font-medium">Horas académicas:</span> {snapshot.total_academic_hours}</p>
+          <p><span className="font-medium">Registros:</span> {snapshot.total_records}</p>
+          {Object.keys(snapshot.status_counts).length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-2" aria-label="Registros por estado">
+              {Object.entries(snapshot.status_counts).map(([status, count]) => (
+                <li key={status} className="rounded-full bg-white px-2 py-1 text-xs">
+                  {status}: {count}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  if (snapshot.kind === 'schedule_detail') {
+    return (
+      <section aria-labelledby="request-resolution-title" className="space-y-2">
+        <h3 id="request-resolution-title" className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          Información resuelta
+        </h3>
+        <p className="text-xs text-gray-500">Período académico: {snapshot.academic_period}</p>
+        {snapshot.designations.length > 0 ? (
+          <div className="space-y-2">
+            {snapshot.designations.map((designation) => (
+              <article key={`${designation.subject}-${designation.group_code}-${designation.semester}`} className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <p className="text-sm font-semibold text-[#003366]">{designation.subject} ({designation.group_code})</p>
+                <p className="text-xs text-gray-500">{designation.semester}</p>
+                <ul className="mt-2 space-y-1">
+                  {designation.schedule.map((slot, index) => (
+                    <li key={`${slot.dia}-${slot.hora_inicio}-${slot.hora_fin}-${index}`} className="text-xs text-gray-700">
+                      {slot.dia}: {slot.hora_inicio}–{slot.hora_fin} · {slot.horas_academicas}h
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">Sin horarios asignados al responder.</p>
+        )}
+      </section>
+    )
+  }
+
+  return (
+    <section aria-labelledby="request-resolution-title" className="space-y-2">
+      <h3 id="request-resolution-title" className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        Información resuelta
+      </h3>
+      {snapshot.records.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-blue-200">
+          <table className="min-w-[520px] w-full text-xs">
+            <caption className="sr-only">Detalle biométrico histórico solicitado</caption>
+            <thead className="bg-blue-50 text-left text-gray-600">
+              <tr>
+                <th className="px-3 py-2">Fecha</th>
+                <th className="px-3 py-2">Entrada</th>
+                <th className="px-3 py-2">Salida</th>
+                <th className="px-3 py-2">Minutos</th>
+                <th className="px-3 py-2">Turno</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshot.records.map((record, index) => (
+                <tr key={`${record.date}-${record.entry_time}-${index}`} className="border-t border-blue-100">
+                  <td className="px-3 py-2">{record.date}</td>
+                  <td className="px-3 py-2">{record.entry_time ?? '—'}</td>
+                  <td className="px-3 py-2">{record.exit_time ?? '—'}</td>
+                  <td className="px-3 py-2">{record.worked_minutes ?? '—'}</td>
+                  <td className="px-3 py-2">{record.shift ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">Sin marcaciones biométricas al responder.</p>
+      )}
+    </section>
   )
 }
 

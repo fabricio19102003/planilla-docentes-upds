@@ -24,15 +24,18 @@ test('desktop weekly grid keeps simultaneous Monday subjects in one cell', async
   await expect(mondayCell).toContainText('08:00-09:30')
 })
 
-test('mobile weekly mode exposes simultaneous subjects in the day-list fallback', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'Mobile weekly fallback behavior')
+test('mobile weekly mode keeps simultaneous subjects in a real weekly grid', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'Mobile weekly grid behavior')
   await openWeeklySchedule(page)
 
-  await expect(page.getByText('En pantallas pequeñas, la grilla se presenta como una lista por día.')).toBeVisible()
-  const mondayList = page.getByRole('region', { name: 'Lunes' })
+  const weeklyGrid = page.getByRole('table', {
+    name: 'Horario semanal agrupado por día y hora de inicio',
+  })
+  const mondayCell = weeklyGrid.getByRole('cell', { name: /Anatomy I/ })
 
-  await expect(mondayList).toContainText('2 clase(s)')
-  await expect(mondayList).toContainText('Anatomy I')
-  await expect(mondayList).toContainText('Physiology I')
-  await expect(page.getByRole('table', { name: 'Horario semanal agrupado por día y hora de inicio' })).toBeHidden()
+  await expect(weeklyGrid).toBeVisible()
+  await expect(mondayCell).toContainText('Anatomy I')
+  await expect(mondayCell).toContainText('Physiology I')
+  await expect(mondayCell).toContainText('08:00-09:30')
+  await expect(page.getByText('En pantallas pequeñas, la grilla se presenta como una lista por día.')).toHaveCount(0)
 })

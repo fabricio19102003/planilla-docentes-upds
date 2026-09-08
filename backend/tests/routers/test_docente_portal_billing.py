@@ -240,7 +240,6 @@ def test_snapshotless_history_is_omitted_for_two_unverifiable_docentes(client, d
     ))
     app_settings_service.update_setting(db_session, "ACTIVE_ACADEMIC_PERIOD", "I/2026")
     db_session.commit()
-    app_settings_service.invalidate_cache()
     monkeypatch.setattr(
         docente_portal_router,
         "_build_billing",
@@ -261,7 +260,6 @@ def test_snapshotless_history_is_omitted_for_two_unverifiable_docentes(client, d
 
     app_settings_service.update_setting(db_session, "ACTIVE_ACADEMIC_PERIOD", "II/2026")
     db_session.commit()
-    app_settings_service.invalidate_cache()
     after = history_by_teacher()
 
     assert before == after == {teacher.ci: [] for teacher in teachers}

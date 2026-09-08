@@ -44,7 +44,7 @@ def test_runtime_config_is_fail_closed_and_never_exposes_secrets():
     assert "private" not in repr(runtime)
 
 
-def test_runtime_transport_uses_content_contract_and_public_media_url():
+def test_runtime_transport_uses_numeric_media_path_variable():
     from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
 
     calls = []
@@ -62,7 +62,7 @@ def test_runtime_transport_uses_content_contract_and_public_media_url():
     assert calls == [{
         "to": "+59170000000",
         "content_sid": "HX" + "e" * 32,
-        "content_variables": '{"twilio/media":"https://sipad.example/api/public/billing-media/opaque"}',
+        "content_variables": '{"1":"api/public/billing-media/opaque.pdf"}',
     }]
 
 

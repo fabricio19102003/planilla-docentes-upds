@@ -308,6 +308,7 @@ async def lifespan(app: FastAPI):
                 ("DOCENTE_CAN_EDIT_PROFILE", "false", "Permite a docentes editar sus datos de perfil desde el portal"),
                 ("DOCENTE_CAN_EDIT_PHOTO", "false", "Permite a docentes subir o eliminar su propia foto de perfil"),
                 ("MEDICINE_SCHEDULE_ASSISTANT_ENABLED", "false", "Habilita el asistente de horarios de Medicina"),
+                ("BILLING_WHATSAPP_DELIVERY_ENABLED", "false", "Permite solicitar envíos de facturación por WhatsApp oficial"),
             ]
             added = 0
             for key, value, desc in defaults_spec:
@@ -316,7 +317,6 @@ async def lifespan(app: FastAPI):
                     added += 1
             if added:
                 db.commit()
-                app_settings_service.invalidate_cache()
                 logger.info("Seeded %d missing app settings", added)
         finally:
             db.close()

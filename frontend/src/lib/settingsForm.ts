@@ -11,6 +11,7 @@ export interface SettingsFormState {
   practice_hourly_rate: string
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
+  whatsapp_billing_requested_enabled: boolean
 }
 
 export function toSettingsFormState(settings: AppSettings): SettingsFormState {
@@ -22,6 +23,7 @@ export function toSettingsFormState(settings: AppSettings): SettingsFormState {
     practice_hourly_rate: String(settings.practice_hourly_rate),
     docente_can_edit_profile: settings.docente_can_edit_profile,
     docente_can_edit_photo: settings.docente_can_edit_photo,
+    whatsapp_billing_requested_enabled: settings.whatsapp_billing_delivery.requested_enabled,
   }
 }
 
@@ -69,6 +71,13 @@ export function buildSettingsPayload(
 
   if (form.docente_can_edit_photo !== server.docente_can_edit_photo) {
     payload.docente_can_edit_photo = form.docente_can_edit_photo
+  }
+
+  if (
+    form.whatsapp_billing_requested_enabled
+    !== server.whatsapp_billing_delivery.requested_enabled
+  ) {
+    payload.whatsapp_billing_requested_enabled = form.whatsapp_billing_requested_enabled
   }
 
   return payload

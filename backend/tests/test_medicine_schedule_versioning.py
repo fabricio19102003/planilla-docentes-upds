@@ -78,7 +78,6 @@ def test_medicine_models_are_registered_and_isolated():
     assert foreign_tables <= MEDICINE_TABLES | {"users"}
 
 def test_feature_is_default_disabled_and_registered(client, db_session):
-    app_settings_service.invalidate_cache()
     assert app_settings_service.get_medicine_schedule_assistant_enabled(db_session) is False
     assert router.prefix == "/api/medicine-schedules"
     assert any(route.path == "/api/medicine-schedules/status" for route in app.routes)

@@ -21,6 +21,20 @@ export interface ScheduleResponse {
   }>
 }
 
+export interface DetailRequestResponse {
+  id: number
+  teacher_ci: string
+  month: number
+  year: number
+  request_type: string
+  message?: string
+  status: string
+  admin_response?: string
+  resolution_snapshot?: unknown
+  responded_at?: string
+  created_at: string
+}
+
 const docenteUser = {
   id: 42,
   ci: '12345678',
@@ -49,7 +63,11 @@ export async function mockInvalidCredentials(page: Page) {
   })
 }
 
-export async function mockAuthenticatedDocente(page: Page, schedule: ScheduleResponse) {
+export async function mockAuthenticatedDocente(
+  page: Page,
+  schedule: ScheduleResponse,
+  requests: DetailRequestResponse[] = [],
+) {
   await page.addInitScript(() => {
     window.localStorage.setItem('auth_token', 'e2e-docente-token')
   })
@@ -72,6 +90,10 @@ export async function mockAuthenticatedDocente(page: Page, schedule: ScheduleRes
     }
     if (request.method() === 'GET' && pathname === '/api/portal/schedule') {
       await json(route, schedule)
+      return
+    }
+    if (request.method() === 'GET' && pathname === '/api/detail-requests/my') {
+      await json(route, requests)
       return
     }
 

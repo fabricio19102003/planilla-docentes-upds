@@ -315,13 +315,8 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
   }
 
   return (
-    <>
-      <div className="md:hidden">
-        <p className="mb-3 text-xs text-gray-500">En pantallas pequeñas, la grilla se presenta como una lista por día.</p>
-        <ViewPorDia allSlots={allSlots} />
-      </div>
-      <div className="card-3d-static hidden max-w-full overflow-hidden md:block">
-        <div className="max-w-full overflow-x-auto">
+    <div className="card-3d-static max-w-full overflow-hidden">
+      <div className="max-w-full overflow-x-auto" role="region" aria-label="Grilla semanal desplazable">
           <table className="min-w-[900px] w-full text-sm">
             <caption className="sr-only">Horario semanal agrupado por día y hora de inicio</caption>
           <thead>
@@ -379,9 +374,8 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
             })}
           </tbody>
           </table>
-        </div>
       </div>
-    </>
+    </div>
   )
 }
 

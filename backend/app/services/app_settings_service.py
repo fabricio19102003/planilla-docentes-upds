@@ -1,17 +1,13 @@
 """
 Service: App Settings
 
-Provides cached read/write access to the ``app_settings`` key/value table.
+Provides read/write access to the ``app_settings`` key/value table.
 
 Design
 ------
-- An in-memory cache is populated on first access and invalidated on every
-  update.  The cache lives for the lifetime of the worker process — in
-  development (uvicorn --reload) or a single-worker deployment this is fine.
-  With multiple workers, each worker holds its own cache; writes in worker A
-  won't be seen by worker B until its cache expires (today only on restart).
-  If we ever move to multi-worker deployments we'll need an event bus or
-  per-request read — this is documented here so it's not a surprise.
+- Settings are read from the database on demand. Production runs multiple
+  workers, so process-local caching would make authorization flags stale after
+  an update handled by another worker.
 - Typed getters (``get_active_academic_period``, ``get_hourly_rate`` …) wrap
   the raw ``get_setting`` call and apply safe defaults so callers don't have
   to know about the storage format.
@@ -36,6 +32,7 @@ KEY_PRACTICE_HOURLY_RATE = "PRACTICE_HOURLY_RATE"
 KEY_DOCENTE_CAN_EDIT_PROFILE = "DOCENTE_CAN_EDIT_PROFILE"
 KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
+KEY_BILLING_WHATSAPP_DELIVERY_ENABLED = "BILLING_WHATSAPP_DELIVERY_ENABLED"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -48,56 +45,34 @@ _DEFAULTS: dict[str, str] = {
     KEY_DOCENTE_CAN_EDIT_PROFILE: "false",
     KEY_DOCENTE_CAN_EDIT_PHOTO: "false",
     KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
+    KEY_BILLING_WHATSAPP_DELIVERY_ENABLED: "false",
 }
-
-# ── In-memory cache ────────────────────────────────────────────────────────
-# Module-level state is intentional: a single cache shared by all requests
-# handled by this worker process.
-_cache: dict[str, str] = {}
-_cache_loaded = False
-
-
-def _ensure_cache(db: Session) -> None:
-    global _cache, _cache_loaded
-    if _cache_loaded:
-        return
-    try:
-        rows = db.query(AppSetting).all()
-    except Exception as exc:  # pragma: no cover - defensive
-        # If the table doesn't exist yet (very first startup before seeding)
-        # don't crash; fall back to defaults.  Leave _cache_loaded = False so
-        # the next call retries instead of caching an empty dict permanently.
-        logger.warning("Could not load app_settings cache: %s", exc)
-        return
-    _cache = {r.key: r.value for r in rows}
-    _cache_loaded = True
-    logger.debug("app_settings cache loaded (%d keys)", len(_cache))
-
-
-def invalidate_cache() -> None:
-    """Drop the in-memory cache.  Call after any write."""
-    global _cache, _cache_loaded
-    _cache = {}
-    _cache_loaded = False
-
 
 # ── Generic accessors ──────────────────────────────────────────────────────
 
 
 def get_setting(db: Session, key: str, default: str = "") -> str:
     """Return the raw string value for ``key`` or ``default`` if missing."""
-    _ensure_cache(db)
-    if key in _cache:
-        return _cache[key]
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == key).one_or_none()
+    except Exception as exc:  # pragma: no cover - startup before table creation
+        logger.warning("Could not read app setting %s: %s", key, exc)
+        row = None
+    if row is not None:
+        return row.value
     return _DEFAULTS.get(key, default)
 
 
 def get_all_settings(db: Session) -> dict[str, str]:
-    """Return a shallow copy of the current cache (for diagnostics)."""
-    _ensure_cache(db)
+    """Return all current settings merged over safe defaults."""
+    try:
+        rows = db.query(AppSetting).all()
+    except Exception as exc:  # pragma: no cover - startup before table creation
+        logger.warning("Could not read app settings: %s", exc)
+        rows = []
     # Merge defaults first so consumers always see all well-known keys.
     merged = dict(_DEFAULTS)
-    merged.update(_cache)
+    merged.update({row.key: row.value for row in rows})
     return merged
 
 
@@ -108,12 +83,7 @@ def update_setting(
     description: Optional[str] = None,
 ) -> AppSetting:
     """Upsert a single setting.  The caller is responsible for ``db.commit()``
-    and for calling ``invalidate_cache()`` **after** the commit succeeds.
-
-    We flush so the value is visible within the same transaction but do NOT
-    invalidate the cache here — that must happen after the commit to prevent
-    a race where another request re-populates the cache from stale committed
-    data between flush and commit.
+    We flush so the value is visible within the same transaction.
     """
     row = db.query(AppSetting).filter(AppSetting.key == key).first()
     if row:
@@ -201,3 +171,7 @@ def set_docente_can_edit_photo(db: Session, value: bool) -> AppSetting:
 
 def set_medicine_schedule_assistant_enabled(db: Session, value: bool) -> AppSetting:
     return update_setting(db, KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED, _format_bool(value))
+
+
+def set_billing_whatsapp_delivery_enabled(db: Session, value: bool) -> AppSetting:
+    return update_setting(db, KEY_BILLING_WHATSAPP_DELIVERY_ENABLED, _format_bool(value))

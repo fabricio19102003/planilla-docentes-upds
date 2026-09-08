@@ -35,6 +35,7 @@ class BillingNotificationWorker:
         backoff_seconds: int = 30,
         sleeper: Callable[[float], None] = sleep,
         before_transport: Callable[[], None] | None = None,
+        dispatch_allowed: Callable[[], bool] | None = None,
     ) -> None:
         self.db = db
         self.readiness = readiness
@@ -45,6 +46,7 @@ class BillingNotificationWorker:
         self.backoff_seconds = backoff_seconds
         self.sleeper = sleeper
         self.before_transport = before_transport
+        self.dispatch_allowed = dispatch_allowed or (lambda: True)
 
     def claim_one(self) -> BillingNotificationJob | None:
         """Atomically claim one *due* job and commit its durable lease."""
@@ -120,10 +122,12 @@ class BillingNotificationWorker:
 
         # STOP may cancel a committed sending job before this final provider boundary.
         if not self._can_dispatch(job.id):
+            self._backoff(job.id, "official_dispatch_disabled", sending=True)
             return "cancelled"
         if self.before_transport:
             self.before_transport()
         if not self._can_dispatch(job.id):
+            self._backoff(job.id, "official_dispatch_disabled", sending=True)
             return "cancelled"
         result = self.transport(self.db.get(BillingNotificationJob, job.id))
         if result.status == "sent":
@@ -182,7 +186,13 @@ class BillingNotificationWorker:
         self.db.expire_all()
         job = self.db.get(BillingNotificationJob, job_id)
         preference = self.db.get(WhatsAppPreference, job.teacher_ci) if job else None
-        return bool(job and job.status == "sending" and preference and preference.is_eligible_for_whatsapp)
+        return bool(
+            self.dispatch_allowed()
+            and job
+            and job.status == "sending"
+            and preference
+            and preference.is_eligible_for_whatsapp
+        )
 
     def _finalize(self, job_id: int, status: str, provider_sid: str | None) -> None:
         updated = (

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import PasswordReset, UserCreate, UserResponse, UserUpdate
+from app.schemas.auth import (
+    PaginatedUsersResponse,
+    PasswordReset,
+    UserCreate,
+    UserListSummary,
+    UserResponse,
+    UserUpdate,
+)
 from app.services.auth_service import auth_service
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
@@ -17,15 +25,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
-@router.get("", response_model=list[UserResponse])
+@router.get("", response_model=PaginatedUsersResponse)
 def list_users(
-    role: str | None = Query(default=None, description="Filtrar por rol: 'admin' o 'docente'"),
+    search: str | None = Query(default=None),
+    role: Literal["admin", "docente"] | None = Query(default=None),
+    active: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=25, ge=1, le=200),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> list[UserResponse]:
-    """List all users (admin only). Optionally filter by role."""
-    users = auth_service.list_users(db=db, role=role)
-    return [UserResponse.model_validate(u) for u in users]
+) -> PaginatedUsersResponse:
+    """List users with server-side search, filters, and pagination (admin only)."""
+    users, total = auth_service.list_users(
+        db=db,
+        search=search,
+        role=role,
+        active=active,
+        page=page,
+        per_page=per_page,
+    )
+    return PaginatedUsersResponse(
+        items=[UserResponse.model_validate(user) for user in users],
+        total=total,
+        page=page,
+        per_page=per_page,
+        summary=UserListSummary(**auth_service.user_summary(db)),
+    )
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

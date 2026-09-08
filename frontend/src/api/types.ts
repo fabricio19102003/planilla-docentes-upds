@@ -14,6 +14,17 @@ export interface AuthUser {
   avatar_url?: string | null
 }
 
+export interface UserListSummary {
+  total: number
+  admins: number
+  docentes: number
+  active: number
+}
+
+export interface PaginatedUsersResponse extends PaginatedResponse<AuthUser> {
+  summary: UserListSummary
+}
+
 export interface LoginResponse {
   access_token: string
   token_type: string
@@ -127,9 +138,55 @@ export interface DetailRequestInfo {
   message?: string
   status: string
   admin_response?: string
+  resolution_snapshot?: DetailRequestResolutionSnapshot | null
   responded_at?: string
   created_at: string
 }
+
+export interface ScheduleResolutionSnapshot {
+  kind: 'schedule_detail'
+  academic_period: string
+  designations: Array<{
+    subject: string
+    semester: string
+    group_code: string
+    weekly_hours: number | null
+    monthly_hours: number | null
+    schedule: Array<{
+      dia: string
+      hora_inicio: string
+      hora_fin: string
+      horas_academicas: number
+    }>
+  }>
+}
+
+export interface HoursSummaryResolutionSnapshot {
+  kind: 'hours_summary'
+  month: number
+  year: number
+  total_records: number
+  total_academic_hours: number
+  status_counts: Record<string, number>
+}
+
+export interface BiometricResolutionSnapshot {
+  kind: 'biometric_detail'
+  month: number
+  year: number
+  records: Array<{
+    date: string
+    entry_time: string | null
+    exit_time: string | null
+    worked_minutes: number | null
+    shift: string | null
+  }>
+}
+
+export type DetailRequestResolutionSnapshot =
+  | ScheduleResolutionSnapshot
+  | HoursSummaryResolutionSnapshot
+  | BiometricResolutionSnapshot
 
 export interface DetailRequestAction {
   status: 'approved' | 'rejected'
@@ -615,6 +672,16 @@ export interface AppSettings {
   practice_hourly_rate: number
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
+  whatsapp_billing_delivery: WhatsAppBillingDeliveryStatus
+}
+
+export interface WhatsAppBillingDeliveryStatus {
+  requested_enabled: boolean
+  effective_enabled: boolean
+  can_enable: boolean
+  blocking_reasons: string[]
+  readiness: Record<string, unknown>
+  worker_heartbeat_at: string | null
 }
 
 export interface AppSettingsUpdate {
@@ -625,4 +692,5 @@ export interface AppSettingsUpdate {
   practice_hourly_rate?: number
   docente_can_edit_profile?: boolean
   docente_can_edit_photo?: boolean
+  whatsapp_billing_requested_enabled?: boolean
 }
