@@ -14,12 +14,14 @@ import {
 } from '@/lib/settingsForm'
 
 function PermissionToggle({
+  id,
   checked,
   title,
   description,
   onChange,
   disabled,
 }: {
+  id: string
   checked: boolean
   title: string
   description: string
@@ -28,9 +30,11 @@ function PermissionToggle({
 }) {
   return (
     <button
+      id={id}
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-describedby={`${id}-description`}
       onClick={() => onChange(!checked)}
       disabled={disabled}
       className={`group flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-colors disabled:opacity-60 ${
@@ -51,7 +55,7 @@ function PermissionToggle({
       </span>
       <span>
         <span className="block text-sm font-semibold text-[#003366]">{title}</span>
-        <span className="mt-1 block text-xs leading-5 text-gray-500">{description}</span>
+        <span id={`${id}-description`} className="mt-1 block text-xs leading-5 text-gray-500">{description}</span>
         <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${checked ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
           {checked ? 'Habilitado para docentes' : 'Controlado por administración'}
         </span>
@@ -191,7 +195,7 @@ export function SettingsPage() {
           </p>
         </div>
 
-        {isLoading || !form ? (
+        {isLoading || !form || !settings ? (
           <div className="flex justify-center py-14">
             <Loader2 size={24} className="animate-spin text-[#003366]" />
           </div>
@@ -311,6 +315,7 @@ export function SettingsPage() {
 
               <div className="grid gap-3 lg:grid-cols-2">
                 <PermissionToggle
+                  id="docente-can-edit-profile"
                   checked={form.docente_can_edit_profile}
                   title="Editar datos personales y bancarios"
                   description="Permite actualizar email, teléfono, datos académicos y cuenta bancaria desde Mi Perfil. Si está apagado, la ficha queda visible en modo lectura."
@@ -318,6 +323,7 @@ export function SettingsPage() {
                   disabled={updateMutation.isPending}
                 />
                 <PermissionToggle
+                  id="docente-can-edit-photo"
                   checked={form.docente_can_edit_photo}
                   title="Subir o eliminar foto propia"
                   description="Permite que el docente cambie su avatar institucional. Los administradores siempre pueden gestionar la foto desde el detalle del docente."
@@ -327,9 +333,38 @@ export function SettingsPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-green-200 bg-green-50/40 p-4">
+              <div className="mb-3">
+                <h4 className="text-sm font-bold text-[#003366]">Entrega de facturación por WhatsApp</h4>
+                <p className="mt-1 text-xs leading-5 text-gray-600">
+                  Este control solo solicita envíos nuevos. La infraestructura, el worker y la aprobación del proveedor deben estar disponibles.
+                </p>
+              </div>
+              <PermissionToggle
+                id="whatsapp-billing-delivery"
+                checked={form.whatsapp_billing_requested_enabled}
+                title="Permitir nuevos envíos por WhatsApp oficial"
+                description={
+                  settings.whatsapp_billing_delivery.effective_enabled
+                    ? 'Disponible para generar vistas previas y confirmar nuevos lotes.'
+                    : settings.whatsapp_billing_delivery.blocking_reasons.length > 0
+                      ? `No disponible: ${settings.whatsapp_billing_delivery.blocking_reasons.join(', ')}.`
+                      : 'La entrega está desactivada por administración.'
+                }
+                onChange={(checked) => setForm({ ...form, whatsapp_billing_requested_enabled: checked })}
+                disabled={
+                  updateMutation.isPending
+                  || (!settings.whatsapp_billing_delivery.can_enable && !form.whatsapp_billing_requested_enabled)
+                }
+              />
+              <p className="mt-3 text-xs font-medium text-gray-700" aria-live="polite">
+                Estado efectivo: {settings.whatsapp_billing_delivery.effective_enabled ? 'disponible' : 'no disponible'}.
+              </p>
+            </div>
+
             {/* Validation error */}
             {validationError && (
-              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
+              <div role="alert" className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
                 <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
                 <span>{validationError}</span>
               </div>
@@ -337,7 +372,7 @@ export function SettingsPage() {
 
             {/* Server error */}
             {updateMutation.isError && (
-              <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700 flex items-start gap-2">
+              <div role="alert" className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700 flex items-start gap-2">
                 <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
                 <span>
                   No se pudo guardar la configuración.
@@ -350,7 +385,7 @@ export function SettingsPage() {
 
             {/* Success */}
             {savedMessage && !updateMutation.isError && (
-              <div className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 flex items-start gap-2">
+              <div role="status" className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 flex items-start gap-2">
                 <span>✅</span>
                 <span>{savedMessage}</span>
               </div>

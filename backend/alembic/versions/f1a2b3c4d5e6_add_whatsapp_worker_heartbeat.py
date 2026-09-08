@@ -14,6 +14,20 @@ depends_on = None
 
 
 def upgrade() -> None:
+    columns = {
+        column["name"]: column
+        for column in sa.inspect(op.get_bind()).get_columns(
+            "billing_notification_capacity_windows"
+        )
+    }
+    existing = columns.get("worker_heartbeat_at")
+    if existing is not None:
+        if not isinstance(existing["type"], sa.DateTime) or existing["nullable"] is not True:
+            raise RuntimeError(
+                "Incompatible pre-existing "
+                "billing_notification_capacity_windows.worker_heartbeat_at column"
+            )
+        return
     op.add_column(
         "billing_notification_capacity_windows",
         sa.Column("worker_heartbeat_at", sa.DateTime(), nullable=True),
@@ -21,4 +35,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("billing_notification_capacity_windows", "worker_heartbeat_at")
+    raise RuntimeError("Restore an explicitly approved backup instead.")
