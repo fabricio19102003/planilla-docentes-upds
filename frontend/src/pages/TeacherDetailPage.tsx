@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
-  User,
   Pencil,
   Save,
   X,
@@ -13,6 +12,7 @@ import {
   CreditCard,
   Camera,
   Upload,
+  FileDown,
 } from 'lucide-react'
 import {
   useTeacherDetail,
@@ -21,6 +21,7 @@ import {
   useUpdateDesignationContractDates,
   useUploadTeacherPhoto,
   useDeleteTeacherPhoto,
+  downloadTeacherPhoto,
 } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
@@ -253,6 +254,7 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
   const [imageError, setImageError] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isDownloading, setIsDownloading] = useState(false)
   const initials = teacher.full_name
     .split(' ')
     .slice(0, 2)
@@ -260,7 +262,7 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
     .join('')
     .toUpperCase()
   const showImage = Boolean(teacher.avatar_url) && !imageError
-  const busy = uploadPhoto.isPending || deletePhoto.isPending
+  const busy = uploadPhoto.isPending || deletePhoto.isPending || isDownloading
 
   const handleUpload = async (file: File) => {
     setMessage(null)
@@ -290,10 +292,23 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
     }
   }
 
+  const handleDownload = async () => {
+    setMessage(null)
+    setError(null)
+    setIsDownloading(true)
+    try {
+      await downloadTeacherPhoto(teacher.ci)
+    } catch {
+      setError('No se pudo descargar la foto del docente.')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
   return (
-    <div className="rounded-2xl border border-white/15 bg-white/10 p-3 backdrop-blur-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="h-20 w-20 overflow-hidden rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-black text-white ring-2 ring-white/20">
+    <section aria-label="Foto institucional" className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="h-32 w-32 shrink-0 overflow-hidden rounded-2xl bg-white/20 flex items-center justify-center text-4xl font-black text-white ring-2 ring-white/30">
           {showImage ? (
             <img
               src={teacher.avatar_url ?? undefined}
@@ -311,8 +326,8 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
             <p className="text-sm font-semibold">Foto institucional</p>
           </div>
           <p className="mt-1 text-xs text-white/70">JPG, PNG o WEBP hasta 2 MB. El cambio impacta el portal y el encabezado del docente.</p>
-          {message && <p className="mt-2 text-xs font-medium text-green-100">{message}</p>}
-          {error && <p className="mt-2 text-xs font-medium text-red-100">{error}</p>}
+          {message && <p role="status" aria-live="polite" className="mt-2 text-xs font-medium text-green-100">{message}</p>}
+          {error && <p role="alert" className="mt-2 text-xs font-medium text-red-100">{error}</p>}
         </div>
       </div>
       <input
@@ -334,6 +349,16 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
         <Button
           type="button"
           variant="outline"
+          onClick={() => void handleDownload()}
+          disabled={busy || !teacher.avatar_url}
+          className="gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20"
+        >
+          <FileDown size={14} />
+          {isDownloading ? 'Descargando...' : 'Descargar foto'}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
           onClick={() => void handleDelete()}
           disabled={busy || !teacher.avatar_url}
           className="gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20"
@@ -342,7 +367,7 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
           Eliminar foto
         </Button>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -504,11 +529,9 @@ export function TeacherDetailPage() {
       <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
         {/* Gradient header strip */}
         <div className="gradient-navy px-6 py-4">
-          <div className="grid gap-4 lg:grid-cols-[1fr_420px] lg:items-center">
+          <div className="grid gap-5 lg:grid-cols-[minmax(340px,520px)_1fr] lg:items-center">
+            {!editMode && <TeacherPhotoControl teacher={teacher} />}
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                <User size={26} className="text-white" />
-              </div>
               <div>
               <h2 className="text-xl font-semibold text-white">
                 {editMode ? editForm.full_name || teacher.full_name : teacher.full_name}
@@ -528,7 +551,6 @@ export function TeacherDetailPage() {
               </div>
               </div>
             </div>
-            {!editMode && <TeacherPhotoControl teacher={teacher} />}
           </div>
         </div>
 

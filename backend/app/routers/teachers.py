@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
@@ -34,6 +35,7 @@ from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
     delete_photo_file,
+    resolve_teacher_photo_path,
     save_upload_file,
 )
 from app.utils.auth import get_current_user, require_admin
@@ -335,6 +337,37 @@ def delete_teacher_photo(
         db.rollback()
         logger.exception("Failed to delete teacher photo for %s: %s", ci, exc)
         raise HTTPException(status_code=500, detail="No se pudo eliminar la foto del docente") from exc
+
+
+@router.get("/{ci}/photo/download")
+def download_teacher_photo(
+    ci: str,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Download a teacher photo through an authenticated, basename-confined path."""
+    teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
+    if teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+
+    photo_path = resolve_teacher_photo_path(teacher.photo_filename)
+    if photo_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto de docente no encontrada")
+
+    extension = photo_path.suffix.lower()
+    media_type = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }[extension]
+    safe_ci = "".join(char if char.isalnum() or char in "-_" else "_" for char in teacher.ci)
+    return FileResponse(
+        path=photo_path,
+        filename=f"Foto_Docente_{safe_ci}{extension}",
+        media_type=media_type,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.put("/designations/{designation_id}/contract-dates", response_model=DesignationResponse)
