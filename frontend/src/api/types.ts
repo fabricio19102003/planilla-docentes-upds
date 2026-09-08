@@ -14,6 +14,17 @@ export interface AuthUser {
   avatar_url?: string | null
 }
 
+export interface UserListSummary {
+  total: number
+  admins: number
+  docentes: number
+  active: number
+}
+
+export interface PaginatedUsersResponse extends PaginatedResponse<AuthUser> {
+  summary: UserListSummary
+}
+
 export interface LoginResponse {
   access_token: string
   token_type: string

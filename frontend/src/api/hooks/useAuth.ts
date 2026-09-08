@@ -13,15 +13,33 @@ import type {
   PortalPhotoPayload,
   PortalProfile,
   PortalScheduleResponse,
+  PaginatedUsersResponse,
 } from '@/api/types'
 
 // ─── Users (admin) ────────────────────────────────────────────────────────────
 
-export function useUsers() {
+export interface UsersParams {
+  search?: string
+  role?: 'admin' | 'docente'
+  active?: boolean
+  page?: number
+  perPage?: number
+}
+
+export function useUsers(params: UsersParams = {}) {
   return useQuery({
-    queryKey: ['users'],
+    queryKey: ['users', params],
+    placeholderData: (previousData) => previousData,
     queryFn: async () => {
-      const res = await api.get<AuthUser[]>('/users')
+      const res = await api.get<PaginatedUsersResponse>('/users', {
+        params: {
+          search: params.search || undefined,
+          role: params.role,
+          active: params.active,
+          page: params.page ?? 1,
+          per_page: params.perPage ?? 25,
+        },
+      })
       return res.data
     },
   })

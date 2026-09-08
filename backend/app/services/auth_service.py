@@ -7,6 +7,7 @@ from typing import Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -156,11 +157,48 @@ class AuthService:
         db.flush()
         return user
 
-    def list_users(self, db: Session, role: Optional[str] = None) -> list[User]:
+    def list_users(
+        self,
+        db: Session,
+        *,
+        search: Optional[str] = None,
+        role: Optional[str] = None,
+        active: Optional[bool] = None,
+        page: int = 1,
+        per_page: int = 25,
+    ) -> tuple[list[User], int]:
         query = db.query(User)
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    User.full_name.ilike(term),
+                    User.ci.ilike(term),
+                    User.email.ilike(term),
+                    User.teacher_ci.ilike(term),
+                )
+            )
         if role:
             query = query.filter(User.role == role)
-        return query.order_by(User.full_name.asc()).all()
+        if active is not None:
+            query = query.filter(User.is_active.is_(active))
+
+        total = query.count()
+        users = (
+            query.order_by(User.full_name.asc(), User.id.asc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        return users, total
+
+    def user_summary(self, db: Session) -> dict[str, int]:
+        return {
+            "total": db.query(User).count(),
+            "admins": db.query(User).filter(User.role == "admin").count(),
+            "docentes": db.query(User).filter(User.role == "docente").count(),
+            "active": db.query(User).filter(User.is_active.is_(True)).count(),
+        }
 
     # ------------------------------------------------------------------
     # Default admin bootstrap
