@@ -9,20 +9,44 @@ from app.models.teacher import Teacher
 from app.services import teacher_photo_service
 
 
+PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + b"\x00" * 16
+
+
 def make_upload(filename: str, content_type: str, content: bytes) -> UploadFile:
     return UploadFile(filename=filename, file=io.BytesIO(content), headers={"content-type": content_type})
 
 
 def test_save_upload_file_validates_and_uses_uuid_filename(monkeypatch, tmp_path):
     monkeypatch.setattr(teacher_photo_service.settings, "UPLOAD_DIR", str(tmp_path))
-    upload = make_upload("avatar.png", "image/png", b"png-bytes")
+    upload = make_upload("avatar.png", "image/png", PNG_BYTES)
 
     filename, content_type = teacher_photo_service.save_upload_file(upload)
 
     assert filename.endswith(".png")
     assert filename != "avatar.png"
     assert content_type == "image/png"
-    assert (tmp_path / "teacher-photos" / filename).read_bytes() == b"png-bytes"
+    assert (tmp_path / "teacher-photos" / filename).read_bytes() == PNG_BYTES
+
+
+def test_save_upload_file_rejects_spoofed_image_bytes(monkeypatch, tmp_path):
+    monkeypatch.setattr(teacher_photo_service.settings, "UPLOAD_DIR", str(tmp_path))
+    upload = make_upload("avatar.png", "image/png", b"not-really-a-png")
+
+    with pytest.raises(HTTPException) as exc_info:
+        teacher_photo_service.save_upload_file(upload)
+
+    assert exc_info.value.status_code == 400
+    assert not (tmp_path / "teacher-photos").exists()
+
+
+def test_save_upload_file_rejects_mismatched_declared_format(monkeypatch, tmp_path):
+    monkeypatch.setattr(teacher_photo_service.settings, "UPLOAD_DIR", str(tmp_path))
+    upload = make_upload("avatar.jpg", "image/jpeg", PNG_BYTES)
+
+    with pytest.raises(HTTPException) as exc_info:
+        teacher_photo_service.save_upload_file(upload)
+
+    assert exc_info.value.status_code == 400
 
 
 def test_save_upload_file_rejects_invalid_content_type(monkeypatch, tmp_path):

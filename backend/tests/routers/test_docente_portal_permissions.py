@@ -5,6 +5,10 @@ from app.models.teacher import Teacher
 from app.models.user import User
 from app.routers.docente_portal import _filter_excluded_days_for_teacher
 from app.services import app_settings_service, teacher_photo_service
+
+
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 8 + b"\xff\xd9"
+WEBP_BYTES = b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"\x00" * 8
 from app.services.auth_service import auth_service
 
 
@@ -159,7 +163,7 @@ def test_docente_photo_upload_replace_and_delete_when_permission_enabled(client,
 
     upload = client.put(
         "/api/portal/profile/photo",
-        files={"file": ("avatar.jpg", b"first", "image/jpeg")},
+        files={"file": ("avatar.jpg", JPEG_BYTES, "image/jpeg")},
     )
     assert upload.status_code == 200
     assert upload.json()["docente_can_edit_photo"] is True
@@ -169,7 +173,7 @@ def test_docente_photo_upload_replace_and_delete_when_permission_enabled(client,
 
     replace = client.put(
         "/api/portal/profile/photo",
-        files={"file": ("avatar.webp", b"second", "image/webp")},
+        files={"file": ("avatar.webp", WEBP_BYTES, "image/webp")},
     )
     assert replace.status_code == 200
     assert replace.json()["docente_can_edit_photo"] is True

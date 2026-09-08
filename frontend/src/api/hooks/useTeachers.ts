@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Designation, PaginatedResponse, Teacher, TeacherDetail, TeacherPhotoPayload } from '@/api/types'
 import type { TeacherType } from '@/domain/teacherTypes'
+import { downloadApiBlob } from '@/lib/download'
 
 interface TeachersParams {
   search?: string
@@ -116,6 +117,10 @@ export function useDeleteTeacherPhoto() {
       void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
     },
   })
+}
+
+export async function downloadTeacherPhoto(ci: string): Promise<void> {
+  await downloadApiBlob(`/teachers/${encodeURIComponent(ci)}/photo/download`)
 }
 
 export function useUpdateDesignationContractDates() {
