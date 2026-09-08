@@ -17,6 +17,11 @@ from app.models.billing_notification import BillingMediaToken, BillingNotificati
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.twilio_content_transport import TwilioContentTransport
 from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
+from app.services.whatsapp_delivery_control import (
+    get_requested_enabled,
+    mark_worker_heartbeat,
+    status_from_readiness,
+)
 from app.workers.billing_notification_worker import BillingNotificationWorker
 
 logger = logging.getLogger(__name__)
@@ -132,11 +137,14 @@ def run() -> int:
     while True:
         db = SessionLocal()
         try:
+            mark_worker_heartbeat(db)
+            db.commit()
             worker = BillingNotificationWorker(
                 db,
-                readiness=runtime.live_readiness,
+                readiness=lambda: status_from_readiness(db, runtime.live_readiness())["readiness"],
                 transport=lambda job: _send(db, runtime, job),
                 owner=f"official-whatsapp-{os.getpid()}",
+                dispatch_allowed=lambda: get_requested_enabled(db),
             )
             if worker.process_one() is None:
                 sleep(1)

@@ -15,9 +15,10 @@ recorded in the activity log for auditability.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.whatsapp_delivery_control import current_delivery_status
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ class SettingsResponse(BaseModel):
     docente_can_edit_profile: bool
     docente_can_edit_photo: bool
     medicine_schedule_assistant_enabled: bool
+    whatsapp_billing_delivery: "WhatsAppBillingDeliveryStatus"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -54,6 +57,16 @@ class SettingsUpdateRequest(BaseModel):
     docente_can_edit_profile: Optional[bool] = None
     docente_can_edit_photo: Optional[bool] = None
     medicine_schedule_assistant_enabled: Optional[bool] = None
+    whatsapp_billing_requested_enabled: Optional[bool] = None
+
+
+class WhatsAppBillingDeliveryStatus(BaseModel):
+    requested_enabled: bool
+    effective_enabled: bool
+    can_enable: bool
+    blocking_reasons: list[str]
+    readiness: dict[str, object]
+    worker_heartbeat_at: Optional[datetime] = None
 
 
 def _current_settings(db: Session) -> SettingsResponse:
@@ -66,6 +79,7 @@ def _current_settings(db: Session) -> SettingsResponse:
         docente_can_edit_profile=app_settings_service.get_docente_can_edit_profile(db),
         docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
         medicine_schedule_assistant_enabled=app_settings_service.get_medicine_schedule_assistant_enabled(db),
+        whatsapp_billing_delivery=current_delivery_status(db),
     )
 
 
@@ -88,6 +102,16 @@ def update_settings(
     """Update any subset of the business settings.  Only non-null fields are applied."""
     try:
         changes: dict[str, object] = {}
+        whatsapp_before = current_delivery_status(db)
+
+        if payload.whatsapp_billing_requested_enabled is True and not whatsapp_before["can_enable"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "whatsapp_delivery_unavailable",
+                    "blocking_reasons": whatsapp_before["blocking_reasons"],
+                },
+            )
 
         if payload.active_academic_period is not None:
             app_settings_service.update_setting(
@@ -143,6 +167,17 @@ def update_settings(
             )
             changes["medicine_schedule_assistant_enabled"] = payload.medicine_schedule_assistant_enabled
 
+        if payload.whatsapp_billing_requested_enabled is not None:
+            app_settings_service.set_billing_whatsapp_delivery_enabled(
+                db, payload.whatsapp_billing_requested_enabled
+            )
+            changes["whatsapp_billing_requested_enabled"] = {
+                "old": whatsapp_before["requested_enabled"],
+                "new": payload.whatsapp_billing_requested_enabled,
+                "effective": payload.whatsapp_billing_requested_enabled and whatsapp_before["can_enable"],
+                "blocking_reasons": whatsapp_before["blocking_reasons"],
+            }
+
         if changes:
             log_activity(
                 db,
@@ -155,6 +190,9 @@ def update_settings(
             )
 
         db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         logger.exception("Failed to update settings: %s", exc)

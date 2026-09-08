@@ -32,6 +32,7 @@ KEY_PRACTICE_HOURLY_RATE = "PRACTICE_HOURLY_RATE"
 KEY_DOCENTE_CAN_EDIT_PROFILE = "DOCENTE_CAN_EDIT_PROFILE"
 KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
+KEY_BILLING_WHATSAPP_DELIVERY_ENABLED = "BILLING_WHATSAPP_DELIVERY_ENABLED"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -44,6 +45,7 @@ _DEFAULTS: dict[str, str] = {
     KEY_DOCENTE_CAN_EDIT_PROFILE: "false",
     KEY_DOCENTE_CAN_EDIT_PHOTO: "false",
     KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
+    KEY_BILLING_WHATSAPP_DELIVERY_ENABLED: "false",
 }
 
 # ── Generic accessors ──────────────────────────────────────────────────────
@@ -169,3 +171,7 @@ def set_docente_can_edit_photo(db: Session, value: bool) -> AppSetting:
 
 def set_medicine_schedule_assistant_enabled(db: Session, value: bool) -> AppSetting:
     return update_setting(db, KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED, _format_bool(value))
+
+
+def set_billing_whatsapp_delivery_enabled(db: Session, value: bool) -> AppSetting:
+    return update_setting(db, KEY_BILLING_WHATSAPP_DELIVERY_ENABLED, _format_bool(value))
