@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.models.app_setting import AppSetting
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.routers.docente_portal import _filter_excluded_days_for_teacher
@@ -27,18 +28,14 @@ def _set_docente_token(client, db_session, teacher: Teacher) -> User:
 def _set_profile_permission(db_session, value: bool) -> None:
     app_settings_service.set_docente_can_edit_profile(db_session, value)
     db_session.commit()
-    app_settings_service.invalidate_cache()
 
 
 def _set_photo_permission(db_session, value: bool) -> None:
     app_settings_service.set_docente_can_edit_photo(db_session, value)
     db_session.commit()
-    app_settings_service.invalidate_cache()
 
 
 def test_admin_settings_expose_and_update_docente_permission_flags(client):
-    app_settings_service.invalidate_cache()
-
     initial = client.get("/api/admin/settings")
     assert initial.status_code == 200
     assert initial.json()["docente_can_edit_profile"] is False
@@ -51,6 +48,26 @@ def test_admin_settings_expose_and_update_docente_permission_flags(client):
     assert updated.status_code == 200
     assert updated.json()["docente_can_edit_profile"] is True
     assert updated.json()["docente_can_edit_photo"] is True
+
+    reloaded = client.get("/api/admin/settings")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["docente_can_edit_profile"] is True
+    assert reloaded.json()["docente_can_edit_photo"] is True
+
+
+def test_setting_reads_observe_committed_updates_without_process_local_invalidation(db_session):
+    _set_profile_permission(db_session, False)
+    assert app_settings_service.get_docente_can_edit_profile(db_session) is False
+
+    row = (
+        db_session.query(AppSetting)
+        .filter(AppSetting.key == app_settings_service.KEY_DOCENTE_CAN_EDIT_PROFILE)
+        .one()
+    )
+    row.value = "true"
+    db_session.commit()
+
+    assert app_settings_service.get_docente_can_edit_profile(db_session) is True
 
 
 def test_docente_profile_update_is_blocked_when_permission_disabled(client, db_session):
@@ -145,6 +162,7 @@ def test_docente_photo_upload_replace_and_delete_when_permission_enabled(client,
         files={"file": ("avatar.jpg", b"first", "image/jpeg")},
     )
     assert upload.status_code == 200
+    assert upload.json()["docente_can_edit_photo"] is True
     first_url = upload.json()["avatar_url"]
     first_filename = first_url.rsplit("/", 1)[-1]
     assert (tmp_path / "teacher-photos" / first_filename).exists()
@@ -154,6 +172,7 @@ def test_docente_photo_upload_replace_and_delete_when_permission_enabled(client,
         files={"file": ("avatar.webp", b"second", "image/webp")},
     )
     assert replace.status_code == 200
+    assert replace.json()["docente_can_edit_photo"] is True
     second_url = replace.json()["avatar_url"]
     second_filename = second_url.rsplit("/", 1)[-1]
     assert second_filename != first_filename
@@ -163,6 +182,7 @@ def test_docente_photo_upload_replace_and_delete_when_permission_enabled(client,
     delete = client.delete("/api/portal/profile/photo")
     assert delete.status_code == 200
     assert delete.json()["avatar_url"] is None
+    assert delete.json()["docente_can_edit_photo"] is True
     assert not (tmp_path / "teacher-photos" / second_filename).exists()
 
 

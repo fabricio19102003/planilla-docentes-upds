@@ -160,7 +160,4 @@ def update_settings(
         logger.exception("Failed to update settings: %s", exc)
         raise
 
-    # Invalidate cache AFTER commit succeeds — outside try/except so a failure
-    # here doesn't trigger a pointless rollback on an already-committed tx.
-    app_settings_service.invalidate_cache()
     return _current_settings(db)

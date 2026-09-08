@@ -17,8 +17,6 @@ def test_partial_active_period_update_preserves_both_hourly_rates(client, db_ses
     _seed_rate(db_session, app_settings_service.KEY_PRACTICE_HOURLY_RATE, "50.0")
     _seed_rate(db_session, app_settings_service.KEY_ACTIVE_ACADEMIC_PERIOD, "I/2026")
     db_session.commit()
-    app_settings_service.invalidate_cache()
-
     response = client.put(
         "/api/admin/settings",
         json={"active_academic_period": "II/2026"},

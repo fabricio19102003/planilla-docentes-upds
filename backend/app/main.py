@@ -316,7 +316,6 @@ async def lifespan(app: FastAPI):
                     added += 1
             if added:
                 db.commit()
-                app_settings_service.invalidate_cache()
                 logger.info("Seeded %d missing app settings", added)
         finally:
             db.close()
