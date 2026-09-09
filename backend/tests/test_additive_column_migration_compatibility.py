@@ -159,6 +159,46 @@ def test_consent_lifecycle_migration_adds_metadata_without_backfilling_legacy_pr
     engine.dispose()
 
 
+def _create_compatible_consent_history_schema(engine: sa.Engine, *, revision_check: str = "revision > 0") -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "CREATE TABLE whatsapp_consent_revisions ("
+                "id INTEGER PRIMARY KEY, teacher_ci VARCHAR(20) NOT NULL "
+                "REFERENCES teachers(ci) ON DELETE CASCADE, revision INTEGER NOT NULL, "
+                "event_type VARCHAR(24) NOT NULL, phone_e164 VARCHAR(16) NOT NULL, "
+                "is_verified BOOLEAN NOT NULL, consent_evidence TEXT, consent_source VARCHAR(32), "
+                "consented_at DATETIME, opt_out_evidence TEXT, opted_out_at DATETIME, "
+                "actor_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                f"CONSTRAINT ck_whatsapp_consent_revision_positive CHECK ({revision_check}), "
+                "CONSTRAINT uq_whatsapp_consent_teacher_revision UNIQUE (teacher_ci, revision))"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "CREATE INDEX ix_whatsapp_consent_revisions_teacher_ci "
+                "ON whatsapp_consent_revisions (teacher_ci)"
+            )
+        )
+
+
+@pytest.mark.parametrize(("revision_check", "error"), [("revision > 0", None), ("revision >= 0", "check constraint")])
+def test_consent_lifecycle_migration_validates_precreated_history_schema(tmp_path, monkeypatch, revision_check, error):
+    engine, config = _config(tmp_path, monkeypatch, f"whatsapp-consent-{revision_check}.sqlite3")
+    _create_legacy_whatsapp_schema(engine)
+    _create_compatible_consent_history_schema(engine, revision_check=revision_check)
+    command.stamp(config, PREVIOUS_MIGRATION)
+
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            command.upgrade(config, CONSENT_MIGRATION)
+    else:
+        command.upgrade(config, CONSENT_MIGRATION)
+        assert sa.inspect(engine).has_table("whatsapp_consent_revisions")
+    engine.dispose()
+
+
 def test_consent_lifecycle_migration_downgrade_refuses_destructive_history_removal(
     tmp_path,
     monkeypatch,
