@@ -39,10 +39,11 @@ class TeacherIdentityService:
             raise LookupError("teacher not found")
         if self.db.scalar(select(Teacher.ci).where(Teacher.ci == new_ci).with_for_update()) is not None:
             raise TeacherIdentityConflict("teacher CI already exists")
-        if self.db.scalar(
-            select(User.id).where(User.role == "docente", User.ci == new_ci, User.teacher_ci != old_ci)
-        ) is not None:
-            raise TeacherIdentityConflict("docente login CI already exists")
+        existing_user = self.db.scalar(select(User).where(User.ci == new_ci).with_for_update())
+        if existing_user is not None and (
+            existing_user.role != "docente" or existing_user.teacher_ci != old_ci
+        ):
+            raise TeacherIdentityConflict("user login CI already exists")
 
         replacement = self._insert_replacement(teacher, new_ci)
         for table in self.child_tables:

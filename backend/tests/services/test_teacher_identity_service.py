@@ -75,6 +75,24 @@ def test_change_ci_rejects_duplicate_teacher_or_docente_login_ci(db_session):
         TeacherIdentityService(db_session).change_ci(OLD_CI, NEW_CI)
 
 
+def test_change_ci_rejects_admin_login_ci_collision(db_session):
+    _seed_all_ci_consumers(db_session)
+    db_session.add(User(ci=NEW_CI, full_name="Admin", password_hash="x", role="admin"))
+    db_session.flush()
+
+    with pytest.raises(TeacherIdentityConflict):
+        TeacherIdentityService(db_session).change_ci(OLD_CI, NEW_CI)
+
+
+def test_change_ci_rejects_null_linked_login_ci_collision(db_session):
+    _seed_all_ci_consumers(db_session)
+    db_session.add(User(ci=NEW_CI, full_name="Unlinked", password_hash="x", role="docente"))
+    db_session.flush()
+
+    with pytest.raises(TeacherIdentityConflict):
+        TeacherIdentityService(db_session).change_ci(OLD_CI, NEW_CI)
+
+
 def test_change_ci_rolls_back_every_repoint_when_a_child_update_fails(db_session, monkeypatch):
     _seed_all_ci_consumers(db_session)
     db_session.commit()
