@@ -32,10 +32,11 @@ def upgrade() -> None:
                 "whatsapp_preferences",
                 sa.Column(name, column_type, nullable=True),
             )
-        elif (
-            not isinstance(existing["type"], type(column_type))
-            or existing["nullable"] is not True
-            or getattr(existing["type"], "length", None) != getattr(column_type, "length", None)
+        elif not _column_matches(
+            existing,
+            nullable=True,
+            type_family="string" if isinstance(column_type, sa.String) else "datetime",
+            length=getattr(column_type, "length", None),
         ):
             raise RuntimeError(
                 f"Incompatible pre-existing whatsapp_preferences.{name} column"
@@ -109,18 +110,51 @@ def _normalize_check_expression(expression: str) -> str:
     return normalized
 
 
+def _column_matches(column, *, nullable: bool, type_family: str, length=None) -> bool:
+    column_type = column["type"]
+    matches_type = {
+        "integer": isinstance(column_type, sa.Integer),
+        "string": isinstance(column_type, sa.String) and not isinstance(column_type, sa.Text),
+        "text": isinstance(column_type, sa.Text),
+        "boolean": isinstance(column_type, sa.Boolean),
+        # PostgreSQL reflects this as TIMESTAMP while SQLite uses DATETIME.
+        "datetime": isinstance(column_type, sa.DateTime),
+    }[type_family]
+    return (
+        matches_type
+        and bool(column["nullable"]) is nullable
+        and getattr(column_type, "length", None) == length
+    )
+
+
 def _validate_existing_history(inspector) -> None:
     expected = {
-        "id": ("INTEGER", True, None), "teacher_ci": ("VARCHAR", False, 20),
-        "revision": ("INTEGER", False, None), "event_type": ("VARCHAR", False, 24),
-        "phone_e164": ("VARCHAR", False, 16), "is_verified": ("BOOLEAN", False, None),
-        "consent_evidence": ("TEXT", True, None), "consent_source": ("VARCHAR", True, 32),
-        "consented_at": ("DATETIME", True, None), "opt_out_evidence": ("TEXT", True, None),
-        "opted_out_at": ("DATETIME", True, None), "actor_user_id": ("INTEGER", True, None),
-        "created_at": ("DATETIME", False, None),
+        # SQLite reports INTEGER PRIMARY KEY as nullable; PostgreSQL truthfully
+        # reflects the migration-created primary key as non-null.
+        "id": (inspector.bind.dialect.name == "sqlite", "integer", None),
+        "teacher_ci": (False, "string", 20),
+        "revision": (False, "integer", None),
+        "event_type": (False, "string", 24),
+        "phone_e164": (False, "string", 16),
+        "is_verified": (False, "boolean", None),
+        "consent_evidence": (True, "text", None),
+        "consent_source": (True, "string", 32),
+        "consented_at": (True, "datetime", None),
+        "opt_out_evidence": (True, "text", None),
+        "opted_out_at": (True, "datetime", None),
+        "actor_user_id": (True, "integer", None),
+        "created_at": (False, "datetime", None),
     }
-    actual = {column["name"]: (column["type"].__class__.__name__.upper(), bool(column["nullable"]), getattr(column["type"], "length", None)) for column in inspector.get_columns("whatsapp_consent_revisions")}
-    if actual != expected:
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns("whatsapp_consent_revisions")
+    }
+    if set(columns) != set(expected) or any(
+        not _column_matches(
+            columns[name], nullable=nullable, type_family=type_family, length=length
+        )
+        for name, (nullable, type_family, length) in expected.items()
+    ):
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions columns")
     if tuple(inspector.get_pk_constraint("whatsapp_consent_revisions").get("constrained_columns") or ()) != ("id",):
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions primary key")
@@ -136,11 +170,12 @@ def _validate_existing_history(inspector) -> None:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions check constraint")
     if {(item["name"], tuple(item.get("column_names") or ())) for item in inspector.get_indexes("whatsapp_consent_revisions")} != {("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",))}:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions index")
+    if inspector.bind.dialect.name == "sqlite":
+        raise RuntimeError(
+            "Cannot prove pre-existing whatsapp_consent_revisions foreign-key actions on SQLite"
+        )
     foreign_keys = {(tuple(item.get("constrained_columns") or ()), item.get("referred_table"), tuple(item.get("referred_columns") or ()), (item.get("options") or {}).get("ondelete")) for item in inspector.get_foreign_keys("whatsapp_consent_revisions")}
     expected_foreign_keys = {(("teacher_ci",), "teachers", ("ci",), "CASCADE"), (("actor_user_id",), "users", ("id",), "RESTRICT")}
-    if inspector.bind.dialect.name == "sqlite":
-        foreign_keys = {(*foreign_key[:3], None) for foreign_key in foreign_keys}
-        expected_foreign_keys = {(*foreign_key[:3], None) for foreign_key in expected_foreign_keys}
     if foreign_keys != expected_foreign_keys:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions foreign keys")
 

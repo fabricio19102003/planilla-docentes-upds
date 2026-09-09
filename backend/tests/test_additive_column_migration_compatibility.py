@@ -1,4 +1,6 @@
+import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
@@ -183,20 +185,93 @@ def _create_compatible_consent_history_schema(engine: sa.Engine, *, revision_che
         )
 
 
-@pytest.mark.parametrize(("revision_check", "error"), [("revision > 0", None), ("revision >= 0", "check constraint")])
-def test_consent_lifecycle_migration_validates_precreated_history_schema(tmp_path, monkeypatch, revision_check, error):
-    engine, config = _config(tmp_path, monkeypatch, f"whatsapp-consent-{revision_check}.sqlite3")
+def test_consent_lifecycle_migration_refuses_precreated_sqlite_history_when_fk_actions_cannot_be_proven(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "whatsapp-consent-history.sqlite3")
     _create_legacy_whatsapp_schema(engine)
-    _create_compatible_consent_history_schema(engine, revision_check=revision_check)
+    _create_compatible_consent_history_schema(engine)
     command.stamp(config, PREVIOUS_MIGRATION)
 
-    if error:
-        with pytest.raises(RuntimeError, match=error):
-            command.upgrade(config, CONSENT_MIGRATION)
-    else:
+    with pytest.raises(RuntimeError, match="foreign-key actions on SQLite"):
         command.upgrade(config, CONSENT_MIGRATION)
-        assert sa.inspect(engine).has_table("whatsapp_consent_revisions")
     engine.dispose()
+
+
+def _migration_module():
+    path = Path(__file__).parents[1] / "alembic/versions/a2c4e6f8b001_add_whatsapp_consent_lifecycle.py"
+    spec = importlib.util.spec_from_file_location("consent_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+class _PostgreSQLHistoryInspector:
+    def __init__(self, columns, *, check="revision > 0"):
+        self.bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+        self.columns = columns
+        self.check = check
+
+    def get_columns(self, _table):
+        return self.columns
+
+    def get_pk_constraint(self, _table):
+        return {"constrained_columns": ["id"]}
+
+    def get_unique_constraints(self, _table):
+        return [{"column_names": ["teacher_ci", "revision"]}]
+
+    def get_check_constraints(self, _table):
+        return [{"name": "ck_whatsapp_consent_revision_positive", "sqltext": self.check}]
+
+    def get_indexes(self, _table):
+        return [{"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]}]
+
+    def get_foreign_keys(self, _table):
+        return [
+            {"constrained_columns": ["teacher_ci"], "referred_table": "teachers", "referred_columns": ["ci"], "options": {"ondelete": "CASCADE"}},
+            {"constrained_columns": ["actor_user_id"], "referred_table": "users", "referred_columns": ["id"], "options": {"ondelete": "RESTRICT"}},
+        ]
+
+
+def _postgresql_history_columns():
+    from sqlalchemy.dialects import postgresql
+
+    signatures = [
+        ("id", sa.Integer(), False), ("teacher_ci", sa.String(20), False),
+        ("revision", sa.Integer(), False), ("event_type", sa.String(24), False),
+        ("phone_e164", sa.String(16), False), ("is_verified", sa.Boolean(), False),
+        ("consent_evidence", sa.Text(), True), ("consent_source", sa.String(32), True),
+        ("consented_at", postgresql.TIMESTAMP(), True), ("opt_out_evidence", sa.Text(), True),
+        ("opted_out_at", postgresql.TIMESTAMP(), True), ("actor_user_id", sa.Integer(), True),
+        ("created_at", postgresql.TIMESTAMP(), False),
+    ]
+    return [{"name": name, "type": type_, "nullable": nullable} for name, type_, nullable in signatures]
+
+
+def test_consent_lifecycle_migration_adopts_postgresql_history_reflection():
+    _migration_module()._validate_existing_history(
+        _PostgreSQLHistoryInspector(_postgresql_history_columns())
+    )
+
+
+@pytest.mark.parametrize(("column", "type_", "nullable"), [
+    ("phone_e164", sa.String(15), False),
+    ("created_at", sa.String(), False),
+    ("revision", sa.Integer(), True),
+])
+def test_consent_lifecycle_migration_rejects_incompatible_postgresql_history_columns(column, type_, nullable):
+    columns = _postgresql_history_columns()
+    next(item for item in columns if item["name"] == column).update(type=type_, nullable=nullable)
+
+    with pytest.raises(RuntimeError, match="columns"):
+        _migration_module()._validate_existing_history(_PostgreSQLHistoryInspector(columns))
+
+
+def test_consent_lifecycle_migration_rejects_wrong_postgresql_history_check():
+    with pytest.raises(RuntimeError, match="check constraint"):
+        _migration_module()._validate_existing_history(
+            _PostgreSQLHistoryInspector(_postgresql_history_columns(), check="revision >= 0")
+        )
 
 
 def test_consent_lifecycle_migration_downgrade_refuses_destructive_history_removal(
