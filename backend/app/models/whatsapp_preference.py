@@ -10,9 +10,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.database import Base
 
@@ -26,6 +27,12 @@ CONSENT_SOURCES = (
 
 class WhatsAppPreference(Base):
     __tablename__ = "whatsapp_preferences"
+    __table_args__ = (
+        CheckConstraint(
+            "consent_revision >= 0",
+            name="ck_whatsapp_preference_revision_nonnegative",
+        ),
+    )
 
     teacher_ci: Mapped[str] = mapped_column(
         String(20),
@@ -59,9 +66,9 @@ class WhatsAppPreference(Base):
         )
 
     def record_consent(self, evidence):
-        self.consent_evidence = evidence
-        self.opted_out_at = None
-        self.consent_revision += 1
+        raise RuntimeError(
+            "Consent changes require the lifecycle service to persist metadata and history."
+        )
 
     def record_opt_out(self, evidence):
         self.opt_out_evidence = evidence
@@ -100,3 +107,17 @@ class WhatsAppConsentRevision(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+@event.listens_for(WhatsAppConsentRevision, "before_update")
+@event.listens_for(WhatsAppConsentRevision, "before_delete")
+def _prevent_consent_revision_mutation(mapper, connection, target):
+    raise TypeError("WhatsApp consent revision history is append-only")
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _prevent_bulk_consent_revision_mutation(execute_state):
+    if (
+        (execute_state.is_update or execute_state.is_delete)
+        and execute_state.bind_mapper is WhatsAppConsentRevision.__mapper__
+    ):
+        raise TypeError("WhatsApp consent revision history is append-only")

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,9 @@ def test_consent_revision_is_registered_with_the_model_package():
     from app.models import WhatsAppConsentRevision as registered_revision
 
     assert registered_revision is WhatsAppConsentRevision
+    assert "ck_whatsapp_preference_revision_nonnegative" in {
+        constraint.name for constraint in WhatsAppPreference.__table__.constraints
+    }
 
 
 def test_legacy_preference_without_consent_metadata_is_ineligible():
@@ -86,3 +89,22 @@ def test_consent_revision_rejects_zero_revision_numbers():
 
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+
+def test_consent_history_rejects_instance_and_bulk_orm_mutation():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[WhatsAppConsentRevision.__table__])
+    with Session(engine) as session:
+        revision = WhatsAppConsentRevision(
+            teacher_ci="teacher-1", revision=1, event_type="consent",
+            phone_e164="+59170000000", is_verified=True,
+        )
+        session.add(revision)
+        session.commit()
+        revision.event_type = "correction"
+        with pytest.raises(TypeError, match="append-only"):
+            session.commit()
+        session.rollback()
+        with pytest.raises(TypeError, match="append-only"):
+            session.execute(update(WhatsAppConsentRevision).values(event_type="correction"))

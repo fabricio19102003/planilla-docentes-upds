@@ -114,6 +114,9 @@ def test_consent_lifecycle_migration_upgrades_a_fresh_database_to_its_schema_hea
     assert {"consent_source", "consented_at"}.issubset(
         {column["name"] for column in inspector.get_columns("whatsapp_preferences")}
     )
+    assert "ck_whatsapp_preference_revision_nonnegative" in {
+        check["name"] for check in inspector.get_check_constraints("whatsapp_preferences")
+    }
     engine.dispose()
 
 
