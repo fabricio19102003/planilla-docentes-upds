@@ -33,6 +33,7 @@ from app.services.teacher_profile_import_service import (
     TeacherProfileImportPlan,
     TeacherProfileImportService,
 )
+from app.services.teacher_identity_service import TeacherIdentityConflict, TeacherIdentityService
 from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
@@ -202,34 +203,16 @@ def update_teacher(
         update_data = payload.model_dump(exclude_unset=True)
         new_ci = update_data.pop("ci", None)
 
-        # Handle CI change — must cascade to all FK references
+        # The service inserts the replacement parent before repointing every current
+        # child, which is safe with PostgreSQL's immediate foreign-key constraints.
         if new_ci and new_ci != ci:
-            # Check new CI doesn't already exist
-            existing = db.query(Teacher).filter(Teacher.ci == new_ci).first()
-            if existing:
+            try:
+                teacher = TeacherIdentityService(db).change_ci(ci, new_ci)
+            except TeacherIdentityConflict as exc:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Ya existe un docente con CI {new_ci}",
-                )
-
-            from app.models.designation import Designation
-            from sqlalchemy import text
-
-            # Update ALL FK references via raw SQL (SQLAlchemy can't cascade PK changes)
-            db.execute(text("UPDATE designations SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
-            db.execute(text("UPDATE attendance_records SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
-            db.execute(text("UPDATE biometric_records SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
-            db.execute(text("UPDATE detail_requests SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
-            db.execute(text("UPDATE users SET teacher_ci = :new WHERE teacher_ci = :old"), {"new": new_ci, "old": ci})
-            # Also update the user's login CI so they can still authenticate after a CI change
-            db.execute(text("UPDATE users SET ci = :new WHERE ci = :old AND role = 'docente'"), {"new": new_ci, "old": ci})
-
-            # Update the PK itself
-            db.execute(text("UPDATE teachers SET ci = :new WHERE ci = :old"), {"new": new_ci, "old": ci})
-            db.flush()
-
-            # Re-fetch with new CI
-            teacher = db.query(Teacher).filter(Teacher.ci == new_ci).first()
+                ) from exc
 
         # Update remaining fields
         for field, value in update_data.items():
