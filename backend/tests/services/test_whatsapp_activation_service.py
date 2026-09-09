@@ -8,6 +8,72 @@ from alembic.config import Config
 
 from app.config import settings
 from app.models.billing_notification import BillingNotificationJob, BillingWhatsAppActivationTest
+from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
+from app.models.billing_notification import BillingMediaToken, BillingNotificationBatch, BillingWhatsAppActivationTest
+from app.models.billing_publication import BillingPublicationRevision
+from app.models.user import User
+from app.models.whatsapp_preference import WhatsAppPreference
+from app.services.billing_pdf_service import BillingPdfService
+from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
+from tests.routers.test_billing_publication_email import _seed_approved_planilla, _seed_docente
+
+
+def _activation_setup(client, db_session, tmp_path, monkeypatch):
+    import app.routers.billing_publication as publication_router
+
+    _seed_approved_planilla(db_session)
+    _seed_docente(db_session, ci="EMAIL-DOC-1", email="activation@example.com")
+    monkeypatch.setattr(publication_router.EmailService, "send_billing_published", lambda *_: type("R", (), {"eligible": 0, "sent": 0, "failed": 0, "skipped": 0})())
+    assert client.post("/api/billing/publish", json={"month": 5, "year": 2026}).status_code == 200
+    preference = WhatsAppPreference(teacher_ci="EMAIL-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="record", consent_source="written_record", consented_at=__import__("datetime").datetime.utcnow(), consent_revision=1)
+    db_session.add(preference); db_session.flush()
+    revision = db_session.query(BillingPublicationRevision).one()
+    actor = db_session.query(User).filter_by(ci="TEST_ADMIN_9999").one()
+    request = WhatsAppActivationCreate(teacher_ci="EMAIL-DOC-1", recipient_e164="+59170000000", consent_revision=1, publication_revision_id=revision.id)
+    return WhatsAppActivationService(db_session, recipient_hmac_key="k" * 32, pdf_service=BillingPdfService(db_session, storage_dir=tmp_path)), actor, request, revision
+
+
+def _ready(sid):
+    return {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "approved_content_sid": sid}
+
+
+def test_activation_create_schema_requires_exact_canonical_recipient():
+    request = WhatsAppActivationCreate(
+        teacher_ci="teacher-1", recipient_e164="+59170000000",
+        consent_revision=1, publication_revision_id=1,
+    )
+    assert request.recipient_e164 == "+59170000000"
+    with pytest.raises(ValueError, match="canonical E.164"):
+        WhatsAppActivationCreate(teacher_ci="teacher-1", recipient_e164=" +59170000000", consent_revision=1, publication_revision_id=1)
+
+
+def test_activation_requires_exact_attestation_and_strict_projection():
+    sid = "HX" + "a" * 32
+    WhatsAppActivationService._require_readiness(_ready(sid), sid, sid)
+    with pytest.raises(WhatsAppActivationError, match="activation_template_unapproved"):
+        WhatsAppActivationService._require_readiness(_ready(sid), sid, "HX" + "b" * 32)
+    global_on = _ready(sid); global_on["global_delivery"]["effective"] = True
+    with pytest.raises(WhatsAppActivationError, match="activation_requires_global_delivery_disabled"):
+        WhatsAppActivationService._require_readiness(global_on, sid, sid)
+    with pytest.raises(ValueError):
+        WhatsAppActivationProjection(id=1, status="queued", terminal_reason=None, teacher_ci_at_creation="T", recipient_masked="+591••••0000", consent_revision=1, publication_revision_id=1, publication_version=1, billing_digest="a" * 64, content_template_bound=True, pdf_bound=True, job_id=1, job_status="unknown", created_at=__import__("datetime").datetime.utcnow(), updated_at=__import__("datetime").datetime.utcnow())
+
+
+def test_pdf_flush_cleanup_preserves_existing_artifact(tmp_path):
+    db = type("DB", (), {"add": lambda *_: None, "flush": lambda *_: (_ for _ in ()).throw(RuntimeError("flush"))})()
+    pdf = BillingPdfService(db, storage_dir=tmp_path); batch = type("B", (), {"id": 1})(); job = type("J", (), {"id": 1, "batch_id": 1, "teacher_ci": "T", "media_snapshot": None})()
+    with pytest.raises(RuntimeError, match="flush"): pdf.issue(batch, job, {"x": 1}, commit=False)
+    payload = pdf._pdf_bytes(1, "T", {"x": 1}); path = pdf._safe_path(f"b-{__import__('hashlib').sha256(payload).hexdigest()[:12]}.pdf"); path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
+    with pytest.raises(RuntimeError, match="flush"): pdf.issue(batch, job, {"x": 1}, commit=False)
+    assert path.exists()
+
+
+def test_activation_failure_leaves_caller_transaction_ownership(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch); calls = []
+    monkeypatch.setattr(db_session, "rollback", lambda: calls.append(True))
+    monkeypatch.setattr(service.pdf_service, "issue_activation", lambda *_a, **_k: (_ for _ in ()).throw(OSError("storage")))
+    with pytest.raises(OSError): service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    assert not calls
 
 
 ACTIVATION_MIGRATION = "a2c4e6f8b002"
