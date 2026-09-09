@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, ValidationError
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,7 +14,13 @@ from app.models.attendance import AttendanceRecord
 from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.models.user import User
+from app.models.whatsapp_preference import WhatsAppPreference
 from app.schemas.designation import DesignationContractDatesUpdate, DesignationResponse
+from app.schemas.whatsapp_preference import (
+    WhatsAppPreferenceAdminResponse,
+    WhatsAppPreferenceOptOutRequest,
+    WhatsAppPreferencePutRequest,
+)
 from app.schemas.teacher import (
     PaginatedTeachersResponse,
     TeacherAttendanceSummary,
@@ -34,6 +40,11 @@ from app.services.teacher_profile_import_service import (
     TeacherProfileImportService,
 )
 from app.services.teacher_identity_service import TeacherIdentityConflict, TeacherIdentityService
+from app.services.whatsapp_preference_service import (
+    PreferenceProjection,
+    WhatsAppPreferenceError,
+    WhatsAppPreferenceService,
+)
 from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
@@ -127,6 +138,82 @@ def get_teacher(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo obtener el docente",
         ) from exc
+
+
+def _preference_response(
+    projection: PreferenceProjection | None,
+    preference: WhatsAppPreference | None = None,
+    *,
+    teacher_ci: str | None = None,
+) -> WhatsAppPreferenceAdminResponse:
+    if projection is None:
+        return WhatsAppPreferenceAdminResponse(teacher_ci=teacher_ci or preference.teacher_ci, exists=False, phone_masked=None, is_verified=False, eligible=False, consent_revision=0, consent_source=None, consented_at=None, opted_out=False, opted_out_at=None, has_consent_evidence=False, has_opt_out_evidence=False)
+    return WhatsAppPreferenceAdminResponse(
+        teacher_ci=projection.teacher_ci, exists=True, phone_masked=projection.recipient_masked,
+        is_verified=projection.is_verified, eligible=projection.eligible,
+        consent_revision=projection.consent_revision, consent_source=projection.consent_source,
+        consented_at=projection.consented_at, opted_out=projection.opted_out,
+        opted_out_at=preference.opted_out_at if preference else None,
+        has_consent_evidence=bool(preference and preference.consent_evidence),
+        has_opt_out_evidence=bool(preference and preference.opt_out_evidence),
+    )
+
+
+def _preference_error(exc: WhatsAppPreferenceError) -> HTTPException:
+    code = str(exc)
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND if code == "teacher_not_found" else status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": code})
+
+
+@router.get("/{ci}/whatsapp-preference", response_model=WhatsAppPreferenceAdminResponse)
+def get_whatsapp_preference(ci: str, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> WhatsAppPreferenceAdminResponse:
+    teacher = db.query(Teacher).filter(Teacher.ci == ci).one_or_none()
+    if teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "teacher_not_found"})
+    preference = db.query(WhatsAppPreference).filter(WhatsAppPreference.teacher_ci == ci).one_or_none()
+    if preference is None:
+        return _preference_response(None, teacher_ci=ci)
+    return _preference_response(WhatsAppPreferenceService._project(preference), preference)
+
+
+def _validated_payload(model, payload: dict):
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "invalid_preference_request"}) from exc
+
+
+@router.put("/{ci}/whatsapp-preference", response_model=WhatsAppPreferenceAdminResponse)
+def put_whatsapp_preference(request: Request, ci: str, payload: dict, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> WhatsAppPreferenceAdminResponse:
+    data = _validated_payload(WhatsAppPreferencePutRequest, payload)
+    try:
+        projection = WhatsAppPreferenceService(db).put(ci, phone_e164=data.phone_e164, is_verified=data.is_verified, evidence=data.consent_evidence_reference, source=data.consent_source, consented_at=data.consented_at, actor_id=current_user.id, ip_address=request.client.host if request.client else None)
+        preference = db.get(WhatsAppPreference, ci)
+        db.commit()
+        return _preference_response(projection, preference)
+    except WhatsAppPreferenceError as exc:
+        db.rollback()
+        raise _preference_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        logger.error("WhatsApp preference mutation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"code": "whatsapp_preference_mutation_failed"}) from exc
+
+
+@router.post("/{ci}/whatsapp-preference/opt-out", response_model=WhatsAppPreferenceAdminResponse)
+def opt_out_whatsapp_preference(request: Request, ci: str, payload: dict, current_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> WhatsAppPreferenceAdminResponse:
+    data = _validated_payload(WhatsAppPreferenceOptOutRequest, payload)
+    try:
+        projection = WhatsAppPreferenceService(db).opt_out(ci, data.opt_out_evidence_reference, actor_id=current_user.id, ip_address=request.client.host if request.client else None)
+        preference = db.get(WhatsAppPreference, ci)
+        db.commit()
+        return _preference_response(projection, preference)
+    except WhatsAppPreferenceError as exc:
+        db.rollback()
+        raise _preference_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        logger.error("WhatsApp opt-out failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"code": "whatsapp_preference_mutation_failed"}) from exc
 
 
 @router.post("", response_model=TeacherResponse, status_code=status.HTTP_201_CREATED)
