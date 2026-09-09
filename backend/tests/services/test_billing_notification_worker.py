@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
-from app.models.whatsapp_preference import WhatsAppPreference
+from app.models.activity_log import ActivityLog
+from app.models.teacher import Teacher
+from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
@@ -25,24 +27,53 @@ def worker_session(tmp_path, name="worker"):
     BillingNotificationJob.__table__.create(engine)
     BillingNotificationCapacityWindow.__table__.create(engine)
     BillingNotificationCapacityReservation.__table__.create(engine)
+    Teacher.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
+    WhatsAppConsentRevision.__table__.create(engine)
+    ActivityLog.__table__.create(engine)
     WhatsAppEvent.__table__.create(engine)
     return engine, sessionmaker(bind=engine)
 
 
-def queued(session, *, teacher="x", batch=1, next_attempt_at=None):
+def queued(session, *, teacher="x", batch=1, next_attempt_at=None, intent_type="ordinary"):
+    if session.get(Teacher, teacher) is None:
+        session.add(Teacher(ci=teacher, full_name=teacher))
     if session.get(WhatsAppPreference, teacher) is None:
-        session.add(WhatsAppPreference(teacher_ci=teacher, phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_revision=1))
+        session.add(WhatsAppPreference(teacher_ci=teacher, phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_source="written_record", consented_at=CLOCK, consent_revision=1))
     session.add(
         BillingNotificationJob(
             batch_id=batch,
             teacher_ci=teacher,
             channel="whatsapp",
+            intent_type=intent_type,
             status="queued",
             next_attempt_at=next_attempt_at,
         )
     )
     session.commit()
+
+
+def test_worker_never_claims_or_transports_activation_before_pr9b(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session, teacher="activation", batch=1, intent_type="activation_test")
+    queued(session, teacher="ordinary", batch=2)
+    for preference in session.query(WhatsAppPreference).all():
+        preference.consent_source = "written_record"
+        preference.consented_at = CLOCK
+    session.commit()
+    transport_calls = []
+    worker = BillingNotificationWorker(
+        session,
+        lambda: READY,
+        lambda job: transport_calls.append((job.id, job.intent_type)) or SimpleNamespace(status="sent", provider_message_id="SM" + "a" * 32),
+        now=lambda: CLOCK,
+    )
+
+    assert worker.process_one() == "accepted"
+    activation, ordinary = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
+    assert transport_calls == [(ordinary.id, "ordinary")]
+    assert (activation.status, activation.lease_owner, activation.attempts) == ("queued", None, 0)
 
 
 def test_worker_claims_once_and_keeps_ambiguous_without_retry(tmp_path):
@@ -142,7 +173,7 @@ def test_future_retry_is_not_claimable_until_clock_reaches_it(tmp_path):
 def test_expired_precreate_lease_is_reclaimed_once_and_sent(tmp_path):
     _, Session = worker_session(tmp_path)
     session = Session()
-    session.add(WhatsAppPreference(teacher_ci="x", phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_revision=1)); session.add(BillingNotificationJob(batch_id=1, teacher_ci="x", channel="whatsapp", status="leased", lease_expires_at=datetime(2000, 1, 1)))
+    session.add(WhatsAppPreference(teacher_ci="x", phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_source="written_record", consented_at=CLOCK, consent_revision=1)); session.add(BillingNotificationJob(batch_id=1, teacher_ci="x", channel="whatsapp", status="leased", lease_expires_at=datetime(2000, 1, 1)))
     session.commit()
     calls = []
     worker = BillingNotificationWorker(

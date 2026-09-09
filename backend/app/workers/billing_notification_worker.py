@@ -66,7 +66,11 @@ class BillingNotificationWorker:
         )
         query = (
             self.db.query(BillingNotificationJob)
-            .filter(BillingNotificationJob.channel == "whatsapp", due)
+            .filter(
+                BillingNotificationJob.channel == "whatsapp",
+                BillingNotificationJob.intent_type == "ordinary",
+                due,
+            )
             .order_by(BillingNotificationJob.id)
         )
         if self.db.bind.dialect.name == "postgresql":
@@ -80,7 +84,11 @@ class BillingNotificationWorker:
         if self.db.bind.dialect.name == "sqlite":
             claimed = (
                 self.db.query(BillingNotificationJob)
-                .filter(BillingNotificationJob.id == candidate.id, due)
+                .filter(
+                    BillingNotificationJob.id == candidate.id,
+                    BillingNotificationJob.intent_type == "ordinary",
+                    due,
+                )
                 .update(
                     {
                         "status": "leased",
@@ -190,6 +198,7 @@ class BillingNotificationWorker:
             self.dispatch_allowed()
             and job
             and job.status == "sending"
+            and job.intent_type == "ordinary"
             and preference
             and preference.is_eligible_for_whatsapp
         )

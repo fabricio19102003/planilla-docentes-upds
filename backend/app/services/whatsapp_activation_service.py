@@ -64,7 +64,7 @@ class WhatsAppActivationService:
         ).with_for_update())
         if existing is not None:
             if hmac.compare_digest(existing.request_digest, request_digest):
-                return self._project(existing, replayed=True)
+                return self.project(self.db, existing, replayed=True)
             raise WhatsAppActivationError("activation_idempotency_conflict")
         self._require_readiness(readiness, configured_content_sid, approved_content_sid)
         artifact: Path | None = None
@@ -124,7 +124,7 @@ class WhatsAppActivationService:
                          "content_template_bound": True, "pdf_bound": True}, ip_address=ip_address,
             ))
             self.db.flush()
-            return self._project(activation)
+            return self.project(self.db, activation)
         except Exception:
             if artifact_is_new and artifact is not None:
                 try:
@@ -170,8 +170,10 @@ class WhatsAppActivationService:
     def _mask(phone: str) -> str:
         return f"{phone[:4]}••••{phone[-4:]}"
 
-    def _project(self, activation: BillingWhatsAppActivationTest, *, replayed: bool = False) -> WhatsAppActivationProjection:
-        job = self.db.get(BillingNotificationJob, activation.job_id)
+    @staticmethod
+    def project(db: Session, activation: BillingWhatsAppActivationTest, *, replayed: bool = False) -> WhatsAppActivationProjection:
+        """Build a persisted projection without requiring runtime HMAC configuration."""
+        job = db.get(BillingNotificationJob, activation.job_id)
         return WhatsAppActivationProjection(
             id=activation.id, status=activation.status, terminal_reason=activation.terminal_reason,
             teacher_ci_at_creation=activation.teacher_ci_at_creation, recipient_masked=activation.recipient_masked,
