@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { Designation, PaginatedResponse, Teacher, TeacherDetail, TeacherPhotoPayload } from '@/api/types'
+import type {
+  Designation,
+  PaginatedResponse,
+  Teacher,
+  TeacherDetail,
+  TeacherPhotoPayload,
+  WhatsAppPreferenceAdminResponse,
+  WhatsAppPreferenceOptOutRequest,
+  WhatsAppPreferencePutRequest,
+} from '@/api/types'
 import type { TeacherType } from '@/domain/teacherTypes'
 import { downloadApiBlob, safeDownloadSegment } from '@/lib/download'
 
@@ -78,10 +87,49 @@ export function useUpdateTeacher() {
       const res = await api.put<Teacher>(`/teachers/${ci}`, data)
       return res.data
     },
-    onSuccess: () => {
+    onSuccess: (teacher, variables) => {
       void qc.invalidateQueries({ queryKey: ['teachers'] })
       void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
+      void qc.invalidateQueries({ queryKey: ['whatsapp-preference', variables.ci] })
+      void qc.invalidateQueries({ queryKey: ['whatsapp-preference', teacher.ci] })
     },
+  })
+}
+
+export function useWhatsAppPreference(ci?: string) {
+  return useQuery({
+    queryKey: ['whatsapp-preference', ci],
+    queryFn: async () => {
+      const response = await api.get<WhatsAppPreferenceAdminResponse>(`/teachers/${encodeURIComponent(ci ?? '')}/whatsapp-preference`)
+      return response.data
+    },
+    enabled: Boolean(ci),
+  })
+}
+
+function invalidateWhatsAppPreference(qc: ReturnType<typeof useQueryClient>, ci: string) {
+  void qc.invalidateQueries({ queryKey: ['whatsapp-preference', ci] })
+}
+
+export function useSaveWhatsAppPreference() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ci, data }: { ci: string; data: WhatsAppPreferencePutRequest }) => {
+      const response = await api.put<WhatsAppPreferenceAdminResponse>(`/teachers/${encodeURIComponent(ci)}/whatsapp-preference`, data)
+      return response.data
+    },
+    onSuccess: (preference, { ci }) => invalidateWhatsAppPreference(qc, preference.teacher_ci || ci),
+  })
+}
+
+export function useOptOutWhatsAppPreference() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ci, data }: { ci: string; data: WhatsAppPreferenceOptOutRequest }) => {
+      const response = await api.post<WhatsAppPreferenceAdminResponse>(`/teachers/${encodeURIComponent(ci)}/whatsapp-preference/opt-out`, data)
+      return response.data
+    },
+    onSuccess: (preference, { ci }) => invalidateWhatsAppPreference(qc, preference.teacher_ci || ci),
   })
 }
 

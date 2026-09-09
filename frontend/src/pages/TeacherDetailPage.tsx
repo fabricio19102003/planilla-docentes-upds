@@ -25,6 +25,7 @@ import {
   downloadTeacherSchedule,
 } from '@/api/hooks/useTeachers'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { WhatsAppConsentCard } from '@/components/teachers/WhatsAppConsentCard'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import { DataTable } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -481,6 +482,7 @@ export function TeacherDetailPage() {
 
   return (
     <div className="space-y-6">
+      <WhatsAppConsentCard ci={teacher.ci} />
       {/* Header actions */}
       <div className="flex items-center justify-between">
         <Button variant="outline" onClick={() => navigate('/teachers')} className="gap-2">
@@ -766,7 +768,7 @@ export function TeacherDetailPage() {
             /* Read-only view */
             <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               <InfoRow label="Correo Electrónico" value={teacher.email} />
-              <InfoRow label="Teléfono" value={teacher.phone} />
+              <InfoRow label="Teléfono de contacto (no es consentimiento de WhatsApp)" value={teacher.phone} />
               <InfoRow label="Género" value={teacher.gender} />
               <InfoRow label="Tipo" value={teacherTypeLabel(teacher.external_permanent)} />
               <InfoRow label="Nivel Académico" value={teacher.academic_level} />
