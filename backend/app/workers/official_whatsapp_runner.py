@@ -1,8 +1,11 @@
 """Process entry point for the fail-closed official WhatsApp billing worker."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta
 
 import httpx
@@ -13,14 +16,23 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.database import SessionLocal
-from app.models.billing_notification import BillingMediaToken, BillingNotificationJob
+from app.models.billing_notification import BillingMediaToken, BillingNotificationBatch, BillingNotificationJob, BillingWhatsAppActivationTest
+from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.twilio_content_transport import TwilioContentTransport
 from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
-from app.services.whatsapp_delivery_control import mark_worker_heartbeat, status_from_readiness
+from app.services.whatsapp_delivery_control import current_delivery_status, mark_worker_heartbeat, status_from_readiness
+from app.services.publication_revisions import PublicationRevisionError, validate_publication_revision
 from app.workers.billing_notification_worker import BillingNotificationWorker
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ActivationDispatch:
+    job: BillingNotificationJob
+    recipient: str
+    media_token: str
 
 
 @dataclass(frozen=True, repr=False)
@@ -144,20 +156,37 @@ def run() -> int:
         try:
             mark_worker_heartbeat(db)
             db.commit()
+            cycle: dict[str, Any] = {}
+            def status() -> dict[str, Any]:
+                if not cycle:
+                    cycle.update(status_from_readiness(
+                        db, runtime.live_readiness(),
+                        official_process_enabled=settings.OFFICIAL_WHATSAPP_ENABLED,
+                        dispatch_process_enabled=settings.WHATSAPP_DISPATCH_ENABLED,
+                        activation_api_enabled=getattr(settings, "BILLING_WHATSAPP_ACTIVATION_API_ENABLED", False),
+                        activation_dispatch_enabled=getattr(settings, "BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED", False),
+                        recipient_hmac_key=getattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", None),
+                    ))
+                return cycle
+            def intent() -> str | None:
+                facts = status()
+                global_delivery = facts.get("global_delivery")
+                if global_delivery is None:  # Compatibility for a bounded legacy status projection.
+                    return "ordinary" if facts.get("effective_enabled") and facts.get("readiness", {}).get("ready") else None
+                if global_delivery["requested"] and global_delivery["effective"] and facts["readiness"]["ready"]:
+                    return "ordinary"
+                if not global_delivery["requested"] and facts["activation"]["capable"]:
+                    return "activation_test"
+                return None
+            activation = status().get("activation")
+            if isinstance(activation, dict) and activation.get("capable") is not True:
+                rollback_unleased_activation(db)
             worker = BillingNotificationWorker(
-                db,
-                readiness=lambda: status_from_readiness(
-                    db, runtime.live_readiness(), global_dispatch_enabled=(
-                        settings.OFFICIAL_WHATSAPP_ENABLED and settings.WHATSAPP_DISPATCH_ENABLED
-                    ),
-                )["readiness"],
-                transport=lambda job: _send(db, runtime, job),
+                db, readiness=status, transport=lambda item: _send(db, runtime, item),
                 owner=f"official-whatsapp-{os.getpid()}",
-                dispatch_allowed=lambda: status_from_readiness(
-                    db, runtime.live_readiness(), global_dispatch_enabled=(
-                        settings.OFFICIAL_WHATSAPP_ENABLED and settings.WHATSAPP_DISPATCH_ENABLED
-                    ),
-                )["effective_enabled"],
+                claim_intent=intent,
+                dispatch_allowed=lambda: status()["effective_enabled"],
+                activation_authorize=lambda job_id, facts: _authorize_activation(db, job_id, facts, getattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", ""), f"official-whatsapp-{os.getpid()}", runtime.default_content_sid),
             )
             if worker.process_one() is None:
                 sleep(1)
@@ -168,11 +197,78 @@ def run() -> int:
             db.close()
 
 
-def rollback_unleased(db: Any, *, now: datetime | None = None) -> int:
-    """Cancel only jobs no worker owns and revoke only their bound media tokens."""
+def _cancel_activation(db: Any, job: BillingNotificationJob, activation: BillingWhatsAppActivationTest | None, reason: str) -> None:
+    if job is not None and activation is not None and job.intent_type == "activation_test" and job.status in {"queued", "leased", "sending"}:
+        job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at, job.last_error_code = "cancelled", None, None, None, reason
+        activation.status, activation.terminal_reason = "cancelled", reason
+        db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": datetime.utcnow()})
+    db.commit()
+
+
+def _authorize_activation(db: Any, job_id: int, facts: dict[str, Any], hmac_key: str, owner: str = "worker", configured_sid: str | None = None) -> ActivationDispatch | None:
+    """Lock and prove the immutable activation graph immediately before transport."""
+    db.expire_all()
+    job = db.query(BillingNotificationJob).filter_by(id=job_id, intent_type="activation_test", status="sending").with_for_update().one_or_none()
+    activation = db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id).with_for_update().one_or_none()
+    preference = db.query(WhatsAppPreference).filter_by(teacher_ci=job.teacher_ci if job else None).with_for_update().one_or_none()
+    token = db.query(BillingMediaToken).filter_by(id=activation.media_token_id if activation else None).with_for_update().one_or_none()
+    batch = db.query(BillingNotificationBatch).filter_by(id=job.batch_id if job else None).with_for_update().one_or_none()
+    revision = db.query(BillingPublicationRevision).filter_by(id=activation.publication_revision_id if activation else None).with_for_update().one_or_none()
+    publication = db.query(BillingPublication).filter_by(id=revision.publication_id if revision else None).with_for_update().one_or_none()
+    if job is None or job.lease_owner != owner:
+        # This session may contain caller-owned, uncommitted creation state.
+        # Do not roll it back merely because another worker owns this lease.
+        db.expire_all()
+        return None
+    fresh = current_delivery_status(db)
+    reason = "activation_readiness_unavailable"
+    try:
+        recipient_hmac = hmac.new(hmac_key.encode("utf-8"), preference.phone_e164.encode("ascii"), hashlib.sha256).hexdigest() if preference else ""
+        artifact = __import__("pathlib").Path(token.artifact_path) if token else None
+        content = artifact.read_bytes() if artifact else b""
+        valid_revision = publication and revision and publication.status == revision.status == "published" and publication.version == revision.version
+        if valid_revision:
+            validate_publication_revision(revision)
+        valid = bool(
+            fresh.get("activation", {}).get("capable") is True
+            and fresh.get("global_delivery", {}).get("requested") is False
+            and fresh.get("global_delivery", {}).get("effective") is False
+            and fresh.get("provider_configuration", {}).get("ready") is True
+            and fresh.get("provider_live", {}).get("ready") is True
+            and fresh.get("worker", {}).get("ready") is True
+            and fresh.get("process_gates", {}).get("official") is True
+            and fresh.get("process_gates", {}).get("dispatch") is True
+            and (configured_sid is None or job.content_sid == configured_sid)
+            and job and activation and activation.status == "sending" and preference and preference.is_eligible_for_whatsapp
+            and recipient_hmac and hmac.compare_digest(activation.recipient_hmac, recipient_hmac)
+            and preference.teacher_ci == activation.teacher_ci_at_creation == job.teacher_ci
+            and preference.consent_revision == activation.consent_revision
+            and token and token.revoked_at is None and token.job_id == job.id and token.batch_id == batch.id
+            and batch and activation.batch_id == batch.id and activation.job_id == job.id
+            and job.content_sid == activation.content_sid and token.teacher_ci == job.teacher_ci
+            and token.artifact_hash == activation.artifact_hash and token.artifact_size == activation.artifact_size
+            and isinstance(job.media_snapshot, dict) and job.media_snapshot == {"token_id": token.id, "artifact_hash": token.artifact_hash, "artifact_size": token.artifact_size}
+            and len(content) == token.artifact_size and hashlib.sha256(content).hexdigest() == token.artifact_hash
+            and valid_revision and activation.publication_id == publication.id and activation.publication_version == revision.version and activation.billing_digest == revision.billing_digest
+        )
+    except (OSError, PublicationRevisionError, ValueError, TypeError):
+        valid = False
+    if not valid:
+        _cancel_activation(db, job, activation, reason)
+        return None
+    plaintext = secrets.token_urlsafe(32)
+    token.token_hash = hashlib.sha256(plaintext.encode("ascii")).hexdigest()
+    token.expires_at = datetime.utcnow() + timedelta(hours=24)
+    db.commit()
+    return ActivationDispatch(job, preference.phone_e164, plaintext)
+
+
+def rollback_unleased_activation(db: Any, *, now: datetime | None = None) -> int:
+    """Cancel only queued, unleased activation jobs and revoke their tokens."""
     now = now or datetime.utcnow()
     jobs = db.query(BillingNotificationJob).filter(
         BillingNotificationJob.channel == "whatsapp",
+        BillingNotificationJob.intent_type == "activation_test",
         BillingNotificationJob.status == "queued",
         BillingNotificationJob.lease_owner.is_(None),
     ).all()
@@ -186,7 +282,21 @@ def rollback_unleased(db: Any, *, now: datetime | None = None) -> int:
     return len(ids)
 
 
-def _send(db: Any, runtime: OfficialWhatsAppRuntime, job: BillingNotificationJob) -> Any:
+def rollback_unleased(db: Any, *, now: datetime | None = None) -> int:
+    """Legacy rollback: cancel every queued, unleased WhatsApp job."""
+    now = now or datetime.utcnow()
+    jobs = db.query(BillingNotificationJob).filter(BillingNotificationJob.channel == "whatsapp", BillingNotificationJob.status == "queued", BillingNotificationJob.lease_owner.is_(None)).all()
+    for job in jobs:
+        job.status, job.next_attempt_at = "cancelled", None
+    if jobs:
+        db.query(BillingMediaToken).filter(BillingMediaToken.job_id.in_([job.id for job in jobs]), BillingMediaToken.revoked_at.is_(None)).update({"revoked_at": now}, synchronize_session=False)
+    db.commit()
+    return len(jobs)
+
+
+def _send(db: Any, runtime: OfficialWhatsAppRuntime, job: BillingNotificationJob | ActivationDispatch) -> Any:
+    if isinstance(job, ActivationDispatch):
+        return runtime.transport_job(job.job, phone_e164=job.recipient, media_token=job.media_token)
     preference = db.get(WhatsAppPreference, job.teacher_ci)
     token = db.query(BillingMediaToken).filter_by(job_id=job.id, revoked_at=None).first()
     if preference is None or token is None:

@@ -108,6 +108,15 @@ def test_runtime_transport_uses_numeric_media_path_variable():
     }]
 
 
+def test_activation_dispatch_uses_authorized_current_recipient():
+    from app.workers.official_whatsapp_runner import ActivationDispatch, OfficialWhatsAppRuntime, _send
+    calls = []
+    runtime = OfficialWhatsAppRuntime.from_settings(settings(), transport=type("T", (), {"send": lambda _, **kwargs: calls.append(kwargs)})())
+    dispatch = ActivationDispatch(SimpleNamespace(content_sid="HX" + "e" * 32), "+59170000000", "opaque")
+    _send(None, runtime, dispatch)
+    assert calls[0]["to"] == "+59170000000" and "opaque.pdf" in calls[0]["content_variables"]
+
+
 def test_runtime_rejects_malformed_callback_ports_fail_closed():
     from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
 
