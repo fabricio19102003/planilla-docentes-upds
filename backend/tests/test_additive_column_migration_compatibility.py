@@ -206,10 +206,13 @@ def _migration_module():
 
 
 class _PostgreSQLHistoryInspector:
-    def __init__(self, columns, *, check="revision > 0"):
+    def __init__(self, columns, *, check="revision > 0", indexes=None):
         self.bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
         self.columns = columns
         self.check = check
+        self.indexes = indexes or [
+            {"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]}
+        ]
 
     def get_columns(self, _table):
         return self.columns
@@ -218,13 +221,13 @@ class _PostgreSQLHistoryInspector:
         return {"constrained_columns": ["id"]}
 
     def get_unique_constraints(self, _table):
-        return [{"column_names": ["teacher_ci", "revision"]}]
+        return [{"name": "uq_whatsapp_consent_teacher_revision", "column_names": ["teacher_ci", "revision"]}]
 
     def get_check_constraints(self, _table):
         return [{"name": "ck_whatsapp_consent_revision_positive", "sqltext": self.check}]
 
     def get_indexes(self, _table):
-        return [{"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]}]
+        return self.indexes
 
     def get_foreign_keys(self, _table):
         return [
@@ -265,6 +268,39 @@ def test_consent_lifecycle_migration_rejects_incompatible_postgresql_history_col
 
     with pytest.raises(RuntimeError, match="columns"):
         _migration_module()._validate_existing_history(_PostgreSQLHistoryInspector(columns))
+
+
+def test_consent_lifecycle_migration_adopts_postgresql_duplicate_unique_index():
+    _migration_module()._validate_existing_history(
+        _PostgreSQLHistoryInspector(
+            _postgresql_history_columns(),
+            indexes=[
+                {"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]},
+                {
+                    "name": "uq_whatsapp_consent_teacher_revision",
+                    "column_names": ["teacher_ci", "revision"],
+                    "duplicates_constraint": "uq_whatsapp_consent_teacher_revision",
+                },
+            ],
+        )
+    )
+
+
+def test_consent_lifecycle_migration_rejects_mismatched_postgresql_duplicate_index():
+    with pytest.raises(RuntimeError, match="index"):
+        _migration_module()._validate_existing_history(
+            _PostgreSQLHistoryInspector(
+                _postgresql_history_columns(),
+                indexes=[
+                    {"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]},
+                    {
+                        "name": "uq_whatsapp_consent_teacher_revision",
+                        "column_names": ["teacher_ci"],
+                        "duplicates_constraint": "uq_whatsapp_consent_teacher_revision",
+                    },
+                ],
+            )
+        )
 
 
 def test_consent_lifecycle_migration_rejects_wrong_postgresql_history_check():

@@ -158,7 +158,11 @@ def _validate_existing_history(inspector) -> None:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions columns")
     if tuple(inspector.get_pk_constraint("whatsapp_consent_revisions").get("constrained_columns") or ()) != ("id",):
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions primary key")
-    if {tuple(item.get("column_names") or ()) for item in inspector.get_unique_constraints("whatsapp_consent_revisions")} != {("teacher_ci", "revision")}:
+    expected_unique = ("uq_whatsapp_consent_teacher_revision", ("teacher_ci", "revision"))
+    if {
+        (item.get("name"), tuple(item.get("column_names") or ()))
+        for item in inspector.get_unique_constraints("whatsapp_consent_revisions")
+    } != {expected_unique}:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions unique constraint")
     checks = {
         item["name"]: _normalize_check_expression(item.get("sqltext") or "")
@@ -168,7 +172,16 @@ def _validate_existing_history(inspector) -> None:
         "ck_whatsapp_consent_revision_positive": _normalize_check_expression("revision > 0")
     }:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions check constraint")
-    if {(item["name"], tuple(item.get("column_names") or ())) for item in inspector.get_indexes("whatsapp_consent_revisions")} != {("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",))}:
+    indexes = {
+        (item["name"], tuple(item.get("column_names") or ()))
+        for item in inspector.get_indexes("whatsapp_consent_revisions")
+        if not (
+            inspector.bind.dialect.name == "postgresql"
+            and item.get("duplicates_constraint") == expected_unique[0]
+            and tuple(item.get("column_names") or ()) == expected_unique[1]
+        )
+    }
+    if indexes != {("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",))}:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions index")
     if inspector.bind.dialect.name == "sqlite":
         raise RuntimeError(
