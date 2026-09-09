@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Literal, Optional
 import json
@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Both flags default false so configuration alone cannot enable sending.
     OFFICIAL_WHATSAPP_ENABLED: bool = False
     WHATSAPP_DISPATCH_ENABLED: bool = False
+    BILLING_WHATSAPP_ACTIVATION_API_ENABLED: bool = False
+    BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED: bool = False
+    WHATSAPP_RECIPIENT_HMAC_KEY: Optional[str] = None
     WHATSAPP_MODE: Literal["sandbox"] = "sandbox"
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_API_KEY_SID: Optional[str] = None
@@ -96,6 +99,7 @@ class Settings(BaseSettings):
         "TWILIO_INBOUND_CALLBACK_URL",
         "TWILIO_AUTH_TOKEN",
         "TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT",
+        "WHATSAPP_RECIPIENT_HMAC_KEY",
         mode="before",
     )
     @classmethod
@@ -103,6 +107,19 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def validate_activation_recipient_hmac_key(self) -> "Settings":
+        activation_enabled = (
+            self.BILLING_WHATSAPP_ACTIVATION_API_ENABLED
+            or self.BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED
+        )
+        key = self.WHATSAPP_RECIPIENT_HMAC_KEY
+        if activation_enabled and (key is None or len(key.encode("utf-8")) < 32):
+            raise ValueError(
+                "WHATSAPP_RECIPIENT_HMAC_KEY must be at least 32 bytes when activation is enabled"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

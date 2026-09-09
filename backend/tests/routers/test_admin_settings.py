@@ -61,8 +61,11 @@ def test_admin_cannot_enable_whatsapp_when_effective_readiness_is_unavailable(cl
 
 
 def test_admin_enables_ready_whatsapp_and_audits_state(client, db_session, monkeypatch):
+    from app.config import settings
     from app.models.activity_log import ActivityLog
 
+    monkeypatch.setattr(settings, "OFFICIAL_WHATSAPP_ENABLED", True)
+    monkeypatch.setattr(settings, "WHATSAPP_DISPATCH_ENABLED", True)
     monkeypatch.setattr(
         whatsapp_delivery_control,
         "_provider_readiness",

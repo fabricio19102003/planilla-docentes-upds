@@ -17,11 +17,7 @@ from app.models.billing_notification import BillingMediaToken, BillingNotificati
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.twilio_content_transport import TwilioContentTransport
 from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
-from app.services.whatsapp_delivery_control import (
-    get_requested_enabled,
-    mark_worker_heartbeat,
-    status_from_readiness,
-)
+from app.services.whatsapp_delivery_control import mark_worker_heartbeat, status_from_readiness
 from app.workers.billing_notification_worker import BillingNotificationWorker
 
 logger = logging.getLogger(__name__)
@@ -42,7 +38,7 @@ class OfficialWhatsAppRuntime:
     transport: Any
 
     @classmethod
-    def from_settings(cls, settings: Any, *, transport: Any | None = None) -> "OfficialWhatsAppRuntime | None":
+    def configuration_readiness(cls, settings: Any) -> dict[str, Any]:
         fields = (
             "TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET",
             "TWILIO_OFFICIAL_FROM", "TWILIO_OFFICIAL_SENDER_SID", "TWILIO_OFFICIAL_CONTENT_SID",
@@ -50,26 +46,35 @@ class OfficialWhatsAppRuntime:
             "BILLING_MEDIA_PUBLIC_BASE_URL",
         )
         if not all(getattr(settings, name, None) for name in fields):
-            return None
-        if not (getattr(settings, "OFFICIAL_WHATSAPP_ENABLED", False) and getattr(settings, "WHATSAPP_DISPATCH_ENABLED", False)):
-            return None
+            return {"ready": False, "reason": "configuration_missing"}
         base_url = settings.BILLING_MEDIA_PUBLIC_BASE_URL
-        if not _is_https_url(base_url) or not _is_canonical_callback(
-            settings.TWILIO_STATUS_CALLBACK_URL, base_url, "/api/twilio/whatsapp/status"
-        ) or not _is_canonical_callback(
-            settings.TWILIO_INBOUND_CALLBACK_URL, base_url, "/api/twilio/whatsapp/inbound"
-        ):
-            return None
         capacity = {
             "available": True,
             "moving_recipient_limit": getattr(settings, "TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT", 0),
             "media_mps": getattr(settings, "TWILIO_OFFICIAL_MEDIA_MPS", 0),
             "window_seconds": getattr(settings, "TWILIO_OFFICIAL_CAPACITY_WINDOW_SECONDS", 86400),
         }
-        if not isinstance(capacity["moving_recipient_limit"], int) or capacity["moving_recipient_limit"] < 1:
+        safe = (
+            _is_https_url(base_url)
+            and _is_canonical_callback(settings.TWILIO_STATUS_CALLBACK_URL, base_url, "/api/twilio/whatsapp/status")
+            and _is_canonical_callback(settings.TWILIO_INBOUND_CALLBACK_URL, base_url, "/api/twilio/whatsapp/inbound")
+            and isinstance(capacity["moving_recipient_limit"], int)
+            and capacity["moving_recipient_limit"] >= 1
+            and isinstance(capacity["media_mps"], (int, float))
+            and capacity["media_mps"] > 0
+        )
+        return {"ready": safe, "reason": None if safe else "configuration_unsafe"}
+
+    @classmethod
+    def from_settings(cls, settings: Any, *, transport: Any | None = None) -> "OfficialWhatsAppRuntime | None":
+        if not cls.configuration_readiness(settings)["ready"]:
             return None
-        if not isinstance(capacity["media_mps"], (int, float)) or capacity["media_mps"] <= 0:
-            return None
+        capacity = {
+            "available": True,
+            "moving_recipient_limit": settings.TWILIO_OFFICIAL_MOVING_RECIPIENT_LIMIT,
+            "media_mps": settings.TWILIO_OFFICIAL_MEDIA_MPS,
+            "window_seconds": settings.TWILIO_OFFICIAL_CAPACITY_WINDOW_SECONDS,
+        }
         return cls(
             settings.TWILIO_ACCOUNT_SID, settings.TWILIO_API_KEY_SID, settings.TWILIO_API_KEY_SECRET,
             settings.TWILIO_OFFICIAL_FROM, settings.TWILIO_OFFICIAL_SENDER_SID, settings.TWILIO_OFFICIAL_CONTENT_SID,
@@ -84,9 +89,9 @@ class OfficialWhatsAppRuntime:
 
     def readiness_facts(self, *, sender_status: str | None = None, templates_approved: bool = False) -> dict[str, Any]:
         return TwilioReadinessAdapter().evaluate({
-            "official_enabled": True, "dispatch_enabled": True,
-            "sender_status": sender_status, "templates_approved": templates_approved,
-            "credentials_valid": True, "canonical_callback": True, "capacity": self.capacity,
+            "sender_status": sender_status,
+            "templates_approved": templates_approved,
+            "capacity": self.capacity,
         })
 
     def live_readiness(self) -> dict[str, Any]:
@@ -112,7 +117,7 @@ class OfficialWhatsAppRuntime:
                 templates_approved=approved,
             )
         except (httpx.HTTPError, ValueError, TypeError):
-            return self.readiness_facts()
+            return {"ready": False, "reason": "provider_unavailable", "capacity": {"available": False}}
 
     def transport_job(self, job: BillingNotificationJob, *, phone_e164: str, media_token: str) -> Any:
         return self.transport.send(
@@ -141,10 +146,18 @@ def run() -> int:
             db.commit()
             worker = BillingNotificationWorker(
                 db,
-                readiness=lambda: status_from_readiness(db, runtime.live_readiness())["readiness"],
+                readiness=lambda: status_from_readiness(
+                    db, runtime.live_readiness(), global_dispatch_enabled=(
+                        settings.OFFICIAL_WHATSAPP_ENABLED and settings.WHATSAPP_DISPATCH_ENABLED
+                    ),
+                )["readiness"],
                 transport=lambda job: _send(db, runtime, job),
                 owner=f"official-whatsapp-{os.getpid()}",
-                dispatch_allowed=lambda: get_requested_enabled(db),
+                dispatch_allowed=lambda: status_from_readiness(
+                    db, runtime.live_readiness(), global_dispatch_enabled=(
+                        settings.OFFICIAL_WHATSAPP_ENABLED and settings.WHATSAPP_DISPATCH_ENABLED
+                    ),
+                )["effective_enabled"],
             )
             if worker.process_one() is None:
                 sleep(1)
