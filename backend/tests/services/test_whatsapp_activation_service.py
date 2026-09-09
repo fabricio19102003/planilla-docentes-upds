@@ -7,10 +7,11 @@ from alembic import command
 from alembic.config import Config
 
 from app.config import settings
+from app.models.activity_log import ActivityLog
 from app.models.billing_notification import BillingNotificationJob, BillingWhatsAppActivationTest
 from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
 from app.models.billing_notification import BillingMediaToken, BillingNotificationBatch, BillingWhatsAppActivationTest
-from app.models.billing_publication import BillingPublicationRevision
+from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.billing_pdf_service import BillingPdfService
@@ -68,12 +69,213 @@ def test_pdf_flush_cleanup_preserves_existing_artifact(tmp_path):
     assert path.exists()
 
 
-def test_activation_failure_leaves_caller_transaction_ownership(client, db_session, tmp_path, monkeypatch):
-    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch); calls = []
-    monkeypatch.setattr(db_session, "rollback", lambda: calls.append(True))
+@pytest.mark.parametrize("mutate, code", [
+    (lambda r: r.update(activation=[]), "activation_readiness_unavailable"),
+    (lambda r: r.update(provider_configuration=[]), "activation_readiness_unavailable"),
+    (lambda r: r.update(provider_live=None), "activation_readiness_unavailable"),
+    (lambda r: r["activation"].update(capable=False), "activation_readiness_unavailable"),
+    (lambda r: r.update(global_delivery=[]), "activation_requires_global_delivery_disabled"),
+    (lambda r: r["global_delivery"].update(requested=True), "activation_requires_global_delivery_disabled"),
+    (lambda r: r["global_delivery"].update(effective=True), "activation_requires_global_delivery_disabled"),
+])
+def test_activation_malformed_readiness_is_bounded_and_does_not_write(client, db_session, tmp_path, monkeypatch, mutate, code):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    readiness = _ready("HX" + "a" * 32); mutate(readiness); before = _graph_counts(db_session)
+    with pytest.raises(WhatsAppActivationError, match=code):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=readiness, configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    assert _graph_counts(db_session) == before
+
+
+def test_activation_creates_one_private_bound_graph_without_email(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    detail = revision.billing_snapshot["teacher_details"][0]
+    publication = db_session.get(BillingPublication, revision.publication_id)
+    publication.billing_snapshot = {"mutable_snapshot": "must-not-bind"}; db_session.flush()
+    monkeypatch.setattr("app.services.whatsapp_activation_service.validate_publication_revision", lambda _revision: ({}, {"teacher_details": [detail, {"teacher_ci": "UNRELATED-DETAIL"}]}))
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32, ip_address="127.0.0.1")
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job = db_session.get(BillingNotificationJob, result.job_id)
+    token = db_session.get(BillingMediaToken, activation.media_token_id)
+    batch = db_session.get(BillingNotificationBatch, activation.batch_id)
+    audit = db_session.query(ActivityLog).filter_by(action="whatsapp_activation_created").one()
+    assert (db_session.query(BillingNotificationBatch).count(), db_session.query(BillingNotificationJob).count(), db_session.query(BillingMediaToken).count(), db_session.query(BillingWhatsAppActivationTest).count()) == (1, 1, 1, 1)
+    assert job.intent_type == "activation_test" and job.channel == "whatsapp" and job.content_sid == activation.content_sid
+    assert token.batch_id == batch.id == activation.batch_id and token.job_id == job.id == activation.job_id
+    assert token.teacher_ci == activation.teacher_ci_at_creation == request.teacher_ci
+    content = Path(token.artifact_path).read_bytes()
+    assert token.artifact_hash == activation.artifact_hash == __import__("hashlib").sha256(content).hexdigest()
+    assert token.artifact_size == activation.artifact_size == len(content) == job.media_snapshot["artifact_size"]
+    assert job.media_snapshot["token_id"] == token.id and job.media_snapshot["artifact_hash"] == token.artifact_hash
+    assert activation.publication_revision_id == revision.id and activation.billing_digest == revision.billing_digest
+    assert activation.recipient_hmac != request.recipient_e164 and request.recipient_e164 not in str((batch.__dict__, job.__dict__, token.__dict__, activation.__dict__, result, audit.details))
+    assert audit.details == {"activation_id": activation.id, "teacher_ci_at_creation": request.teacher_ci, "consent_revision": 1, "publication_revision_id": revision.id, "publication_version": revision.version, "job_id": job.id, "content_template_bound": True, "pdf_bound": True}
+    assert "activation@example.com" not in str(audit.details) and result.recipient_masked == "+591••••0000"
+    assert f'"publication_revision_id":{revision.id}'.encode() in content
+    assert f'"publication_version":{revision.version}'.encode() in content
+    assert revision.billing_digest.encode() in content and detail["teacher_ci"].encode() in content
+    assert b"must-not-bind" not in content and b"UNRELATED-DETAIL" not in content
+
+
+def test_activation_storage_failure_leaves_rollback_clean_graph(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch); before = _graph_counts(db_session)
     monkeypatch.setattr(service.pdf_service, "issue_activation", lambda *_a, **_k: (_ for _ in ()).throw(OSError("storage")))
-    with pytest.raises(OSError): service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
-    assert not calls
+    with pytest.raises(OSError):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    db_session.rollback()
+    assert _graph_counts(db_session) == before and not list(tmp_path.glob("*.pdf"))
+
+
+def _graph_counts(db):
+    return tuple(db.query(model).count() for model in (BillingNotificationBatch, BillingNotificationJob, BillingMediaToken, BillingWhatsAppActivationTest, ActivityLog))
+
+
+@pytest.mark.parametrize("change, code", [
+    ("missing_revision", "activation_publication_not_current"),
+    ("draft_revision", "activation_publication_not_current"),
+    ("stale_publication", "activation_publication_not_current"),
+    ("corrupt_revision", "activation_publication_corrupt"),
+    ("missing_teacher", "teacher_not_found"),
+    ("recipient", "activation_recipient_mismatch"),
+    ("consent_revision", "activation_consent_revision_mismatch"),
+    ("opted_out", "activation_consent_ineligible"),
+    ("unverified", "activation_consent_ineligible"),
+    ("missing_detail", "activation_teacher_not_in_revision"),
+    ("duplicate_detail", "activation_teacher_not_in_revision"),
+])
+def test_activation_rejects_invalid_bound_facts_without_writes(client, db_session, tmp_path, monkeypatch, change, code):
+    service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    preference = db_session.query(WhatsAppPreference).one()
+    if change == "missing_revision":
+        request = request.model_copy(update={"publication_revision_id": revision.id + 999})
+    elif change == "draft_revision":
+        revision.status = "draft"
+    elif change == "stale_publication":
+        revision.version += 1
+    elif change == "corrupt_revision":
+        revision.billing_digest = "0" * 64
+    elif change == "missing_teacher":
+        request = request.model_copy(update={"teacher_ci": "ABSENT"})
+    elif change == "recipient":
+        request = request.model_copy(update={"recipient_e164": "+59171111111"})
+    elif change == "consent_revision":
+        request = request.model_copy(update={"consent_revision": 2})
+    elif change == "opted_out":
+        preference.opted_out_at = __import__("datetime").datetime.utcnow()
+    elif change == "unverified":
+        preference.is_verified = False
+    elif change in {"missing_detail", "duplicate_detail"}:
+        detail = revision.billing_snapshot["teacher_details"][0]
+        details = [] if change == "missing_detail" else [detail, detail]
+        monkeypatch.setattr("app.services.whatsapp_activation_service.validate_publication_revision", lambda _revision: ({}, {"teacher_details": details}))
+    db_session.flush(); before = _graph_counts(db_session)
+    with pytest.raises(WhatsAppActivationError, match=code):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    assert _graph_counts(db_session) == before
+
+
+@pytest.mark.parametrize("readiness, configured_sid, approved_sid, code", [
+    ({}, "HX" + "a" * 32, "HX" + "a" * 32, "activation_requires_global_delivery_disabled"),
+    (_ready("HX" + "a" * 32), None, "HX" + "a" * 32, "activation_template_unapproved"),
+    (_ready("HX" + "a" * 32), "HX" + "b" * 32, "HX" + "a" * 32, "activation_template_unapproved"),
+])
+def test_activation_readiness_and_sid_rejections_do_not_write(client, db_session, tmp_path, monkeypatch, readiness, configured_sid, approved_sid, code):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch); before = _graph_counts(db_session)
+    with pytest.raises(WhatsAppActivationError, match=code):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=readiness, configured_content_sid=configured_sid, approved_content_sid=approved_sid)
+    assert _graph_counts(db_session) == before
+
+
+@pytest.mark.parametrize("configured_sid, approved_sid, readiness_sid", [
+    ("not-a-sid", "not-a-sid", "not-a-sid"),
+    ("HX" + "a" * 33, "HX" + "a" * 33, "HX" + "a" * 33),
+    ("HX" + "a" * 32, "HX" + "b" * 32, "HX" + "a" * 32),
+    ("HX" + "a" * 32, "HX" + "a" * 32, "HX" + "b" * 32),
+    ("HX" + "b" * 32, "HX" + "a" * 32, "HX" + "a" * 32),
+])
+def test_activation_sid_rejections_are_bounded_and_do_not_write(client, db_session, tmp_path, monkeypatch, configured_sid, approved_sid, readiness_sid):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch); before = _graph_counts(db_session)
+    with pytest.raises(WhatsAppActivationError, match="activation_template_unapproved"):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready(readiness_sid), configured_content_sid=configured_sid, approved_content_sid=approved_sid)
+    assert _graph_counts(db_session) == before
+
+
+def test_activation_replay_conflict_and_different_actor_are_actor_scoped(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    first = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    other = User(ci="OTHER-ACTOR", full_name="Other Actor", password_hash="x", role="admin")
+    db_session.add(other); db_session.flush()
+    independent = service.create(actor_user_id=other.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    assert independent.id != first.id
+    db_session.query(WhatsAppPreference).one().opted_out_at = __import__("datetime").datetime.utcnow()
+    replay = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness={}, configured_content_sid=None, approved_content_sid=None)
+    assert replay.id == first.id and replay.replayed is True
+    with pytest.raises(WhatsAppActivationError, match="activation_idempotency_conflict"):
+        service.create(actor_user_id=actor.id, request=request.model_copy(update={"consent_revision": 2}), idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    assert db_session.query(BillingWhatsAppActivationTest).count() == 2
+
+
+def test_activation_persistence_rejects_duplicate_actor_idempotency_only(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    original = db_session.get(BillingWhatsAppActivationTest, result.id)
+    batch = BillingNotificationBatch(publication_id=original.publication_id, publication_version=original.publication_version, digest="b" * 64, readiness_snapshot={}, status="queued")
+    db_session.add(batch); db_session.flush()
+    job = BillingNotificationJob(batch_id=batch.id, teacher_ci=request.teacher_ci, channel="whatsapp", intent_type="activation_test", content_sid=original.content_sid, status="queued")
+    db_session.add(job); db_session.flush()
+    token = BillingMediaToken(batch_id=batch.id, job_id=job.id, teacher_ci=request.teacher_ci, token_hash="c" * 64, artifact_hash=original.artifact_hash, artifact_path=db_session.get(BillingMediaToken, original.media_token_id).artifact_path, artifact_size=original.artifact_size, expires_at=db_session.get(BillingMediaToken, original.media_token_id).expires_at)
+    db_session.add(token); db_session.flush(); job.media_snapshot = {"token_id": token.id, "artifact_hash": token.artifact_hash, "artifact_size": token.artifact_size}
+    facts = {column.name: getattr(original, column.name) for column in BillingWhatsAppActivationTest.__table__.columns if column.name != "id"}
+    facts.update(batch_id=batch.id, job_id=job.id, media_token_id=token.id)
+    db_session.add(BillingWhatsAppActivationTest(**facts))
+    with pytest.raises(sa.exc.IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_activation_replay_uses_postgresql_lock_order_surrogate(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    original_scalar, locks = db_session.scalar, []
+    def locked_scalar(statement, *args, **kwargs):
+        locks.append(statement._for_update_arg is not None)
+        return original_scalar(statement, *args, **kwargs)
+    monkeypatch.setattr(db_session, "scalar", locked_scalar)
+    assert service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness={}, configured_content_sid=None, approved_content_sid=None).replayed
+    assert locks[:2] == [True, True]
+
+
+def test_activation_audit_failure_and_outer_rollback_remove_only_new_artifact(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    before = _graph_counts(db_session)
+    original_flush, calls = db_session.flush, {"count": 0}
+    def fail_audit_flush():
+        calls["count"] += 1
+        if calls["count"] == 5:
+            raise RuntimeError("audit flush")
+        original_flush()
+    monkeypatch.setattr(db_session, "flush", fail_audit_flush)
+    with pytest.raises(RuntimeError, match="audit flush"):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    db_session.rollback()
+    assert _graph_counts(db_session) == before and not list(tmp_path.glob("*.pdf"))
+
+
+def test_activation_outer_failure_preserves_preexisting_artifact(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch); before = _graph_counts(db_session)
+    detail = revision.billing_snapshot["teacher_details"][0]
+    payload = service.pdf_service._pdf_bytes(1, request.teacher_ci, {"teacher_detail": detail, "publication_revision_id": revision.id, "publication_version": revision.version, "billing_digest": revision.billing_digest})
+    path = service.pdf_service._safe_path(f"b-{__import__('hashlib').sha256(payload).hexdigest()[:12]}.pdf")
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
+    original_flush, calls = db_session.flush, {"count": 0}
+    def fail_audit_flush():
+        calls["count"] += 1
+        if calls["count"] == 5: raise RuntimeError("audit flush")
+        original_flush()
+    monkeypatch.setattr(db_session, "flush", fail_audit_flush)
+    with pytest.raises(RuntimeError, match="audit flush"):
+        service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    db_session.rollback()
+    assert _graph_counts(db_session) == before and path.read_bytes() == payload
 
 
 ACTIVATION_MIGRATION = "a2c4e6f8b002"

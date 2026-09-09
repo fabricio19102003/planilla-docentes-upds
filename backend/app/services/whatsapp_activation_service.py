@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,7 @@ class WhatsAppActivationService:
         existing = self.db.scalar(select(BillingWhatsAppActivationTest).where(
             BillingWhatsAppActivationTest.actor_user_id == actor.id,
             BillingWhatsAppActivationTest.idempotency_key_hash == key_hash,
-        ))
+        ).with_for_update())
         if existing is not None:
             if hmac.compare_digest(existing.request_digest, request_digest):
                 return self._project(existing, replayed=True)
@@ -136,11 +137,13 @@ class WhatsAppActivationService:
     def _require_readiness(readiness: dict[str, Any], configured_sid: str | None, approved_sid: str | None) -> None:
         activation = readiness.get("activation") if isinstance(readiness, dict) else None
         global_delivery = readiness.get("global_delivery") if isinstance(readiness, dict) else None
+        configuration = readiness.get("provider_configuration") if isinstance(readiness, dict) else None
+        provider_live = readiness.get("provider_live") if isinstance(readiness, dict) else None
         if not isinstance(global_delivery, dict) or global_delivery.get("requested") is not False or global_delivery.get("effective") is not False:
             raise WhatsAppActivationError("activation_requires_global_delivery_disabled")
-        if not isinstance(activation, dict) or activation.get("capable") is not True or readiness.get("provider_configuration", {}).get("ready") is not True or readiness.get("provider_live", {}).get("ready") is not True:
+        if not isinstance(activation, dict) or activation.get("capable") is not True or not isinstance(configuration, dict) or configuration.get("ready") is not True or not isinstance(provider_live, dict) or provider_live.get("ready") is not True:
             raise WhatsAppActivationError("activation_readiness_unavailable")
-        if not isinstance(configured_sid, str) or not configured_sid or len(configured_sid) > 34 or approved_sid != configured_sid or readiness.get("approved_content_sid") != configured_sid:
+        if not isinstance(configured_sid, str) or re.fullmatch(r"HX[0-9A-Fa-f]{32}", configured_sid) is None or approved_sid != configured_sid or readiness.get("approved_content_sid") != configured_sid:
             raise WhatsAppActivationError("activation_template_unapproved")
 
     @staticmethod
