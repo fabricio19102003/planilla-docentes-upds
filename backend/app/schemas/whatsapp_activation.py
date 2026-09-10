@@ -33,7 +33,7 @@ class WhatsAppActivationCreate(BaseModel):
 
 
 ActivationStatus = Literal["queued", "leased", "sending", "accepted", "ambiguous", "sent", "delivered", "read", "failed", "undelivered", "cancelled"]
-TerminalReason = Literal["activation_disabled", "activation_readiness_unavailable", "activation_requires_global_delivery_disabled", "activation_recipient_mismatch", "activation_consent_revision_mismatch", "activation_consent_ineligible", "activation_publication_not_current", "activation_publication_corrupt", "activation_teacher_not_in_revision", "activation_template_unapproved", "activation_artifact_unavailable"]
+TerminalReason = Literal["activation_disabled", "activation_readiness_unavailable", "activation_requires_global_delivery_disabled", "activation_recipient_mismatch", "activation_consent_revision_mismatch", "activation_consent_ineligible", "activation_publication_not_current", "activation_publication_corrupt", "activation_teacher_not_in_revision", "activation_template_unapproved", "activation_artifact_unavailable", "activation_provider_failed"]
 
 
 class WhatsAppActivationProjection(BaseModel):
@@ -47,7 +47,6 @@ class WhatsAppActivationProjection(BaseModel):
     consent_revision: int
     publication_revision_id: int
     publication_version: int
-    billing_digest: str
     content_template_bound: bool
     pdf_bound: bool
     job_id: int

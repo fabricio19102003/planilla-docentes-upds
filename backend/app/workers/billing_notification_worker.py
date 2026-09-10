@@ -15,6 +15,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.whatsapp_preference import WhatsAppPreference
+from app.services.whatsapp_activation_service import project_activation_status
 from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
@@ -115,6 +116,10 @@ class BillingNotificationWorker:
             candidate.lease_expires_at = expires
             candidate.attempts += 1
         job_id = candidate.id
+        self.db.expire_all()
+        job = self.db.get(BillingNotificationJob, job_id)
+        if job is not None:
+            project_activation_status(self.db, job)
         self.db.commit()  # Never retain the claim lock across readiness or I/O.
         return self.db.get(BillingNotificationJob, job_id)
 
@@ -178,7 +183,7 @@ class BillingNotificationWorker:
             self.db.rollback()
             return
         job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at, job.last_error_code = "cancelled", None, None, None, reason
-        activation.status, activation.terminal_reason = "cancelled", reason
+        project_activation_status(self.db, job, reason)
         self.db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": self.now()})
         self.db.commit()
 
@@ -221,10 +226,10 @@ class BillingNotificationWorker:
         if not updated:
             self.db.rollback()
             return False
+        self.db.expire_all()
         job = self.db.get(BillingNotificationJob, job_id)
-        if job and job.intent_type == "activation_test":
-            from app.models.billing_notification import BillingWhatsAppActivationTest
-            self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id, status="queued").update({"status": "sending"})
+        if job is not None:
+            project_activation_status(self.db, job)
         self.db.commit()
         return True
 
@@ -262,10 +267,10 @@ class BillingNotificationWorker:
             )
         )
         if updated:
+            self.db.expire_all()
             job = self.db.get(BillingNotificationJob, job_id)
-            if job and job.intent_type == "activation_test":
-                from app.models.billing_notification import BillingWhatsAppActivationTest
-                self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id, status="sending").update({"status": status})
+            if job is not None:
+                project_activation_status(self.db, job)
             self.db.commit()
         else:
             self.db.rollback()

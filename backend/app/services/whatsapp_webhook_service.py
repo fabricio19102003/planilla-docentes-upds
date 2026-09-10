@@ -13,12 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from app.models.billing_notification import BillingNotificationJob, WhatsAppEvent
+from app.models.billing_notification import BillingMediaToken, BillingNotificationJob, WhatsAppEvent
 from app.models.billing_notification import BillingNotificationBatch
 from app.models.billing_publication import BillingPublication
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.billing_notification_service import BillingNotificationService, SqlAlchemyAttemptStore
+from app.services.whatsapp_activation_service import project_activation_status
 from app.services.whatsapp_preference_service import WhatsAppPreferenceService
 
 
@@ -64,7 +65,7 @@ class WhatsAppWebhookService:
         if not BillingNotificationJob.is_provider_sid(provider_sid) or status not in _VALID_STATUS:
             self.db.commit()
             return "ignored"
-        job = self.db.query(BillingNotificationJob).filter_by(provider_sid=provider_sid).one_or_none()
+        job = self.db.query(BillingNotificationJob).filter_by(provider_sid=provider_sid).with_for_update().one_or_none()
         event.job_id = job.id if job else None
         if job is None:
             self.db.commit()
@@ -76,6 +77,7 @@ class WhatsAppWebhookService:
         job.lease_owner = None
         job.lease_expires_at = None
         job.next_attempt_at = None
+        project_activation_status(self.db, job)
         self.db.commit()
         if status in {"failed", "undelivered"} and job.intent_type != "activation_test":
             self._send_terminal_email_alternative(job)
@@ -90,6 +92,7 @@ class WhatsAppWebhookService:
                 BillingNotificationJob.status.in_(("ambiguous", "accepted", "sent")),
             )
             .order_by(BillingNotificationJob.id)
+            .with_for_update()
             .limit(limit)
             .all()
         )
@@ -104,6 +107,7 @@ class WhatsAppWebhookService:
                 continue
             event.job_id = job.id
             job.status = provider_status
+            project_activation_status(self.db, job)
             if provider_status in {"failed", "undelivered"} and job.intent_type != "activation_test":
                 terminal_jobs.append(job)
             projected += 1
@@ -153,19 +157,18 @@ class WhatsAppWebhookService:
             occurred_at=self.now(),
             event_type="provider_opt_out",
         )
-        self.db.query(BillingNotificationJob).filter(
+        jobs = self.db.query(BillingNotificationJob).filter(
             BillingNotificationJob.teacher_ci == preference.teacher_ci,
             BillingNotificationJob.channel == "whatsapp",
             BillingNotificationJob.status.in_(("queued", "leased", "sending")),
-        ).update(
-            {
-                "status": "cancelled",
-                "lease_owner": None,
-                "lease_expires_at": None,
-                "next_attempt_at": None,
-            },
-            synchronize_session=False,
-        )
+        ).with_for_update().all()
+        for job in jobs:
+            job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at = "cancelled", None, None, None
+            activation = project_activation_status(self.db, job, "activation_consent_ineligible")
+            if activation is not None:
+                self.db.query(BillingMediaToken).filter_by(
+                    id=activation.media_token_id, revoked_at=None
+                ).update({"revoked_at": self.now()})
         self.db.commit()
         return "opted_out"
 

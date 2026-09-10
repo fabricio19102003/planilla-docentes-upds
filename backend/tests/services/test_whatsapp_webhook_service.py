@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
 from app.models.activity_log import ActivityLog
-from app.models.billing_notification import BillingNotificationJob, WhatsAppEvent
+from app.models.billing_notification import BillingMediaToken, BillingNotificationJob, BillingWhatsAppActivationTest, WhatsAppEvent
 from app.models.teacher import Teacher
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 
@@ -29,6 +29,8 @@ def service_session(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path}/webhooks.db")
     Teacher.__table__.create(engine)
     BillingNotificationJob.__table__.create(engine)
+    BillingMediaToken.__table__.create(engine)
+    BillingWhatsAppActivationTest.__table__.create(engine)
     WhatsAppEvent.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
     WhatsAppConsentRevision.__table__.create(engine)
@@ -104,6 +106,25 @@ def test_reconciliation_is_bounded_to_known_sids_without_email_side_effects(tmp_
     engine.dispose()
 
 
+def test_reconciliation_projects_activation_without_email_and_projector_rejects_stale_regression(tmp_path, monkeypatch):
+    from app.services.whatsapp_webhook_service import WhatsAppWebhookService
+
+    engine, db = service_session(tmp_path)
+    db.add(BillingNotificationJob(id=1, batch_id=1, teacher_ci="teacher", channel="whatsapp", intent_type="activation_test", status="ambiguous", provider_sid=SID))
+    _activation(db, 1, status="ambiguous")
+    db.commit()
+    calls = []
+    monkeypatch.setattr(WhatsAppWebhookService, "_send_terminal_email_alternative", lambda *_: calls.append(True))
+    service = WhatsAppWebhookService(db, auth_token=AUTH_TOKEN, status_url=STATUS_URL, inbound_url=INBOUND_URL)
+    assert service.reconcile(lambda _: "delivered") == 1
+    assert (db.get(BillingNotificationJob, 1).status, db.get(BillingWhatsAppActivationTest, 1).status, calls) == ("delivered", "delivered", [])
+    db.get(BillingNotificationJob, 1).status = "sent"
+    from app.services.whatsapp_activation_service import project_activation_status
+    project_activation_status(db, db.get(BillingNotificationJob, 1))
+    assert db.get(BillingWhatsAppActivationTest, 1).status == "delivered"
+    engine.dispose()
+
+
 def test_unknown_sender_and_malformed_status_are_safe_noops(tmp_path):
     from app.services.whatsapp_webhook_service import WhatsAppWebhookService
 
@@ -138,6 +159,60 @@ def test_activation_terminal_callback_never_uses_email_fallback(tmp_path, monkey
     service = WhatsAppWebhookService(db, auth_token=AUTH_TOKEN, status_url=STATUS_URL, inbound_url=INBOUND_URL)
     form = [("MessageSid", SID), ("MessageStatus", "failed")]
     assert service.process_status(form, signature(STATUS_URL, form), "") == "projected" and calls == []
+    engine.dispose()
+
+
+def _activation(db, job_id: int, *, status: str = "accepted", token_id: int = 1):
+    db.add(BillingWhatsAppActivationTest(
+        id=job_id, actor_user_id=1, actor_ci="admin", idempotency_key_hash=f"{job_id:064x}",
+        request_digest="a" * 64, teacher_ci_at_creation="teacher", recipient_hmac="b" * 64,
+        recipient_masked="+591••••0000", consent_revision=1, publication_id=1,
+        publication_revision_id=1, publication_version=1, billing_digest="c" * 64,
+        content_sid="HX" + "a" * 32, batch_id=job_id, job_id=job_id,
+        media_token_id=token_id, artifact_hash="d" * 64, artifact_size=1, status=status,
+    ))
+
+
+def test_activation_callback_projection_is_monotonic_and_terminal_first(tmp_path):
+    from app.services.whatsapp_webhook_service import WhatsAppWebhookService
+
+    engine, db = service_session(tmp_path)
+    db.add(BillingNotificationJob(id=1, batch_id=1, teacher_ci="teacher", channel="whatsapp", intent_type="activation_test", status="accepted", provider_sid=SID))
+    _activation(db, 1)
+    db.commit()
+    service = WhatsAppWebhookService(db, auth_token=AUTH_TOKEN, status_url=STATUS_URL, inbound_url=INBOUND_URL)
+    for status, outcome in (("delivered", "projected"), ("delivered", "duplicate"), ("sent", "ignored"), ("read", "projected")):
+        form = [("MessageSid", SID), ("MessageStatus", status)]
+        assert service.process_status(form, signature(STATUS_URL, form), "") == outcome
+    assert (db.get(BillingNotificationJob, 1).status, db.get(BillingWhatsAppActivationTest, 1).status) == ("read", "read")
+
+    second_sid = "SM" + "b" * 32
+    db.add(BillingNotificationJob(id=2, batch_id=2, teacher_ci="teacher", channel="whatsapp", intent_type="activation_test", status="accepted", provider_sid=second_sid))
+    _activation(db, 2, token_id=2)
+    db.commit()
+    for status, outcome in (("failed", "projected"), ("delivered", "ignored")):
+        form = [("MessageSid", second_sid), ("MessageStatus", status)]
+        assert service.process_status(form, signature(STATUS_URL, form), "") == outcome
+    assert (db.get(BillingNotificationJob, 2).status, db.get(BillingWhatsAppActivationTest, 2).status) == ("failed", "failed")
+    engine.dispose()
+
+
+def test_stop_cancels_activation_and_revokes_its_token(tmp_path):
+    from app.services.whatsapp_webhook_service import WhatsAppWebhookService
+
+    engine, db = service_session(tmp_path)
+    db.add_all([
+        Teacher(ci="teacher", full_name="Teacher"),
+        WhatsAppPreference(teacher_ci="teacher", phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_source="written_record", consented_at=datetime(2025, 1, 1), consent_revision=1),
+        BillingNotificationJob(id=1, batch_id=1, teacher_ci="teacher", channel="whatsapp", intent_type="activation_test", status="queued"),
+        BillingMediaToken(id=1, batch_id=1, job_id=1, teacher_ci="teacher", token_hash="a" * 64, artifact_hash="b" * 64, artifact_path="/tmp/a.pdf", artifact_size=1, expires_at=datetime(2030, 1, 1)),
+    ])
+    _activation(db, 1, status="queued")
+    db.commit()
+    service = WhatsAppWebhookService(db, auth_token=AUTH_TOKEN, status_url=STATUS_URL, inbound_url=INBOUND_URL)
+    form = [("From", "whatsapp:+59170000000"), ("Body", "STOP"), ("MessageSid", "MM" + "c" * 32)]
+    assert service.process_inbound(form, signature(INBOUND_URL, form), "") == "opted_out"
+    assert (db.get(BillingNotificationJob, 1).status, db.get(BillingWhatsAppActivationTest, 1).status, db.get(BillingMediaToken, 1).revoked_at is not None) == ("cancelled", "cancelled", True)
     engine.dispose()
 
 

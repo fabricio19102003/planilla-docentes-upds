@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from app.models.activity_log import ActivityLog
@@ -25,6 +25,43 @@ from app.services.publication_revisions import PublicationRevisionError, validat
 
 class WhatsAppActivationError(ValueError):
     """Bounded error code safe for a future router boundary."""
+
+
+_ACTIVATION_TERMINAL = {"failed", "undelivered", "read", "cancelled"}
+_ACTIVATION_TRANSITIONS = {
+    "queued": {"leased", "cancelled"}, "leased": {"sending", "cancelled"},
+    "sending": {"accepted", "ambiguous", "cancelled"},
+    "ambiguous": {"accepted", "sent", "delivered", "read", "failed", "undelivered"},
+    "accepted": {"sent", "delivered", "read", "failed", "undelivered"},
+    "sent": {"delivered", "read", "failed", "undelivered"}, "delivered": {"read"},
+}
+_ACTIVATION_REASONS = {
+    "activation_disabled", "activation_readiness_unavailable",
+    "activation_requires_global_delivery_disabled", "activation_recipient_mismatch",
+    "activation_consent_revision_mismatch", "activation_consent_ineligible",
+    "activation_publication_not_current", "activation_publication_corrupt",
+    "activation_teacher_not_in_revision", "activation_template_unapproved",
+    "activation_artifact_unavailable", "activation_provider_failed",
+}
+
+
+def project_activation_status(
+    db: Session, job: BillingNotificationJob, terminal_reason: str | None = None,
+) -> BillingWhatsAppActivationTest | None:
+    """Synchronize one activation's safe lifecycle projection within its job transaction."""
+    if job.intent_type != "activation_test" or BillingWhatsAppActivationTest.__tablename__ not in inspect(db.get_bind()).get_table_names():
+        return None
+    activation = db.scalar(select(BillingWhatsAppActivationTest).where(
+        BillingWhatsAppActivationTest.job_id == job.id
+    ).with_for_update())
+    if activation is None or activation.status in _ACTIVATION_TERMINAL:
+        return activation
+    if job.status != activation.status and job.status not in _ACTIVATION_TRANSITIONS.get(activation.status, set()):
+        return activation
+    activation.status = job.status
+    if job.status == "cancelled" and terminal_reason in _ACTIVATION_REASONS:
+        activation.terminal_reason = terminal_reason
+    return activation
 
 
 class WhatsAppActivationService:
@@ -178,7 +215,7 @@ class WhatsAppActivationService:
             id=activation.id, status=activation.status, terminal_reason=activation.terminal_reason,
             teacher_ci_at_creation=activation.teacher_ci_at_creation, recipient_masked=activation.recipient_masked,
             consent_revision=activation.consent_revision, publication_revision_id=activation.publication_revision_id,
-            publication_version=activation.publication_version, billing_digest=activation.billing_digest,
+            publication_version=activation.publication_version,
             content_template_bound=True, pdf_bound=True,
             job_id=activation.job_id, job_status=job.status if job else activation.status,
             created_at=activation.created_at, updated_at=activation.updated_at, replayed=replayed,

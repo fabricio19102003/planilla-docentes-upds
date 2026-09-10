@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 from app.models.app_setting import AppSetting
-from app.models.billing_notification import BillingWhatsAppActivationTest
+from app.models.billing_notification import BillingNotificationJob, BillingWhatsAppActivationTest
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.auth_service import auth_service
@@ -104,7 +104,7 @@ def test_create_replay_conflict_and_readiness_rejections_are_row_free(client, db
     headers = {"Idempotency-Key": "a" * 16}
     created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers=headers)
     assert created.status_code == 201
-    assert "content_sid" not in str(created.json()).lower()
+    assert not any(marker in str(created.json()).lower() for marker in ("content_sid", "billing_digest", "hash", "token", "artifact", "provider"))
     replay = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers=headers)
     assert replay.status_code == 200 and replay.json()["replayed"] is True
     conflict = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id, consent_revision=2), headers=headers)
@@ -128,8 +128,14 @@ def test_status_is_admin_only_and_checks_authorization_before_existence(client, 
     created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "a" * 16})
     activation_id = created.json()["id"]
     from app.config import settings
+    activation = db_session.get(BillingWhatsAppActivationTest, activation_id)
+    job = db_session.get(BillingNotificationJob, activation.job_id)
+    job.status = activation.status = "delivered"
+    db_session.commit()
     monkeypatch.setattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", None)
-    assert client.get(f"/api/admin/whatsapp/activation-tests/{activation_id}").status_code == 200
+    response = client.get(f"/api/admin/whatsapp/activation-tests/{activation_id}")
+    assert response.status_code == 200
+    assert (response.json()["status"], response.json()["job_status"]) == ("delivered", "delivered")
     assert client.get("/api/admin/whatsapp/activation-tests/999999").status_code == 404
 
     docente = User(ci="DOCENTE-B", full_name="Docente", password_hash="x", role="docente")
