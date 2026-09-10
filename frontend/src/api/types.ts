@@ -684,6 +684,33 @@ export interface WhatsAppBillingDeliveryStatus {
   worker_heartbeat_at: string | null
 }
 
+export interface WhatsAppPreferenceAdminResponse {
+  teacher_ci: string
+  exists: boolean
+  phone_masked: string | null
+  is_verified: boolean
+  eligible: boolean
+  consent_revision: number
+  consent_source: string | null
+  consented_at: string | null
+  opted_out: boolean
+  opted_out_at: string | null
+  has_consent_evidence: boolean
+  has_opt_out_evidence: boolean
+}
+
+export interface WhatsAppPreferencePutRequest {
+  phone_e164: string
+  is_verified: boolean
+  consent_evidence_reference: string
+  consent_source: 'written_record' | 'verbal_record' | 'other_documented'
+  consented_at: string
+}
+
+export interface WhatsAppPreferenceOptOutRequest {
+  opt_out_evidence_reference: string
+}
+
 export interface AppSettingsUpdate {
   active_academic_period?: string
   company_name?: string
