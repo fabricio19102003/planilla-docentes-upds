@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
@@ -51,6 +52,22 @@ def queued(session, *, teacher="x", batch=1, next_attempt_at=None, intent_type="
         )
     )
     session.commit()
+
+
+@pytest.mark.parametrize("intent, expected", [
+    ("ordinary", "ordinary"), ("activation_test", "activation_test"), (None, None),
+])
+def test_worker_claim_intent_is_one_cycle_authority(tmp_path, intent, expected):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session, teacher="activation", batch=1, intent_type="activation_test")
+    queued(session, teacher="ordinary", batch=2)
+    worker = BillingNotificationWorker(
+        session, lambda: READY, lambda _: SimpleNamespace(status="sent"),
+        claim_intent=lambda: intent, now=lambda: CLOCK,
+    )
+    claimed = worker.claim_one()
+    assert (claimed.intent_type if claimed else None) == expected
 
 
 def test_worker_never_claims_or_transports_activation_before_pr9b(tmp_path):

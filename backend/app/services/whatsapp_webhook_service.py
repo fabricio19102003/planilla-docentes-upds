@@ -77,7 +77,7 @@ class WhatsAppWebhookService:
         job.lease_expires_at = None
         job.next_attempt_at = None
         self.db.commit()
-        if status in {"failed", "undelivered"}:
+        if status in {"failed", "undelivered"} and job.intent_type != "activation_test":
             self._send_terminal_email_alternative(job)
         return "projected"
 
@@ -104,7 +104,7 @@ class WhatsAppWebhookService:
                 continue
             event.job_id = job.id
             job.status = provider_status
-            if provider_status in {"failed", "undelivered"}:
+            if provider_status in {"failed", "undelivered"} and job.intent_type != "activation_test":
                 terminal_jobs.append(job)
             projected += 1
         self.db.commit()

@@ -129,6 +129,18 @@ def test_terminal_failures_are_valid_advances_but_delivered_and_terminal_never_r
     assert service.process_status(delivered, signature(STATUS_URL, delivered), "") == "ignored"
     engine.dispose()
 
+def test_activation_terminal_callback_never_uses_email_fallback(tmp_path, monkeypatch):
+    from app.services.whatsapp_webhook_service import WhatsAppWebhookService
+    engine, db = service_session(tmp_path)
+    db.add(BillingNotificationJob(id=1, batch_id=1, teacher_ci="teacher", channel="whatsapp", intent_type="activation_test", status="accepted", provider_sid=SID)); db.commit()
+    calls = []
+    monkeypatch.setattr(WhatsAppWebhookService, "_send_terminal_email_alternative", lambda *_: calls.append(True))
+    service = WhatsAppWebhookService(db, auth_token=AUTH_TOKEN, status_url=STATUS_URL, inbound_url=INBOUND_URL)
+    form = [("MessageSid", SID), ("MessageStatus", "failed")]
+    assert service.process_status(form, signature(STATUS_URL, form), "") == "projected" and calls == []
+    engine.dispose()
+
+
 def test_router_uses_configured_url_with_actual_query_not_host_headers(tmp_path):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

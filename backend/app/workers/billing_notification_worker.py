@@ -36,6 +36,8 @@ class BillingNotificationWorker:
         sleeper: Callable[[float], None] = sleep,
         before_transport: Callable[[], None] | None = None,
         dispatch_allowed: Callable[[], bool] | None = None,
+        claim_intent: Callable[[], str | None] | None = None,
+        activation_authorize: Callable[[int, dict[str, Any]], Any | None] | None = None,
     ) -> None:
         self.db = db
         self.readiness = readiness
@@ -47,9 +49,14 @@ class BillingNotificationWorker:
         self.sleeper = sleeper
         self.before_transport = before_transport
         self.dispatch_allowed = dispatch_allowed or (lambda: True)
+        self.claim_intent = claim_intent or (lambda: "ordinary")
+        self.activation_authorize = activation_authorize
 
     def claim_one(self) -> BillingNotificationJob | None:
-        """Atomically claim one *due* job and commit its durable lease."""
+        """Atomically claim one due job for the single intent authorized this cycle."""
+        intent = self.claim_intent()
+        if intent not in {"ordinary", "activation_test"}:
+            return None
         now = self.now()
         due = or_(
             and_(
@@ -68,7 +75,7 @@ class BillingNotificationWorker:
             self.db.query(BillingNotificationJob)
             .filter(
                 BillingNotificationJob.channel == "whatsapp",
-                BillingNotificationJob.intent_type == "ordinary",
+                BillingNotificationJob.intent_type == intent,
                 due,
             )
             .order_by(BillingNotificationJob.id)
@@ -86,7 +93,7 @@ class BillingNotificationWorker:
                 self.db.query(BillingNotificationJob)
                 .filter(
                     BillingNotificationJob.id == candidate.id,
-                    BillingNotificationJob.intent_type == "ordinary",
+                    BillingNotificationJob.intent_type == intent,
                     due,
                 )
                 .update(
@@ -116,36 +123,64 @@ class BillingNotificationWorker:
         if job is None:
             return None
         facts = self.readiness()
-        if not facts.get("ready"):
+        activation = job.intent_type == "activation_test"
+        ready = facts.get("activation", {}).get("capable") is True if activation else facts.get("ready") is True
+        if not ready:
+            if activation:
+                self._cancel_activation(job.id, "activation_readiness_unavailable")
+                return "cancelled"
             self._backoff(job.id, "official_readiness_unavailable")
             return "backoff"
         reservation = self._reserve_capacity(job, facts)
         if reservation is None:
+            if activation:
+                self._cancel_activation(job.id, "activation_readiness_unavailable")
+                return "cancelled"
             self._backoff(job.id, "official_capacity_exhausted")
             return "backoff"
         if reservation:
             self.sleeper(reservation)
         if not self._begin_send(job.id):
             return None
-
-        # STOP may cancel a committed sending job before this final provider boundary.
-        if not self._can_dispatch(job.id):
+        if not activation and not self._can_dispatch(job.id):
             self._backoff(job.id, "official_dispatch_disabled", sending=True)
             return "cancelled"
         if self.before_transport:
             self.before_transport()
-        if not self._can_dispatch(job.id):
-            self._backoff(job.id, "official_dispatch_disabled", sending=True)
-            return "cancelled"
-        result = self.transport(self.db.get(BillingNotificationJob, job.id))
+        if activation:
+            dispatch = self.activation_authorize(job.id, facts) if self.activation_authorize else None
+            if dispatch is None:
+                return "cancelled"
+        else:
+            if not self._can_dispatch(job.id):
+                self._backoff(job.id, "official_dispatch_disabled", sending=True)
+                return "cancelled"
+            dispatch = self.db.get(BillingNotificationJob, job.id)
+        result = self.transport(dispatch)
         if result.status == "sent":
             self._finalize(job.id, "accepted", getattr(result, "provider_message_id", None))
             return "accepted"
         if result.status == "ambiguous":
             self._finalize(job.id, "ambiguous", None)
             return "ambiguous"
+        if activation:
+            self._cancel_activation(job.id, "activation_provider_failed")
+            return "cancelled"
         self._backoff(job.id, getattr(result, "error_code", "provider_failed"), sending=True)
         return "queued"
+
+    def _cancel_activation(self, job_id: int, reason: str) -> None:
+        """Activation failures are terminal and never re-enter ordinary fallback."""
+        from app.models.billing_notification import BillingMediaToken, BillingWhatsAppActivationTest
+        job = self.db.query(BillingNotificationJob).filter_by(id=job_id, intent_type="activation_test", lease_owner=self.owner).one_or_none()
+        activation = self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id).one_or_none()
+        if job is None or activation is None or job.status not in {"leased", "sending"}:
+            self.db.rollback()
+            return
+        job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at, job.last_error_code = "cancelled", None, None, None, reason
+        activation.status, activation.terminal_reason = "cancelled", reason
+        self.db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": self.now()})
+        self.db.commit()
 
     def _backoff(self, job_id: int, reason: str, *, sending: bool = False) -> None:
         now = self.now()
@@ -186,6 +221,10 @@ class BillingNotificationWorker:
         if not updated:
             self.db.rollback()
             return False
+        job = self.db.get(BillingNotificationJob, job_id)
+        if job and job.intent_type == "activation_test":
+            from app.models.billing_notification import BillingWhatsAppActivationTest
+            self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id, status="queued").update({"status": "sending"})
         self.db.commit()
         return True
 
@@ -223,6 +262,10 @@ class BillingNotificationWorker:
             )
         )
         if updated:
+            job = self.db.get(BillingNotificationJob, job_id)
+            if job and job.intent_type == "activation_test":
+                from app.models.billing_notification import BillingWhatsAppActivationTest
+                self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id, status="sending").update({"status": status})
             self.db.commit()
         else:
             self.db.rollback()

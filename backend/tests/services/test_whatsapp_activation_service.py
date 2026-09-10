@@ -125,6 +125,72 @@ def test_activation_storage_failure_leaves_rollback_clean_graph(client, db_sessi
     assert _graph_counts(db_session) == before and not list(tmp_path.glob("*.pdf"))
 
 
+@pytest.mark.parametrize("drift", ["global", "provider", "worker", "process", "preference", "recipient", "consent", "content", "token", "artifact", "revision", "link", "status"])
+def test_activation_final_authorization_cancels_every_drift(client, db_session, tmp_path, monkeypatch, drift):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="z" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id); job = db_session.get(BillingNotificationJob, result.job_id)
+    token = db_session.get(BillingMediaToken, activation.media_token_id); preference = db_session.get(WhatsAppPreference, job.teacher_ci)
+    job.status, job.lease_owner, activation.status = "sending", "worker", "sending"
+    facts = {"activation": {"capable": True}, "global_delivery": {"requested": False}}
+    fresh = {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}}
+    monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: fresh)
+    if drift == "global": fresh["global_delivery"]["requested"] = True
+    elif drift == "provider": fresh["provider_live"]["ready"] = False
+    elif drift == "worker": fresh["worker"]["ready"] = False
+    elif drift == "process": fresh["process_gates"]["dispatch"] = False
+    elif drift == "preference": preference.opted_out_at = __import__("datetime").datetime.utcnow()
+    elif drift == "recipient": preference.phone_e164 = "+59171111111"
+    elif drift == "consent": preference.consent_revision += 1
+    elif drift == "content": job.content_sid = "HX" + "b" * 32
+    elif drift == "token": token.revoked_at = __import__("datetime").datetime.utcnow()
+    elif drift == "artifact": Path(token.artifact_path).write_bytes(b"drift")
+    elif drift == "link": activation.batch_id += 99
+    elif drift == "status": activation.status = "queued"
+    else: revision.version += 1
+    db_session.flush()
+    assert _authorize_activation(db_session, job.id, facts, "k" * 32) is None
+    assert (job.status, job.lease_owner, job.next_attempt_at, activation.status, token.revoked_at is not None) == ("cancelled", None, None, "cancelled", True)
+
+
+def test_activation_final_authorization_uses_current_preference_recipient(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="y" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id); job.status, job.lease_owner, activation.status = "sending", "worker", "sending"; db_session.flush()
+    monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}})
+    dispatch = _authorize_activation(db_session, job.id, {}, "k" * 32)
+    assert dispatch is not None and dispatch.recipient == "+59170000000" and dispatch.media_token
+
+
+def test_activation_final_authorization_rejects_other_worker_lease(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="w" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job.status, job.lease_owner, activation.status = "sending", "other", "sending"; db_session.flush()
+    assert _authorize_activation(db_session, job.id, {}, "k" * 32, owner="worker") is None
+    assert (job.status, job.lease_owner, activation.status) == ("sending", "other", "sending")
+
+
+def test_activation_kill_switch_cancels_only_unleased_activation(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import rollback_unleased_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="q" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id); job = db_session.get(BillingNotificationJob, result.job_id)
+    ordinary_batch = BillingNotificationBatch(publication_id=activation.publication_id, publication_version=activation.publication_version, digest="f" * 64, readiness_snapshot={}, status="queued")
+    db_session.add(ordinary_batch); db_session.flush()
+    ordinary = BillingNotificationJob(batch_id=ordinary_batch.id, teacher_ci=job.teacher_ci, channel="whatsapp", intent_type="ordinary", status="queued")
+    leased_batch = BillingNotificationBatch(publication_id=activation.publication_id, publication_version=activation.publication_version, digest="e" * 64, readiness_snapshot={}, status="queued")
+    db_session.add(leased_batch); db_session.flush()
+    leased = BillingNotificationJob(batch_id=leased_batch.id, teacher_ci=job.teacher_ci, channel="whatsapp", intent_type="activation_test", status="leased", lease_owner="other")
+    db_session.add(leased); db_session.add(ordinary); db_session.flush()
+    assert rollback_unleased_activation(db_session) == 1
+    token = db_session.get(BillingMediaToken, activation.media_token_id)
+    assert (job.status, ordinary.status, leased.status, token.revoked_at is not None) == ("cancelled", "queued", "leased", True)
+
+
 def _graph_counts(db):
     return tuple(db.query(model).count() for model in (BillingNotificationBatch, BillingNotificationJob, BillingMediaToken, BillingWhatsAppActivationTest, ActivityLog))
 
