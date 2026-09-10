@@ -144,7 +144,7 @@ def test_confirm_issues_media_from_immutable_teacher_snapshot(db_session, tmp_pa
     monkeypatch.setattr(billing_pdf_service.default_settings, "BILLING_MEDIA_DIR", str(tmp_path))
     batch_source = _batch(db_session)
     publication = db_session.get(BillingPublication, batch_source.publication_id)
-    db_session.add(WhatsAppPreference(teacher_ci="MEDIA-1", phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_revision=1))
+    db_session.add(WhatsAppPreference(teacher_ci="MEDIA-1", phone_e164="+59170000000", is_verified=True, consent_evidence="test", consent_source="written_record", consented_at=datetime(2026, 8, 1), consent_revision=1))
     db_session.commit()
     service = BillingNotificationPreviewService(db_session, readiness={"ready": True, "capacity": {"available": True, "remaining": 1}})
     plan = service.preview(publication, ["MEDIA-1"])

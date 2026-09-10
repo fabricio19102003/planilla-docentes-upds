@@ -161,13 +161,24 @@ def test_consent_lifecycle_migration_adds_metadata_without_backfilling_legacy_pr
     engine.dispose()
 
 
-def _create_compatible_consent_history_schema(engine: sa.Engine, *, revision_check: str = "revision > 0") -> None:
+def test_consent_revision_model_declares_exact_teacher_index():
+    from app.models.whatsapp_preference import WhatsAppConsentRevision
+
+    assert {
+        (index.name, tuple(index.columns.keys()), index.unique)
+        for index in WhatsAppConsentRevision.__table__.indexes
+    } == {("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",), False)}
+
+
+def _create_compatible_consent_history_schema(
+    engine: sa.Engine, *, revision_check: str = "revision > 0", teacher_ondelete: str = "CASCADE"
+) -> None:
     with engine.begin() as connection:
         connection.execute(
             sa.text(
                 "CREATE TABLE whatsapp_consent_revisions ("
                 "id INTEGER PRIMARY KEY, teacher_ci VARCHAR(20) NOT NULL "
-                "REFERENCES teachers(ci) ON DELETE CASCADE, revision INTEGER NOT NULL, "
+                f"REFERENCES teachers(ci) ON DELETE {teacher_ondelete}, revision INTEGER NOT NULL, "
                 "event_type VARCHAR(24) NOT NULL, phone_e164 VARCHAR(16) NOT NULL, "
                 "is_verified BOOLEAN NOT NULL, consent_evidence TEXT, consent_source VARCHAR(32), "
                 "consented_at DATETIME, opt_out_evidence TEXT, opted_out_at DATETIME, "
@@ -185,15 +196,49 @@ def _create_compatible_consent_history_schema(engine: sa.Engine, *, revision_che
         )
 
 
-def test_consent_lifecycle_migration_refuses_precreated_sqlite_history_when_fk_actions_cannot_be_proven(tmp_path, monkeypatch):
+def test_consent_lifecycle_migration_adopts_precreated_sqlite_history_with_exact_foreign_key_actions(tmp_path, monkeypatch):
     engine, config = _config(tmp_path, monkeypatch, "whatsapp-consent-history.sqlite3")
     _create_legacy_whatsapp_schema(engine)
     _create_compatible_consent_history_schema(engine)
     command.stamp(config, PREVIOUS_MIGRATION)
 
-    with pytest.raises(RuntimeError, match="foreign-key actions on SQLite"):
+    command.upgrade(config, CONSENT_MIGRATION)
+
+    assert {index["name"] for index in sa.inspect(engine).get_indexes("whatsapp_consent_revisions")} == {
+        "ix_whatsapp_consent_revisions_teacher_ci"
+    }
+    engine.dispose()
+
+
+def test_consent_lifecycle_migration_refuses_precreated_sqlite_history_with_wrong_foreign_key_action(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "whatsapp-consent-history-wrong-fk.sqlite3")
+    _create_legacy_whatsapp_schema(engine)
+    _create_compatible_consent_history_schema(engine, teacher_ondelete="RESTRICT")
+    command.stamp(config, PREVIOUS_MIGRATION)
+
+    with pytest.raises(RuntimeError, match="foreign keys"):
         command.upgrade(config, CONSENT_MIGRATION)
     engine.dispose()
+
+
+def test_activation_migration_adopts_exact_sqlite_model_schema_without_relaxing_constraints(tmp_path):
+    from app.database import Base
+
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'activation-compatible.sqlite3'}")
+    Base.metadata.create_all(engine)
+
+    _activation_migration_module()._validate_activation_table(sa.inspect(engine))
+
+    engine.dispose()
+
+
+def _activation_migration_module():
+    path = Path(__file__).parents[1] / "alembic/versions/a2c4e6f8b002_add_whatsapp_activation_tests.py"
+    spec = importlib.util.spec_from_file_location("activation_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _migration_module():
@@ -210,7 +255,7 @@ class _PostgreSQLHistoryInspector:
         self.bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
         self.columns = columns
         self.check = check
-        self.indexes = indexes or [
+        self.indexes = indexes if indexes is not None else [
             {"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"]}
         ]
 
@@ -255,6 +300,31 @@ def test_consent_lifecycle_migration_adopts_postgresql_history_reflection():
     _migration_module()._validate_existing_history(
         _PostgreSQLHistoryInspector(_postgresql_history_columns())
     )
+
+
+def test_consent_lifecycle_migration_identifies_only_missing_exact_postgresql_history_index_for_adoption():
+    assert _migration_module()._validate_existing_history(
+        _PostgreSQLHistoryInspector(_postgresql_history_columns(), indexes=[])
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "indexes",
+    [
+        [{"name": "wrong_name", "column_names": ["teacher_ci"], "unique": False}],
+        [{"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["revision"], "unique": False}],
+        [{"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"], "unique": True}],
+        [
+            {"name": "ix_whatsapp_consent_revisions_teacher_ci", "column_names": ["teacher_ci"], "unique": False},
+            {"name": "ix_whatsapp_consent_revisions_revision", "column_names": ["revision"], "unique": False},
+        ],
+    ],
+)
+def test_consent_lifecycle_migration_rejects_incompatible_postgresql_history_index_shapes(indexes):
+    with pytest.raises(RuntimeError, match="index"):
+        _migration_module()._validate_existing_history(
+            _PostgreSQLHistoryInspector(_postgresql_history_columns(), indexes=indexes)
+        )
 
 
 @pytest.mark.parametrize(("column", "type_", "nullable"), [

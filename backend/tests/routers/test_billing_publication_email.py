@@ -215,7 +215,7 @@ def test_official_policy_blocks_legacy_email_for_pending_or_ambiguous_but_allows
 
     user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
     publication = _seed_publication(db_session)
-    preference = WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_revision=1)
+    preference = WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_source="written_record", consented_at=datetime(2026, 5, 1), consent_revision=1)
     batch = BillingNotificationBatch(publication_id=publication.id, publication_version=publication.version, digest="f" * 64, readiness_snapshot={"ready": True}, status="queued")
     db_session.add_all([preference, batch]); db_session.flush()
     job = BillingNotificationJob(batch_id=batch.id, teacher_ci=user.teacher_ci, channel="whatsapp", status="pending")
@@ -233,7 +233,7 @@ def test_official_policy_ambiguous_job_dominates_terminal_job_regardless_of_row_
     from app.routers.billing_publication import _email_eligible_users
     user = _seed_docente(db_session, ci="EMAIL-DOC-1", email="selected@example.com")
     publication = _seed_publication(db_session)
-    db_session.add(WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_revision=1))
+    db_session.add(WhatsAppPreference(teacher_ci=user.teacher_ci, phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_source="written_record", consented_at=datetime(2026, 5, 1), consent_revision=1))
     for index, state in enumerate(states):
         batch = BillingNotificationBatch(publication_id=publication.id, publication_version=publication.version, digest=str(index) * 64, readiness_snapshot={"ready": True}, status="queued")
         db_session.add(batch); db_session.flush()
@@ -463,7 +463,7 @@ def test_whatsapp_preview_masks_numbers_and_returns_a_digest(client, db_session)
     publication.billing_snapshot = snapshot
     db_session.add(publication)
     _seed_docente(db_session, ci="WHATSAPP-DOC-1", email="whatsapp@example.com")
-    db_session.add(WhatsAppPreference(teacher_ci="WHATSAPP-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="signed-consent", consent_revision=3))
+    db_session.add(WhatsAppPreference(teacher_ci="WHATSAPP-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="signed-consent", consent_source="written_record", consented_at=datetime(2026, 5, 1), consent_revision=3))
     db_session.commit()
 
     response = client.post("/api/billing/notifications/preview", json={"month": 5, "year": 2026, "teacher_cis": ["WHATSAPP-DOC-1"]})
@@ -521,7 +521,7 @@ def test_notification_preview_reports_fail_closed_capacity_forecast(db_session, 
 
     publication = _seed_publication(db_session)
     _seed_docente(db_session, ci="EMAIL-DOC-1", email="capacity@example.com")
-    db_session.add(WhatsAppPreference(teacher_ci="EMAIL-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="capacity-consent", consent_revision=1))
+    db_session.add(WhatsAppPreference(teacher_ci="EMAIL-DOC-1", phone_e164="+59170000000", is_verified=True, consent_evidence="capacity-consent", consent_source="written_record", consented_at=datetime(2026, 5, 1), consent_revision=1))
     db_session.commit()
     plan = BillingNotificationPreviewService(db_session, readiness=readiness).preview(
         publication, ["EMAIL-DOC-1"]

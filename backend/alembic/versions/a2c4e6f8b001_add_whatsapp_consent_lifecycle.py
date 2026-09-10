@@ -100,7 +100,33 @@ def upgrade() -> None:
             ["teacher_ci"],
         )
     else:
-        _validate_existing_history(inspector)
+        if _validate_existing_history(inspector):
+            op.create_index(
+                "ix_whatsapp_consent_revisions_teacher_ci",
+                "whatsapp_consent_revisions",
+                ["teacher_ci"],
+            )
+            _validate_existing_history(sa.inspect(bind))
+
+
+def _foreign_key_signatures(inspector):
+    if inspector.bind.dialect.name == "sqlite":
+        rows = inspector.bind.exec_driver_sql(
+            "PRAGMA foreign_key_list('whatsapp_consent_revisions')"
+        ).mappings()
+        return {
+            ((row["from"],), row["table"], (row["to"],), row["on_delete"])
+            for row in rows
+        }
+    return {
+        (
+            tuple(item.get("constrained_columns") or ()),
+            item.get("referred_table"),
+            tuple(item.get("referred_columns") or ()),
+            (item.get("options") or {}).get("ondelete"),
+        )
+        for item in inspector.get_foreign_keys("whatsapp_consent_revisions")
+    }
 
 
 def _normalize_check_expression(expression: str) -> str:
@@ -122,16 +148,17 @@ def _column_matches(column, *, nullable: bool, type_family: str, length=None) ->
     }[type_family]
     return (
         matches_type
-        and bool(column["nullable"]) is nullable
+        and (nullable is None or bool(column["nullable"]) is nullable)
         and getattr(column_type, "length", None) == length
     )
 
 
-def _validate_existing_history(inspector) -> None:
+def _validate_existing_history(inspector) -> bool:
     expected = {
-        # SQLite reports INTEGER PRIMARY KEY as nullable; PostgreSQL truthfully
-        # reflects the migration-created primary key as non-null.
-        "id": (inspector.bind.dialect.name == "sqlite", "integer", None),
+        # SQLite reflects INTEGER PRIMARY KEY nullability differently for
+        # migration-created and SQLAlchemy-created compatible tables. The strict
+        # primary-key check below remains authoritative for this column.
+        "id": (None if inspector.bind.dialect.name == "sqlite" else False, "integer", None),
         "teacher_ci": (False, "string", 20),
         "revision": (False, "integer", None),
         "event_type": (False, "string", 24),
@@ -173,7 +200,11 @@ def _validate_existing_history(inspector) -> None:
     }:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions check constraint")
     indexes = {
-        (item["name"], tuple(item.get("column_names") or ()))
+        (
+            item["name"],
+            tuple(item.get("column_names") or ()),
+            bool(item.get("unique", False)),
+        )
         for item in inspector.get_indexes("whatsapp_consent_revisions")
         if not (
             inspector.bind.dialect.name == "postgresql"
@@ -181,16 +212,14 @@ def _validate_existing_history(inspector) -> None:
             and tuple(item.get("column_names") or ()) == expected_unique[1]
         )
     }
-    if indexes != {("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",))}:
+    expected_index = ("ix_whatsapp_consent_revisions_teacher_ci", ("teacher_ci",), False)
+    if indexes not in (set(), {expected_index}):
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions index")
-    if inspector.bind.dialect.name == "sqlite":
-        raise RuntimeError(
-            "Cannot prove pre-existing whatsapp_consent_revisions foreign-key actions on SQLite"
-        )
-    foreign_keys = {(tuple(item.get("constrained_columns") or ()), item.get("referred_table"), tuple(item.get("referred_columns") or ()), (item.get("options") or {}).get("ondelete")) for item in inspector.get_foreign_keys("whatsapp_consent_revisions")}
+    foreign_keys = _foreign_key_signatures(inspector)
     expected_foreign_keys = {(("teacher_ci",), "teachers", ("ci",), "CASCADE"), (("actor_user_id",), "users", ("id",), "RESTRICT")}
     if foreign_keys != expected_foreign_keys:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions foreign keys")
+    return not indexes
 
 
 def downgrade() -> None:

@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -81,6 +82,7 @@ class WhatsAppConsentRevision(Base):
     __table_args__ = (
         CheckConstraint("revision > 0", name="ck_whatsapp_consent_revision_positive"),
         UniqueConstraint("teacher_ci", "revision", name="uq_whatsapp_consent_teacher_revision"),
+        Index("ix_whatsapp_consent_revisions_teacher_ci", "teacher_ci"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
