@@ -81,14 +81,37 @@ def upgrade() -> None:
         _validate_activation_table(inspector)
 
 
-def _column_matches(column, *, nullable: bool, type_family: str, length=None) -> bool:
+def _column_matches(column, *, nullable: bool | None, type_family: str, length=None) -> bool:
     column_type = column["type"]
     matches = {
         "integer": isinstance(column_type, sa.Integer),
         "string": isinstance(column_type, sa.String) and not isinstance(column_type, sa.Text),
         "datetime": isinstance(column_type, sa.DateTime),
     }[type_family]
-    return matches and bool(column["nullable"]) is nullable and getattr(column_type, "length", None) == length
+    return matches and (nullable is None or bool(column["nullable"]) is nullable) and getattr(column_type, "length", None) == length
+
+
+def _foreign_key_signatures(inspector):
+    if inspector.bind.dialect.name == "sqlite":
+        statement = "PRAGMA foreign_key_list('billing_whatsapp_activation_tests')"
+        if hasattr(inspector.bind, "exec_driver_sql"):
+            rows = list(inspector.bind.exec_driver_sql(statement).mappings())
+        else:
+            with inspector.bind.connect() as connection:
+                rows = list(connection.exec_driver_sql(statement).mappings())
+        return {
+            ((row["from"],), row["table"], (row["to"],), row["on_delete"])
+            for row in rows
+        }
+    return {
+        (
+            tuple(item.get("constrained_columns") or ()),
+            item.get("referred_table"),
+            tuple(item.get("referred_columns") or ()),
+            (item.get("options") or {}).get("ondelete"),
+        )
+        for item in inspector.get_foreign_keys("billing_whatsapp_activation_tests")
+    }
 
 
 def _normalize(expression: str) -> str:
@@ -117,7 +140,7 @@ def _replace_legacy_claim_index(inspector) -> None:
 
 def _validate_activation_table(inspector) -> None:
     expected = {
-        "id": (inspector.bind.dialect.name == "sqlite", "integer", None),
+        "id": (None if inspector.bind.dialect.name == "sqlite" else False, "integer", None),
         "actor_user_id": (False, "integer", None), "actor_ci": (False, "string", 20),
         "idempotency_key_hash": (False, "string", 64), "request_digest": (False, "string", 64),
         "teacher_ci_at_creation": (False, "string", 20), "recipient_hmac": (False, "string", 64),
@@ -152,9 +175,7 @@ def _validate_activation_table(inspector) -> None:
     }
     if checks != expected_checks:
         raise RuntimeError("Incompatible pre-existing billing_whatsapp_activation_tests check constraint")
-    if inspector.bind.dialect.name == "sqlite":
-        raise RuntimeError("Cannot prove pre-existing billing_whatsapp_activation_tests foreign-key actions on SQLite")
-    foreign_keys = {(tuple(item.get("constrained_columns") or ()), item.get("referred_table"), tuple(item.get("referred_columns") or ()), (item.get("options") or {}).get("ondelete")) for item in inspector.get_foreign_keys("billing_whatsapp_activation_tests")}
+    foreign_keys = _foreign_key_signatures(inspector)
     expected_foreign_keys = {
         (("actor_user_id",), "users", ("id",), "RESTRICT"),
         (("publication_id",), "billing_publications", ("id",), "RESTRICT"),
@@ -165,8 +186,8 @@ def _validate_activation_table(inspector) -> None:
     }
     if foreign_keys != expected_foreign_keys:
         raise RuntimeError("Incompatible pre-existing billing_whatsapp_activation_tests foreign keys")
-    indexes = {(item.get("name"), tuple(item.get("column_names") or ())) for item in inspector.get_indexes("billing_whatsapp_activation_tests") if not (item.get("duplicates_constraint") in {name for name, _columns in expected_unique})}
-    if indexes != {("ix_whatsapp_activation_status", ("status",))}:
+    indexes = {(item.get("name"), tuple(item.get("column_names") or ()), bool(item.get("unique", False))) for item in inspector.get_indexes("billing_whatsapp_activation_tests") if not (item.get("duplicates_constraint") in {name for name, _columns in expected_unique})}
+    if indexes != {("ix_whatsapp_activation_status", ("status",), False)}:
         raise RuntimeError("Incompatible pre-existing billing_whatsapp_activation_tests index")
 
 

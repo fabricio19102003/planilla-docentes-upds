@@ -70,9 +70,29 @@ def seed_teacher(db_session, *, email=None):
         teacher_ci="9100001",
         is_active=True,
     )
-    db_session.add_all([teacher, user, AppSetting(key="ACTIVE_ACADEMIC_PERIOD", value="I/2026")])
+    active_period = db_session.query(AppSetting).filter_by(key="ACTIVE_ACADEMIC_PERIOD").one_or_none()
+    if active_period is None:
+        active_period = AppSetting(key="ACTIVE_ACADEMIC_PERIOD", value="I/2026")
+        db_session.add(active_period)
+    else:
+        active_period.value = "I/2026"
+    db_session.add_all([teacher, user])
     db_session.commit()
     return teacher, user
+
+
+def test_seed_teacher_reuses_active_academic_period_from_prior_test_order(db_session):
+    active_period = db_session.query(AppSetting).filter_by(key="ACTIVE_ACADEMIC_PERIOD").one_or_none()
+    if active_period is None:
+        active_period = AppSetting(key="ACTIVE_ACADEMIC_PERIOD", value="II/2026")
+        db_session.add(active_period)
+    else:
+        active_period.value = "II/2026"
+    db_session.commit()
+
+    seed_teacher(db_session)
+
+    assert db_session.query(AppSetting).filter_by(key="ACTIVE_ACADEMIC_PERIOD").one().value == "I/2026"
 
 
 def test_three_teacher_types_are_canonical_and_unknown_is_rejected():
