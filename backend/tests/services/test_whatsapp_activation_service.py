@@ -15,7 +15,7 @@ from app.models.billing_publication import BillingPublication, BillingPublicatio
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.billing_pdf_service import BillingPdfService
-from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
+from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService, project_activation_status
 from tests.routers.test_billing_publication_email import _seed_approved_planilla, _seed_docente
 
 
@@ -57,7 +57,7 @@ def test_activation_requires_exact_attestation_and_strict_projection():
     with pytest.raises(WhatsAppActivationError, match="activation_requires_global_delivery_disabled"):
         WhatsAppActivationService._require_readiness(global_on, sid, sid)
     with pytest.raises(ValueError):
-        WhatsAppActivationProjection(id=1, status="queued", terminal_reason=None, teacher_ci_at_creation="T", recipient_masked="+591••••0000", consent_revision=1, publication_revision_id=1, publication_version=1, billing_digest="a" * 64, content_template_bound=True, pdf_bound=True, job_id=1, job_status="unknown", created_at=__import__("datetime").datetime.utcnow(), updated_at=__import__("datetime").datetime.utcnow())
+        WhatsAppActivationProjection(id=1, status="queued", terminal_reason=None, teacher_ci_at_creation="T", recipient_masked="+591••••0000", consent_revision=1, publication_revision_id=1, publication_version=1, content_template_bound=True, pdf_bound=True, job_id=1, job_status="unknown", created_at=__import__("datetime").datetime.utcnow(), updated_at=__import__("datetime").datetime.utcnow())
 
 
 def test_pdf_flush_cleanup_preserves_existing_artifact(tmp_path):
@@ -188,7 +188,36 @@ def test_activation_kill_switch_cancels_only_unleased_activation(client, db_sess
     db_session.add(leased); db_session.add(ordinary); db_session.flush()
     assert rollback_unleased_activation(db_session) == 1
     token = db_session.get(BillingMediaToken, activation.media_token_id)
-    assert (job.status, ordinary.status, leased.status, token.revoked_at is not None) == ("cancelled", "queued", "leased", True)
+    assert (job.status, activation.status, ordinary.status, leased.status, token.revoked_at is not None) == ("cancelled", "cancelled", "queued", "leased", True)
+
+
+def test_activation_terminal_reason_is_bounded_and_first_terminal_wins(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job = db_session.get(BillingNotificationJob, result.job_id)
+    job.status = "cancelled"
+    project_activation_status(db_session, job, "provider payload +59170000000")
+    assert (activation.status, activation.terminal_reason) == ("cancelled", None)
+
+
+def test_revoked_or_expired_activation_media_never_mutates_delivery_status(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="m" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job = db_session.get(BillingNotificationJob, result.job_id)
+    token = db_session.get(BillingMediaToken, activation.media_token_id)
+    job.status = activation.status = "delivered"
+    token.token_hash = __import__("hashlib").sha256(b"opaque").hexdigest()
+    token.revoked_at = __import__("datetime").datetime.utcnow()
+    db_session.commit()
+    assert BillingPdfService(db_session, storage_dir=tmp_path).resolve("opaque") is None
+    assert (job.status, activation.status) == ("delivered", "delivered")
+    token.revoked_at = None
+    token.expires_at = __import__("datetime").datetime.utcnow()
+    db_session.commit()
+    assert BillingPdfService(db_session, storage_dir=tmp_path).resolve("opaque") is None
+    assert (job.status, activation.status) == ("delivered", "delivered")
 
 
 def _graph_counts(db):

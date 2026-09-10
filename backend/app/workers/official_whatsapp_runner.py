@@ -21,6 +21,7 @@ from app.models.billing_publication import BillingPublication, BillingPublicatio
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.twilio_content_transport import TwilioContentTransport
 from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
+from app.services.whatsapp_activation_service import project_activation_status
 from app.services.whatsapp_delivery_control import current_delivery_status, mark_worker_heartbeat, status_from_readiness
 from app.services.publication_revisions import PublicationRevisionError, validate_publication_revision
 from app.workers.billing_notification_worker import BillingNotificationWorker
@@ -200,7 +201,7 @@ def run() -> int:
 def _cancel_activation(db: Any, job: BillingNotificationJob, activation: BillingWhatsAppActivationTest | None, reason: str) -> None:
     if job is not None and activation is not None and job.intent_type == "activation_test" and job.status in {"queued", "leased", "sending"}:
         job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at, job.last_error_code = "cancelled", None, None, None, reason
-        activation.status, activation.terminal_reason = "cancelled", reason
+        project_activation_status(db, job, reason)
         db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": datetime.utcnow()})
     db.commit()
 
@@ -276,6 +277,7 @@ def rollback_unleased_activation(db: Any, *, now: datetime | None = None) -> int
     for job in jobs:
         job.status = "cancelled"
         job.next_attempt_at = None
+        project_activation_status(db, job, "activation_disabled")
     if ids:
         db.query(BillingMediaToken).filter(BillingMediaToken.job_id.in_(ids), BillingMediaToken.revoked_at.is_(None)).update({"revoked_at": now}, synchronize_session=False)
     db.commit()

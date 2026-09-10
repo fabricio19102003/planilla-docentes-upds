@@ -17,7 +17,7 @@ def _service(db: Session) -> BillingPdfService:
 def download_billing_media(token: str, db: Session = Depends(get_db)) -> Response:
     resolved = _service(db).resolve(token)
     if resolved is None:
-        raise HTTPException(status_code=404, detail="Media not found")
+        raise HTTPException(status_code=404, detail="Media not found", headers={"Cache-Control": "no-store"})
     path, filename = resolved
     return FileResponse(
         path,
