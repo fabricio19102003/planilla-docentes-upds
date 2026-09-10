@@ -1,0 +1,57 @@
+"""Strict, sanitized contracts for controlled WhatsApp activation creation."""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.whatsapp_preference import WhatsAppPreference
+
+
+class WhatsAppActivationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    teacher_ci: str = Field(min_length=1, max_length=20)
+    recipient_e164: str = Field(min_length=9, max_length=16)
+    consent_revision: int = Field(ge=1)
+    publication_revision_id: int = Field(ge=1)
+
+    @field_validator("teacher_ci")
+    @classmethod
+    def non_blank_teacher(cls, value: str) -> str:
+        if value != value.strip() or not value:
+            raise ValueError("teacher CI required")
+        return value
+
+    @field_validator("recipient_e164")
+    @classmethod
+    def canonical_recipient(cls, value: str) -> str:
+        if value != value.strip() or WhatsAppPreference.canonical_e164(value) != value:
+            raise ValueError("canonical E.164 required")
+        return value
+
+
+ActivationStatus = Literal["queued", "leased", "sending", "accepted", "ambiguous", "sent", "delivered", "read", "failed", "undelivered", "cancelled"]
+TerminalReason = Literal["activation_disabled", "activation_readiness_unavailable", "activation_requires_global_delivery_disabled", "activation_recipient_mismatch", "activation_consent_revision_mismatch", "activation_consent_ineligible", "activation_publication_not_current", "activation_publication_corrupt", "activation_teacher_not_in_revision", "activation_template_unapproved", "activation_artifact_unavailable"]
+
+
+class WhatsAppActivationProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    status: ActivationStatus
+    terminal_reason: TerminalReason | None
+    teacher_ci_at_creation: str
+    recipient_masked: str
+    consent_revision: int
+    publication_revision_id: int
+    publication_version: int
+    billing_digest: str
+    content_template_bound: bool
+    pdf_bound: bool
+    job_id: int
+    job_status: ActivationStatus
+    created_at: datetime
+    updated_at: datetime
+    replayed: bool = False

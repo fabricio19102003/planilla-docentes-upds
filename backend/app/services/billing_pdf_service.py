@@ -28,6 +28,7 @@ class BillingMediaIssue:
     filename: str
     artifact_size: int
     token_id: int
+    artifact_created: bool = False
 
 
 class BillingPdfService:
@@ -62,30 +63,61 @@ class BillingPdfService:
         filename = f"b-{artifact_hash[:12]}.pdf"
         path = self._safe_path(filename)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if not path.exists():
+        artifact_created = not path.exists()
+        if artifact_created:
             path.write_bytes(payload)
         if path.read_bytes() != payload:
             raise ValueError("billing_pdf_storage_conflict")
 
-        token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
-        self.db.add(BillingMediaToken(
-            batch_id=batch.id,
-            teacher_ci=job.teacher_ci,
-            job_id=job.id,
-            token_hash=token_hash,
-            artifact_hash=artifact_hash,
-            artifact_path=str(path),
-            artifact_size=len(payload),
-            expires_at=self.now() + expires_in,
-        ))
-        self.db.flush()
-        row = self.db.query(BillingMediaToken).filter_by(token_hash=token_hash).one()
-        job.media_snapshot = {"token_id": row.id, "artifact_hash": artifact_hash, "artifact_size": len(payload)}
-        self.db.flush()
-        if commit:
-            self.db.commit()
-        return BillingMediaIssue(token, token_hash, artifact_hash, str(path), filename, len(payload), row.id)
+        try:
+            token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+            self.db.add(BillingMediaToken(
+                batch_id=batch.id, teacher_ci=job.teacher_ci, job_id=job.id,
+                token_hash=token_hash, artifact_hash=artifact_hash, artifact_path=str(path),
+                artifact_size=len(payload), expires_at=self.now() + expires_in,
+            ))
+            self.db.flush()
+            row = self.db.query(BillingMediaToken).filter_by(token_hash=token_hash).one()
+            job.media_snapshot = {"token_id": row.id, "artifact_hash": artifact_hash, "artifact_size": len(payload)}
+            self.db.flush()
+            if commit:
+                self.db.commit()
+            return BillingMediaIssue(token, token_hash, artifact_hash, str(path), filename, len(payload), row.id, artifact_created)
+        except Exception:
+            if artifact_created:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+
+    def issue_activation(
+        self,
+        batch: BillingNotificationBatch,
+        job: BillingNotificationJob,
+        teacher_detail: dict[str, Any],
+        *,
+        publication_revision_id: int,
+        publication_version: int,
+        billing_digest: str,
+        expires_in: timedelta = timedelta(hours=24),
+    ) -> BillingMediaIssue:
+        """Issue an activation PDF from one validated immutable revision detail only."""
+        if (
+            not isinstance(teacher_detail, dict)
+            or publication_revision_id < 1
+            or publication_version < 1
+            or not re.fullmatch(r"[0-9a-f]{64}", billing_digest)
+        ):
+            raise ValueError("invalid_activation_pdf_binding")
+        snapshot = {
+            "teacher_detail": teacher_detail,
+            "publication_revision_id": publication_revision_id,
+            "publication_version": publication_version,
+            "billing_digest": billing_digest,
+        }
+        return self.issue(batch, job, snapshot, expires_in=expires_in, commit=False)
 
     def resolve(self, token: str) -> tuple[Path, str] | None:
         if not isinstance(token, str) or not token or len(token) > 255:
