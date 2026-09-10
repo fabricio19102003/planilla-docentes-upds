@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import threading
 from types import SimpleNamespace
 
 import httpx
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
@@ -288,6 +290,8 @@ def test_whatsapp_preference_requires_canonical_verified_e164_and_evidence():
         phone_e164="+59170000000",
         is_verified=True,
         consent_evidence="signed-admin-record",
+        consent_source="written_record",
+        consented_at=datetime(2026, 9, 10),
         consent_revision=3,
     )
 
@@ -309,15 +313,16 @@ def test_whatsapp_preference_requires_evidenced_consent_and_records_opt_out_revi
     )
     assert preference.is_eligible_for_whatsapp is False
 
-    preference.record_consent("signed-admin-record")
-    assert preference.is_eligible_for_whatsapp is True
-    assert preference.consent_revision == 2
+    with pytest.raises(RuntimeError, match="lifecycle service"):
+        preference.record_consent("signed-admin-record")
+    assert preference.is_eligible_for_whatsapp is False
+    assert preference.consent_revision == 1
 
     preference.record_opt_out("twilio-stop-event")
     assert preference.is_eligible_for_whatsapp is False
     assert preference.opted_out_at is not None
     assert preference.opt_out_evidence == "twilio-stop-event"
-    assert preference.consent_revision == 3
+    assert preference.consent_revision == 2
 
 
 def test_billing_notification_persistence_has_durable_intent_constraints():
@@ -414,7 +419,8 @@ def test_official_policy_snapshots_consent_and_allows_email_only_for_two_safe_ca
     policy = BillingChannelPolicy()
     consented = WhatsAppPreference(
         teacher_ci="123", phone_e164="+59170000000", is_verified=True,
-        consent_evidence="signed", consent_revision=7,
+        consent_evidence="signed", consent_source="written_record",
+        consented_at=datetime(2026, 9, 10), consent_revision=7,
     )
     snapshot = policy.consent_snapshot(consented)
     assert snapshot == {

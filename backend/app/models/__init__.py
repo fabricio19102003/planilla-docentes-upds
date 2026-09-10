@@ -47,7 +47,7 @@ __all__ = [
     "MedicineSimulation",
 ]
 
-from app.models.whatsapp_preference import WhatsAppPreference
+from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 from app.models.billing_notification import (
     BillingMediaToken,
     BillingNotificationBatch,
@@ -59,6 +59,7 @@ from app.models.billing_notification import (
 
 __all__ += [
     "WhatsAppPreference",
+    "WhatsAppConsentRevision",
     "BillingNotificationBatch",
     "BillingNotificationJob",
     "BillingNotificationCapacityReservation",
