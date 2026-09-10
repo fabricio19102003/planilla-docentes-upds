@@ -1,0 +1,180 @@
+"""Admin-only, provider-free controlled WhatsApp activation API."""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.database import get_db
+from app.models.billing_notification import BillingWhatsAppActivationTest
+from app.models.user import User
+from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
+from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
+from app.services.whatsapp_delivery_control import current_delivery_status
+from app.utils.auth import require_admin
+
+router = APIRouter(prefix="/api/admin/whatsapp", tags=["admin-whatsapp"])
+ReadinessReason = Literal[
+    "configuration_missing", "configuration_unsafe", "provider_unavailable",
+    "sender_unavailable", "template_unapproved", "capacity_unavailable",
+    "worker_unavailable", "process_gate_disabled", "activation_disabled",
+    "global_delivery_enabled",
+]
+
+
+class ReadinessCapacity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    available: bool
+    moving_recipient_limit: int | None = Field(default=None, ge=0, le=10_000_000)
+    media_mps: float | None = Field(default=None, ge=0, le=1_000_000)
+    window_seconds: int | None = Field(default=None, ge=0, le=604_800)
+
+
+class ProviderConfigurationReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ready: bool
+    reason: ReadinessReason | None
+
+
+class ProviderLiveReadiness(ProviderConfigurationReadiness):
+    capacity: ReadinessCapacity
+
+
+class WorkerReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ready: bool
+    reason: ReadinessReason | None
+    heartbeat_at: datetime | None
+
+
+class ProcessGatesReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    official: bool
+    dispatch: bool
+
+
+class GlobalDeliveryReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested: bool
+    effective: bool
+
+
+class ActivationReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_enabled: bool
+    dispatch_enabled: bool
+    capable: bool
+    blocking_reasons: list[ReadinessReason]
+
+
+class WhatsAppActivationReadiness(BaseModel):
+    """Strict public projection; deliberately excludes provider identifiers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_configuration: ProviderConfigurationReadiness
+    provider_live: ProviderLiveReadiness
+    worker: WorkerReadiness
+    process_gates: ProcessGatesReadiness
+    global_delivery: GlobalDeliveryReadiness
+    activation: ActivationReadiness
+
+
+def _readiness(db: Session) -> tuple[dict[str, Any], WhatsAppActivationReadiness]:
+    facts = current_delivery_status(db)
+    public = WhatsAppActivationReadiness.model_validate({
+        key: facts.get(key) for key in WhatsAppActivationReadiness.model_fields
+    })
+    # The configured SID is not public. A ready live projection means the runtime
+    # inspected this exact configured Content SID in the same readiness request.
+    private = dict(facts)
+    private["approved_content_sid"] = settings.TWILIO_OFFICIAL_CONTENT_SID
+    return private, public
+
+
+def _error(code: str, *, http_status: int = status.HTTP_409_CONFLICT) -> HTTPException:
+    return HTTPException(status_code=http_status, detail={"code": code})
+
+
+def _service(db: Session) -> WhatsAppActivationService:
+    key = settings.WHATSAPP_RECIPIENT_HMAC_KEY
+    if not isinstance(key, str):
+        raise WhatsAppActivationError("activation_disabled")
+    return WhatsAppActivationService(db, recipient_hmac_key=key)
+
+
+@router.get("/readiness", response_model=WhatsAppActivationReadiness)
+def readiness(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> WhatsAppActivationReadiness:
+    """Inspect named readiness facts without changing persisted settings."""
+    _, public = _readiness(db)
+    return public
+
+
+@router.post("/activation-tests", response_model=WhatsAppActivationProjection, status_code=status.HTTP_201_CREATED)
+async def create_activation(
+    request: Request,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    actor: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WhatsAppActivationProjection:
+    if (
+        not isinstance(idempotency_key, str)
+        or not 16 <= len(idempotency_key) <= 128
+        or not idempotency_key.isascii()
+        or not idempotency_key.isprintable()
+    ):
+        raise _error("invalid_idempotency_key", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    try:
+        payload = WhatsAppActivationCreate.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise _error("invalid_activation_request", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY) from None
+    try:
+        readiness_facts, _ = _readiness(db)
+        result = _service(db).create(
+            actor_user_id=actor.id,
+            request=payload,
+            idempotency_key=idempotency_key,
+            readiness=readiness_facts,
+            configured_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
+            approved_content_sid=readiness_facts.get("approved_content_sid"),
+            ip_address=request.client.host if request.client else None,
+        )
+        if result.replayed:
+            db.rollback()
+            response.status_code = status.HTTP_200_OK
+            return result
+        db.commit()
+        return result
+    except WhatsAppActivationError as exc:
+        db.rollback()
+        raise _error(str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise _error("activation_artifact_unavailable")
+
+
+@router.get("/activation-tests/{activation_id}", response_model=WhatsAppActivationProjection)
+def activation_status(
+    activation_id: int,
+    actor: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WhatsAppActivationProjection:
+    activation = db.scalar(select(BillingWhatsAppActivationTest).where(
+        BillingWhatsAppActivationTest.id == activation_id,
+        BillingWhatsAppActivationTest.actor_user_id == actor.id,
+    ))
+    if activation is None:
+        raise _error("activation_not_found", http_status=status.HTTP_404_NOT_FOUND)
+    return WhatsAppActivationService.project(db, activation)
