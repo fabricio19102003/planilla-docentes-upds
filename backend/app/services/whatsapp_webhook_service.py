@@ -19,6 +19,7 @@ from app.models.billing_publication import BillingPublication
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.billing_notification_service import BillingNotificationService, SqlAlchemyAttemptStore
+from app.services.whatsapp_preference_service import WhatsAppPreferenceService
 
 
 _VALID_TRANSITIONS = {
@@ -145,9 +146,13 @@ class WhatsAppWebhookService:
             self.db.commit()
             return "unknown_sender"
         event.job_id = None
-        preference.opt_out_evidence = "validated_twilio_stop"
-        preference.opted_out_at = self.now()
-        preference.consent_revision += 1
+        WhatsAppPreferenceService(self.db).opt_out(
+            preference.teacher_ci,
+            "validated_twilio_stop",
+            actor_id=None,
+            occurred_at=self.now(),
+            event_type="provider_opt_out",
+        )
         self.db.query(BillingNotificationJob).filter(
             BillingNotificationJob.teacher_ci == preference.teacher_ci,
             BillingNotificationJob.channel == "whatsapp",

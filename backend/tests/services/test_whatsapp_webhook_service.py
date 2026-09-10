@@ -8,8 +8,10 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
+from app.models.activity_log import ActivityLog
 from app.models.billing_notification import BillingNotificationJob, WhatsAppEvent
-from app.models.whatsapp_preference import WhatsAppPreference
+from app.models.teacher import Teacher
+from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 
 
 AUTH_TOKEN = "test-auth-token"
@@ -25,9 +27,12 @@ def signature(url: str, form: list[tuple[str, str]]) -> str:
 
 def service_session(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path}/webhooks.db")
+    Teacher.__table__.create(engine)
     BillingNotificationJob.__table__.create(engine)
     WhatsAppEvent.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
+    WhatsAppConsentRevision.__table__.create(engine)
+    ActivityLog.__table__.create(engine)
     return engine, sessionmaker(bind=engine)()
 
 
@@ -60,8 +65,9 @@ def test_stop_is_authenticated_idempotent_and_cancels_only_unsent_whatsapp_jobs(
     from app.services.whatsapp_webhook_service import WhatsAppWebhookService
 
     engine, db = service_session(tmp_path)
-    preference = WhatsAppPreference(teacher_ci="teacher", phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_revision=1)
+    preference = WhatsAppPreference(teacher_ci="teacher", phone_e164="+59170000000", is_verified=True, consent_evidence="evidence", consent_source="written_record", consented_at=datetime(2025, 1, 1), consent_revision=1)
     db.add_all([
+        Teacher(ci="teacher", full_name="Teacher"),
         preference,
         BillingNotificationJob(id=1, batch_id=1, teacher_ci="teacher", channel="whatsapp", status="queued"),
         BillingNotificationJob(id=2, batch_id=2, teacher_ci="teacher", channel="whatsapp", status="sending"),
@@ -77,6 +83,9 @@ def test_stop_is_authenticated_idempotent_and_cancels_only_unsent_whatsapp_jobs(
     assert db.get(BillingNotificationJob, 1).status == "cancelled"
     assert db.get(BillingNotificationJob, 2).status == "cancelled"
     assert db.query(WhatsAppEvent).count() == 1
+    history = db.query(WhatsAppConsentRevision).one()
+    assert (history.revision, history.event_type, history.actor_user_id) == (2, "provider_opt_out", None)
+    assert db.query(ActivityLog).one().details["recipient_masked"] != "+59170000000"
     engine.dispose()
 
 
