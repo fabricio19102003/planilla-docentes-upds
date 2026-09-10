@@ -51,6 +51,7 @@ from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPref
 from app.models.billing_notification import (
     BillingMediaToken,
     BillingNotificationBatch,
+    BillingWhatsAppActivationTest,
     BillingNotificationJob,
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
@@ -62,6 +63,7 @@ __all__ += [
     "WhatsAppConsentRevision",
     "BillingNotificationBatch",
     "BillingNotificationJob",
+    "BillingWhatsAppActivationTest",
     "BillingNotificationCapacityReservation",
     "BillingNotificationCapacityWindow",
     "WhatsAppEvent",

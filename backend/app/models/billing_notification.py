@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -29,7 +29,11 @@ class BillingNotificationJob(Base):
     __tablename__ = "billing_notification_jobs"
     __table_args__ = (
         UniqueConstraint("batch_id", "teacher_ci", "channel", name="uq_billing_notification_job_intent"),
-        Index("ix_billing_notification_job_claim", "status", "lease_expires_at"),
+        CheckConstraint(
+            "intent_type IN ('ordinary', 'activation_test')",
+            name="ck_billing_notification_job_intent_type",
+        ),
+        Index("ix_billing_notification_job_claim", "intent_type", "status", "lease_expires_at"),
         Index("ix_billing_notification_job_due", "status", "next_attempt_at"),
         Index("ix_billing_notification_job_provider_sid", "provider_sid"),
     )
@@ -42,6 +46,9 @@ class BillingNotificationJob(Base):
         String(20), ForeignKey("teachers.ci", ondelete="CASCADE"), nullable=False
     )
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    intent_type: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="ordinary", server_default="ordinary"
+    )
     content_sid: Mapped[Optional[str]] = mapped_column(String(34), nullable=True)
     media_snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
@@ -59,6 +66,49 @@ class BillingNotificationJob(Base):
     @staticmethod
     def is_provider_sid(value: object) -> bool:
         return isinstance(value, str) and re.fullmatch(r"(?:SM|MM)[0-9A-Fa-f]{32}", value) is not None
+
+
+class BillingWhatsAppActivationTest(Base):
+    """Immutable creation binding; only lifecycle status may evolve in later slices."""
+
+    __tablename__ = "billing_whatsapp_activation_tests"
+    __table_args__ = (
+        UniqueConstraint("actor_user_id", "idempotency_key_hash", name="uq_whatsapp_activation_actor_key"),
+        UniqueConstraint("batch_id", name="uq_whatsapp_activation_batch"),
+        UniqueConstraint("job_id", name="uq_whatsapp_activation_job"),
+        UniqueConstraint("media_token_id", name="uq_whatsapp_activation_media_token"),
+        CheckConstraint("consent_revision > 0", name="ck_whatsapp_activation_consent_revision_positive"),
+        CheckConstraint("artifact_size > 0", name="ck_whatsapp_activation_artifact_size_positive"),
+        CheckConstraint(
+            "status IN ('queued', 'leased', 'sending', 'accepted', 'ambiguous', 'sent', 'delivered', 'read', 'failed', 'undelivered', 'cancelled')",
+            name="ck_whatsapp_activation_status",
+        ),
+        Index("ix_whatsapp_activation_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    actor_ci: Mapped[str] = mapped_column(String(20), nullable=False)
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    teacher_ci_at_creation: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient_hmac: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_masked: Mapped[str] = mapped_column(String(20), nullable=False)
+    consent_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    publication_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_publications.id", ondelete="RESTRICT"), nullable=False)
+    publication_revision_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_publication_revisions.id", ondelete="RESTRICT"), nullable=False)
+    publication_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    billing_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_sid: Mapped[str] = mapped_column(String(34), nullable=False)
+    batch_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_notification_batches.id", ondelete="RESTRICT"), nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_notification_jobs.id", ondelete="RESTRICT"), nullable=False)
+    media_token_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_media_tokens.id", ondelete="RESTRICT"), nullable=False)
+    artifact_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    artifact_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    terminal_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
 
 class WhatsAppEvent(Base):
