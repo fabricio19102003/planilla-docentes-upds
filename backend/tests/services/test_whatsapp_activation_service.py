@@ -161,14 +161,16 @@ def test_activation_storage_failure_leaves_rollback_clean_graph(client, db_sessi
     assert _graph_counts(db_session) == before and not list(tmp_path.glob("*.pdf"))
 
 
-@pytest.mark.parametrize("drift", ["global", "provider", "worker", "process", "preference", "recipient", "consent", "content", "token", "artifact", "revision", "link", "status"])
+@pytest.mark.parametrize("drift", ["global", "provider", "worker", "process", "preference", "recipient", "consent", "content", "token", "artifact", "revision", "link", "status", "capacity_delay_expiry", "channel", "batch_publication", "batch_version"])
 def test_activation_final_authorization_cancels_every_drift(client, db_session, tmp_path, monkeypatch, drift):
     from app.workers.official_whatsapp_runner import _authorize_activation
     service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
     result = service.create(actor_user_id=actor.id, request=request, idempotency_key="z" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    service.release(actor_user_id=actor.id, activation_id=result.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="d" * 16, readiness=_ready("HX" + "a" * 32))
     activation = db_session.get(BillingWhatsAppActivationTest, result.id); job = db_session.get(BillingNotificationJob, result.job_id)
     token = db_session.get(BillingMediaToken, activation.media_token_id); preference = db_session.get(WhatsAppPreference, job.teacher_ci)
-    job.status, job.lease_owner, activation.status = "sending", "worker", "sending"
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+    job.status, job.lease_owner, job.lease_expires_at, activation.status = "leased", "worker", __import__("datetime").datetime.utcnow() + __import__("datetime").timedelta(minutes=1), "leased"
     facts = {"activation": {"capable": True}, "global_delivery": {"requested": False}}
     fresh = {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}}
     monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: fresh)
@@ -184,20 +186,83 @@ def test_activation_final_authorization_cancels_every_drift(client, db_session, 
     elif drift == "artifact": Path(token.artifact_path).write_bytes(b"drift")
     elif drift == "link": activation.batch_id += 99
     elif drift == "status": activation.status = "queued"
+    elif drift == "capacity_delay_expiry": authorization.expires_at = __import__("datetime").datetime.utcnow()
+    elif drift == "channel": job.channel = "email"
+    elif drift == "batch_publication": db_session.get(BillingNotificationBatch, job.batch_id).publication_id += 1
+    elif drift == "batch_version": db_session.get(BillingNotificationBatch, job.batch_id).publication_version += 1
     else: revision.version += 1
     db_session.flush()
     assert _authorize_activation(db_session, job.id, facts, "k" * 32) is None
     assert (job.status, job.lease_owner, job.next_attempt_at, activation.status, token.revoked_at is not None) == ("cancelled", None, None, "cancelled", True)
 
 
-def test_activation_final_authorization_uses_current_preference_recipient(client, db_session, tmp_path, monkeypatch):
+def test_activation_final_authorization_consumes_leased_authority_before_transport(client, db_session, tmp_path, monkeypatch):
     from app.workers.official_whatsapp_runner import _authorize_activation
     service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
     result = service.create(actor_user_id=actor.id, request=request, idempotency_key="y" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
-    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id); job.status, job.lease_owner, activation.status = "sending", "worker", "sending"; db_session.flush()
+    service.release(actor_user_id=actor.id, activation_id=result.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job.status, job.lease_owner, job.lease_expires_at, activation.status = "leased", "worker", __import__("datetime").datetime.utcnow() + __import__("datetime").timedelta(minutes=1), "leased"; db_session.flush()
     monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}})
     dispatch = _authorize_activation(db_session, job.id, {}, "k" * 32)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
     assert dispatch is not None and dispatch.recipient == "+59170000000" and dispatch.media_token
+    assert (job.status, activation.status, authorization.state, authorization.consumed_at is not None) == ("sending", "sending", "consumed", True)
+    assert _authorize_activation(db_session, job.id, {}, "k" * 32) is None
+
+
+def test_activation_preprovider_rejection_never_calls_transport(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="s" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    service.release(actor_user_id=actor.id, activation_id=result.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job.status, job.lease_owner, job.lease_expires_at, job.channel, activation.status = "leased", "worker", __import__("datetime").datetime.utcnow() + __import__("datetime").timedelta(minutes=1), "email", "leased"; db_session.commit()
+    monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}})
+    calls = []
+    dispatch = _authorize_activation(db_session, job.id, {}, "k" * 32)
+    if dispatch is not None:
+        calls.append(dispatch)
+    assert calls == [] and db_session.get(BillingNotificationJob, job.id).status == "cancelled"
+
+
+def test_activation_authorizer_commits_before_transport_and_never_retries_after_transport_error(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="t" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    service.release(actor_user_id=actor.id, activation_id=result.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="u" * 16, readiness=_ready("HX" + "a" * 32))
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    job.status, job.lease_owner, job.lease_expires_at, activation.status = "leased", "worker", __import__("datetime").datetime.utcnow() + __import__("datetime").timedelta(minutes=1), "leased"; db_session.commit()
+    monkeypatch.setattr("app.workers.official_whatsapp_runner.current_delivery_status", lambda _: {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "worker": {"ready": True}, "process_gates": {"official": True, "dispatch": True}})
+    dispatch = _authorize_activation(db_session, job.id, {}, "k" * 32)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+    calls = []
+    def transport(_dispatch):
+        calls.append(_dispatch)
+        assert (db_session.get(BillingNotificationJob, job.id).status, authorization.state, authorization.consumed_at is not None) == ("sending", "consumed", True)
+        raise RuntimeError("transport interrupted")
+    with pytest.raises(RuntimeError, match="transport interrupted"):
+        transport(dispatch)
+    assert calls == [dispatch] and _authorize_activation(db_session, job.id, {}, "k" * 32) is None
+
+
+def test_activation_authorizer_rolls_back_foreign_or_missing_job_without_downstream_locks(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import _authorize_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="v" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    job = db_session.get(BillingNotificationJob, result.job_id); job.status, job.lease_owner = "leased", "other"; db_session.commit()
+    original_query, original_rollback, locked, rollbacks = db_session.query, db_session.rollback, [], []
+    def query(model, *args, **kwargs):
+        locked.append(model)
+        return original_query(model, *args, **kwargs)
+    def rollback():
+        rollbacks.append(True)
+        original_rollback()
+    monkeypatch.setattr(db_session, "query", query)
+    monkeypatch.setattr(db_session, "rollback", rollback)
+    assert _authorize_activation(db_session, job.id, {}, "k" * 32) is None
+    assert _authorize_activation(db_session, job.id + 1, {}, "k" * 32) is None
+    assert (locked, rollbacks) == ([BillingNotificationJob, BillingNotificationJob], [True, True])
 
 
 def test_activation_final_authorization_rejects_other_worker_lease(client, db_session, tmp_path, monkeypatch):
@@ -205,9 +270,10 @@ def test_activation_final_authorization_rejects_other_worker_lease(client, db_se
     service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
     result = service.create(actor_user_id=actor.id, request=request, idempotency_key="w" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
     job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
-    job.status, job.lease_owner, activation.status = "sending", "other", "sending"; db_session.flush()
-    assert _authorize_activation(db_session, job.id, {}, "k" * 32, owner="worker") is None
-    assert (job.status, job.lease_owner, activation.status) == ("sending", "other", "sending")
+    job.status, job.lease_owner, activation.status = "leased", "other", "leased"; db_session.commit()
+    assert _authorize_activation(db_session, result.job_id, {}, "k" * 32, owner="worker") is None
+    job = db_session.get(BillingNotificationJob, result.job_id); activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    assert (job.status, job.lease_owner, activation.status) == ("leased", "other", "leased")
 
 
 def test_activation_kill_switch_cancels_only_unleased_activation(client, db_session, tmp_path, monkeypatch):
