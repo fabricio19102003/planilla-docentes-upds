@@ -10,6 +10,36 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
+WHATSAPP_DISPATCH_AUTHORIZATION_STATES = (
+    "pending", "authorized", "consumed", "cancelled", "expired", "revoked",
+)
+WHATSAPP_DISPATCH_AUTHORIZATION_REASONS = (
+    "migration_reauthorization_required", "creator_cancelled", "authorization_expired",
+    "pre_provider_rejected", "provider_outcome_ambiguous",
+)
+WHATSAPP_DISPATCH_AUTHORIZATION_ATTESTATION = "dispatch_reviewed_and_authorized_v1"
+WHATSAPP_DISPATCH_AUTHORIZATION_CHECKS = {
+    "ck_whatsapp_dispatch_authorization_state": "state IN ({})".format(
+        ", ".join(repr(state) for state in WHATSAPP_DISPATCH_AUTHORIZATION_STATES)
+    ),
+    "ck_whatsapp_dispatch_authorization_expiry": "expires_at > created_at",
+    "ck_whatsapp_dispatch_authorization_attestation": "attestation_code IS NULL OR attestation_code = '{}'".format(
+        WHATSAPP_DISPATCH_AUTHORIZATION_ATTESTATION
+    ),
+    "ck_whatsapp_dispatch_authorization_reason": "terminal_reason IS NULL OR terminal_reason IN ({})".format(
+        ", ".join(repr(reason) for reason in WHATSAPP_DISPATCH_AUTHORIZATION_REASONS)
+    ),
+    "ck_whatsapp_dispatch_authorization_release": "(released_at IS NULL) = (attestation_code IS NULL AND release_actor_user_id IS NULL AND release_key_hash IS NULL AND release_request_digest IS NULL)",
+    "ck_whatsapp_dispatch_authorization_consumed": "consumed_at IS NULL OR released_at IS NOT NULL",
+    "ck_whatsapp_dispatch_authorization_cancel": "(cancelled_at IS NULL) = (cancel_key_hash IS NULL AND cancel_request_digest IS NULL)",
+    "ck_whatsapp_dispatch_authorization_pending_lifecycle": "state != 'pending' OR (released_at IS NULL AND consumed_at IS NULL AND cancelled_at IS NULL AND revoked_at IS NULL)",
+    "ck_whatsapp_dispatch_authorization_authorized_lifecycle": "state != 'authorized' OR (released_at IS NOT NULL AND consumed_at IS NULL AND cancelled_at IS NULL AND revoked_at IS NULL)",
+    "ck_whatsapp_dispatch_authorization_consumed_lifecycle": "state != 'consumed' OR (released_at IS NOT NULL AND consumed_at IS NOT NULL AND cancelled_at IS NULL)",
+    "ck_whatsapp_dispatch_authorization_cancelled_lifecycle": "state != 'cancelled' OR (cancelled_at IS NOT NULL AND revoked_at IS NOT NULL)",
+    "ck_whatsapp_dispatch_authorization_revoked_lifecycle": "state NOT IN ('expired', 'revoked') OR revoked_at IS NOT NULL",
+}
+
+
 class BillingNotificationBatch(Base):
     __tablename__ = "billing_notification_batches"
     __table_args__ = (UniqueConstraint("digest", name="uq_billing_notification_batch_digest"),)
@@ -106,6 +136,38 @@ class BillingWhatsAppActivationTest(Base):
     artifact_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     artifact_size: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    terminal_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+
+class BillingWhatsAppDispatchAuthorization(Base):
+    """One-shot, fail-closed authority for an activation-test dispatch."""
+
+    __tablename__ = "billing_whatsapp_dispatch_authorizations"
+    __table_args__ = (
+        UniqueConstraint("activation_id", name="uq_whatsapp_dispatch_authorization_activation"),
+        UniqueConstraint("job_id", name="uq_whatsapp_dispatch_authorization_job"),
+        *(CheckConstraint(expression, name=name) for name, expression in WHATSAPP_DISPATCH_AUTHORIZATION_CHECKS.items()),
+        Index("ix_whatsapp_dispatch_authorization_claim", "state", "expires_at", "job_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activation_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_whatsapp_activation_tests.id", ondelete="RESTRICT"), nullable=False)
+    job_id: Mapped[int] = mapped_column(Integer, ForeignKey("billing_notification_jobs.id", ondelete="RESTRICT"), nullable=False)
+    creator_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    attestation_code: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
+    release_actor_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    release_key_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    release_request_digest: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    released_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cancel_key_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    cancel_request_digest: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     terminal_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
