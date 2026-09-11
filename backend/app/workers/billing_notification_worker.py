@@ -8,6 +8,7 @@ makes a crash at the provider boundary ambiguous rather than retryable.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from math import isfinite
 from time import sleep
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
     BillingNotificationJob,
+    BillingWhatsAppActivationTest,
     BillingWhatsAppDispatchAuthorization,
 )
 
@@ -83,13 +85,9 @@ class BillingNotificationWorker:
             .order_by(BillingNotificationJob.id)
         )
         if self.db.bind.dialect.name == "postgresql":
-            query = query.with_for_update(skip_locked=True)
+            query = query.with_for_update(of=BillingNotificationJob, skip_locked=True)
         if intent == "activation_test":
-            query = query.filter(exists().where(
-                BillingWhatsAppDispatchAuthorization.job_id == BillingNotificationJob.id,
-                BillingWhatsAppDispatchAuthorization.state == "authorized",
-                BillingWhatsAppDispatchAuthorization.released_at.is_not(None),
-            ))
+            query = query.filter(self._activation_claimable(now))
         candidate = query.first()
         if candidate is None:
             self.db.rollback()
@@ -103,6 +101,7 @@ class BillingNotificationWorker:
                     BillingNotificationJob.id == candidate.id,
                     BillingNotificationJob.intent_type == intent,
                     due,
+                    *((self._activation_claimable(now),) if intent == "activation_test" else ()),
                 )
                 .update(
                     {
@@ -143,7 +142,11 @@ class BillingNotificationWorker:
                 return "cancelled"
             self._backoff(job.id, "official_readiness_unavailable")
             return "backoff"
-        reservation = self._reserve_capacity(job, facts)
+        capacity_facts = self._activation_capacity_facts(facts) if activation else facts
+        if capacity_facts is None:
+            self._cancel_activation(job.id, "activation_readiness_unavailable")
+            return "cancelled"
+        reservation = self._reserve_capacity(job, capacity_facts)
         if reservation is None:
             if activation:
                 self._cancel_activation(job.id, "activation_readiness_unavailable")
@@ -180,6 +183,46 @@ class BillingNotificationWorker:
             return "cancelled"
         self._backoff(job.id, getattr(result, "error_code", "provider_failed"), sending=True)
         return "queued"
+
+    def _activation_claimable(self, now: datetime):
+        """Return the authorization predicate repeated by SQLite's claim CAS."""
+        authorization = BillingWhatsAppDispatchAuthorization
+        activation = BillingWhatsAppActivationTest
+        return exists().where(
+            authorization.job_id == BillingNotificationJob.id,
+            authorization.activation_id == activation.id,
+            activation.job_id == BillingNotificationJob.id,
+            authorization.creator_user_id == activation.actor_user_id,
+            authorization.state == "authorized",
+            authorization.expires_at > now,
+            authorization.attestation_code == "dispatch_reviewed_and_authorized_v1",
+            authorization.release_actor_user_id.is_not(None),
+            authorization.release_key_hash.is_not(None),
+            authorization.release_request_digest.is_not(None),
+            authorization.released_at.is_not(None),
+            authorization.consumed_at.is_(None),
+            authorization.cancelled_at.is_(None),
+            authorization.revoked_at.is_(None),
+            activation.status == BillingNotificationJob.status,
+        )
+
+    @staticmethod
+    def _activation_capacity_facts(facts: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+        """Copy a validated live capacity view without changing shared readiness facts."""
+        provider_live = facts.get("provider_live")
+        capacity = provider_live.get("capacity") if isinstance(provider_live, dict) else None
+        if not isinstance(capacity, dict) or capacity.get("available") is not True:
+            return None
+        limit = capacity.get("moving_recipient_limit")
+        mps = capacity.get("media_mps")
+        window_seconds = capacity.get("window_seconds")
+        if type(limit) is not int or limit < 1 or not isinstance(mps, (int, float)) or isinstance(mps, bool) or not isfinite(mps) or mps <= 0 or type(window_seconds) is not int or window_seconds < 1:
+            return None
+        return {"capacity": {
+            "moving_recipient_limit": limit,
+            "media_mps": mps,
+            "window_seconds": window_seconds,
+        }}
 
     def _cancel_activation(self, job_id: int, reason: str) -> None:
         """Activation failures are terminal and never re-enter ordinary fallback."""
