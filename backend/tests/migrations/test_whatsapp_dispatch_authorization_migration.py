@@ -127,6 +127,41 @@ def test_state_lifecycle_checks_reject_invalid_timestamps_and_duplicate_bindings
     engine.dispose()
 
 
+def _insert_legacy_graphs(connection):
+    created = datetime(2030, 1, 1)
+    statuses = ("queued", "leased", "sending", "accepted", "ambiguous", "sent", "delivered", "read", "failed", "undelivered", "cancelled")
+    for id_, status in enumerate(statuses, 1):
+        connection.execute(sa.text("INSERT INTO billing_notification_jobs (id, batch_id, teacher_ci, channel, intent_type, status, lease_owner, lease_expires_at, next_attempt_at, last_error_code, attempts, created_at, updated_at) VALUES (:id, :id, :teacher, 'whatsapp', 'activation_test', :status, :owner, :created, :created, 'retry', 3, :created, :created)"), {"id": id_, "teacher": f"legacy-{id_}", "status": status, "owner": "worker" if status == "leased" else None, "created": created})
+        connection.execute(sa.text("INSERT INTO billing_media_tokens (id, batch_id, teacher_ci, token_hash, artifact_hash, artifact_path, artifact_size, expires_at, created_at, job_id) VALUES (:id, :id, :teacher, :hash, :hash, :path, 1, :expires, :created, :id)"), {"id": id_, "teacher": f"legacy-{id_}", "hash": f"{id_:064x}", "path": f"legacy-{id_}.pdf", "expires": datetime(2030, 2, 1), "created": created})
+        connection.execute(sa.text("INSERT INTO billing_whatsapp_activation_tests (id, actor_user_id, actor_ci, idempotency_key_hash, request_digest, teacher_ci_at_creation, recipient_hmac, recipient_masked, consent_revision, publication_id, publication_revision_id, publication_version, billing_digest, content_sid, batch_id, job_id, media_token_id, artifact_hash, artifact_size, status, created_at, updated_at) VALUES (:id, 77, 'creator', :hash, :hash, :teacher, :hash, '+591••••0000', 1, :id, :id, 1, :hash, 'HXaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', :id, :id, :id, :hash, 1, :status, :created, :created)"), {"id": id_, "teacher": f"legacy-{id_}", "hash": f"{id_:064x}", "status": status, "created": created})
+    return created, statuses
+
+
+def test_upgrade_backfills_legacy_activation_graphs_fail_closed(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "legacy.sqlite3")
+    command.upgrade(config, PREDECESSOR)
+    with engine.begin() as connection:
+        created, statuses = _insert_legacy_graphs(connection)
+    command.upgrade(config, REVISION)
+    with engine.connect() as connection:
+        rows = connection.execute(sa.text("SELECT activation_id, job_id, creator_user_id, state, expires_at, released_at, consumed_at, revoked_at, terminal_reason FROM billing_whatsapp_dispatch_authorizations ORDER BY activation_id")).mappings().all()
+        assert len(rows) == len(statuses)
+        assert all(row["activation_id"] == row["job_id"] and row["creator_user_id"] == 77 for row in rows)
+        assert all(row["state"] == "revoked" and row["released_at"] is None and row["consumed_at"] is None and row["terminal_reason"] == "migration_reauthorization_required" for row in rows)
+        assert all(str(row["expires_at"]).startswith("2030-01-01 00:30:00") and row["revoked_at"] is not None for row in rows)
+        unsent = connection.execute(sa.text("SELECT id, status, lease_owner, lease_expires_at, next_attempt_at, last_error_code, attempts FROM billing_notification_jobs WHERE id IN (1, 2) ORDER BY id")).mappings().all()
+        assert all((row["status"], row["lease_owner"], row["lease_expires_at"], row["next_attempt_at"], row["last_error_code"], row["attempts"]) == ("cancelled", None, None, None, None, 0) for row in unsent)
+        assert connection.execute(sa.text("SELECT status, terminal_reason FROM billing_whatsapp_activation_tests WHERE id IN (1, 2) ORDER BY id")).all() == [("cancelled", "migration_reauthorization_required")] * 2
+        preserved = connection.execute(sa.text("SELECT id, status FROM billing_notification_jobs WHERE id > 2 ORDER BY id")).all()
+        assert [row[1] for row in preserved] == list(statuses[2:])
+        revoked = set(connection.scalars(sa.text("SELECT id FROM billing_media_tokens WHERE revoked_at IS NOT NULL")))
+        assert revoked == {1, 2, 5, 8, 9, 10, 11}
+    with engine.begin() as connection:
+        _module()._backfill_legacy_activations(connection)
+        assert connection.scalar(sa.text("SELECT COUNT(*) FROM billing_whatsapp_dispatch_authorizations")) == len(statuses)
+    engine.dispose()
+
+
 def test_compatible_precreated_table_is_adopted(tmp_path, monkeypatch):
     engine, config = _config(tmp_path, monkeypatch, "compatible.sqlite3")
     command.upgrade(config, PREDECESSOR)

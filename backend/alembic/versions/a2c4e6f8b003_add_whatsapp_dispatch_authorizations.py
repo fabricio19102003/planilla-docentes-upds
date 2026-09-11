@@ -4,6 +4,8 @@ Revision ID: a2c4e6f8b003
 Revises: a2c4e6f8b002
 """
 
+from datetime import timedelta
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -98,6 +100,39 @@ def _validate_authorization_table(inspector) -> None:
         raise RuntimeError("Incompatible pre-existing billing_whatsapp_dispatch_authorizations index")
 
 
+def _backfill_legacy_activations(bind) -> None:
+    metadata = sa.MetaData()
+    activation = sa.Table("billing_whatsapp_activation_tests", metadata, autoload_with=bind)
+    job = sa.Table("billing_notification_jobs", metadata, autoload_with=bind)
+    media = sa.Table("billing_media_tokens", metadata, autoload_with=bind)
+    authorization = authorization_table(metadata)
+    existing = set(bind.scalars(sa.select(authorization.c.activation_id)))
+    legacy = bind.execute(sa.select(activation).order_by(activation.c.id)).mappings()
+    now = sa.func.now()
+    terminal_media = {"ambiguous", "failed", "undelivered", "read", "cancelled"}
+    for row in legacy:
+        if row["id"] in existing:
+            continue
+        created = row["created_at"]
+        bind.execute(sa.insert(authorization).values(
+            activation_id=row["id"], job_id=row["job_id"], creator_user_id=row["actor_user_id"],
+            state="revoked", expires_at=created + timedelta(minutes=30), revoked_at=now,
+            terminal_reason="migration_reauthorization_required", created_at=created, updated_at=now,
+        ))
+        if row["status"] in {"queued", "leased"}:
+            bind.execute(sa.update(job).where(job.c.id == row["job_id"]).values(
+                status="cancelled", lease_owner=None, lease_expires_at=None, next_attempt_at=None,
+                last_error_code=None, attempts=0,
+            ))
+            bind.execute(sa.update(activation).where(activation.c.id == row["id"]).values(
+                status="cancelled", terminal_reason="migration_reauthorization_required",
+            ))
+        if row["status"] in {"queued", "leased"} | terminal_media:
+            bind.execute(sa.update(media).where(
+                media.c.id == row["media_token_id"], media.c.revoked_at.is_(None)
+            ).values(revoked_at=now))
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
@@ -105,6 +140,7 @@ def upgrade() -> None:
         _validate_authorization_table(inspector)
     else:
         authorization_table(_schema_metadata()).create(bind)
+    _backfill_legacy_activations(bind)
 
 
 def downgrade() -> None:
