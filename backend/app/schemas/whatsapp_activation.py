@@ -38,6 +38,18 @@ AuthorizationState = Literal["pending", "authorized", "consumed", "cancelled", "
 AuthorizationTerminalReason = Literal["migration_reauthorization_required", "creator_cancelled", "authorization_expired", "pre_provider_rejected", "provider_outcome_ambiguous"]
 
 
+class WhatsAppActivationRelease(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attestation: Literal["dispatch_reviewed_and_authorized_v1"]
+
+
+class WhatsAppActivationCancel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["creator_cancelled"]
+
+
 class WhatsAppActivationProjection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

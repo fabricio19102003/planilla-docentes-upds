@@ -13,7 +13,10 @@ from app.config import settings
 from app.database import get_db
 from app.models.billing_notification import BillingWhatsAppActivationTest
 from app.models.user import User
-from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
+from app.schemas.whatsapp_activation import (
+    WhatsAppActivationCancel, WhatsAppActivationCreate, WhatsAppActivationProjection,
+    WhatsAppActivationRelease,
+)
 from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
 from app.services.whatsapp_delivery_control import creation_readiness, current_delivery_status
 from app.utils.auth import require_admin
@@ -109,6 +112,10 @@ def _error(code: str, *, http_status: int = status.HTTP_409_CONFLICT) -> HTTPExc
     return HTTPException(status_code=http_status, detail={"code": code})
 
 
+def _valid_idempotency_key(value: str | None) -> bool:
+    return isinstance(value, str) and 16 <= len(value) <= 128 and all(33 <= ord(char) <= 126 for char in value)
+
+
 def _service(db: Session) -> WhatsAppActivationService:
     key = settings.WHATSAPP_RECIPIENT_HMAC_KEY
     if not isinstance(key, str):
@@ -143,12 +150,11 @@ async def create_activation(
     except (ValidationError, ValueError, TypeError):
         raise _error("invalid_activation_request", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY) from None
     try:
-        readiness_facts = creation_readiness(db)
         result = _service(db).create(
             actor_user_id=actor.id,
             request=payload,
             idempotency_key=idempotency_key,
-            readiness=readiness_facts,
+            readiness=lambda: creation_readiness(db),
             configured_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
             approved_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
             ip_address=request.client.host if request.client else None,
@@ -165,6 +171,58 @@ async def create_activation(
     except Exception:
         db.rollback()
         raise _error("activation_artifact_unavailable")
+
+
+@router.post("/activation-tests/{activation_id}/release", response_model=WhatsAppActivationProjection)
+async def release_activation(
+    activation_id: int, request: Request, response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    actor: User = Depends(require_admin), db: Session = Depends(get_db),
+) -> WhatsAppActivationProjection:
+    if not _valid_idempotency_key(idempotency_key):
+        raise _error("invalid_idempotency_key", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    try:
+        payload = WhatsAppActivationRelease.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise _error("invalid_release_request", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY) from None
+    try:
+        # Readiness is intentionally lazy: exact replay does not depend on it.
+        result = _service(db).release(actor_user_id=actor.id, activation_id=activation_id, request=payload, idempotency_key=idempotency_key, readiness=lambda: _readiness(db)[0], ip_address=request.client.host if request.client else None)
+        if result.replayed:
+            db.rollback()
+        else:
+            db.commit()
+        return result
+    except WhatsAppActivationError as exc:
+        db.rollback()
+        raise _error(str(exc)) from exc
+
+
+@router.post("/activation-tests/{activation_id}/cancel", response_model=WhatsAppActivationProjection)
+async def cancel_activation(
+    activation_id: int, request: Request, response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    actor: User = Depends(require_admin), db: Session = Depends(get_db),
+) -> WhatsAppActivationProjection:
+    if not _valid_idempotency_key(idempotency_key):
+        raise _error("invalid_idempotency_key", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    try:
+        payload = WhatsAppActivationCancel.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise _error("invalid_cancel_request", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY) from None
+    try:
+        result = _service(db).cancel(actor_user_id=actor.id, activation_id=activation_id, request=payload, idempotency_key=idempotency_key, ip_address=request.client.host if request.client else None)
+        if result.replayed:
+            db.rollback()
+        else:
+            db.commit()
+        return result
+    except WhatsAppActivationError as exc:
+        db.rollback()
+        raise _error(
+            str(exc),
+            http_status=status.HTTP_403_FORBIDDEN if str(exc) == "activation_cancel_forbidden" else status.HTTP_409_CONFLICT,
+        ) from exc
 
 
 @router.get("/activation-tests/{activation_id}", response_model=WhatsAppActivationProjection)
