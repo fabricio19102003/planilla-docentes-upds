@@ -8,7 +8,10 @@ from alembic.config import Config
 
 from app.config import settings
 from app.models.activity_log import ActivityLog
-from app.models.billing_notification import BillingNotificationJob, BillingWhatsAppActivationTest
+from app.models.billing_notification import (
+    BillingNotificationJob, BillingWhatsAppActivationTest,
+    BillingWhatsAppDispatchAuthorization,
+)
 from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
 from app.models.billing_notification import BillingMediaToken, BillingNotificationBatch, BillingWhatsAppActivationTest
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
@@ -35,7 +38,7 @@ def _activation_setup(client, db_session, tmp_path, monkeypatch):
 
 
 def _ready(sid):
-    return {"activation": {"capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "approved_content_sid": sid}
+    return {"activation": {"creation_capable": True, "dispatch_capable": True, "capable": True}, "global_delivery": {"requested": False, "effective": False}, "provider_configuration": {"ready": True}, "provider_live": {"ready": True}, "approved_content_sid": sid}
 
 
 def test_activation_create_schema_requires_exact_canonical_recipient():
@@ -71,9 +74,9 @@ def test_pdf_flush_cleanup_preserves_existing_artifact(tmp_path):
 
 @pytest.mark.parametrize("mutate, code", [
     (lambda r: r.update(activation=[]), "activation_readiness_unavailable"),
-    (lambda r: r.update(provider_configuration=[]), "activation_readiness_unavailable"),
-    (lambda r: r.update(provider_live=None), "activation_readiness_unavailable"),
-    (lambda r: r["activation"].update(capable=False), "activation_readiness_unavailable"),
+    (lambda r: r["activation"].update(creation_capable=False), "activation_readiness_unavailable"),
+    (lambda r: r["activation"].update(creation_capable=None), "activation_readiness_unavailable"),
+    (lambda r: r["activation"].pop("creation_capable"), "activation_readiness_unavailable"),
     (lambda r: r.update(global_delivery=[]), "activation_requires_global_delivery_disabled"),
     (lambda r: r["global_delivery"].update(requested=True), "activation_requires_global_delivery_disabled"),
     (lambda r: r["global_delivery"].update(effective=True), "activation_requires_global_delivery_disabled"),
@@ -84,6 +87,36 @@ def test_activation_malformed_readiness_is_bounded_and_does_not_write(client, db
     with pytest.raises(WhatsAppActivationError, match=code):
         service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=readiness, configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
     assert _graph_counts(db_session) == before
+
+
+def test_activation_create_without_dispatch_readiness_creates_one_inert_pending_authorization(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    readiness = _ready("HX" + "a" * 32)
+    readiness["activation"].update(dispatch_capable=False, capable=False)
+    readiness.update(provider_configuration={"ready": False}, provider_live={"ready": False})
+
+    result = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=readiness, configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    activation = db_session.get(BillingWhatsAppActivationTest, result.id)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+
+    assert (activation.status, db_session.get(BillingNotificationJob, result.job_id).status) == ("queued", "queued")
+    assert (authorization.activation_id, authorization.job_id, authorization.creator_user_id, authorization.state) == (activation.id, activation.job_id, actor.id, "pending")
+    assert authorization.expires_at - activation.created_at == __import__("datetime").timedelta(minutes=30)
+    assert all(getattr(authorization, field) is None for field in ("released_at", "consumed_at", "revoked_at"))
+    assert result.replayed is False
+    assert result.model_dump(include={
+        "authorization_state", "authorization_expires_at", "authorized_at", "consumed_at",
+        "revoked_at", "attestation_code", "authorization_terminal_reason",
+    }) == {
+        "authorization_state": "pending", "authorization_expires_at": authorization.expires_at,
+        "authorized_at": None, "consumed_at": None, "revoked_at": None,
+        "attestation_code": None, "authorization_terminal_reason": None,
+    }
+
+    replay = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness={}, configured_content_sid=None, approved_content_sid=None)
+    assert replay.id == result.id and replay.replayed is True
+    assert replay.authorization_state == "pending"
+    assert db_session.query(BillingWhatsAppDispatchAuthorization).count() == 1
 
 
 def test_activation_creates_one_private_bound_graph_without_email(client, db_session, tmp_path, monkeypatch):
@@ -98,7 +131,7 @@ def test_activation_creates_one_private_bound_graph_without_email(client, db_ses
     token = db_session.get(BillingMediaToken, activation.media_token_id)
     batch = db_session.get(BillingNotificationBatch, activation.batch_id)
     audit = db_session.query(ActivityLog).filter_by(action="whatsapp_activation_created").one()
-    assert (db_session.query(BillingNotificationBatch).count(), db_session.query(BillingNotificationJob).count(), db_session.query(BillingMediaToken).count(), db_session.query(BillingWhatsAppActivationTest).count()) == (1, 1, 1, 1)
+    assert (db_session.query(BillingNotificationBatch).count(), db_session.query(BillingNotificationJob).count(), db_session.query(BillingMediaToken).count(), db_session.query(BillingWhatsAppActivationTest).count(), db_session.query(BillingWhatsAppDispatchAuthorization).count()) == (1, 1, 1, 1, 1)
     assert job.intent_type == "activation_test" and job.channel == "whatsapp" and job.content_sid == activation.content_sid
     assert token.batch_id == batch.id == activation.batch_id and token.job_id == job.id == activation.job_id
     assert token.teacher_ci == activation.teacher_ci_at_creation == request.teacher_ci
@@ -221,7 +254,7 @@ def test_revoked_or_expired_activation_media_never_mutates_delivery_status(clien
 
 
 def _graph_counts(db):
-    return tuple(db.query(model).count() for model in (BillingNotificationBatch, BillingNotificationJob, BillingMediaToken, BillingWhatsAppActivationTest, ActivityLog))
+    return tuple(db.query(model).count() for model in (BillingNotificationBatch, BillingNotificationJob, BillingMediaToken, BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization, ActivityLog))
 
 
 @pytest.mark.parametrize("change, code", [
@@ -345,7 +378,7 @@ def test_activation_audit_failure_and_outer_rollback_remove_only_new_artifact(cl
     original_flush, calls = db_session.flush, {"count": 0}
     def fail_audit_flush():
         calls["count"] += 1
-        if calls["count"] == 5:
+        if calls["count"] == 6:
             raise RuntimeError("audit flush")
         original_flush()
     monkeypatch.setattr(db_session, "flush", fail_audit_flush)
@@ -364,7 +397,7 @@ def test_activation_outer_failure_preserves_preexisting_artifact(client, db_sess
     original_flush, calls = db_session.flush, {"count": 0}
     def fail_audit_flush():
         calls["count"] += 1
-        if calls["count"] == 5: raise RuntimeError("audit flush")
+        if calls["count"] == 6: raise RuntimeError("audit flush")
         original_flush()
     monkeypatch.setattr(db_session, "flush", fail_audit_flush)
     with pytest.raises(RuntimeError, match="audit flush"):

@@ -14,6 +14,7 @@ from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
     BillingNotificationJob,
+    BillingWhatsAppDispatchAuthorization,
     WhatsAppEvent,
 )
 from app.workers.billing_notification_worker import BillingNotificationWorker
@@ -28,6 +29,7 @@ def worker_session(tmp_path, name="worker"):
     BillingNotificationJob.__table__.create(engine)
     BillingNotificationCapacityWindow.__table__.create(engine)
     BillingNotificationCapacityReservation.__table__.create(engine)
+    BillingWhatsAppDispatchAuthorization.__table__.create(engine)
     Teacher.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
     WhatsAppConsentRevision.__table__.create(engine)
@@ -55,7 +57,7 @@ def queued(session, *, teacher="x", batch=1, next_attempt_at=None, intent_type="
 
 
 @pytest.mark.parametrize("intent, expected", [
-    ("ordinary", "ordinary"), ("activation_test", "activation_test"), (None, None),
+    ("ordinary", "ordinary"), ("activation_test", None), (None, None),
 ])
 def test_worker_claim_intent_is_one_cycle_authority(tmp_path, intent, expected):
     _, Session = worker_session(tmp_path)
@@ -68,6 +70,54 @@ def test_worker_claim_intent_is_one_cycle_authority(tmp_path, intent, expected):
     )
     claimed = worker.claim_one()
     assert (claimed.intent_type if claimed else None) == expected
+
+
+def test_missing_activation_authorization_is_not_claimable(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session, teacher="activation", intent_type="activation_test")
+    worker = BillingNotificationWorker(
+        session, lambda: READY, lambda _: SimpleNamespace(status="sent"),
+        claim_intent=lambda: "activation_test", now=lambda: CLOCK,
+    )
+
+    assert worker.claim_one() is None
+    job = session.query(BillingNotificationJob).one()
+    assert (job.status, job.lease_owner, job.lease_expires_at, job.attempts) == ("queued", None, None, 0)
+
+
+def test_pending_activation_authorization_is_not_claimable_while_ordinary_queue_is(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session, teacher="activation", batch=1, intent_type="activation_test")
+    queued(session, teacher="ordinary", batch=2)
+    activation, ordinary = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
+    session.add(BillingWhatsAppDispatchAuthorization(
+        activation_id=1,
+        job_id=activation.id,
+        creator_user_id=1,
+        state="pending",
+        created_at=CLOCK,
+        expires_at=CLOCK + timedelta(minutes=30),
+    ))
+    session.commit()
+
+    activation_worker = BillingNotificationWorker(
+        session, lambda: READY, lambda _: SimpleNamespace(status="sent"),
+        claim_intent=lambda: "activation_test", now=lambda: CLOCK,
+    )
+    ordinary_worker = BillingNotificationWorker(
+        session, lambda: READY, lambda _: SimpleNamespace(status="sent"),
+        claim_intent=lambda: "ordinary", now=lambda: CLOCK,
+    )
+
+    assert activation_worker.claim_one() is None
+    assert ordinary_worker.claim_one().id == ordinary.id
+    session.expire_all()
+    activation = session.get(BillingNotificationJob, activation.id)
+    assert (activation.status, activation.lease_owner, activation.lease_expires_at, activation.attempts) == (
+        "queued", None, None, 0,
+    )
 
 
 def test_worker_never_claims_or_transports_activation_before_pr9b(tmp_path):

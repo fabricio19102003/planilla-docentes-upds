@@ -22,7 +22,7 @@ def _ready(*, global_on: bool = False) -> dict:
         "worker": {"ready": True, "reason": None, "heartbeat_at": datetime.utcnow()},
         "process_gates": {"official": True, "dispatch": True},
         "global_delivery": {"requested": global_on, "effective": global_on},
-        "activation": {"api_enabled": True, "dispatch_enabled": True, "capable": not global_on, "blocking_reasons": []},
+        "activation": {"api_enabled": True, "dispatch_enabled": True, "creation_capable": not global_on, "dispatch_capable": not global_on, "capable": not global_on, "blocking_reasons": []},
     }
 
 
@@ -53,6 +53,7 @@ def _configure_ready(monkeypatch):
     monkeypatch.setattr(router, "current_delivery_status", lambda _db: _ready())
     monkeypatch.setattr(settings, "TWILIO_OFFICIAL_CONTENT_SID", SID)
     monkeypatch.setattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", "k" * 32)
+    monkeypatch.setattr(settings, "BILLING_WHATSAPP_ACTIVATION_API_ENABLED", True)
 
 
 def test_routes_are_admin_only_and_readiness_is_sanitized_nonmutating(client, db_session, monkeypatch):
@@ -60,7 +61,14 @@ def test_routes_are_admin_only_and_readiness_is_sanitized_nonmutating(client, db
     before = db_session.query(AppSetting).count()
     response = client.get("/api/admin/whatsapp/readiness")
     assert response.status_code == 200
-    assert response.json()["activation"]["capable"] is True
+    assert response.json()["activation"] == {
+        "api_enabled": True,
+        "dispatch_enabled": True,
+        "creation_capable": True,
+        "dispatch_capable": True,
+        "capable": True,
+        "blocking_reasons": [],
+    }
     assert "content_sid" not in str(response.json()).lower()
     assert db_session.query(AppSetting).count() == before
 
@@ -71,6 +79,38 @@ def test_routes_are_admin_only_and_readiness_is_sanitized_nonmutating(client, db
     assert client.get("/api/admin/whatsapp/readiness").status_code == 403
     client.headers.pop("Authorization")
     assert client.get("/api/admin/whatsapp/readiness").status_code == 401
+
+
+def test_create_uses_local_readiness_without_live_provider_and_get_remains_live(client, db_session, tmp_path, monkeypatch, activation_media_dir):
+    _, _, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    from app.config import settings
+    import app.services.whatsapp_delivery_control as delivery_control
+
+    monkeypatch.setattr(settings, "TWILIO_OFFICIAL_CONTENT_SID", SID)
+    monkeypatch.setattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", "k" * 32)
+    monkeypatch.setattr(settings, "BILLING_WHATSAPP_ACTIVATION_API_ENABLED", True)
+    def unexpected_provider_readiness():
+        raise AssertionError("creation must not call live provider readiness")
+
+    monkeypatch.setattr(delivery_control, "_provider_readiness", unexpected_provider_readiness)
+    created = client.post(
+        "/api/admin/whatsapp/activation-tests",
+        json=_payload(revision.id),
+        headers={"Idempotency-Key": "p" * 16},
+    )
+
+    assert created.status_code == 201
+    calls = []
+
+    def provider_readiness():
+        calls.append(True)
+        return {"ready": True, "reason": None, "capacity": {"available": True}, "configuration": {"ready": True, "reason": None}}
+
+    monkeypatch.setattr(delivery_control, "_provider_readiness", provider_readiness)
+    readiness = client.get("/api/admin/whatsapp/readiness")
+    assert readiness.status_code == 200
+    assert readiness.json()["provider_live"]["ready"] is True
+    assert calls == [True]
 
 
 def test_create_validates_header_before_rows_and_never_calls_transport(client, db_session, tmp_path, monkeypatch, activation_media_dir):
@@ -104,19 +144,27 @@ def test_create_replay_conflict_and_readiness_rejections_are_row_free(client, db
     headers = {"Idempotency-Key": "a" * 16}
     created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers=headers)
     assert created.status_code == 201
+    expected_authorization = {
+        "authorization_state", "authorization_expires_at", "authorized_at", "consumed_at",
+        "revoked_at", "attestation_code", "authorization_terminal_reason", "replayed",
+    }
+    assert expected_authorization.issubset(created.json())
     assert not any(marker in str(created.json()).lower() for marker in ("content_sid", "billing_digest", "hash", "token", "artifact", "provider"))
     replay = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers=headers)
     assert replay.status_code == 200 and replay.json()["replayed"] is True
+    assert {field: replay.json()[field] for field in expected_authorization - {"replayed"}} == {
+        field: created.json()[field] for field in expected_authorization - {"replayed"}
+    }
     conflict = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id, consent_revision=2), headers=headers)
     assert conflict.status_code == 409 and conflict.json()["detail"]["code"] == "activation_idempotency_conflict"
     assert db_session.query(BillingWhatsAppActivationTest).count() == 1
 
     import app.routers.admin_whatsapp as router
-    monkeypatch.setattr(router, "current_delivery_status", lambda _db: _ready(global_on=True))
+    monkeypatch.setattr(router, "creation_readiness", lambda _db: _ready(global_on=True))
     rejected = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "b" * 16})
     assert rejected.status_code == 409
-    disabled = _ready(); disabled["activation"]["capable"] = False
-    monkeypatch.setattr(router, "current_delivery_status", lambda _db: disabled)
+    disabled = _ready(); disabled["activation"]["creation_capable"] = False
+    monkeypatch.setattr(router, "creation_readiness", lambda _db: disabled)
     rejected = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "c" * 16})
     assert rejected.status_code == 409
     assert db_session.query(BillingWhatsAppActivationTest).count() == 1
@@ -136,6 +184,11 @@ def test_status_is_admin_only_and_checks_authorization_before_existence(client, 
     response = client.get(f"/api/admin/whatsapp/activation-tests/{activation_id}")
     assert response.status_code == 200
     assert (response.json()["status"], response.json()["job_status"]) == ("delivered", "delivered")
+    assert response.json()["authorization_state"] == "pending"
+    assert all(field in response.json() for field in (
+        "authorization_expires_at", "authorized_at", "consumed_at", "revoked_at",
+        "attestation_code", "authorization_terminal_reason", "replayed",
+    ))
     assert client.get("/api/admin/whatsapp/activation-tests/999999").status_code == 404
 
     docente = User(ci="DOCENTE-B", full_name="Docente", password_hash="x", role="docente")

@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.models.app_setting import AppSetting
 from app.models.billing_notification import BillingNotificationCapacityWindow
 from app.services.whatsapp_delivery_control import (
@@ -61,6 +63,45 @@ def test_provider_readiness_reasons_remain_bounded(db_session):
     assert status["blocking_reasons"] == ["provider_unavailable"]
 
 
+def test_activation_creation_capability_is_independent_from_dispatch_readiness(db_session):
+    status = status_from_readiness(
+        db_session,
+        {"ready": False, "reason": "provider_unavailable", "capacity": {"available": False}},
+        now=NOW,
+        provider_configuration={"ready": False, "reason": "configuration_missing"},
+        official_process_enabled=False,
+        dispatch_process_enabled=False,
+        activation_api_enabled=True,
+        activation_dispatch_enabled=False,
+        recipient_hmac_key="h" * 32,
+        configured_content_sid="HX" + "a" * 32,
+    )
+
+    assert status["activation"]["creation_capable"] is True
+    assert status["activation"]["dispatch_capable"] is False
+    assert status["activation"]["capable"] is False
+    assert status["global_delivery"] == {"requested": False, "effective": False}
+
+
+@pytest.mark.parametrize("override", [
+    {"activation_api_enabled": False},
+    {"recipient_hmac_key": "short"},
+    {"configured_content_sid": "HXinvalid"},
+])
+def test_activation_creation_capability_requires_its_static_prerequisites(db_session, override):
+    kwargs = {
+        "activation_api_enabled": True,
+        "recipient_hmac_key": "h" * 32,
+        "configured_content_sid": "HX" + "a" * 32,
+    }
+    kwargs.update(override)
+
+    status = status_from_readiness(db_session, READY, now=NOW, **kwargs)
+
+    assert status["activation"]["creation_capable"] is False
+    assert status["activation"]["dispatch_capable"] is False
+
+
 def test_named_facts_and_bounded_reasons_are_independent_and_read_only(db_session):
     row = AppSetting(key="BILLING_WHATSAPP_DELIVERY_ENABLED", value="false")
     db_session.add(row)
@@ -72,6 +113,7 @@ def test_named_facts_and_bounded_reasons_are_independent_and_read_only(db_sessio
         official_process_enabled=True, dispatch_process_enabled=True,
         activation_api_enabled=True, activation_dispatch_enabled=True,
         recipient_hmac_key="h" * 32,
+        configured_content_sid="HX" + "a" * 32,
     )
 
     assert set(("provider_configuration", "provider_live", "worker", "process_gates", "global_delivery", "activation")) <= status.keys()
@@ -104,14 +146,17 @@ def test_persisted_request_needs_both_process_gates_and_disables_activation(db_s
     blocked = status_from_readiness(
         db_session, READY, now=NOW, official_process_enabled=True, dispatch_process_enabled=False,
         activation_api_enabled=True, activation_dispatch_enabled=True, recipient_hmac_key="h" * 32,
+        configured_content_sid="HX" + "a" * 32,
     )
     enabled = status_from_readiness(
         db_session, READY, now=NOW, official_process_enabled=True, dispatch_process_enabled=True,
         activation_api_enabled=True, activation_dispatch_enabled=True, recipient_hmac_key="h" * 32,
+        configured_content_sid="HX" + "a" * 32,
     )
 
     assert blocked["effective_enabled"] is False
     assert "process_gate_disabled" in blocked["blocking_reasons"]
     assert enabled["effective_enabled"] is True
+    assert enabled["activation"]["creation_capable"] is False
     assert enabled["activation"]["capable"] is False
     assert "global_delivery_enabled" in enabled["activation"]["blocking_reasons"]

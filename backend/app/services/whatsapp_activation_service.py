@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.activity_log import ActivityLog
 from app.models.billing_notification import (
     BillingNotificationBatch, BillingNotificationJob, BillingWhatsAppActivationTest,
+    BillingWhatsAppDispatchAuthorization,
 )
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.user import User
@@ -152,6 +154,11 @@ class WhatsAppActivationService:
             )
             self.db.add(activation)
             self.db.flush()
+            self.db.add(BillingWhatsAppDispatchAuthorization(
+                activation_id=activation.id, job_id=job.id, creator_user_id=actor.id,
+                state="pending", expires_at=activation.created_at + timedelta(minutes=30),
+            ))
+            self.db.flush()
             self.db.add(ActivityLog(
                 user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_created", category="whatsapp",
                 description="Controlled WhatsApp activation created",
@@ -178,7 +185,7 @@ class WhatsAppActivationService:
         provider_live = readiness.get("provider_live") if isinstance(readiness, dict) else None
         if not isinstance(global_delivery, dict) or global_delivery.get("requested") is not False or global_delivery.get("effective") is not False:
             raise WhatsAppActivationError("activation_requires_global_delivery_disabled")
-        if not isinstance(activation, dict) or activation.get("capable") is not True or not isinstance(configuration, dict) or configuration.get("ready") is not True or not isinstance(provider_live, dict) or provider_live.get("ready") is not True:
+        if not isinstance(activation, dict) or activation.get("creation_capable") is not True:
             raise WhatsAppActivationError("activation_readiness_unavailable")
         if not isinstance(configured_sid, str) or re.fullmatch(r"HX[0-9A-Fa-f]{32}", configured_sid) is None or approved_sid != configured_sid or readiness.get("approved_content_sid") != configured_sid:
             raise WhatsAppActivationError("activation_template_unapproved")
@@ -211,6 +218,12 @@ class WhatsAppActivationService:
     def project(db: Session, activation: BillingWhatsAppActivationTest, *, replayed: bool = False) -> WhatsAppActivationProjection:
         """Build a persisted projection without requiring runtime HMAC configuration."""
         job = db.get(BillingNotificationJob, activation.job_id)
+        authorization = db.scalar(select(BillingWhatsAppDispatchAuthorization).where(
+            BillingWhatsAppDispatchAuthorization.activation_id == activation.id,
+            BillingWhatsAppDispatchAuthorization.job_id == activation.job_id,
+        ))
+        if authorization is None:
+            raise WhatsAppActivationError("activation_authorization_unavailable")
         return WhatsAppActivationProjection(
             id=activation.id, status=activation.status, terminal_reason=activation.terminal_reason,
             teacher_ci_at_creation=activation.teacher_ci_at_creation, recipient_masked=activation.recipient_masked,
@@ -218,5 +231,9 @@ class WhatsAppActivationService:
             publication_version=activation.publication_version,
             content_template_bound=True, pdf_bound=True,
             job_id=activation.job_id, job_status=job.status if job else activation.status,
-            created_at=activation.created_at, updated_at=activation.updated_at, replayed=replayed,
+            created_at=activation.created_at, updated_at=activation.updated_at,
+            authorization_state=authorization.state, authorization_expires_at=authorization.expires_at,
+            authorized_at=authorization.released_at, consumed_at=authorization.consumed_at,
+            revoked_at=authorization.revoked_at, attestation_code=authorization.attestation_code,
+            authorization_terminal_reason=authorization.terminal_reason, replayed=replayed,
         )
