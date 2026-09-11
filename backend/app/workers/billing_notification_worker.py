@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from time import sleep
 from typing import Any, Callable
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, exists, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.whatsapp_preference import WhatsAppPreference
@@ -20,6 +20,7 @@ from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
     BillingNotificationJob,
+    BillingWhatsAppDispatchAuthorization,
 )
 
 
@@ -83,6 +84,12 @@ class BillingNotificationWorker:
         )
         if self.db.bind.dialect.name == "postgresql":
             query = query.with_for_update(skip_locked=True)
+        if intent == "activation_test":
+            query = query.filter(exists().where(
+                BillingWhatsAppDispatchAuthorization.job_id == BillingNotificationJob.id,
+                BillingWhatsAppDispatchAuthorization.state == "authorized",
+                BillingWhatsAppDispatchAuthorization.released_at.is_not(None),
+            ))
         candidate = query.first()
         if candidate is None:
             self.db.rollback()

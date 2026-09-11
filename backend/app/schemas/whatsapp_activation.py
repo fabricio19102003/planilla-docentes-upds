@@ -34,6 +34,8 @@ class WhatsAppActivationCreate(BaseModel):
 
 ActivationStatus = Literal["queued", "leased", "sending", "accepted", "ambiguous", "sent", "delivered", "read", "failed", "undelivered", "cancelled"]
 TerminalReason = Literal["activation_disabled", "activation_readiness_unavailable", "activation_requires_global_delivery_disabled", "activation_recipient_mismatch", "activation_consent_revision_mismatch", "activation_consent_ineligible", "activation_publication_not_current", "activation_publication_corrupt", "activation_teacher_not_in_revision", "activation_template_unapproved", "activation_artifact_unavailable", "activation_provider_failed"]
+AuthorizationState = Literal["pending", "authorized", "consumed", "cancelled", "expired", "revoked"]
+AuthorizationTerminalReason = Literal["migration_reauthorization_required", "creator_cancelled", "authorization_expired", "pre_provider_rejected", "provider_outcome_ambiguous"]
 
 
 class WhatsAppActivationProjection(BaseModel):
@@ -53,4 +55,11 @@ class WhatsAppActivationProjection(BaseModel):
     job_status: ActivationStatus
     created_at: datetime
     updated_at: datetime
+    authorization_state: AuthorizationState
+    authorization_expires_at: datetime
+    authorized_at: datetime | None
+    consumed_at: datetime | None
+    revoked_at: datetime | None
+    attestation_code: Literal["dispatch_reviewed_and_authorized_v1"] | None
+    authorization_terminal_reason: AuthorizationTerminalReason | None
     replayed: bool = False

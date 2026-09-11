@@ -15,7 +15,7 @@ from app.models.billing_notification import BillingWhatsAppActivationTest
 from app.models.user import User
 from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
 from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
-from app.services.whatsapp_delivery_control import current_delivery_status
+from app.services.whatsapp_delivery_control import creation_readiness, current_delivery_status
 from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/api/admin/whatsapp", tags=["admin-whatsapp"])
@@ -74,6 +74,8 @@ class ActivationReadiness(BaseModel):
 
     api_enabled: bool
     dispatch_enabled: bool
+    creation_capable: bool
+    dispatch_capable: bool
     capable: bool
     blocking_reasons: list[ReadinessReason]
 
@@ -141,14 +143,14 @@ async def create_activation(
     except (ValidationError, ValueError, TypeError):
         raise _error("invalid_activation_request", http_status=status.HTTP_422_UNPROCESSABLE_ENTITY) from None
     try:
-        readiness_facts, _ = _readiness(db)
+        readiness_facts = creation_readiness(db)
         result = _service(db).create(
             actor_user_id=actor.id,
             request=payload,
             idempotency_key=idempotency_key,
             readiness=readiness_facts,
             configured_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
-            approved_content_sid=readiness_facts.get("approved_content_sid"),
+            approved_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
             ip_address=request.client.host if request.client else None,
         )
         if result.replayed:
@@ -177,4 +179,7 @@ def activation_status(
     ))
     if activation is None:
         raise _error("activation_not_found", http_status=status.HTTP_404_NOT_FOUND)
-    return WhatsAppActivationService.project(db, activation)
+    try:
+        return WhatsAppActivationService.project(db, activation)
+    except WhatsAppActivationError as exc:
+        raise _error(str(exc)) from exc
