@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
 from app.models.activity_log import ActivityLog
@@ -14,6 +15,7 @@ from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
     BillingNotificationJob,
+    BillingWhatsAppActivationTest,
     BillingWhatsAppDispatchAuthorization,
     WhatsAppEvent,
 )
@@ -29,6 +31,7 @@ def worker_session(tmp_path, name="worker"):
     BillingNotificationJob.__table__.create(engine)
     BillingNotificationCapacityWindow.__table__.create(engine)
     BillingNotificationCapacityReservation.__table__.create(engine)
+    BillingWhatsAppActivationTest.__table__.create(engine)
     BillingWhatsAppDispatchAuthorization.__table__.create(engine)
     Teacher.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
@@ -118,6 +121,88 @@ def test_pending_activation_authorization_is_not_claimable_while_ordinary_queue_
     assert (activation.status, activation.lease_owner, activation.lease_expires_at, activation.attempts) == (
         "queued", None, None, 0,
     )
+
+
+def activation_authorization(session, job, *, state="authorized", expires_at=CLOCK + timedelta(minutes=30), released=True, activation_status="queued", creator_matches=True):
+    activation = BillingWhatsAppActivationTest(
+        actor_user_id=1, actor_ci="creator", idempotency_key_hash=f"{job.id:064x}",
+        request_digest=f"{job.id + 10:064x}", teacher_ci_at_creation=job.teacher_ci,
+        recipient_hmac="c" * 64, recipient_masked="***", consent_revision=1,
+        publication_id=1, publication_revision_id=1, publication_version=1,
+        billing_digest="d" * 64, content_sid="HX" + "e" * 32,
+        batch_id=job.batch_id, job_id=job.id, media_token_id=job.id,
+        artifact_hash="f" * 64, artifact_size=1, status=activation_status,
+        created_at=CLOCK,
+    )
+    session.add(activation)
+    session.flush()
+    release = {"attestation_code": "dispatch_reviewed_and_authorized_v1", "release_actor_user_id": 2,
+               "release_key_hash": "g" * 64, "release_request_digest": "h" * 64,
+               "released_at": CLOCK} if released else {}
+    session.add(BillingWhatsAppDispatchAuthorization(
+        activation_id=activation.id, job_id=job.id,
+        creator_user_id=1 if creator_matches else 2, state=state,
+        created_at=CLOCK - timedelta(seconds=1), expires_at=expires_at, **release,
+    ))
+    session.commit()
+
+
+def test_activation_claim_requires_complete_bound_unexpired_authorization(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session()
+    queued(session, teacher="valid", batch=1, intent_type="activation_test")
+    queued(session, teacher="expired", batch=2, intent_type="activation_test")
+    queued(session, teacher="unbound", batch=3, intent_type="activation_test")
+    valid, expired, unbound = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
+    activation_authorization(session, valid)
+    activation_authorization(session, expired, expires_at=CLOCK)
+    activation_authorization(session, unbound, creator_matches=False)
+
+    worker = BillingNotificationWorker(session, lambda: READY, lambda _: SimpleNamespace(status="sent"),
+                                      claim_intent=lambda: "activation_test", now=lambda: CLOCK)
+    assert worker.claim_one().id == valid.id
+    session.expire_all()
+    assert [(job.id, job.status) for job in session.query(BillingNotificationJob).order_by(BillingNotificationJob.id)] == [
+        (valid.id, "leased"), (expired.id, "queued"), (unbound.id, "queued"),
+    ]
+
+
+def test_activation_claim_postgresql_locks_only_jobs(tmp_path):
+    engine, Session = worker_session(tmp_path)
+    worker = BillingNotificationWorker(Session(), lambda: READY, lambda _: SimpleNamespace(status="sent"),
+                                      claim_intent=lambda: "activation_test", now=lambda: CLOCK)
+    query = worker.db.query(BillingNotificationJob).filter(worker._activation_claimable(CLOCK)).with_for_update(
+        of=BillingNotificationJob, skip_locked=True,
+    )
+    sql = str(query.statement.compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE OF billing_notification_jobs SKIP LOCKED" in sql
+    engine.dispose()
+
+
+def test_activation_capacity_adapter_copies_only_live_provider_capacity_without_mutation(tmp_path):
+    _, Session = worker_session(tmp_path)
+    worker = BillingNotificationWorker(Session(), lambda: READY, lambda _: SimpleNamespace(status="sent"))
+    facts = {"capacity": {"moving_recipient_limit": 99}, "provider_live": {"capacity": {
+        "available": True, "moving_recipient_limit": 2, "media_mps": 3, "window_seconds": 60,
+    }}}
+
+    adapted = worker._activation_capacity_facts(facts)
+
+    assert adapted == {"capacity": {"moving_recipient_limit": 2, "media_mps": 3, "window_seconds": 60}}
+    assert facts == {"capacity": {"moving_recipient_limit": 99}, "provider_live": {"capacity": {
+        "available": True, "moving_recipient_limit": 2, "media_mps": 3, "window_seconds": 60,
+    }}}
+
+
+@pytest.mark.parametrize("media_mps", [float("nan"), float("inf"), float("-inf")])
+def test_activation_capacity_adapter_rejects_nonfinite_media_mps(tmp_path, media_mps):
+    _, Session = worker_session(tmp_path)
+    worker = BillingNotificationWorker(Session(), lambda: READY, lambda _: SimpleNamespace(status="sent"))
+    facts = {"provider_live": {"capacity": {
+        "available": True, "moving_recipient_limit": 2, "media_mps": media_mps, "window_seconds": 60,
+    }}}
+
+    assert worker._activation_capacity_facts(facts) is None
 
 
 def test_worker_never_claims_or_transports_activation_before_pr9b(tmp_path):
