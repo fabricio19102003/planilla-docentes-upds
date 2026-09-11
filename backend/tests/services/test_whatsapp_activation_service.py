@@ -12,7 +12,10 @@ from app.models.billing_notification import (
     BillingNotificationJob, BillingWhatsAppActivationTest,
     BillingWhatsAppDispatchAuthorization,
 )
-from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
+from app.schemas.whatsapp_activation import (
+    WhatsAppActivationCancel, WhatsAppActivationCreate, WhatsAppActivationProjection,
+    WhatsAppActivationRelease,
+)
 from app.models.billing_notification import BillingMediaToken, BillingNotificationBatch, BillingWhatsAppActivationTest
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.user import User
@@ -360,16 +363,21 @@ def test_activation_persistence_rejects_duplicate_actor_idempotency_only(client,
     db_session.rollback()
 
 
-def test_activation_replay_uses_postgresql_lock_order_surrogate(client, db_session, tmp_path, monkeypatch):
+def test_mutation_uses_job_first_lock_order(client, db_session, tmp_path, monkeypatch):
     service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
-    service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
     original_scalar, locks = db_session.scalar, []
     def locked_scalar(statement, *args, **kwargs):
-        locks.append(statement._for_update_arg is not None)
+        entity = statement.column_descriptions[0].get("entity")
+        locks.append((entity, statement._for_update_arg is not None))
         return original_scalar(statement, *args, **kwargs)
     monkeypatch.setattr(db_session, "scalar", locked_scalar)
-    assert service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness={}, configured_content_sid=None, approved_content_sid=None).replayed
-    assert locks[:2] == [True, True]
+    service._lock_graph(created.id)
+    assert locks == [
+        (BillingWhatsAppActivationTest, False), (BillingNotificationJob, True),
+        (BillingWhatsAppActivationTest, True), (BillingWhatsAppDispatchAuthorization, True),
+        (BillingMediaToken, True),
+    ]
 
 
 def test_activation_audit_failure_and_outer_rollback_remove_only_new_artifact(client, db_session, tmp_path, monkeypatch):
@@ -501,6 +509,85 @@ class _PostgreSQLActivationInspector:
     def get_check_constraints(self, _table): return [{"name": item.name, "sqltext": str(item.sqltext)} for item in BillingWhatsAppActivationTest.__table__.constraints if isinstance(item, sa.CheckConstraint)]
     def get_foreign_keys(self, _table): return self.foreign_keys
     def get_indexes(self, _table): return self.indexes
+
+
+def test_release_and_creator_cancel_state_machine_is_idempotent_and_sanitized(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    release = WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1")
+    cancel = WhatsAppActivationCancel(reason="creator_cancelled")
+    released = service.release(actor_user_id=actor.id, activation_id=created.id, request=release, idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32), ip_address="127.0.0.1")
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+    assert (released.authorization_state, released.replayed, authorization.release_actor_user_id) == ("authorized", False, actor.id)
+    assert db_session.query(ActivityLog).filter_by(action="whatsapp_activation_dispatch_authorized").count() == 1
+    db_session.get(BillingNotificationJob, created.job_id).status = "leased"
+    replay = service.release(actor_user_id=actor.id, activation_id=created.id, request=release, idempotency_key="r" * 16, readiness={})
+    assert replay.replayed is True and replay.job_status == "leased"
+    other = User(ci="RELEASE-OTHER", full_name="Other", password_hash="x", role="admin")
+    db_session.add(other); db_session.flush()
+    with pytest.raises(WhatsAppActivationError, match="dispatch_authorization_idempotency_conflict"):
+        service.release(actor_user_id=other.id, activation_id=created.id, request=release, idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+    with pytest.raises(WhatsAppActivationError, match="activation_cancel_forbidden"):
+        service.cancel(actor_user_id=other.id, activation_id=created.id, request=cancel, idempotency_key="c" * 16)
+    cancelled = service.cancel(actor_user_id=actor.id, activation_id=created.id, request=cancel, idempotency_key="c" * 16)
+    token = db_session.get(BillingMediaToken, db_session.get(BillingWhatsAppActivationTest, created.id).media_token_id)
+    assert (cancelled.authorization_state, cancelled.replayed, token.revoked_at is not None) == ("cancelled", False, True)
+    assert db_session.get(BillingNotificationJob, created.job_id).status == "cancelled"
+    assert db_session.query(ActivityLog).filter_by(action="whatsapp_activation_cancelled").count() == 1
+    assert service.cancel(actor_user_id=actor.id, activation_id=created.id, request=cancel, idempotency_key="c" * 16).replayed
+    expired = service.create(actor_user_id=actor.id, request=request, idempotency_key="e" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=expired.id).update({"expires_at": __import__("datetime").datetime.utcnow()})
+    with pytest.raises(WhatsAppActivationError, match="dispatch_authorization_already_decided"):
+        service.release(actor_user_id=actor.id, activation_id=expired.id, request=release, idempotency_key="x" * 16, readiness=_ready("HX" + "a" * 32))
+    with pytest.raises(WhatsAppActivationError, match="activation_cancel_already_decided"):
+        service.cancel(actor_user_id=actor.id, activation_id=expired.id, request=cancel, idempotency_key="y" * 16)
+
+
+
+@pytest.mark.parametrize("method, state, code", [
+    (method, state, f"{'dispatch_authorization' if method == 'release' else 'activation_cancel'}_already_decided")
+    for method in ("release", "cancel") for state in ("cancelled", "consumed", "revoked")
+])
+def test_release_and_cancel_reject_terminal_authorizations_without_mutation_or_audit(client, db_session, tmp_path, monkeypatch, method, state, code):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one(); now = __import__("datetime").datetime.utcnow()
+    facts = {
+        "cancelled": {"cancelled_at": now, "revoked_at": now, "cancel_key_hash": "c" * 64, "cancel_request_digest": "d" * 64},
+        "consumed": {"released_at": now, "consumed_at": now, "attestation_code": "dispatch_reviewed_and_authorized_v1", "release_actor_user_id": actor.id, "release_key_hash": "r" * 64, "release_request_digest": "d" * 64},
+        "revoked": {"revoked_at": now},
+    }[state]
+    authorization.state = state
+    for field, value in facts.items(): setattr(authorization, field, value)
+    db_session.commit(); before = (authorization.state, authorization.released_at, authorization.consumed_at, authorization.cancelled_at, authorization.revoked_at, db_session.query(ActivityLog).count())
+    action = WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1") if method == "release" else WhatsAppActivationCancel(reason="creator_cancelled")
+    with pytest.raises(WhatsAppActivationError, match=code):
+        getattr(service, method)(actor_user_id=actor.id, activation_id=created.id, request=action, idempotency_key="x" * 16, **({"readiness": _ready("HX" + "a" * 32)} if method == "release" else {}))
+    assert (authorization.state, authorization.released_at, authorization.consumed_at, authorization.cancelled_at, authorization.revoked_at, db_session.query(ActivityLog).count()) == before
+
+
+def test_release_audit_flush_rollback_restores_pending_authorization(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    db_session.commit(); monkeypatch.setattr(db_session, "flush", lambda: (_ for _ in ()).throw(RuntimeError("audit flush")))
+    with pytest.raises(RuntimeError, match="audit flush"):
+        service.release(actor_user_id=actor.id, activation_id=created.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+    db_session.rollback()
+    assert db_session.query(BillingWhatsAppDispatchAuthorization).one().state == "pending"
+    assert db_session.query(ActivityLog).filter_by(action="whatsapp_activation_dispatch_authorized").count() == 0
+
+
+def test_release_and_cancel_contracts_are_strict_and_bounded():
+    for contract, valid, invalid in (
+        (WhatsAppActivationRelease, {"attestation": "dispatch_reviewed_and_authorized_v1"}, {"attestation": "other"}),
+        (WhatsAppActivationCancel, {"reason": "creator_cancelled"}, {"reason": "other"}),
+    ):
+        assert contract(**valid)
+        for payload in ({}, invalid, {**valid, "extra": True}):
+            with pytest.raises(ValueError):
+                contract(**payload)
+    with pytest.raises(WhatsAppActivationError, match="invalid_idempotency_key"):
+        WhatsAppActivationService._key_hash(" " * 16)
 
 
 def test_activation_adoption_requires_exact_postgresql_pk_fks_and_indexes():

@@ -195,3 +195,31 @@ def test_status_is_admin_only_and_checks_authorization_before_existence(client, 
     db_session.add(docente); db_session.flush()
     client.headers["Authorization"] = f"Bearer {auth_service.create_access_token(data={'sub': str(docente.id)})}"
     assert client.get("/api/admin/whatsapp/activation-tests/999999").status_code == 403
+
+
+def test_release_and_cancel_routes_validate_headers_and_bodies(client, db_session, tmp_path, monkeypatch, activation_media_dir):
+    _, actor, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    _configure_ready(monkeypatch)
+    created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "a" * 16})
+    activation_id = created.json()["id"]
+    release = f"/api/admin/whatsapp/activation-tests/{activation_id}/release"
+    cancel = f"/api/admin/whatsapp/activation-tests/{activation_id}/cancel"
+    for path, valid, invalid in (
+        (release, {"attestation": "dispatch_reviewed_and_authorized_v1"}, {"attestation": "wrong"}),
+        (cancel, {"reason": "creator_cancelled"}, {"reason": "wrong"}),
+    ):
+        assert client.post(path, json=valid).status_code == 422
+        for payload in ({}, invalid, {**valid, "extra": True}):
+            assert client.post(path, json=payload, headers={"Idempotency-Key": "r" * 16}).status_code == 422
+    released = client.post(release, json={"attestation": "dispatch_reviewed_and_authorized_v1"}, headers={"Idempotency-Key": "r" * 16})
+    assert released.status_code == 200 and released.json()["authorization_state"] == "authorized"
+    monkeypatch.setattr("app.routers.admin_whatsapp._readiness", lambda _db: (_ for _ in ()).throw(AssertionError("replay must skip readiness")))
+    replay = client.post(release, json={"attestation": "dispatch_reviewed_and_authorized_v1"}, headers={"Idempotency-Key": "r" * 16})
+    assert replay.status_code == 200 and replay.json()["replayed"] is True
+    other = User(ci="CANCEL-OTHER", full_name="Other", password_hash="x", role="admin")
+    db_session.add(other); db_session.flush()
+    client.headers["Authorization"] = f"Bearer {auth_service.create_access_token(data={'sub': str(other.id), 'role': 'admin'})}"
+    assert client.post(cancel, json={"reason": "creator_cancelled"}, headers={"Idempotency-Key": "c" * 16}).status_code == 403
+    client.headers["Authorization"] = f"Bearer {auth_service.create_access_token(data={'sub': str(actor.id), 'role': 'admin'})}"
+    cancelled = client.post(cancel, json={"reason": "creator_cancelled"}, headers={"Idempotency-Key": "c" * 16})
+    assert cancelled.status_code == 200 and cancelled.json()["authorization_state"] == "cancelled"

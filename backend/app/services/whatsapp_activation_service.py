@@ -5,22 +5,25 @@ import hashlib
 import hmac
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from app.models.activity_log import ActivityLog
 from app.models.billing_notification import (
-    BillingNotificationBatch, BillingNotificationJob, BillingWhatsAppActivationTest,
-    BillingWhatsAppDispatchAuthorization,
+    BillingMediaToken, BillingNotificationBatch, BillingNotificationJob,
+    BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization,
 )
 from app.models.billing_publication import BillingPublication, BillingPublicationRevision
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppPreference
-from app.schemas.whatsapp_activation import WhatsAppActivationCreate, WhatsAppActivationProjection
+from app.schemas.whatsapp_activation import (
+    WhatsAppActivationCancel, WhatsAppActivationCreate, WhatsAppActivationProjection,
+    WhatsAppActivationRelease,
+)
 from app.services.billing_pdf_service import BillingPdfService
 from app.services.publication_revisions import PublicationRevisionError, validate_publication_revision
 
@@ -86,7 +89,7 @@ class WhatsAppActivationService:
         actor_user_id: int,
         request: WhatsAppActivationCreate,
         idempotency_key: str,
-        readiness: dict[str, Any],
+        readiness: dict[str, Any] | Callable[[], dict[str, Any]],
         configured_content_sid: str | None,
         approved_content_sid: str | None,
         ip_address: str | None = None,
@@ -105,7 +108,8 @@ class WhatsAppActivationService:
             if hmac.compare_digest(existing.request_digest, request_digest):
                 return self.project(self.db, existing, replayed=True)
             raise WhatsAppActivationError("activation_idempotency_conflict")
-        self._require_readiness(readiness, configured_content_sid, approved_content_sid)
+        readiness_facts = readiness() if callable(readiness) else readiness
+        self._require_readiness(readiness_facts, configured_content_sid, approved_content_sid)
         artifact: Path | None = None
         artifact_is_new = False
         try:
@@ -177,6 +181,108 @@ class WhatsAppActivationService:
                     pass
             raise
 
+    def release(
+        self, *, actor_user_id: int, activation_id: int, request: WhatsAppActivationRelease,
+        idempotency_key: str, readiness: dict[str, Any] | Callable[[], dict[str, Any]], ip_address: str | None = None,
+    ) -> WhatsAppActivationProjection:
+        key_hash = self._key_hash(idempotency_key)
+        activation, job, authorization, _ = self._lock_graph(activation_id)
+        digest = self._action_digest(activation.id, actor_user_id, request.attestation)
+        if authorization.release_key_hash == key_hash:
+            if authorization.release_actor_user_id == actor_user_id and hmac.compare_digest(authorization.release_request_digest or "", digest):
+                return self.project(self.db, activation, replayed=True)
+            raise WhatsAppActivationError("dispatch_authorization_idempotency_conflict")
+        if authorization.state != "pending" or authorization.expires_at <= datetime.utcnow():
+            raise WhatsAppActivationError("dispatch_authorization_already_decided")
+        self._require_dispatch_readiness(readiness() if callable(readiness) else readiness)
+        actor = self.db.get(User, actor_user_id)
+        if actor is None:
+            raise WhatsAppActivationError("actor_not_found")
+        now = datetime.utcnow()
+        authorization.state = "authorized"
+        authorization.attestation_code = request.attestation
+        authorization.release_actor_user_id = actor_user_id
+        authorization.release_key_hash = key_hash
+        authorization.release_request_digest = digest
+        authorization.released_at = now
+        self.db.add(ActivityLog(
+            user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_dispatch_authorized",
+            category="whatsapp", description="WhatsApp activation dispatch authorized",
+            details={"activation_id": activation.id, "job_id": job.id, "attestation": request.attestation, "authorization_state": "authorized"}, ip_address=ip_address,
+        ))
+        self.db.flush()
+        return self.project(self.db, activation)
+
+    def cancel(
+        self, *, actor_user_id: int, activation_id: int, request: WhatsAppActivationCancel,
+        idempotency_key: str, ip_address: str | None = None,
+    ) -> WhatsAppActivationProjection:
+        key_hash = self._key_hash(idempotency_key)
+        activation, job, authorization, media = self._lock_graph(activation_id)
+        if authorization.creator_user_id != actor_user_id:
+            raise WhatsAppActivationError("activation_cancel_forbidden")
+        digest = self._action_digest(activation.id, actor_user_id, request.reason)
+        if authorization.cancel_key_hash == key_hash:
+            if hmac.compare_digest(authorization.cancel_request_digest or "", digest):
+                return self.project(self.db, activation, replayed=True)
+            raise WhatsAppActivationError("activation_cancel_idempotency_conflict")
+        if authorization.state not in {"pending", "authorized"} or authorization.expires_at <= datetime.utcnow():
+            raise WhatsAppActivationError("activation_cancel_already_decided")
+        actor = self.db.get(User, actor_user_id)
+        if actor is None:
+            raise WhatsAppActivationError("actor_not_found")
+        now = datetime.utcnow()
+        job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at = "cancelled", None, None, None
+        job.last_error_code = "creator_cancelled"
+        activation.status, activation.terminal_reason = "cancelled", "activation_disabled"
+        authorization.state = "cancelled"
+        authorization.cancel_key_hash, authorization.cancel_request_digest = key_hash, digest
+        authorization.cancelled_at, authorization.revoked_at, authorization.terminal_reason = now, now, request.reason
+        if media is not None and media.revoked_at is None:
+            media.revoked_at = now
+        self.db.add(ActivityLog(
+            user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_cancelled",
+            category="whatsapp", description="WhatsApp activation cancelled",
+            details={"activation_id": activation.id, "job_id": job.id, "reason": request.reason, "authorization_state": "cancelled"}, ip_address=ip_address,
+        ))
+        self.db.flush()
+        return self.project(self.db, activation)
+
+    def _lock_graph(self, activation_id: int) -> tuple[BillingWhatsAppActivationTest, BillingNotificationJob, BillingWhatsAppDispatchAuthorization, BillingMediaToken | None]:
+        bound_job_id = self.db.scalar(select(BillingWhatsAppActivationTest.job_id).where(
+            BillingWhatsAppActivationTest.id == activation_id
+        ))
+        if bound_job_id is None:
+            raise WhatsAppActivationError("activation_not_found")
+        job = self.db.scalar(select(BillingNotificationJob).where(
+            BillingNotificationJob.id == bound_job_id
+        ).with_for_update())
+        activation = self.db.scalar(select(BillingWhatsAppActivationTest).where(
+            BillingWhatsAppActivationTest.id == activation_id
+        ).with_for_update())
+        authorization = self.db.scalar(select(BillingWhatsAppDispatchAuthorization).where(
+            BillingWhatsAppDispatchAuthorization.activation_id == activation_id,
+            BillingWhatsAppDispatchAuthorization.job_id == bound_job_id,
+        ).with_for_update())
+        media = self.db.scalar(select(BillingMediaToken).where(
+            BillingMediaToken.id == activation.media_token_id if activation is not None else False
+        ).with_for_update())
+        if job is None or activation is None or authorization is None or activation.job_id != job.id or authorization.creator_user_id != activation.actor_user_id:
+            raise WhatsAppActivationError("activation_authorization_unavailable")
+        return activation, job, authorization, media
+
+    @staticmethod
+    def _action_digest(activation_id: int, actor_user_id: int, action: str) -> str:
+        facts = {"activation_id": activation_id, "actor_user_id": actor_user_id, "action": action}
+        return hashlib.sha256(json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    @staticmethod
+    def _require_dispatch_readiness(readiness: dict[str, Any]) -> None:
+        activation = readiness.get("activation") if isinstance(readiness, dict) else None
+        global_delivery = readiness.get("global_delivery") if isinstance(readiness, dict) else None
+        if not isinstance(global_delivery, dict) or global_delivery.get("requested") is not False or global_delivery.get("effective") is not False or not isinstance(activation, dict) or activation.get("dispatch_capable") is not True:
+            raise WhatsAppActivationError("activation_readiness_unavailable")
+
     @staticmethod
     def _require_readiness(readiness: dict[str, Any], configured_sid: str | None, approved_sid: str | None) -> None:
         activation = readiness.get("activation") if isinstance(readiness, dict) else None
@@ -192,7 +298,7 @@ class WhatsAppActivationService:
 
     @staticmethod
     def _key_hash(key: str) -> str:
-        if not isinstance(key, str) or not 16 <= len(key) <= 128 or not key.isascii() or not key.isprintable():
+        if not isinstance(key, str) or not 16 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
             raise WhatsAppActivationError("invalid_idempotency_key")
         return hashlib.sha256(key.encode("ascii")).hexdigest()
 
