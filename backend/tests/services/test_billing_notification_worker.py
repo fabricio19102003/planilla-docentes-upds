@@ -12,6 +12,7 @@ from app.models.activity_log import ActivityLog
 from app.models.teacher import Teacher
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 from app.models.billing_notification import (
+    BillingMediaToken,
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
     BillingNotificationJob,
@@ -31,6 +32,7 @@ def worker_session(tmp_path, name="worker"):
     BillingNotificationJob.__table__.create(engine)
     BillingNotificationCapacityWindow.__table__.create(engine)
     BillingNotificationCapacityReservation.__table__.create(engine)
+    BillingMediaToken.__table__.create(engine)
     BillingWhatsAppActivationTest.__table__.create(engine)
     BillingWhatsAppDispatchAuthorization.__table__.create(engine)
     Teacher.__table__.create(engine)
@@ -226,6 +228,61 @@ def test_worker_never_claims_or_transports_activation_before_pr9b(tmp_path):
     activation, ordinary = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
     assert transport_calls == [(ordinary.id, "ordinary")]
     assert (activation.status, activation.lease_owner, activation.attempts) == ("queued", None, 0)
+
+
+def test_activation_transport_runs_only_after_activation_authorizer_commits_sending(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session(); queued(session, teacher="activation", intent_type="activation_test")
+    job = session.query(BillingNotificationJob).one(); activation_authorization(session, job)
+    calls = []
+    def authorize(job_id, _facts):
+        leased = session.get(BillingNotificationJob, job_id)
+        assert (leased.status, leased.lease_owner) == ("leased", "worker")
+        leased.status = "sending"; session.commit()
+        return leased
+    worker = BillingNotificationWorker(
+        session, lambda: {"activation": {"capable": True}, "provider_live": {"capacity": {
+            "available": True, "moving_recipient_limit": 10, "media_mps": 10, "window_seconds": 60,
+        }}}, lambda item: calls.append(item.status) or SimpleNamespace(status="sent", provider_message_id="SM" + "a" * 32),
+        claim_intent=lambda: "activation_test", activation_authorize=authorize, now=lambda: CLOCK,
+    )
+    assert worker.process_one() == "accepted"
+    assert calls == ["sending"]
+
+
+def test_activation_authorizer_rejection_has_no_transport_or_ordinary_fallback(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session(); queued(session, teacher="activation", intent_type="activation_test")
+    job = session.query(BillingNotificationJob).one(); activation_authorization(session, job)
+    transports = []
+    worker = BillingNotificationWorker(
+        session, lambda: {"activation": {"capable": True}, "provider_live": {"capacity": {
+            "available": True, "moving_recipient_limit": 10, "media_mps": 10, "window_seconds": 60,
+        }}}, lambda item: transports.append(item), claim_intent=lambda: "activation_test",
+        activation_authorize=lambda *_: None, now=lambda: CLOCK,
+    )
+    assert worker.process_one() == "cancelled"
+    assert transports == []
+
+
+def test_activation_ambiguous_result_keeps_consumed_authority_nonretryable(tmp_path):
+    _, Session = worker_session(tmp_path)
+    session = Session(); queued(session, teacher="activation", intent_type="activation_test")
+    job = session.query(BillingNotificationJob).one(); activation_authorization(session, job)
+    def authorize(job_id, _facts):
+        row = session.get(BillingNotificationJob, job_id)
+        authorization = session.query(BillingWhatsAppDispatchAuthorization).one()
+        row.status = "sending"; authorization.state = "consumed"; authorization.consumed_at = CLOCK; session.commit()
+        return row
+    worker = BillingNotificationWorker(
+        session, lambda: {"activation": {"capable": True}, "provider_live": {"capacity": {
+            "available": True, "moving_recipient_limit": 10, "media_mps": 10, "window_seconds": 60,
+        }}}, lambda _: SimpleNamespace(status="ambiguous"), claim_intent=lambda: "activation_test",
+        activation_authorize=authorize, now=lambda: CLOCK,
+    )
+    assert worker.process_one() == "ambiguous" and worker.process_one() is None
+    authorization = session.query(BillingWhatsAppDispatchAuthorization).one()
+    assert authorization.state == "consumed" and authorization.revoked_at is not None
 
 
 def test_worker_claims_once_and_keeps_ambiguous_without_retry(tmp_path):

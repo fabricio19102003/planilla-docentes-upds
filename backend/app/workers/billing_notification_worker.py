@@ -155,18 +155,22 @@ class BillingNotificationWorker:
             return "backoff"
         if reservation:
             self.sleeper(reservation)
-        if not self._begin_send(job.id):
-            return None
-        if not activation and not self._can_dispatch(job.id):
-            self._backoff(job.id, "official_dispatch_disabled", sending=True)
-            return "cancelled"
-        if self.before_transport:
-            self.before_transport()
         if activation:
+            # Activation bypasses generic begin_send; its authorizer owns the
+            # leased-to-sending commit after the final provider-boundary hook.
+            if self.before_transport:
+                self.before_transport()
             dispatch = self.activation_authorize(job.id, facts) if self.activation_authorize else None
             if dispatch is None:
                 return "cancelled"
         else:
+            if not self._begin_send(job.id):
+                return None
+            if not self._can_dispatch(job.id):
+                self._backoff(job.id, "official_dispatch_disabled", sending=True)
+                return "cancelled"
+            if self.before_transport:
+                self.before_transport()
             if not self._can_dispatch(job.id):
                 self._backoff(job.id, "official_dispatch_disabled", sending=True)
                 return "cancelled"
@@ -226,15 +230,22 @@ class BillingNotificationWorker:
 
     def _cancel_activation(self, job_id: int, reason: str) -> None:
         """Activation failures are terminal and never re-enter ordinary fallback."""
-        from app.models.billing_notification import BillingMediaToken, BillingWhatsAppActivationTest
+        from app.models.billing_notification import BillingMediaToken, BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization
         job = self.db.query(BillingNotificationJob).filter_by(id=job_id, intent_type="activation_test", lease_owner=self.owner).one_or_none()
         activation = self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job_id).one_or_none()
         if job is None or activation is None or job.status not in {"leased", "sending"}:
             self.db.rollback()
             return
+        now = self.now()
         job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at, job.last_error_code = "cancelled", None, None, None, reason
         project_activation_status(self.db, job, reason)
-        self.db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": self.now()})
+        authorization = self.db.query(BillingWhatsAppDispatchAuthorization).filter_by(job_id=job.id).one_or_none()
+        if authorization is not None:
+            if authorization.consumed_at is None:
+                authorization.state = "revoked"
+            authorization.revoked_at = authorization.revoked_at or now
+            authorization.terminal_reason = "pre_provider_rejected" if authorization.consumed_at is None else "provider_outcome_ambiguous"
+        self.db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": now})
         self.db.commit()
 
     def _backoff(self, job_id: int, reason: str, *, sending: bool = False) -> None:
@@ -321,6 +332,14 @@ class BillingNotificationWorker:
             job = self.db.get(BillingNotificationJob, job_id)
             if job is not None:
                 project_activation_status(self.db, job)
+                if job.intent_type == "activation_test" and status == "ambiguous":
+                    from app.models.billing_notification import BillingMediaToken, BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization
+                    activation = self.db.query(BillingWhatsAppActivationTest).filter_by(job_id=job.id).one_or_none()
+                    authorization = self.db.query(BillingWhatsAppDispatchAuthorization).filter_by(job_id=job.id).one_or_none()
+                    if activation is not None and authorization is not None:
+                        authorization.revoked_at = authorization.revoked_at or self.now()
+                        authorization.terminal_reason = "provider_outcome_ambiguous"
+                        self.db.query(BillingMediaToken).filter_by(id=activation.media_token_id, revoked_at=None).update({"revoked_at": self.now()})
             self.db.commit()
         else:
             self.db.rollback()
