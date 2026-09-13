@@ -228,6 +228,23 @@ def test_release_and_cancel_routes_validate_headers_and_bodies(client, db_sessio
     assert cancelled.status_code == 200 and cancelled.json()["authorization_state"] == "cancelled"
 
 
+def test_release_exact_replay_after_deadline_returns_expired_projection_and_commits(client, db_session, tmp_path, monkeypatch, activation_media_dir):
+    _, _, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    _configure_ready(monkeypatch)
+    created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "a" * 16})
+    path = f"/api/admin/whatsapp/activation-tests/{created.json()['id']}/release"
+    payload, headers = {"attestation": "dispatch_reviewed_and_authorized_v1"}, {"Idempotency-Key": "r" * 16}
+    assert client.post(path, json=payload, headers=headers).status_code == 200
+    db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=created.json()["id"]).update({"expires_at": datetime.utcnow()})
+    db_session.commit()
+
+    replay = client.post(path, json=payload, headers=headers)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=created.json()["id"]).one()
+    assert replay.status_code == 200
+    assert (replay.json()["replayed"], replay.json()["authorization_state"], replay.json()["job_status"]) == (True, "expired", "cancelled")
+    assert authorization.revoked_at is not None
+
+
 def test_release_privacy_covers_response_logs_audit_persistence_and_transport(client, db_session, tmp_path, monkeypatch, caplog, activation_media_dir):
     _, _, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
     _configure_ready(monkeypatch)

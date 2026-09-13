@@ -255,15 +255,21 @@ class WhatsAppActivationService:
         key_hash = self._key_hash(idempotency_key)
         activation, job, authorization, _ = self._lock_graph(activation_id)
         digest = self._action_digest(activation.id, actor_user_id, request.attestation)
-        if _apply_activation_lifecycle(self.db, job, activation, authorization, _, now=datetime.utcnow()):
+        has_release = authorization.release_key_hash is not None
+        exact_replay = (
+            authorization.release_key_hash == key_hash
+            and authorization.release_actor_user_id == actor_user_id
+            and hmac.compare_digest(authorization.release_request_digest or "", digest)
+        )
+        lifecycle_changed = _apply_activation_lifecycle(self.db, job, activation, authorization, _, now=datetime.utcnow())
+        if lifecycle_changed:
             self.db.flush()
-            raise WhatsAppActivationExpired("dispatch_authorization_already_decided")
-        if authorization.state == "expired":
-            raise WhatsAppActivationExpired("dispatch_authorization_already_decided")
-        if authorization.release_key_hash == key_hash:
-            if authorization.release_actor_user_id == actor_user_id and hmac.compare_digest(authorization.release_request_digest or "", digest):
+        if has_release:
+            if exact_replay:
                 return self.project(self.db, activation, replayed=True)
             raise WhatsAppActivationError("dispatch_authorization_idempotency_conflict")
+        if lifecycle_changed or authorization.state == "expired":
+            raise WhatsAppActivationExpired("dispatch_authorization_already_decided")
         if authorization.state != "pending":
             raise WhatsAppActivationError("dispatch_authorization_already_decided")
         self._require_dispatch_readiness(readiness() if callable(readiness) else readiness)

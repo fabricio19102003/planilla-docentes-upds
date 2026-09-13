@@ -276,10 +276,43 @@ def test_activation_final_authorization_rejects_other_worker_lease(client, db_se
     assert (job.status, job.lease_owner, activation.status) == ("leased", "other", "leased")
 
 
+def test_dispatch_capability_rollback_preserves_pending_but_revokes_authorized_activation(client, db_session, tmp_path, monkeypatch):
+    from app.workers.official_whatsapp_runner import rollback_unleased_activation
+
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    pending = service.create(actor_user_id=actor.id, request=request, idempotency_key="p" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    authorized = service.create(actor_user_id=actor.id, request=request, idempotency_key="q" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    service.release(actor_user_id=actor.id, activation_id=authorized.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+
+    assert rollback_unleased_activation(db_session) == 1
+    pending_job = db_session.get(BillingNotificationJob, pending.job_id)
+    authorized_job = db_session.get(BillingNotificationJob, authorized.job_id)
+    authorizations = {row.job_id: row for row in db_session.query(BillingWhatsAppDispatchAuthorization)}
+    assert (pending_job.status, authorizations[pending.job_id].state) == ("queued", "pending")
+    assert (authorized_job.status, authorizations[authorized.job_id].state) == ("cancelled", "revoked")
+
+
+def test_release_exact_replay_persists_expiry_and_returns_current_projection(client, db_session, tmp_path, monkeypatch):
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="a" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    release = WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1")
+    service.release(actor_user_id=actor.id, activation_id=created.id, request=release, idempotency_key="r" * 16, readiness=_ready("HX" + "a" * 32))
+    db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=created.id).update({"expires_at": __import__("datetime").datetime.utcnow()})
+    db_session.commit()
+
+    replay = service.release(actor_user_id=actor.id, activation_id=created.id, request=release, idempotency_key="r" * 16, readiness={})
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=created.id).one()
+    assert (replay.replayed, replay.authorization_state, replay.job_status) == (True, "expired", "cancelled")
+    assert authorization.revoked_at is not None
+    with pytest.raises(WhatsAppActivationError, match="dispatch_authorization_idempotency_conflict"):
+        service.release(actor_user_id=actor.id, activation_id=created.id, request=release, idempotency_key="s" * 16, readiness={})
+
+
 def test_activation_kill_switch_cancels_only_unleased_activation(client, db_session, tmp_path, monkeypatch):
     from app.workers.official_whatsapp_runner import rollback_unleased_activation
     service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
     result = service.create(actor_user_id=actor.id, request=request, idempotency_key="q" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    service.release(actor_user_id=actor.id, activation_id=result.id, request=WhatsAppActivationRelease(attestation="dispatch_reviewed_and_authorized_v1"), idempotency_key="u" * 16, readiness=_ready("HX" + "a" * 32))
     activation = db_session.get(BillingWhatsAppActivationTest, result.id); job = db_session.get(BillingNotificationJob, result.job_id)
     ordinary_batch = BillingNotificationBatch(publication_id=activation.publication_id, publication_version=activation.publication_version, digest="f" * 64, readiness_snapshot={}, status="queued")
     db_session.add(ordinary_batch); db_session.flush()
@@ -627,7 +660,7 @@ def test_release_and_creator_cancel_state_machine_is_idempotent_and_sanitized(cl
 
 
 @pytest.mark.parametrize("method, state, code", [
-    (method, state, f"{'dispatch_authorization' if method == 'release' else 'activation_cancel'}_already_decided")
+    (method, state, "dispatch_authorization_idempotency_conflict" if (method, state) == ("release", "consumed") else f"{'dispatch_authorization' if method == 'release' else 'activation_cancel'}_already_decided")
     for method in ("release", "cancel") for state in ("cancelled", "consumed", "revoked")
 ])
 def test_release_and_cancel_reject_terminal_authorizations_without_mutation_or_audit(client, db_session, tmp_path, monkeypatch, method, state, code):
