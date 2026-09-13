@@ -53,6 +53,16 @@ def test_runtime_readiness_reports_only_bounded_failure_reasons():
     assert OfficialWhatsAppRuntime.from_settings(settings(TWILIO_OFFICIAL_MEDIA_MPS=0)) is None
 
 
+def test_production_delivery_and_activation_gates_default_false():
+    from app.config import Settings
+
+    settings = Settings(_env_file=None, DATABASE_URL="sqlite:///test.db", ASYNC_DATABASE_URL="sqlite+aiosqlite:///test.db")
+    assert all(getattr(settings, name) is False for name in (
+        "WHATSAPP_ENABLED", "OFFICIAL_WHATSAPP_ENABLED", "WHATSAPP_DISPATCH_ENABLED",
+        "BILLING_WHATSAPP_ACTIVATION_API_ENABLED", "BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED",
+    ))
+
+
 def test_recipient_hmac_key_is_optional_when_activation_is_off_and_required_when_either_gate_is_on():
     import pytest
     from pydantic import ValidationError

@@ -228,6 +228,31 @@ def test_release_and_cancel_routes_validate_headers_and_bodies(client, db_sessio
     assert cancelled.status_code == 200 and cancelled.json()["authorization_state"] == "cancelled"
 
 
+def test_release_privacy_covers_response_logs_audit_persistence_and_transport(client, db_session, tmp_path, monkeypatch, caplog, activation_media_dir):
+    _, _, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    _configure_ready(monkeypatch)
+    raw_key, recipient, secret = "visible-idempotency-key", "+59170000000", "k" * 32
+    transport_calls = []
+    monkeypatch.setattr(
+        "app.services.twilio_content_transport.TwilioContentTransport.send",
+        lambda *_args, **kwargs: transport_calls.append(kwargs),
+    )
+    created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": "c" * 16})
+    response = client.post(
+        f"/api/admin/whatsapp/activation-tests/{created.json()['id']}/release",
+        json={"attestation": "dispatch_reviewed_and_authorized_v1"}, headers={"Idempotency-Key": raw_key},
+    )
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+    audit = db_session.query(ActivityLog).filter_by(action="whatsapp_activation_dispatch_authorized").one()
+    persisted = {column.name: getattr(authorization, column.name) for column in authorization.__table__.columns}
+    rendered = str((response.json(), caplog.text, audit.details, persisted, transport_calls))
+    assert response.status_code == 200
+    assert transport_calls == []
+    assert all(value not in rendered for value in (raw_key, recipient, secret, SID, "provider payload"))
+    assert len(authorization.release_key_hash) == len(authorization.release_request_digest) == 64
+    assert authorization.release_key_hash != raw_key and authorization.release_request_digest != raw_key
+
+
 def test_expired_actions_commit_once_and_status_is_creator_scoped(client, db_session, tmp_path, monkeypatch, activation_media_dir):
     _, actor, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
     _configure_ready(monkeypatch)
