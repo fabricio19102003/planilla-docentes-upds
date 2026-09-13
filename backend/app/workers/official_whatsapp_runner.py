@@ -21,7 +21,7 @@ from app.models.billing_publication import BillingPublication, BillingPublicatio
 from app.models.whatsapp_preference import WhatsAppPreference
 from app.services.twilio_content_transport import TwilioContentTransport
 from app.services.twilio_readiness_adapter import TwilioReadinessAdapter
-from app.services.whatsapp_activation_service import project_activation_status
+from app.services.whatsapp_activation_service import _apply_activation_lifecycle, expire_activation, project_activation_status
 from app.services.whatsapp_delivery_control import current_delivery_status, mark_worker_heartbeat, status_from_readiness
 from app.services.publication_revisions import PublicationRevisionError, validate_publication_revision
 from app.workers.billing_notification_worker import BillingNotificationWorker
@@ -148,6 +148,11 @@ def run() -> int:
 
     runtime = OfficialWhatsAppRuntime.from_settings(settings)
     if runtime is None:
+        db = SessionLocal()
+        try:
+            sweep_expired_activations(db)
+        finally:
+            db.close()
         logger.error("Official WhatsApp worker configuration is unavailable; refusing dispatch")
         return 2
     # Live sender/template status is deliberately not inferred from environment.
@@ -157,6 +162,7 @@ def run() -> int:
         try:
             mark_worker_heartbeat(db)
             db.commit()
+            sweep_expired_activations(db)
             cycle: dict[str, Any] = {}
             def status() -> dict[str, Any]:
                 if not cycle:
@@ -241,6 +247,9 @@ def _authorize_activation(db: Any, job_id: int, facts: dict[str, Any], hmac_key:
         return None
     job, activation, authorization, token, preference, batch, revision, publication = locked
     now = datetime.utcnow()
+    if _apply_activation_lifecycle(db, job, activation, authorization, token, now=now):
+        db.commit()
+        return None
     fresh = current_delivery_status(db)
     try:
         recipient_hmac = hmac.new(hmac_key.encode("utf-8"), preference.phone_e164.encode("ascii"), hashlib.sha256).hexdigest() if preference else ""
@@ -284,6 +293,21 @@ def _authorize_activation(db: Any, job_id: int, facts: dict[str, Any], hmac_key:
     job.status = activation.status = "sending"
     db.commit()
     return ActivationDispatch(job, preference.phone_e164, plaintext)
+
+
+def sweep_expired_activations(db: Any, *, limit: int = 100, now: datetime | None = None) -> int:
+    """Bounded activation-only deadline cleanup, selected without candidate locks."""
+    now = now or datetime.utcnow()
+    limit = min(100, max(1, limit))
+    ids = [row[0] for row in db.query(BillingWhatsAppDispatchAuthorization.job_id).join(
+        BillingNotificationJob, BillingNotificationJob.id == BillingWhatsAppDispatchAuthorization.job_id,
+    ).filter(
+        BillingNotificationJob.intent_type == "activation_test",
+        BillingWhatsAppDispatchAuthorization.state.in_(("pending", "authorized")),
+        BillingWhatsAppDispatchAuthorization.expires_at <= now,
+    ).order_by(BillingWhatsAppDispatchAuthorization.job_id).limit(limit).all()]
+    db.rollback()
+    return sum(expire_activation(db, job_id, now=now) for job_id in ids)
 
 
 def rollback_unleased_activation(db: Any, *, now: datetime | None = None) -> int:

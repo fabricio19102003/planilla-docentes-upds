@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from sqlalchemy import inspect, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.activity_log import ActivityLog
@@ -32,6 +32,10 @@ class WhatsAppActivationError(ValueError):
     """Bounded error code safe for a future router boundary."""
 
 
+class WhatsAppActivationExpired(WhatsAppActivationError):
+    """Expiry was durably applied and must be returned as a bounded conflict."""
+
+
 _ACTIVATION_TERMINAL = {"failed", "undelivered", "read", "cancelled"}
 _ACTIVATION_TRANSITIONS = {
     "queued": {"leased", "cancelled"}, "leased": {"sending", "cancelled"},
@@ -50,22 +54,85 @@ _ACTIVATION_REASONS = {
 }
 
 
+def _apply_activation_lifecycle(
+    db: Session, job: BillingNotificationJob, activation: BillingWhatsAppActivationTest,
+    authorization: BillingWhatsAppDispatchAuthorization | None, media: BillingMediaToken | None,
+    *, now: datetime, terminal_reason: str | None = None,
+) -> bool:
+    """Apply one-way expiry and terminal revocation to an already locked graph."""
+    if authorization is None:
+        return False
+    expired = authorization.state in {"pending", "authorized"} and now >= authorization.expires_at
+    terminal = job.status == "ambiguous" or job.status in _ACTIVATION_TERMINAL
+    if not expired and not terminal:
+        return False
+    if expired:
+        job.status, job.lease_owner, job.lease_expires_at, job.next_attempt_at = "cancelled", None, None, None
+        job.last_error_code = "authorization_expired"
+        activation.status = "cancelled"
+        authorization.state, authorization.revoked_at, authorization.terminal_reason = "expired", now, "authorization_expired"
+        if media is not None and media.revoked_at is None:
+            media.revoked_at = now
+        db.add(ActivityLog(user_id=None, user_ci=None, action="whatsapp_activation_expired", category="whatsapp",
+            description="WhatsApp activation authorization expired",
+            details={"activation_id": activation.id, "job_id": job.id, "reason": "authorization_expired", "authorization_state": "expired"}))
+        return True
+    changed = False
+    if authorization.consumed_at is not None and authorization.revoked_at is None:
+        authorization.revoked_at = now
+        if job.status == "ambiguous":
+            authorization.terminal_reason = "provider_outcome_ambiguous"
+        changed = True
+    elif authorization.consumed_at is None and authorization.revoked_at is None:
+        authorization.state, authorization.revoked_at = "revoked", now
+        authorization.terminal_reason = "pre_provider_rejected"
+        changed = True
+    if media is not None and media.revoked_at is None:
+        media.revoked_at = now
+        changed = True
+    return changed
+
+
+def expire_activation(db: Session, job_id: int, *, now: datetime | None = None) -> bool:
+    """Evaluate one graph's deadline under canonical job-first locks and commit it."""
+    now = now or datetime.utcnow()
+    job = db.scalar(select(BillingNotificationJob).where(BillingNotificationJob.id == job_id).with_for_update())
+    if job is None or job.intent_type != "activation_test":
+        db.rollback()
+        return False
+    activation = db.scalar(select(BillingWhatsAppActivationTest).where(BillingWhatsAppActivationTest.job_id == job.id).with_for_update())
+    authorization = db.scalar(select(BillingWhatsAppDispatchAuthorization).where(BillingWhatsAppDispatchAuthorization.job_id == job.id).with_for_update())
+    media = db.scalar(select(BillingMediaToken).where(BillingMediaToken.id == activation.media_token_id if activation else False).with_for_update())
+    changed = activation is not None and _apply_activation_lifecycle(db, job, activation, authorization, media, now=now)
+    if changed:
+        db.commit()
+    else:
+        db.rollback()
+    return changed
+
+
 def project_activation_status(
-    db: Session, job: BillingNotificationJob, terminal_reason: str | None = None,
+    db: Session, job: BillingNotificationJob, terminal_reason: str | None = None, *, now: datetime | None = None,
 ) -> BillingWhatsAppActivationTest | None:
     """Synchronize one activation's safe lifecycle projection within its job transaction."""
-    if job.intent_type != "activation_test" or BillingWhatsAppActivationTest.__tablename__ not in inspect(db.get_bind()).get_table_names():
+    if job.intent_type != "activation_test":
         return None
     activation = db.scalar(select(BillingWhatsAppActivationTest).where(
         BillingWhatsAppActivationTest.job_id == job.id
     ).with_for_update())
-    if activation is None or activation.status in _ACTIVATION_TERMINAL:
-        return activation
-    if job.status != activation.status and job.status not in _ACTIVATION_TRANSITIONS.get(activation.status, set()):
-        return activation
-    activation.status = job.status
+    if activation is None:
+        return None
+    authorization = db.scalar(select(BillingWhatsAppDispatchAuthorization).where(
+        BillingWhatsAppDispatchAuthorization.job_id == job.id
+    ).with_for_update())
+    media = db.scalar(select(BillingMediaToken).where(BillingMediaToken.id == activation.media_token_id).with_for_update())
+    if activation.status not in _ACTIVATION_TERMINAL and (
+        job.status == activation.status or job.status in _ACTIVATION_TRANSITIONS.get(activation.status, set())
+    ):
+        activation.status = job.status
     if job.status == "cancelled" and terminal_reason in _ACTIVATION_REASONS:
         activation.terminal_reason = terminal_reason
+    _apply_activation_lifecycle(db, job, activation, authorization, media, now=now or datetime.utcnow(), terminal_reason=terminal_reason)
     return activation
 
 
@@ -188,11 +255,16 @@ class WhatsAppActivationService:
         key_hash = self._key_hash(idempotency_key)
         activation, job, authorization, _ = self._lock_graph(activation_id)
         digest = self._action_digest(activation.id, actor_user_id, request.attestation)
+        if _apply_activation_lifecycle(self.db, job, activation, authorization, _, now=datetime.utcnow()):
+            self.db.flush()
+            raise WhatsAppActivationExpired("dispatch_authorization_already_decided")
+        if authorization.state == "expired":
+            raise WhatsAppActivationExpired("dispatch_authorization_already_decided")
         if authorization.release_key_hash == key_hash:
             if authorization.release_actor_user_id == actor_user_id and hmac.compare_digest(authorization.release_request_digest or "", digest):
                 return self.project(self.db, activation, replayed=True)
             raise WhatsAppActivationError("dispatch_authorization_idempotency_conflict")
-        if authorization.state != "pending" or authorization.expires_at <= datetime.utcnow():
+        if authorization.state != "pending":
             raise WhatsAppActivationError("dispatch_authorization_already_decided")
         self._require_dispatch_readiness(readiness() if callable(readiness) else readiness)
         actor = self.db.get(User, actor_user_id)
@@ -222,11 +294,16 @@ class WhatsAppActivationService:
         if authorization.creator_user_id != actor_user_id:
             raise WhatsAppActivationError("activation_cancel_forbidden")
         digest = self._action_digest(activation.id, actor_user_id, request.reason)
+        if _apply_activation_lifecycle(self.db, job, activation, authorization, media, now=datetime.utcnow()):
+            self.db.flush()
+            raise WhatsAppActivationExpired("activation_cancel_already_decided")
+        if authorization.state == "expired":
+            raise WhatsAppActivationExpired("activation_cancel_already_decided")
         if authorization.cancel_key_hash == key_hash:
             if hmac.compare_digest(authorization.cancel_request_digest or "", digest):
                 return self.project(self.db, activation, replayed=True)
             raise WhatsAppActivationError("activation_cancel_idempotency_conflict")
-        if authorization.state not in {"pending", "authorized"} or authorization.expires_at <= datetime.utcnow():
+        if authorization.state not in {"pending", "authorized"}:
             raise WhatsAppActivationError("activation_cancel_already_decided")
         actor = self.db.get(User, actor_user_id)
         if actor is None:
@@ -270,6 +347,31 @@ class WhatsAppActivationService:
         if job is None or activation is None or authorization is None or activation.job_id != job.id or authorization.creator_user_id != activation.actor_user_id:
             raise WhatsAppActivationError("activation_authorization_unavailable")
         return activation, job, authorization, media
+
+    @staticmethod
+    def status(db: Session, *, actor_user_id: int, activation_id: int) -> WhatsAppActivationProjection:
+        """Return the creator-scoped projection after a canonical expiry evaluation."""
+        job_id = db.scalar(select(BillingWhatsAppActivationTest.job_id).where(
+            BillingWhatsAppActivationTest.id == activation_id,
+            BillingWhatsAppActivationTest.actor_user_id == actor_user_id,
+        ))
+        if job_id is None:
+            db.rollback()
+            raise WhatsAppActivationError("activation_not_found")
+        job = db.scalar(select(BillingNotificationJob).where(BillingNotificationJob.id == job_id).with_for_update())
+        activation = db.scalar(select(BillingWhatsAppActivationTest).where(BillingWhatsAppActivationTest.id == activation_id).with_for_update())
+        authorization = db.scalar(select(BillingWhatsAppDispatchAuthorization).where(BillingWhatsAppDispatchAuthorization.job_id == job_id).with_for_update())
+        media = db.scalar(select(BillingMediaToken).where(BillingMediaToken.id == activation.media_token_id if activation else False).with_for_update())
+        if job is None or activation is None or authorization is None or authorization.creator_user_id != actor_user_id:
+            db.rollback()
+            raise WhatsAppActivationError("activation_not_found")
+        changed = _apply_activation_lifecycle(db, job, activation, authorization, media, now=datetime.utcnow())
+        result = WhatsAppActivationService.project(db, activation)
+        if changed:
+            db.commit()
+        else:
+            db.rollback()
+        return result
 
     @staticmethod
     def _action_digest(activation_id: int, actor_user_id: int, action: str) -> str:

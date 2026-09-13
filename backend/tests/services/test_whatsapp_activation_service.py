@@ -322,6 +322,22 @@ def test_revoked_or_expired_activation_media_never_mutates_delivery_status(clien
     assert (job.status, activation.status) == ("delivered", "delivered")
 
 
+def test_expiry_is_transactional_and_audited_once(client, db_session, tmp_path, monkeypatch):
+    from app.services.whatsapp_activation_service import expire_activation
+    service, actor, request, _ = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    created = service.create(actor_user_id=actor.id, request=request, idempotency_key="x" * 16, readiness=_ready("HX" + "a" * 32), configured_content_sid="HX" + "a" * 32, approved_content_sid="HX" + "a" * 32)
+    authorization = db_session.query(BillingWhatsAppDispatchAuthorization).one()
+    authorization.expires_at = __import__("datetime").datetime.utcnow()
+    db_session.commit()
+    assert expire_activation(db_session, created.job_id) is True
+    assert expire_activation(db_session, created.job_id) is False
+    job = db_session.get(BillingNotificationJob, created.job_id)
+    activation = db_session.get(BillingWhatsAppActivationTest, created.id)
+    token = db_session.get(BillingMediaToken, activation.media_token_id)
+    assert (job.status, activation.status, authorization.state, authorization.revoked_at is not None, token.revoked_at is not None) == ("cancelled", "cancelled", "expired", True, True)
+    assert db_session.query(ActivityLog).filter_by(action="whatsapp_activation_expired", user_id=None).count() == 1
+
+
 def _graph_counts(db):
     return tuple(db.query(model).count() for model in (BillingNotificationBatch, BillingNotificationJob, BillingMediaToken, BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization, ActivityLog))
 

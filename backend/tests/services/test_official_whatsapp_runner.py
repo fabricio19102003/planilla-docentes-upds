@@ -168,6 +168,7 @@ def test_runner_ordinary_dispatch_authorization_uses_effective_enabled(monkeypat
     monkeypatch.setattr(runner, "SessionLocal", Database)
     monkeypatch.setattr(runner, "BillingNotificationWorker", Worker)
     monkeypatch.setattr(runner, "mark_worker_heartbeat", lambda _db: None)
+    monkeypatch.setattr(runner, "sweep_expired_activations", lambda _db: 0)
     monkeypatch.setattr(runner.OfficialWhatsAppRuntime, "from_settings", lambda *_args: Runtime())
     monkeypatch.setattr(runner, "status_from_readiness", lambda *_args, **_kwargs: {
         "readiness": {"ready": True}, "effective_enabled": True,
@@ -176,3 +177,22 @@ def test_runner_ordinary_dispatch_authorization_uses_effective_enabled(monkeypat
 
     with pytest.raises(KeyboardInterrupt):
         runner.run()
+
+
+def test_expiry_sweep_clamps_limit(monkeypatch):
+    from app.workers import official_whatsapp_runner as runner
+
+    class Query:
+        def join(self, *_): return self
+        def filter(self, *_): return self
+        def order_by(self, *_): return self
+        def limit(self, value): self.value = value; return self
+        def all(self): return []
+
+    query = Query()
+    db = type("DB", (), {"query": lambda *_: query, "rollback": lambda *_: None})()
+    monkeypatch.setattr(runner, "expire_activation", lambda *_args, **_kwargs: False)
+    assert runner.sweep_expired_activations(db, limit=101) == 0
+    assert query.value == 100
+    assert runner.sweep_expired_activations(db, limit=0) == 0
+    assert query.value == 1

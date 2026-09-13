@@ -10,7 +10,6 @@ from typing import Callable, Iterable
 from urllib.parse import urlsplit
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app.models.billing_notification import BillingMediaToken, BillingNotificationJob, WhatsAppEvent
@@ -118,8 +117,6 @@ class WhatsAppWebhookService:
 
     def _send_terminal_email_alternative(self, job: BillingNotificationJob) -> None:
         """Use the existing durable email attempt key only after a verified terminal event."""
-        if "billing_notification_batches" not in inspect(self.db.get_bind()).get_table_names():
-            return
         batch = self.db.get(BillingNotificationBatch, job.batch_id)
         publication = self.db.get(BillingPublication, batch.publication_id) if batch else None
         user = self.db.query(User).filter(User.teacher_ci == job.teacher_ci, User.is_active == True).one_or_none()

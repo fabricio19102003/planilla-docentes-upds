@@ -16,7 +16,7 @@ from sqlalchemy import and_, exists, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.whatsapp_preference import WhatsAppPreference
-from app.services.whatsapp_activation_service import project_activation_status
+from app.services.whatsapp_activation_service import expire_activation, project_activation_status
 from app.models.billing_notification import (
     BillingNotificationCapacityReservation,
     BillingNotificationCapacityWindow,
@@ -62,6 +62,8 @@ class BillingNotificationWorker:
         if intent not in {"ordinary", "activation_test"}:
             return None
         now = self.now()
+        if intent == "activation_test":
+            self._expire_due_activations(now)
         due = or_(
             and_(
                 BillingNotificationJob.status == "queued",
@@ -125,7 +127,7 @@ class BillingNotificationWorker:
         self.db.expire_all()
         job = self.db.get(BillingNotificationJob, job_id)
         if job is not None:
-            project_activation_status(self.db, job)
+            project_activation_status(self.db, job, now=now)
         self.db.commit()  # Never retain the claim lock across readiness or I/O.
         return self.db.get(BillingNotificationJob, job_id)
 
@@ -187,6 +189,19 @@ class BillingNotificationWorker:
             return "cancelled"
         self._backoff(job.id, getattr(result, "error_code", "provider_failed"), sending=True)
         return "queued"
+
+    def _expire_due_activations(self, now: datetime) -> None:
+        """Commit only due activation expiry before looking for a claim candidate."""
+        ids = [row[0] for row in self.db.query(BillingWhatsAppDispatchAuthorization.job_id).join(
+            BillingNotificationJob, BillingNotificationJob.id == BillingWhatsAppDispatchAuthorization.job_id,
+        ).filter(
+            BillingNotificationJob.intent_type == "activation_test",
+            BillingWhatsAppDispatchAuthorization.state.in_(("pending", "authorized")),
+            BillingWhatsAppDispatchAuthorization.expires_at <= now,
+        ).order_by(BillingWhatsAppDispatchAuthorization.job_id).limit(100).all()]
+        self.db.rollback()
+        for job_id in ids:
+            expire_activation(self.db, job_id, now=now)
 
     def _activation_claimable(self, now: datetime):
         """Return the authorization predicate repeated by SQLite's claim CAS."""
