@@ -17,7 +17,9 @@ from app.schemas.whatsapp_activation import (
     WhatsAppActivationCancel, WhatsAppActivationCreate, WhatsAppActivationProjection,
     WhatsAppActivationRelease,
 )
-from app.services.whatsapp_activation_service import WhatsAppActivationError, WhatsAppActivationService
+from app.services.whatsapp_activation_service import (
+    WhatsAppActivationError, WhatsAppActivationExpired, WhatsAppActivationService,
+)
 from app.services.whatsapp_delivery_control import creation_readiness, current_delivery_status
 from app.utils.auth import require_admin
 
@@ -193,6 +195,9 @@ async def release_activation(
         else:
             db.commit()
         return result
+    except WhatsAppActivationExpired as exc:
+        db.commit()
+        raise _error(str(exc)) from exc
     except WhatsAppActivationError as exc:
         db.rollback()
         raise _error(str(exc)) from exc
@@ -217,6 +222,9 @@ async def cancel_activation(
         else:
             db.commit()
         return result
+    except WhatsAppActivationExpired as exc:
+        db.commit()
+        raise _error(str(exc)) from exc
     except WhatsAppActivationError as exc:
         db.rollback()
         raise _error(
@@ -231,13 +239,10 @@ def activation_status(
     actor: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> WhatsAppActivationProjection:
-    activation = db.scalar(select(BillingWhatsAppActivationTest).where(
-        BillingWhatsAppActivationTest.id == activation_id,
-        BillingWhatsAppActivationTest.actor_user_id == actor.id,
-    ))
-    if activation is None:
-        raise _error("activation_not_found", http_status=status.HTTP_404_NOT_FOUND)
     try:
-        return WhatsAppActivationService.project(db, activation)
+        return WhatsAppActivationService.status(db, actor_user_id=actor.id, activation_id=activation_id)
     except WhatsAppActivationError as exc:
-        raise _error(str(exc)) from exc
+        raise _error(
+            str(exc),
+            http_status=status.HTTP_404_NOT_FOUND if str(exc) == "activation_not_found" else status.HTTP_409_CONFLICT,
+        ) from exc

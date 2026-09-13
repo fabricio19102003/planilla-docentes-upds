@@ -9,8 +9,13 @@ import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 
 from app.models.activity_log import ActivityLog
-from app.models.billing_notification import BillingMediaToken, BillingNotificationJob, BillingWhatsAppActivationTest, WhatsAppEvent
+from app.models.billing_notification import (
+    BillingMediaToken, BillingNotificationBatch, BillingNotificationJob,
+    BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization, WhatsAppEvent,
+)
+from app.models.billing_publication import BillingPublication
 from app.models.teacher import Teacher
+from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
 
 
@@ -28,9 +33,13 @@ def signature(url: str, form: list[tuple[str, str]]) -> str:
 def service_session(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path}/webhooks.db")
     Teacher.__table__.create(engine)
+    User.__table__.create(engine)
+    BillingPublication.__table__.create(engine)
+    BillingNotificationBatch.__table__.create(engine)
     BillingNotificationJob.__table__.create(engine)
     BillingMediaToken.__table__.create(engine)
     BillingWhatsAppActivationTest.__table__.create(engine)
+    BillingWhatsAppDispatchAuthorization.__table__.create(engine)
     WhatsAppEvent.__table__.create(engine)
     WhatsAppPreference.__table__.create(engine)
     WhatsAppConsentRevision.__table__.create(engine)
@@ -170,6 +179,12 @@ def _activation(db, job_id: int, *, status: str = "accepted", token_id: int = 1)
         publication_revision_id=1, publication_version=1, billing_digest="c" * 64,
         content_sid="HX" + "a" * 32, batch_id=job_id, job_id=job_id,
         media_token_id=token_id, artifact_hash="d" * 64, artifact_size=1, status=status,
+    ))
+    db.add(BillingWhatsAppDispatchAuthorization(
+        activation_id=job_id, job_id=job_id, creator_user_id=1, state="consumed",
+        expires_at=datetime(2030, 1, 1), attestation_code="dispatch_reviewed_and_authorized_v1",
+        release_actor_user_id=1, release_key_hash="e" * 64, release_request_digest="f" * 64,
+        released_at=datetime(2025, 1, 1), consumed_at=datetime(2025, 1, 1),
     ))
 
 

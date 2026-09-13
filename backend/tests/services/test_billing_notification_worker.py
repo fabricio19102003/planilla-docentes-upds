@@ -155,7 +155,8 @@ def test_activation_claim_requires_complete_bound_unexpired_authorization(tmp_pa
     queued(session, teacher="valid", batch=1, intent_type="activation_test")
     queued(session, teacher="expired", batch=2, intent_type="activation_test")
     queued(session, teacher="unbound", batch=3, intent_type="activation_test")
-    valid, expired, unbound = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
+    queued(session, teacher="ordinary", batch=4)
+    valid, expired, unbound, ordinary = session.query(BillingNotificationJob).order_by(BillingNotificationJob.id).all()
     activation_authorization(session, valid)
     activation_authorization(session, expired, expires_at=CLOCK)
     activation_authorization(session, unbound, creator_matches=False)
@@ -165,8 +166,10 @@ def test_activation_claim_requires_complete_bound_unexpired_authorization(tmp_pa
     assert worker.claim_one().id == valid.id
     session.expire_all()
     assert [(job.id, job.status) for job in session.query(BillingNotificationJob).order_by(BillingNotificationJob.id)] == [
-        (valid.id, "leased"), (expired.id, "queued"), (unbound.id, "queued"),
+        (valid.id, "leased"), (expired.id, "cancelled"), (unbound.id, "queued"), (ordinary.id, "queued"),
     ]
+    assert session.query(BillingWhatsAppDispatchAuthorization).filter_by(job_id=expired.id).one().state == "expired"
+    assert session.query(ActivityLog).filter_by(action="whatsapp_activation_expired").count() == 1
 
 
 def test_activation_claim_postgresql_locks_only_jobs(tmp_path):

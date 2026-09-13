@@ -5,7 +5,10 @@ from datetime import datetime
 import pytest
 
 from app.models.app_setting import AppSetting
-from app.models.billing_notification import BillingNotificationJob, BillingWhatsAppActivationTest
+from app.models.activity_log import ActivityLog
+from app.models.billing_notification import (
+    BillingNotificationJob, BillingWhatsAppActivationTest, BillingWhatsAppDispatchAuthorization,
+)
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.auth_service import auth_service
@@ -223,3 +226,29 @@ def test_release_and_cancel_routes_validate_headers_and_bodies(client, db_sessio
     client.headers["Authorization"] = f"Bearer {auth_service.create_access_token(data={'sub': str(actor.id), 'role': 'admin'})}"
     cancelled = client.post(cancel, json={"reason": "creator_cancelled"}, headers={"Idempotency-Key": "c" * 16})
     assert cancelled.status_code == 200 and cancelled.json()["authorization_state"] == "cancelled"
+
+
+def test_expired_actions_commit_once_and_status_is_creator_scoped(client, db_session, tmp_path, monkeypatch, activation_media_dir):
+    _, actor, _, revision = _activation_setup(client, db_session, tmp_path, monkeypatch)
+    _configure_ready(monkeypatch)
+    activation_id = None
+    for suffix, payload, key in (
+        ("release", {"attestation": "dispatch_reviewed_and_authorized_v1"}, "a" * 16),
+        ("cancel", {"reason": "creator_cancelled"}, "b" * 16),
+    ):
+        created = client.post("/api/admin/whatsapp/activation-tests", json=_payload(revision.id), headers={"Idempotency-Key": key})
+        activation_id = created.json()["id"]
+        db_session.query(BillingWhatsAppDispatchAuthorization).filter_by(activation_id=activation_id).update({"expires_at": datetime.utcnow()})
+        db_session.commit()
+        path = f"/api/admin/whatsapp/activation-tests/{activation_id}/{suffix}"
+        assert client.post(path, json=payload, headers={"Idempotency-Key": suffix * 16}).status_code == 409
+        assert client.post(path, json=payload, headers={"Idempotency-Key": suffix * 16}).status_code == 409
+        activation = db_session.get(BillingWhatsAppActivationTest, activation_id)
+        job = db_session.get(BillingNotificationJob, activation.job_id)
+        assert (activation.status, job.status) == ("cancelled", "cancelled")
+        assert client.get(f"/api/admin/whatsapp/activation-tests/{activation_id}").json()["authorization_state"] == "expired"
+    assert db_session.query(ActivityLog).filter_by(action="whatsapp_activation_expired").count() == 2
+    other = User(ci="STATUS-OTHER", full_name="Other", password_hash="x", role="admin")
+    db_session.add(other); db_session.commit()
+    client.headers["Authorization"] = f"Bearer {auth_service.create_access_token(data={'sub': str(other.id), 'role': 'admin'})}"
+    assert client.get(f"/api/admin/whatsapp/activation-tests/{activation_id}").status_code == 404
