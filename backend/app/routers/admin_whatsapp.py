@@ -190,10 +190,7 @@ async def release_activation(
     try:
         # Readiness is intentionally lazy: exact replay does not depend on it.
         result = _service(db).release(actor_user_id=actor.id, activation_id=activation_id, request=payload, idempotency_key=idempotency_key, readiness=lambda: _readiness(db)[0], ip_address=request.client.host if request.client else None)
-        if result.replayed:
-            db.rollback()
-        else:
-            db.commit()
+        db.commit()
         return result
     except WhatsAppActivationExpired as exc:
         db.commit()

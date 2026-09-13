@@ -311,13 +311,19 @@ def sweep_expired_activations(db: Any, *, limit: int = 100, now: datetime | None
 
 
 def rollback_unleased_activation(db: Any, *, now: datetime | None = None) -> int:
-    """Cancel only queued, unleased activation jobs and revoke their tokens."""
+    """Revoke only queued, unconsumed activation dispatches already released by a creator."""
     now = now or datetime.utcnow()
-    jobs = db.query(BillingNotificationJob).filter(
+    jobs = db.query(BillingNotificationJob).join(
+        BillingWhatsAppDispatchAuthorization,
+        BillingWhatsAppDispatchAuthorization.job_id == BillingNotificationJob.id,
+    ).filter(
         BillingNotificationJob.channel == "whatsapp",
         BillingNotificationJob.intent_type == "activation_test",
         BillingNotificationJob.status == "queued",
         BillingNotificationJob.lease_owner.is_(None),
+        BillingWhatsAppDispatchAuthorization.state == "authorized",
+        BillingWhatsAppDispatchAuthorization.consumed_at.is_(None),
+        BillingWhatsAppDispatchAuthorization.revoked_at.is_(None),
     ).all()
     ids = [job.id for job in jobs]
     for job in jobs:
