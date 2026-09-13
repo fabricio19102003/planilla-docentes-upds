@@ -123,6 +123,7 @@ class BillingNotificationWorker:
             candidate.lease_owner = self.owner
             candidate.lease_expires_at = expires
             candidate.attempts += 1
+        self.db.flush()
         job_id = candidate.id
         self.db.expire_all()
         job = self.db.get(BillingNotificationJob, job_id)
