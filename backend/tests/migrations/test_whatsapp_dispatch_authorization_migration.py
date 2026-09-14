@@ -182,6 +182,52 @@ def test_incompatible_precreated_table_fails_closed(tmp_path, monkeypatch):
     engine.dispose()
 
 
+def _postgresql_connection(test_engine):
+    if test_engine.dialect.name != "postgresql":
+        pytest.skip("real PostgreSQL validation requires TEST_DATABASE_URL=postgresql://...")
+    return test_engine.connect()
+
+
+def _assert_no_postgresql_shadow_artifact(connection, module):
+    assert connection.scalar(sa.text(
+        "SELECT to_regclass('pg_temp." + module._POSTGRES_SHADOW_TABLE + "') IS NULL"
+    ))
+
+
+def test_postgresql_validator_accepts_compatible_schema_and_removes_shadow(test_engine):
+    module = _module()
+    connection = _postgresql_connection(test_engine)
+    transaction = connection.begin()
+    try:
+        module._validate_authorization_table(sa.inspect(connection), connection)
+        _assert_no_postgresql_shadow_artifact(connection, module)
+    finally:
+        transaction.rollback()
+        connection.close()
+
+
+def test_postgresql_validator_rejects_weakened_same_name_check_and_removes_shadow(test_engine):
+    module = _module()
+    connection = _postgresql_connection(test_engine)
+    transaction = connection.begin()
+    try:
+        connection.execute(sa.text(
+            "ALTER TABLE billing_whatsapp_dispatch_authorizations "
+            "DROP CONSTRAINT ck_whatsapp_dispatch_authorization_state"
+        ))
+        connection.execute(sa.text(
+            "ALTER TABLE billing_whatsapp_dispatch_authorizations "
+            "ADD CONSTRAINT ck_whatsapp_dispatch_authorization_state "
+            "CHECK (state IN ('pending'))"
+        ))
+        with pytest.raises(RuntimeError, match="Incompatible pre-existing.*check"):
+            module._validate_authorization_table(sa.inspect(connection), connection)
+        _assert_no_postgresql_shadow_artifact(connection, module)
+    finally:
+        transaction.rollback()
+        connection.close()
+
+
 def test_postgresql_reflection_accepts_constraint_backing_indexes_and_rejects_unrelated_indexes():
     module = _module()
     table = module.authorization_table(module._schema_metadata())
