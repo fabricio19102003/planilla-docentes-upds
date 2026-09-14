@@ -16,6 +16,7 @@ branch_labels = None
 depends_on = None
 
 _TABLE = "billing_whatsapp_dispatch_authorizations"
+_POSTGRES_SHADOW_TABLE = "_whatsapp_dispatch_authorization_check_shadow"
 _CHECKS = (
     ("ck_whatsapp_dispatch_authorization_state", "state IN ('pending', 'authorized', 'consumed', 'cancelled', 'expired', 'revoked')"),
     ("ck_whatsapp_dispatch_authorization_expiry", "expires_at > created_at"),
@@ -77,7 +78,45 @@ def _column_matches(actual, expected) -> bool:
     )
 
 
-def _validate_authorization_table(inspector) -> None:
+def _validate_postgresql_checks(bind) -> None:
+    preparer = bind.dialect.identifier_preparer
+    target = preparer.quote(_TABLE)
+    shadow = preparer.quote(_POSTGRES_SHADOW_TABLE)
+    expected = {name for name, _expression in _CHECKS}
+    shadow_transaction = bind.begin_nested()
+    try:
+        bind.exec_driver_sql(f"CREATE TEMPORARY TABLE {shadow} (LIKE {target})")
+        for name, expression in _CHECKS:
+            bind.exec_driver_sql(
+                f"ALTER TABLE {shadow} ADD CONSTRAINT {preparer.quote(name)} CHECK ({expression})"
+            )
+        constraints = sa.text("""
+            SELECT con.conname AS name, con.convalidated AS validated,
+                   pg_get_expr(con.conbin, con.conrelid) AS expression
+            FROM pg_constraint AS con
+            WHERE con.contype = 'c' AND con.conrelid = CAST(:relation AS regclass)
+            ORDER BY con.conname
+        """)
+        actual = bind.execute(constraints, {"relation": _TABLE}).mappings().all()
+        shadow_constraints = bind.execute(
+            constraints, {"relation": f"pg_temp.{_POSTGRES_SHADOW_TABLE}"}
+        ).mappings().all()
+        if (
+            len(actual) != len(_CHECKS)
+            or len(shadow_constraints) != len(_CHECKS)
+            or {item["name"] for item in actual} != expected
+            or {item["name"] for item in shadow_constraints} != expected
+            or not all(item["validated"] for item in actual)
+            or not all(item["validated"] for item in shadow_constraints)
+            or {item["name"]: item["expression"] for item in actual}
+            != {item["name"]: item["expression"] for item in shadow_constraints}
+        ):
+            raise RuntimeError("Incompatible pre-existing billing_whatsapp_dispatch_authorizations check constraint")
+    finally:
+        shadow_transaction.rollback()
+
+
+def _validate_authorization_table(inspector, bind=None) -> None:
     table = authorization_table(_schema_metadata())
     columns = {item["name"]: item for item in inspector.get_columns(_TABLE)}
     if set(columns) != set(table.c.keys()) or any(not _column_matches(columns[name], column) for name, column in table.c.items()):
@@ -88,9 +127,12 @@ def _validate_authorization_table(inspector) -> None:
     expected_unique = {("uq_whatsapp_dispatch_authorization_activation", ("activation_id",)), ("uq_whatsapp_dispatch_authorization_job", ("job_id",))}
     if unique != expected_unique:
         raise RuntimeError("Incompatible pre-existing billing_whatsapp_dispatch_authorizations unique constraint")
-    checks = {item["name"]: _normalize(item.get("sqltext") or "") for item in inspector.get_check_constraints(_TABLE)}
-    if checks != {name: _normalize(expression) for name, expression in _CHECKS}:
-        raise RuntimeError("Incompatible pre-existing billing_whatsapp_dispatch_authorizations check constraint")
+    if bind is not None and bind.dialect.name == "postgresql":
+        _validate_postgresql_checks(bind)
+    else:
+        checks = {item["name"]: _normalize(item.get("sqltext") or "") for item in inspector.get_check_constraints(_TABLE)}
+        if checks != {name: _normalize(expression) for name, expression in _CHECKS}:
+            raise RuntimeError("Incompatible pre-existing billing_whatsapp_dispatch_authorizations check constraint")
     foreign_keys = {(tuple(item["constrained_columns"]), item["referred_table"], tuple(item["referred_columns"]), (item.get("options") or {}).get("ondelete")) for item in inspector.get_foreign_keys(_TABLE)}
     expected_foreign_keys = {((item.parent.name,), item.column.table.name, (item.column.name,), item.ondelete) for item in table.foreign_keys}
     if foreign_keys != expected_foreign_keys:
@@ -137,7 +179,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if _TABLE in inspector.get_table_names():
-        _validate_authorization_table(inspector)
+        _validate_authorization_table(inspector, bind)
     else:
         authorization_table(_schema_metadata()).create(bind)
     _backfill_legacy_activations(bind)
