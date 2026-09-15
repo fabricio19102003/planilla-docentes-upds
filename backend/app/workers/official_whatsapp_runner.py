@@ -111,22 +111,31 @@ class OfficialWhatsAppRuntime:
         """Query current sender/template state; unavailable or malformed data is false."""
         try:
             with httpx.Client(timeout=3.0) as client:
-                sender = client.get(
+                sender_response = client.get(
                     f"https://messaging.twilio.com/v2/Channels/Senders/{self.sender_sid}",
                     auth=(self.api_key_sid, self.api_key_secret),
-                ).json()
-                content = client.get(
-                    f"https://content.twilio.com/v1/Content/{self.default_content_sid}",
+                )
+                sender_response.raise_for_status()
+                sender = sender_response.json()
+                approval_response = client.get(
+                    f"https://content.twilio.com/v1/Content/{self.default_content_sid}/ApprovalRequests",
                     auth=(self.api_key_sid, self.api_key_secret),
-                ).json()
-            approvals = content.get("approval_requests")
-            approved = isinstance(approvals, list) and any(
-                item.get("status", "").lower() == "approved"
-                and item.get("category", "").lower() == "utility"
-                for item in approvals if isinstance(item, dict)
+                )
+                approval_response.raise_for_status()
+                approval = approval_response.json()
+            if not isinstance(sender, dict) or not isinstance(sender.get("status"), str):
+                raise ValueError("Malformed sender response")
+            if not isinstance(approval, dict) or not isinstance(approval.get("whatsapp"), dict):
+                raise ValueError("Malformed approval response")
+            whatsapp = approval["whatsapp"]
+            if not isinstance(whatsapp.get("status"), str) or not isinstance(whatsapp.get("category"), str):
+                raise ValueError("Malformed WhatsApp approval response")
+            approved = (
+                whatsapp["status"].lower() == "approved"
+                and whatsapp["category"].lower() == "utility"
             )
             return self.readiness_facts(
-                sender_status=sender.get("status") if isinstance(sender, dict) else None,
+                sender_status=sender["status"],
                 templates_approved=approved,
             )
         except (httpx.HTTPError, ValueError, TypeError):
