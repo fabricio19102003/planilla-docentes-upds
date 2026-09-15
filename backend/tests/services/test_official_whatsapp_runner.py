@@ -189,6 +189,60 @@ def test_runner_ordinary_dispatch_authorization_uses_effective_enabled(monkeypat
         runner.run()
 
 
+def test_runner_forwards_content_sid_for_activation_only_intent(monkeypatch):
+    import pytest
+    from app.workers import official_whatsapp_runner as runner
+
+    configured = settings(
+        BILLING_WHATSAPP_ACTIVATION_API_ENABLED=True,
+        BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED=True,
+        WHATSAPP_RECIPIENT_HMAC_KEY="h" * 32,
+        TWILIO_OFFICIAL_CONTENT_SID="HX" + "c" * 32,
+    )
+    captured = {}
+
+    class Runtime:
+        def live_readiness(self):
+            return {"ready": True, "capacity": {"available": True}}
+
+    class Database:
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    class Worker:
+        def __init__(self, _db, *, claim_intent, **_kwargs):
+            captured["claim_intent"] = claim_intent
+
+        def process_one(self):
+            assert captured["claim_intent"]() == "activation_test"
+            raise KeyboardInterrupt
+
+    def readiness(*_args, **kwargs):
+        captured["readiness"] = kwargs
+        return {
+            "readiness": {"ready": False},
+            "effective_enabled": False,
+            "global_delivery": {"requested": False, "effective": False},
+            "activation": {"capable": True},
+        }
+
+    monkeypatch.setattr(runner, "SessionLocal", Database)
+    monkeypatch.setattr(runner, "BillingNotificationWorker", Worker)
+    monkeypatch.setattr(runner, "mark_worker_heartbeat", lambda _db: None)
+    monkeypatch.setattr(runner, "sweep_expired_activations", lambda _db: 0)
+    monkeypatch.setattr(runner.OfficialWhatsAppRuntime, "from_settings", lambda *_args: Runtime())
+    monkeypatch.setattr(runner, "status_from_readiness", readiness)
+    monkeypatch.setattr("app.config.settings", configured)
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.run()
+
+    assert captured["readiness"]["configured_content_sid"] == configured.TWILIO_OFFICIAL_CONTENT_SID
+
+
 def test_expiry_sweep_clamps_limit(monkeypatch):
     from app.workers import official_whatsapp_runner as runner
 
