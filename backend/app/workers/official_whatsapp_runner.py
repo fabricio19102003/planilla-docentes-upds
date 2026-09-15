@@ -173,6 +173,7 @@ def run() -> int:
                         activation_api_enabled=getattr(settings, "BILLING_WHATSAPP_ACTIVATION_API_ENABLED", False),
                         activation_dispatch_enabled=getattr(settings, "BILLING_WHATSAPP_ACTIVATION_DISPATCH_ENABLED", False),
                         recipient_hmac_key=getattr(settings, "WHATSAPP_RECIPIENT_HMAC_KEY", None),
+                        configured_content_sid=settings.TWILIO_OFFICIAL_CONTENT_SID,
                     ))
                 return cycle
             def intent() -> str | None:
