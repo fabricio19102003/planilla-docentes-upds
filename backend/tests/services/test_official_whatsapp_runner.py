@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import httpx
+import pytest
+
 
 def settings(**overrides):
     values = {
@@ -51,6 +54,110 @@ def test_runtime_readiness_reports_only_bounded_failure_reasons():
     runtime.capacity["available"] = False
     assert runtime.readiness_facts(sender_status="ONLINE", templates_approved=True)["reason"] == "capacity_unavailable"
     assert OfficialWhatsAppRuntime.from_settings(settings(TWILIO_OFFICIAL_MEDIA_MPS=0)) is None
+
+
+def _mock_readiness_client(monkeypatch, responses):
+    from app.workers import official_whatsapp_runner as runner
+
+    calls = []
+
+    class Client:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url, *, auth):
+            calls.append((url, auth))
+            return responses[url]
+
+    monkeypatch.setattr(runner.httpx, "Client", Client)
+    return calls
+
+
+def _json_response(url, payload, *, status_code=200):
+    return httpx.Response(status_code, request=httpx.Request("GET", url), json=payload)
+
+
+def test_live_readiness_uses_exact_twilio_urls_and_accepts_approved_utility(monkeypatch):
+    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+
+    runtime = OfficialWhatsAppRuntime.from_settings(settings())
+    sender_url = f"https://messaging.twilio.com/v2/Channels/Senders/{runtime.sender_sid}"
+    approval_url = f"https://content.twilio.com/v1/Content/{runtime.default_content_sid}/ApprovalRequests"
+    calls = _mock_readiness_client(monkeypatch, {
+        sender_url: _json_response(sender_url, {"status": "ONLINE"}),
+        approval_url: _json_response(approval_url, {
+            "whatsapp": {"status": "ApPrOvEd", "category": "UTILITY"},
+        }),
+    })
+
+    assert runtime.live_readiness()["ready"] is True
+    assert calls == [
+        (sender_url, (runtime.api_key_sid, runtime.api_key_secret)),
+        (approval_url, (runtime.api_key_sid, runtime.api_key_secret)),
+    ]
+
+
+@pytest.mark.parametrize("status,category", [
+    ("pending", "UTILITY"),
+    ("rejected", "UTILITY"),
+    ("approved", "MARKETING"),
+])
+def test_live_readiness_rejects_unapproved_or_non_utility_template(monkeypatch, status, category):
+    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+
+    runtime = OfficialWhatsAppRuntime.from_settings(settings())
+    sender_url = f"https://messaging.twilio.com/v2/Channels/Senders/{runtime.sender_sid}"
+    approval_url = f"https://content.twilio.com/v1/Content/{runtime.default_content_sid}/ApprovalRequests"
+    _mock_readiness_client(monkeypatch, {
+        sender_url: _json_response(sender_url, {"status": "ONLINE"}),
+        approval_url: _json_response(approval_url, {
+            "whatsapp": {"status": status, "category": category},
+        }),
+    })
+
+    readiness = runtime.live_readiness()
+    assert readiness["ready"] is False
+    assert readiness["reason"] == "template_unapproved"
+
+
+@pytest.mark.parametrize("failure", ["sender_http", "approval_http", "malformed_json", "malformed_payload"])
+def test_live_readiness_classifies_provider_failures_as_unavailable(monkeypatch, failure):
+    from app.workers.official_whatsapp_runner import OfficialWhatsAppRuntime
+
+    runtime = OfficialWhatsAppRuntime.from_settings(settings())
+    sender_url = f"https://messaging.twilio.com/v2/Channels/Senders/{runtime.sender_sid}"
+    approval_url = f"https://content.twilio.com/v1/Content/{runtime.default_content_sid}/ApprovalRequests"
+    responses = {
+        sender_url: _json_response(sender_url, {"status": "ONLINE"}),
+        approval_url: _json_response(approval_url, {
+            "whatsapp": {"status": "approved", "category": "utility"},
+        }),
+    }
+    if failure == "sender_http":
+        responses[sender_url] = _json_response(sender_url, {"status": "ONLINE"}, status_code=401)
+    elif failure == "approval_http":
+        responses[approval_url] = _json_response(approval_url, {
+            "whatsapp": {"status": "approved", "category": "utility"},
+        }, status_code=404)
+    elif failure == "malformed_json":
+        responses[approval_url] = httpx.Response(
+            200, request=httpx.Request("GET", approval_url), content=b"not-json",
+        )
+    else:
+        responses[approval_url] = _json_response(approval_url, {"whatsapp": []})
+    _mock_readiness_client(monkeypatch, responses)
+
+    assert runtime.live_readiness() == {
+        "ready": False,
+        "reason": "provider_unavailable",
+        "capacity": {"available": False},
+    }
 
 
 def test_production_delivery_and_activation_gates_default_false():
