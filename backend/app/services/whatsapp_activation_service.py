@@ -213,7 +213,22 @@ class WhatsAppActivationService:
             job = BillingNotificationJob(batch_id=batch.id, teacher_ci=request.teacher_ci, channel="whatsapp", intent_type="activation_test", content_sid=configured_content_sid, status="queued")
             self.db.add(job)
             self.db.flush()
-            media = self.pdf_service.issue_activation(batch, job, details[0], publication_revision_id=revision.id, publication_version=revision.version, billing_digest=revision.billing_digest)
+            media = self.pdf_service.issue_activation(
+                batch,
+                job,
+                details[0],
+                publication_revision_id=revision.id,
+                publication_version=revision.version,
+                billing_digest=revision.billing_digest,
+                document_context={
+                    "month": publication.month,
+                    "year": publication.year,
+                    "planilla_type": publication.planilla_type,
+                    "start_date": billing.get("start_date"),
+                    "end_date": billing.get("end_date"),
+                    "rate_per_hour": billing.get("rate_per_hour"),
+                },
+            )
             artifact, artifact_is_new = Path(media.artifact_path), media.artifact_created
             activation = BillingWhatsAppActivationTest(
                 actor_user_id=actor.id, actor_ci=actor.ci, idempotency_key_hash=key_hash, request_digest=request_digest,

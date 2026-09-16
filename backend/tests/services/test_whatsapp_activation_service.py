@@ -146,9 +146,8 @@ def test_activation_creates_one_private_bound_graph_without_email(client, db_ses
     assert activation.recipient_hmac != request.recipient_e164 and request.recipient_e164 not in str((batch.__dict__, job.__dict__, token.__dict__, activation.__dict__, result, audit.details))
     assert audit.details == {"activation_id": activation.id, "teacher_ci_at_creation": request.teacher_ci, "consent_revision": 1, "publication_revision_id": revision.id, "publication_version": revision.version, "job_id": job.id, "content_template_bound": True, "pdf_bound": True}
     assert "activation@example.com" not in str(audit.details) and result.recipient_masked == "+591••••0000"
-    assert f'"publication_revision_id":{revision.id}'.encode() in content
-    assert f'"publication_version":{revision.version}'.encode() in content
-    assert revision.billing_digest.encode() in content and detail["teacher_ci"].encode() in content
+    assert b"publication_revision_id" not in content and b"publication_version" not in content
+    assert revision.billing_digest.encode() not in content and detail["teacher_ci"].encode() not in content
     assert b"must-not-bind" not in content and b"UNRELATED-DETAIL" not in content
 
 
@@ -514,7 +513,22 @@ def test_activation_audit_failure_and_outer_rollback_remove_only_new_artifact(cl
 def test_activation_outer_failure_preserves_preexisting_artifact(client, db_session, tmp_path, monkeypatch):
     service, actor, request, revision = _activation_setup(client, db_session, tmp_path, monkeypatch); before = _graph_counts(db_session)
     detail = revision.billing_snapshot["teacher_details"][0]
-    payload = service.pdf_service._pdf_bytes(1, request.teacher_ci, {"teacher_detail": detail, "publication_revision_id": revision.id, "publication_version": revision.version, "billing_digest": revision.billing_digest})
+    publication = db_session.get(BillingPublication, revision.publication_id)
+    billing = revision.billing_snapshot
+    payload = service.pdf_service._pdf_bytes(1, request.teacher_ci, {
+        "teacher_detail": detail,
+        "publication_revision_id": revision.id,
+        "publication_version": revision.version,
+        "billing_digest": revision.billing_digest,
+        "document_context": {
+            "month": publication.month,
+            "year": publication.year,
+            "planilla_type": publication.planilla_type,
+            "start_date": billing.get("start_date"),
+            "end_date": billing.get("end_date"),
+            "rate_per_hour": billing.get("rate_per_hour"),
+        },
+    })
     path = service.pdf_service._safe_path(f"b-{__import__('hashlib').sha256(payload).hexdigest()[:12]}.pdf")
     path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
     original_flush, calls = db_session.flush, {"count": 0}
