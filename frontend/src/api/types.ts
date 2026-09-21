@@ -291,6 +291,210 @@ export interface TeacherAttendanceSummary {
   absent: number
   no_exit: number
   total_academic_hours: number
+// ─── Academic management ─────────────────────────────────────────────────────
+export interface AcademicCatalogBase {
+  id: number
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AcademicProgram extends AcademicCatalogBase {
+  code: string
+  name: string
+}
+
+export interface AcademicSubject extends AcademicCatalogBase {
+  code: string
+  name: string
+  description: string | null
+}
+
+export interface SubjectOffering extends AcademicCatalogBase {
+  subject_id: number
+  program_id: number
+  academic_period: string
+  semester: number
+  theory_hours: number
+  practice_hours: number
+  subject: AcademicSubject
+  program: AcademicProgram
+}
+
+export interface AcademicGroup extends AcademicCatalogBase {
+  program_id: number
+  academic_period: string
+  semester: number
+  shift: string
+  code: string
+  expected_size: number | null
+  program: AcademicProgram
+}
+
+export type ClassroomType = 'classroom' | 'laboratory' | 'virtual' | 'other'
+
+export interface Classroom extends AcademicCatalogBase {
+  code: string
+  name: string
+  campus: string
+  capacity: number
+  classroom_type: ClassroomType
+  resources: string[]
+}
+
+export type AcademicWeekday =
+  | 'monday' | 'tuesday' | 'wednesday' | 'thursday'
+  | 'friday' | 'saturday' | 'sunday'
+
+export interface TeacherAvailability extends AcademicCatalogBase {
+  teacher_ci: string
+  teacher_name: string | null
+  academic_period: string
+  weekday: AcademicWeekday
+  start_time: string
+  end_time: string
+}
+
+export type ScheduleWeekday = Exclude<AcademicWeekday, 'sunday'>
+export type ScheduleActivityType = 'theory' | 'practice'
+
+export interface AcademicScheduleDraft {
+  id: number
+  program_id: number
+  academic_period: string
+  name: string
+  status: 'draft' | 'archived' | 'published'
+  created_at: string
+  updated_at: string
+  program: AcademicProgram
+}
+
+export interface AcademicScheduleBlock {
+  id: number
+  draft_id: number
+  offering_id: number
+  group_id: number
+  classroom_id: number
+  activity_type: ScheduleActivityType
+  weekday: ScheduleWeekday
+  start_time: string
+  end_time: string
+  created_at: string
+  updated_at: string
+  offering: SubjectOffering
+  group: AcademicGroup
+  classroom: Classroom
+}
+
+export interface AcademicScheduleAssignment {
+  id: number
+  block_id: number
+  teacher_ci: string
+  teacher_name: string
+  effective_from: string
+  effective_to: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CompatibleScheduleTeacher {
+  ci: string
+  full_name: string
+}
+
+export interface CompatibleScheduleTeachersPage {
+  items: CompatibleScheduleTeacher[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface ScheduleWorkloadItem {
+  teacher_ci: string
+  teacher_name: string
+  theory_minutes_week: number
+  practice_minutes_week: number
+  total_minutes_week: number
+}
+
+export interface ScheduleWorkloadResponse {
+  draft_id: number
+  reference_date: string
+  items: ScheduleWorkloadItem[]
+}
+
+export interface SchedulePublicationBlocker {
+  category: string
+  count: number
+  message: string
+}
+
+export interface SchedulePublicationDiff {
+  added_blocks: number
+  removed_blocks: number
+  changed_blocks: number
+  teacher_replacements: number
+  workload_changes: ScheduleWorkloadItem[]
+}
+
+export interface SchedulePublicationPreview {
+  draft_id: number
+  program_id: number
+  academic_period: string
+  effective_from: string
+  sequence: number
+  digest: string
+  can_publish: boolean
+  block_count: number
+  assignment_count: number
+  blockers: SchedulePublicationBlocker[]
+  warnings: string[]
+  diff: SchedulePublicationDiff
+}
+
+export interface PublishedScheduleAssignment {
+  id: number
+  source_assignment_id: number
+  teacher_ci: string
+  teacher_name: string
+  effective_from: string
+  effective_to: string | null
+}
+
+export interface PublishedScheduleBlock {
+  id: number
+  source_block_id: number
+  source_offering_id: number
+  source_subject_id: number
+  source_group_id: number
+  source_classroom_id: number
+  subject_code: string
+  subject_name: string
+  group_code: string
+  semester: number
+  classroom_code: string
+  classroom_name: string
+  activity_type: ScheduleActivityType
+  weekday: ScheduleWeekday
+  start_time: string
+  end_time: string
+  notes: string | null
+  assignments: PublishedScheduleAssignment[]
+}
+
+export interface AcademicSchedulePublication {
+  id: number
+  program_id: number
+  academic_period: string
+  effective_from: string
+  sequence: number
+  content_digest: string
+  source_draft_id: number
+  created_by: number | null
+  created_at: string
+  blocks: PublishedScheduleBlock[]
+}
+
 }
 
 export interface TeacherWithDesignations extends Teacher {

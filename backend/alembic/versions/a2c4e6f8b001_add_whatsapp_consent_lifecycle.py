@@ -186,13 +186,25 @@ def _validate_existing_history(inspector) -> bool:
     if tuple(inspector.get_pk_constraint("whatsapp_consent_revisions").get("constrained_columns") or ()) != ("id",):
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions primary key")
     expected_unique = ("uq_whatsapp_consent_teacher_revision", ("teacher_ci", "revision"))
+    def reflected_unique_name(item) -> str | None:
+        name = item.get("name")
+        if inspector.bind.dialect.name == "sqlite" and name:
+            # SQLAlchemy's SQLite parser can prepend the preceding named CHECK
+            # definition when UNIQUE follows it in raw CREATE TABLE SQL.
+            name = name.rsplit(", CONSTRAINT ", 1)[-1]
+        return name
+
     if {
-        (item.get("name"), tuple(item.get("column_names") or ()))
+        (reflected_unique_name(item), tuple(item.get("column_names") or ()))
         for item in inspector.get_unique_constraints("whatsapp_consent_revisions")
     } != {expected_unique}:
         raise RuntimeError("Incompatible pre-existing whatsapp_consent_revisions unique constraint")
     checks = {
-        item["name"]: _normalize_check_expression(item.get("sqltext") or "")
+        item["name"]: _normalize_check_expression(
+            (item.get("sqltext") or "").split("), CONSTRAINT ", 1)[0]
+            if inspector.bind.dialect.name == "sqlite"
+            else item.get("sqltext") or ""
+        )
         for item in inspector.get_check_constraints("whatsapp_consent_revisions")
     }
     if checks != {

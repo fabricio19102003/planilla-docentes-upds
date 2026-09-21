@@ -22,6 +22,8 @@ import { BackupPage } from './pages/BackupPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
+import { AcademicManagementPage } from './pages/AcademicManagementPage'
+import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 // PracticePlanillaPage removed — unified into PlanillaPage tabs
 
 // Pages — Auth
@@ -81,6 +83,8 @@ function AppRoutes() {
             <Route path="practice-attendance" element={<PracticeAttendancePage />} />
             <Route path="practice-planilla" element={<Navigate to="/planilla?tab=practicas" replace />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="academic-management" element={<AcademicManagementPage />} />
+            <Route path="schedule-planner" element={<SchedulePlannerPage />} />
           </Route>
 
           {/* Docente routes */}

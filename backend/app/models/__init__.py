@@ -20,6 +20,20 @@ from app.models.medicine_schedule import (
     MedicineScheduleVersion, MedicineSimulation, MedicineVersionEvent,
 )
 
+from app.models.academic_management import (
+    AcademicGroup,
+    AcademicProgram,
+    AcademicScheduleBlock,
+    AcademicScheduleAssignment,
+    AcademicScheduleDraft,
+    AcademicSchedulePublication,
+    AcademicSchedulePublishedAssignment,
+    AcademicSchedulePublishedBlock,
+    AcademicSubject,
+    Classroom,
+    SubjectOffering,
+    TeacherAvailability,
+)
 __all__ = [
     "Teacher",
     "Designation",
@@ -48,6 +62,18 @@ __all__ = [
 ]
 
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
+    "AcademicProgram",
+    "AcademicScheduleDraft",
+    "AcademicScheduleBlock",
+    "AcademicScheduleAssignment",
+    "AcademicSchedulePublication",
+    "AcademicSchedulePublishedBlock",
+    "AcademicSchedulePublishedAssignment",
+    "AcademicSubject",
+    "SubjectOffering",
+    "AcademicGroup",
+    "Classroom",
+    "TeacherAvailability",
 from app.models.billing_notification import (
     BillingMediaToken,
     BillingNotificationBatch,
