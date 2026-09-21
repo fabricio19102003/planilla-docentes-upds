@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import datetime, date, time
-from typing import Optional
+from typing import Literal, Optional
 
 class AttendanceRecordBase(BaseModel):
     teacher_ci: str
-    designation_id: int
+    source_kind: Literal["legacy", "published"]
+    source_key: str
+    designation_id: Optional[int] = None
+    published_schedule_assignment_id: Optional[int] = None
     date: date
     scheduled_start: time
     scheduled_end: time
@@ -34,6 +37,7 @@ class AttendanceWithDetails(AttendanceRecordResponse):
     subject: Optional[str] = None
     group_code: Optional[str] = None
     semester: Optional[str] = None
+    activity_type: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -90,9 +94,14 @@ class ObservationResponse(BaseModel):
     id: int
     teacher_ci: str
     teacher_name: Optional[str] = None
-    designation_id: int
+    source_kind: Literal["legacy", "published"]
+    source_key: str
+    designation_id: Optional[int] = None
+    published_schedule_assignment_id: Optional[int] = None
     subject: Optional[str] = None
     group_code: Optional[str] = None
+    semester: Optional[str] = None
+    activity_type: Optional[str] = None
     date: date
     scheduled_start: time
     scheduled_end: time

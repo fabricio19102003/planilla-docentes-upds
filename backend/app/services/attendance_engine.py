@@ -35,6 +35,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord
 from app.models.designation import Designation
 from app.services import app_settings_service
+from app.services.effective_schedule_service import EffectiveScheduleSlot, effective_schedule_slots
 from app.utils.helpers import parse_time_str, time_to_minutes
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def _normalize_day(day: str) -> str:
 class SlotResult:
     """Result for a single teacher / date / scheduled-slot combination."""
 
-    designation_id: int
+    designation_id: int | None
     teacher_ci: str
     date: date
     scheduled_start: time
@@ -94,6 +95,18 @@ class SlotResult:
     biometric_record_id: Optional[int]
     subject: str            # for reporting
     group_code: str         # for reporting
+    published_schedule_assignment_id: int | None = None
+
+    @property
+    def source_kind(self) -> str:
+        return "legacy" if self.designation_id is not None else "published"
+
+    @property
+    def source_id(self) -> int:
+        source_id = self.designation_id or self.published_schedule_assignment_id
+        if source_id is None:  # pragma: no cover - constructor invariant
+            raise ValueError("Attendance result source identity is missing")
+        return source_id
 
 
 @dataclass
@@ -189,26 +202,9 @@ class AttendanceEngine:
             upload_id,
         )
 
-        # ── Step 2: Load all designations (scoped to active academic period) ──
-        all_designations: list[Designation] = (
-            db.query(Designation)
-            .filter(
-                Designation.academic_period == app_settings_service.get_active_academic_period(db),
-                Designation.designation_type != "practice",
-            )
-            .all()
-        )
-
-        # Index: teacher_ci → list[Designation]
-        desig_index: dict[str, list[Designation]] = {}
-        for d in all_designations:
-            desig_index.setdefault(d.teacher_ci, []).append(d)
-
-        logger.info(
-            "process_month: loaded %d designations for %d teachers",
-            len(all_designations),
-            len(desig_index),
-        )
+        # ── Step 2: Resolve the active schedule from immutable publications
+        #              plus deterministic legacy fallback for each target date. ──
+        academic_period = app_settings_service.get_active_academic_period(db)
 
         # ── Step 3: Build list of dates to process ─────────────────────
         if start_date is not None and end_date is not None:
@@ -239,24 +235,18 @@ class AttendanceEngine:
 
         for target_date in dates_to_process:
             weekday_name = WEEKDAY_MAP[target_date.weekday()]
+            slots_by_teacher: dict[str, list[EffectiveScheduleSlot]] = {}
+            for slot in effective_schedule_slots(db, academic_period, target_date):
+                if _normalize_day(slot.weekday) == weekday_name:
+                    slots_by_teacher.setdefault(slot.teacher_ci, []).append(slot)
 
-            # Collect teachers who have at least one slot on this weekday
-            teachers_today: set[str] = set()
-            for ci, designations in desig_index.items():
-                for desig in designations:
-                    schedule: list[dict] = desig.schedule_json or []
-                    if any(_normalize_day(slot.get("dia", "")) == weekday_name for slot in schedule):
-                        teachers_today.add(ci)
-                        break  # one match per teacher is enough
-
-            for ci in teachers_today:
-                teacher_designations = desig_index.get(ci, [])
+            for ci, teacher_slots in slots_by_teacher.items():
                 teacher_bio = bio_index.get(ci, {}).get(target_date, [])
 
-                day_results = self.match_teacher_day(
+                day_results = self.match_schedule_slots(
                     teacher_ci=ci,
                     target_date=target_date,
-                    designations=teacher_designations,
+                    slots=teacher_slots,
                     biometric_records=teacher_bio,
                 )
                 all_results.extend(day_results)
@@ -323,10 +313,7 @@ class AttendanceEngine:
         list[SlotResult] — one entry per scheduled slot on this weekday
         """
         weekday_name = WEEKDAY_MAP[target_date.weekday()]
-        results: list[SlotResult] = []
-
-        # ── Collect all slots scheduled for today ───────────────────────
-        day_slots: list[tuple[Designation, dict]] = []
+        day_slots: list[EffectiveScheduleSlot] = []
         for desig in designations:
             contract_start = getattr(desig, "contract_start_date", None)
             contract_end = getattr(desig, "contract_end_date", None)
@@ -337,15 +324,50 @@ class AttendanceEngine:
             schedule: list[dict] = desig.schedule_json or []
             for slot in schedule:
                 if _normalize_day(slot.get("dia", "")) == weekday_name:
-                    day_slots.append((desig, slot))
-
-        if not day_slots:
-            return results  # Nothing scheduled today for this teacher
-
-        # Sort slots by start time (ascending)
-        day_slots.sort(
-            key=lambda x: parse_time_str(x[1].get("hora_inicio", "00:00")) or time(0, 0)
+                    slot_start = parse_time_str(slot.get("hora_inicio", ""))
+                    slot_end = parse_time_str(slot.get("hora_fin", ""))
+                    if slot_start is None or slot_end is None:
+                        logger.warning(
+                            "Designation %d has unparseable time slot: %s – %s",
+                            desig.id,
+                            slot.get("hora_inicio"),
+                            slot.get("hora_fin"),
+                        )
+                        continue
+                    day_slots.append(EffectiveScheduleSlot(
+                        source_type="legacy",
+                        teacher_ci=teacher_ci,
+                        subject=desig.subject,
+                        group_code=desig.group_code,
+                        semester=str(getattr(desig, "semester", "")),
+                        activity_type="theory",
+                        weekday=weekday_name,
+                        start_time=slot_start,
+                        end_time=slot_end,
+                        academic_hours=int(slot.get("horas_academicas", 0)),
+                        designation_id=desig.id,
+                        effective_from=contract_start if isinstance(contract_start, date) else None,
+                        effective_to=contract_end if isinstance(contract_end, date) else None,
+                    ))
+        return self.match_schedule_slots(
+            teacher_ci=teacher_ci,
+            target_date=target_date,
+            slots=day_slots,
+            biometric_records=biometric_records,
         )
+
+    def match_schedule_slots(
+        self,
+        teacher_ci: str,
+        target_date: date,
+        slots: list[EffectiveScheduleSlot],
+        biometric_records: list[BiometricRecord],
+    ) -> list[SlotResult]:
+        """Apply the unchanged biometric algorithm to either schedule source."""
+        results: list[SlotResult] = []
+        day_slots = sorted(slots, key=lambda item: item.start_time)
+        if not day_slots:
+            return results
 
         # Sort biometric records by entry_time (records with no entry go last)
         bio_sorted = sorted(
@@ -354,50 +376,38 @@ class AttendanceEngine:
         )
 
         # ── Match each slot ─────────────────────────────────────────────
-        for desig, slot in day_slots:
-            slot_start = parse_time_str(slot.get("hora_inicio", ""))
-            slot_end = parse_time_str(slot.get("hora_fin", ""))
-            slot_hours: int = slot.get("horas_academicas", 0)
-
-            if slot_start is None or slot_end is None:
-                logger.warning(
-                    "Designation %d has unparseable time slot: %s – %s",
-                    desig.id,
-                    slot.get("hora_inicio"),
-                    slot.get("hora_fin"),
-                )
-                continue
-
-            covering = self._find_covering_record(slot_start, slot_end, bio_sorted)
+        for slot in day_slots:
+            covering = self._find_covering_record(slot.start_time, slot.end_time, bio_sorted)
 
             if covering is not None:
                 bio_rec, status, late_min, obs = covering
                 results.append(
                     SlotResult(
-                        designation_id=desig.id,
+                        designation_id=slot.designation_id,
                         teacher_ci=teacher_ci,
                         date=target_date,
-                        scheduled_start=slot_start,
-                        scheduled_end=slot_end,
+                        scheduled_start=slot.start_time,
+                        scheduled_end=slot.end_time,
                         actual_entry=bio_rec.entry_time,
                         actual_exit=bio_rec.exit_time,
                         status=status,
-                        academic_hours=slot_hours,   # Always awarded unless ABSENT
+                        academic_hours=slot.academic_hours,   # Always awarded unless ABSENT
                         late_minutes=late_min,
                         observation=obs,
                         biometric_record_id=bio_rec.id,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
+                        subject=slot.subject,
+                        group_code=slot.group_code,
+                        published_schedule_assignment_id=slot.published_assignment_id,
                     )
                 )
             else:
                 results.append(
                     SlotResult(
-                        designation_id=desig.id,
+                        designation_id=slot.designation_id,
                         teacher_ci=teacher_ci,
                         date=target_date,
-                        scheduled_start=slot_start,
-                        scheduled_end=slot_end,
+                        scheduled_start=slot.start_time,
+                        scheduled_end=slot.end_time,
                         actual_entry=None,
                         actual_exit=None,
                         status="ABSENT",
@@ -405,12 +415,13 @@ class AttendanceEngine:
                         late_minutes=0,
                         observation=(
                             f"Sin registro biométrico para "
-                            f"{slot.get('hora_inicio', '?')}"
-                            f"-{slot.get('hora_fin', '?')}"
+                            f"{slot.start_time.strftime('%H:%M')}"
+                            f"-{slot.end_time.strftime('%H:%M')}"
                         ),
                         biometric_record_id=None,
-                        subject=desig.subject,
-                        group_code=desig.group_code,
+                        subject=slot.subject,
+                        group_code=slot.group_code,
+                        published_schedule_assignment_id=slot.published_assignment_id,
                     )
                 )
 
@@ -429,8 +440,7 @@ class AttendanceEngine:
         """
         Persist SlotResults as AttendanceRecord rows.
 
-        Uses upsert semantics on the natural key
-        (teacher_ci, designation_id, date, scheduled_start) so re-processing
+        Uses upsert semantics on the source-specific natural key so re-processing
         updates existing rows instead of leaving stale attendance states behind.
 
         When start_date/end_date are provided (partial-range processing), the
@@ -457,23 +467,26 @@ class AttendanceEngine:
             existing_query = existing_query.filter(AttendanceRecord.date <= end_date)
 
         existing_rows = existing_query.all()
-        existing_by_key = {
-            (row.teacher_ci, row.designation_id, row.date, row.scheduled_start): row
-            for row in existing_rows
-        }
-        incoming_keys = {
-            (row.teacher_ci, row.designation_id, row.date, row.scheduled_start)
-            for row in results
-        }
+        def persisted_key(row: AttendanceRecord) -> tuple[object, ...]:
+            source_kind = "legacy" if row.designation_id is not None else "published"
+            source_id = row.designation_id or row.published_schedule_assignment_id
+            return (row.teacher_ci, source_kind, source_id, row.date, row.scheduled_start)
+
+        def result_key(row: SlotResult) -> tuple[object, ...]:
+            return (row.teacher_ci, row.source_kind, row.source_id, row.date, row.scheduled_start)
+
+        existing_by_key = {persisted_key(row): row for row in existing_rows}
+        incoming_keys = {result_key(row) for row in results}
 
         for r in results:
-            key = (r.teacher_ci, r.designation_id, r.date, r.scheduled_start)
+            key = result_key(r)
             record = existing_by_key.get(key)
 
             if record is None:
                 record = AttendanceRecord(
                     teacher_ci=r.teacher_ci,
                     designation_id=r.designation_id,
+                    published_schedule_assignment_id=r.published_schedule_assignment_id,
                     date=r.date,
                     scheduled_start=r.scheduled_start,
                     scheduled_end=r.scheduled_end,

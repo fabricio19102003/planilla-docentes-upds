@@ -13,12 +13,13 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, cm
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
-from app.models.designation import Designation
+from app.models.academic_management import AcademicSchedulePublishedAssignment
 from app.services import app_settings_service
+from app.services.practice_attendance_source_service import practice_attendance_source_details
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,11 @@ def _query_logs(
 
     query = db.query(PracticeAttendanceLog).join(
         Teacher, PracticeAttendanceLog.teacher_ci == Teacher.ci
-    ).join(
-        Designation, PracticeAttendanceLog.designation_id == Designation.id
+    ).options(
+        joinedload(PracticeAttendanceLog.designation),
+        joinedload(PracticeAttendanceLog.published_schedule_assignment).joinedload(
+            AcademicSchedulePublishedAssignment.block
+        ),
     )
 
     query = query.filter(
@@ -135,7 +139,7 @@ def generate_practice_attendance_pdf(
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    period_name = app_settings_service.get_active_academic_period(db)
+    period_name = f"{'I' if month <= 6 else 'II'}/{year}"
 
     logs = _query_logs(db, month, year, start_date, end_date, teacher_ci)
 
@@ -268,9 +272,9 @@ def generate_practice_attendance_pdf(
 
         table_data = [headers_wrapped]
         for log in group_logs:
-            desig = db.query(Designation).filter(Designation.id == log.designation_id).first()
-            subject = desig.subject if desig else "—"
-            group_code = desig.group_code if desig else "—"
+            source = practice_attendance_source_details(log)
+            subject = source.subject
+            group_code = source.group_code
 
             table_data.append([
                 log.date.strftime("%d/%m/%Y"),
@@ -443,15 +447,15 @@ def generate_practice_attendance_excel(
     row_num = 5
     for log in logs:
         teacher = db.query(Teacher).filter(Teacher.ci == log.teacher_ci).first()
-        desig = db.query(Designation).filter(Designation.id == log.designation_id).first()
+        source = practice_attendance_source_details(log)
 
         values = [
             teacher.full_name if teacher else log.teacher_ci,
             log.teacher_ci,
             log.date.strftime("%d/%m/%Y"),
-            desig.subject if desig else "",
-            desig.group_code if desig else "",
-            desig.semester if desig else "",
+            source.subject,
+            source.group_code,
+            source.semester,
             f"{log.scheduled_start.strftime('%H:%M')} - {log.scheduled_end.strftime('%H:%M')}",
             log.actual_start.strftime("%H:%M") if log.actual_start else "",
             log.actual_end.strftime("%H:%M") if log.actual_end else "",

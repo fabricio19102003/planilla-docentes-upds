@@ -5,12 +5,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel as PydanticBaseModel, field_validator
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
+from app.models.academic_management import AcademicSchedulePublishedAssignment
 from app.models.biometric import BiometricUpload
-from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.attendance import (
@@ -22,6 +22,7 @@ from app.schemas.attendance import (
     PaginatedAttendanceResponse,
 )
 from app.services.attendance_engine import AttendanceEngine
+from app.services.attendance_source_service import attendance_schedule_snapshots, attendance_source_details
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -38,32 +39,45 @@ router = APIRouter(prefix="/api", tags=["attendance"])
 
 def _attendance_query(db: Session, month: int, year: int):
     return (
-        db.query(AttendanceRecord, Teacher.full_name, Designation.subject, Designation.group_code, Designation.semester)
+        db.query(AttendanceRecord, Teacher.full_name)
         .join(Teacher, Teacher.ci == AttendanceRecord.teacher_ci)
-        .join(Designation, Designation.id == AttendanceRecord.designation_id)
+        .options(
+            joinedload(AttendanceRecord.designation),
+            joinedload(AttendanceRecord.published_schedule_assignment).joinedload(
+                AcademicSchedulePublishedAssignment.block
+            ),
+        )
         .filter(AttendanceRecord.month == month, AttendanceRecord.year == year)
     )
 
 
 def _to_attendance_with_details(row) -> AttendanceWithDetails:
-    attendance, teacher_name, subject, group_code, semester = row
+    attendance, teacher_name = row
+    source = attendance_source_details(attendance)
     payload = AttendanceWithDetails.model_validate(attendance)
     payload.teacher_name = teacher_name
-    payload.subject = subject
-    payload.group_code = group_code
-    payload.semester = semester
+    payload.subject = source.subject
+    payload.group_code = source.group_code
+    payload.semester = source.semester
+    payload.activity_type = source.activity_type
     return payload
 
 
 def _to_observation_response(row) -> ObservationResponse:
-    attendance, teacher_name, subject, group_code, _semester = row
+    attendance, teacher_name = row
+    source = attendance_source_details(attendance)
     return ObservationResponse(
         id=attendance.id,
         teacher_ci=attendance.teacher_ci,
         teacher_name=teacher_name,
+        source_kind=source.source_kind,
+        source_key=source.source_key,
         designation_id=attendance.designation_id,
-        subject=subject,
-        group_code=group_code,
+        published_schedule_assignment_id=attendance.published_schedule_assignment_id,
+        subject=source.subject,
+        group_code=source.group_code,
+        semester=source.semester,
+        activity_type=source.activity_type,
         date=attendance.date,
         scheduled_start=attendance.scheduled_start,
         scheduled_end=attendance.scheduled_end,
@@ -81,19 +95,12 @@ def _get_audit_data(
 ):
     """Shared data-collection logic for the audit GET and PDF endpoints."""
     from app.models.biometric import BiometricRecord, BiometricUpload
-    from app.services import app_settings_service
 
     teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Docente no encontrado")
 
-    # 1. Teacher's designations (schedule)
-    designations = db.query(Designation).filter(
-        Designation.teacher_ci == teacher_ci,
-        Designation.academic_period == app_settings_service.get_active_academic_period(db),
-    ).all()
-
-    # 2. Raw biometric records for this teacher in this period
+    # 1. Raw biometric records for this teacher in this period
     bio_records = (
         db.query(BiometricRecord)
         .join(BiometricUpload)
@@ -106,9 +113,15 @@ def _get_audit_data(
         .all()
     )
 
-    # 3. Processed attendance records (the system's output)
+    # 2. Processed attendance records and their persisted source provenance
     att_records = (
         db.query(AttendanceRecord)
+        .options(
+            joinedload(AttendanceRecord.designation),
+            joinedload(AttendanceRecord.published_schedule_assignment).joinedload(
+                AcademicSchedulePublishedAssignment.block
+            ),
+        )
         .filter(
             AttendanceRecord.teacher_ci == teacher_ci,
             AttendanceRecord.month == month,
@@ -118,7 +131,7 @@ def _get_audit_data(
         .all()
     )
 
-    return teacher, designations, bio_records, att_records
+    return teacher, attendance_schedule_snapshots(att_records), bio_records, att_records
 
 
 @router.get("/attendance/audit/{teacher_ci}")
@@ -132,21 +145,24 @@ def get_attendance_audit(
     """Get detailed attendance audit for a teacher — shows schedule, biometric data, and processing result."""
     from app.models.biometric import BiometricRecord
 
-    teacher, designations, bio_records, att_records = _get_audit_data(
+    teacher, schedule_snapshots, bio_records, att_records = _get_audit_data(
         teacher_ci, month, year, db
     )
 
     schedule_info = []
-    for d in designations:
-        slots = d.schedule_json or []
+    for snapshot in schedule_snapshots:
         schedule_info.append({
-            "designation_id": d.id,
-            "subject": d.subject,
-            "group_code": d.group_code,
-            "semester": d.semester,
-            "monthly_hours": d.monthly_hours,
-            "weekly_hours": d.weekly_hours,
-            "slots": slots,
+            "source_kind": snapshot.source_kind,
+            "source_key": snapshot.source_key,
+            "designation_id": snapshot.designation_id,
+            "published_schedule_assignment_id": snapshot.published_schedule_assignment_id,
+            "subject": snapshot.subject,
+            "group_code": snapshot.group_code,
+            "semester": snapshot.semester,
+            "activity_type": snapshot.activity_type,
+            "monthly_hours": snapshot.monthly_hours,
+            "weekly_hours": snapshot.weekly_hours,
+            "slots": snapshot.schedule_json,
         })
 
     biometric_data = [
@@ -163,7 +179,7 @@ def get_attendance_audit(
     # Build detailed audit trail per record
     attendance_audit = []
     for rec in att_records:
-        desig = next((d for d in designations if d.id == rec.designation_id), None)
+        source = attendance_source_details(rec)
 
         # Find the linked biometric record
         bio_match = None
@@ -199,8 +215,12 @@ def get_attendance_audit(
             "academic_hours": rec.academic_hours,
             "late_minutes": rec.late_minutes,
             "observation": rec.observation,
-            "subject": desig.subject if desig else "—",
-            "group_code": desig.group_code if desig else "—",
+            "source_kind": source.source_kind,
+            "source_key": source.source_key,
+            "designation_id": source.designation_id,
+            "published_schedule_assignment_id": source.published_schedule_assignment_id,
+            "subject": source.subject,
+            "group_code": source.group_code,
             "biometric_match": bio_match,
             "explanation": explanation,
             "has_biometric_link": rec.biometric_record_id is not None,
@@ -249,7 +269,7 @@ def export_attendance_audit_pdf(
     from app.services.audit_report_pdf import generate_audit_report_pdf
     from fastapi.responses import FileResponse
 
-    teacher, designations, bio_records, att_records = _get_audit_data(
+    teacher, schedule_snapshots, bio_records, att_records = _get_audit_data(
         teacher_ci, month, year, db
     )
 
@@ -257,7 +277,7 @@ def export_attendance_audit_pdf(
         teacher=teacher,
         month=month,
         year=year,
-        designations=designations,
+        designations=schedule_snapshots,
         bio_records=bio_records,
         att_records=att_records,
         db=db,
@@ -303,7 +323,6 @@ class BatchAuditRequest(PydanticBaseModel):
 
 def _build_audit_response(
     teacher: Teacher,
-    designations: list,
     bio_records: list,
     att_records: list,
 ) -> dict:
@@ -312,7 +331,7 @@ def _build_audit_response(
 
     attendance_detail = []
     for rec in att_records:
-        desig = next((d for d in designations if d.id == rec.designation_id), None)
+        source = attendance_source_details(rec)
 
         if rec.status == "ABSENT":
             explanation = "No se encontró registro biométrico para este horario programado"
@@ -335,8 +354,12 @@ def _build_audit_response(
             "actual_exit": rec.actual_exit.strftime("%H:%M") if rec.actual_exit else None,
             "status": rec.status,
             "late_minutes": rec.late_minutes or 0,
-            "subject": desig.subject if desig else "—",
-            "group_code": desig.group_code if desig else "—",
+            "source_kind": source.source_kind,
+            "source_key": source.source_key,
+            "designation_id": source.designation_id,
+            "published_schedule_assignment_id": source.published_schedule_assignment_id,
+            "subject": source.subject,
+            "group_code": source.group_code,
             "explanation": explanation,
         })
 
@@ -369,7 +392,6 @@ def export_batch_audit_pdf(
 ):
     """Generate a single PDF with audit data for multiple (or all) teachers."""
     from app.services.audit_report_pdf import generate_batch_audit_pdf
-    from app.services import app_settings_service
     from fastapi.responses import FileResponse
 
     month = payload.month
@@ -384,17 +406,18 @@ def export_batch_audit_pdf(
             .all()
         )
     else:
-        # All teachers with active designations (excluding TEMP-)
-        teacher_cis_with_desig = {
-            d.teacher_ci
-            for d in db.query(Designation).filter(
-                Designation.academic_period == app_settings_service.get_active_academic_period(db),
-                ~Designation.teacher_ci.startswith("TEMP-"),
-            ).all()
+        # Historical audit population comes from persisted records for the period.
+        teacher_cis_with_attendance = {
+            teacher_ci
+            for (teacher_ci,) in db.query(AttendanceRecord.teacher_ci).filter(
+                AttendanceRecord.month == month,
+                AttendanceRecord.year == year,
+                ~AttendanceRecord.teacher_ci.startswith("TEMP-"),
+            ).distinct().all()
         }
         teachers = (
             db.query(Teacher)
-            .filter(Teacher.ci.in_(teacher_cis_with_desig))
+            .filter(Teacher.ci.in_(teacher_cis_with_attendance))
             .order_by(Teacher.full_name)
             .all()
         )
@@ -405,10 +428,10 @@ def export_batch_audit_pdf(
     # Collect audit data for each teacher
     all_audit_data = []
     for teacher in teachers:
-        t_obj, designations, bio_records, att_records = _get_audit_data(
+        t_obj, _schedule_snapshots, bio_records, att_records = _get_audit_data(
             teacher.ci, month, year, db
         )
-        audit = _build_audit_response(t_obj, designations, bio_records, att_records)
+        audit = _build_audit_response(t_obj, bio_records, att_records)
         all_audit_data.append({
             "teacher": teacher,
             "audit": audit,

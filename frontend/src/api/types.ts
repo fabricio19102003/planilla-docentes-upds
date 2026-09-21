@@ -61,6 +61,16 @@ export interface BillingDesignation {
   net_payment: number
   payment: number  // Compatibility alias for net_payment; do not use for new calculations.
   has_admin_override: boolean
+  source_kind?: 'legacy' | 'published'
+  source_id?: number | null
+  source_key?: string | null
+  designation_id?: number | null
+  publication_id?: number | null
+  published_block_id?: number | null
+  published_schedule_assignment_id?: number | null
+  activity_kind?: 'theory' | 'practice'
+  effective_from?: string | null
+  effective_to?: string | null
 }
 
 export interface BillingInfo {
@@ -128,15 +138,18 @@ export interface DetailRequestCreate {
   message?: string
 }
 
+export type DetailRequestStatus = 'pending' | 'approved' | 'rejected'
+export type DetailRequestType = 'biometric_detail' | 'hours_summary' | 'schedule_detail'
+
 export interface DetailRequestInfo {
   id: number
   teacher_ci: string
   teacher_name?: string
   month: number
   year: number
-  request_type: string
+  request_type: DetailRequestType
   message?: string
-  status: string
+  status: DetailRequestStatus
   admin_response?: string
   resolution_snapshot?: DetailRequestResolutionSnapshot | null
   responded_at?: string
@@ -146,12 +159,23 @@ export interface DetailRequestInfo {
 export interface ScheduleResolutionSnapshot {
   kind: 'schedule_detail'
   academic_period: string
+  effective_date?: string | null
   designations: Array<{
     subject: string
     semester: string
     group_code: string
     weekly_hours: number | null
     monthly_hours: number | null
+    source_kind?: 'legacy' | 'published'
+    source_id?: number | null
+    source_key?: string | null
+    designation_id?: number | null
+    publication_id?: number | null
+    published_block_id?: number | null
+    published_assignment_id?: number | null
+    activity_kind?: 'theory' | 'practice'
+    effective_from?: string | null
+    effective_to?: string | null
     schedule: Array<{
       dia: string
       hora_inicio: string
@@ -223,6 +247,25 @@ export interface Designation {
   created_at: string
 }
 
+export interface TeacherWorkload {
+  source_kind: 'legacy' | 'published'
+  source_id: number
+  source_key: string
+  designation_id: number | null
+  publication_id: number | null
+  published_block_id: number | null
+  published_assignment_id: number | null
+  activity_kind: 'theory' | 'practice'
+  subject: string
+  semester: string
+  group_code: string
+  schedule_json: ScheduleSlot[]
+  monthly_hours: number | null
+  weekly_hours: number
+  effective_from: string | null
+  effective_to: string | null
+}
+
 export interface Teacher {
   ci: string
   full_name: string
@@ -248,49 +291,6 @@ export interface TeacherPhotoPayload {
   file: File
 }
 
-export interface PortalPhotoPayload {
-  file: File
-}
-
-export interface TeacherProfileFieldCoverage {
-  creates: number
-  fills: number
-  noops: number
-  conflicts: number
-  missing: number
-}
-
-export interface TeacherProfileImportPreview {
-  digest: string
-  parsed_format: string
-  academic_period: string
-  scope: string
-  policy: 'fill_empty_only'
-  total_rows: number
-  rows_with_fills: number
-  can_apply: boolean
-  identity: {
-    matched: number
-    missing: number
-    duplicates: number
-    conflicts: number
-  }
-  fields: Record<string, TeacherProfileFieldCoverage>
-  warnings: string[]
-  errors: string[]
-}
-
-export interface TeacherProfileImportResult extends TeacherProfileImportPreview {
-  applied: boolean
-}
-
-export interface TeacherAttendanceSummary {
-  total_records: number
-  attended: number
-  late: number
-  absent: number
-  no_exit: number
-  total_academic_hours: number
 // ─── Academic management ─────────────────────────────────────────────────────
 export interface AcademicCatalogBase {
   id: number
@@ -495,6 +495,49 @@ export interface AcademicSchedulePublication {
   blocks: PublishedScheduleBlock[]
 }
 
+export interface PortalPhotoPayload {
+  file: File
+}
+
+export interface TeacherProfileFieldCoverage {
+  creates: number
+  fills: number
+  noops: number
+  conflicts: number
+  missing: number
+}
+
+export interface TeacherProfileImportPreview {
+  digest: string
+  parsed_format: string
+  academic_period: string
+  scope: string
+  policy: 'fill_empty_only'
+  total_rows: number
+  rows_with_fills: number
+  can_apply: boolean
+  identity: {
+    matched: number
+    missing: number
+    duplicates: number
+    conflicts: number
+  }
+  fields: Record<string, TeacherProfileFieldCoverage>
+  warnings: string[]
+  errors: string[]
+}
+
+export interface TeacherProfileImportResult extends TeacherProfileImportPreview {
+  applied: boolean
+}
+
+export interface TeacherAttendanceSummary {
+  total_records: number
+  attended: number
+  late: number
+  absent: number
+  no_exit: number
+  total_academic_hours: number
 }
 
 export interface TeacherWithDesignations extends Teacher {
@@ -502,7 +545,7 @@ export interface TeacherWithDesignations extends Teacher {
 }
 
 export interface TeacherDetail extends Teacher {
-  designations: Designation[]
+  designations: TeacherWorkload[]
   attendance_summary: TeacherAttendanceSummary
 }
 
@@ -541,7 +584,10 @@ export interface BiometricUploadResult {
 export interface AttendanceRecord {
   id: number
   teacher_ci: string
-  designation_id: number
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  designation_id: number | null
+  published_schedule_assignment_id: number | null
   date: string
   scheduled_start: string
   scheduled_end: string
@@ -562,6 +608,7 @@ export interface AttendanceWithDetails extends AttendanceRecord {
   subject: string | null
   group_code: string | null
   semester: string | null
+  activity_type: string | null
 }
 
 export interface AttendanceSummary {
@@ -591,9 +638,14 @@ export interface Observation {
   id: number
   teacher_ci: string
   teacher_name: string | null
-  designation_id: number
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  designation_id: number | null
+  published_schedule_assignment_id: number | null
   subject: string | null
   group_code: string | null
+  semester: string | null
+  activity_type: string | null
   date: string
   scheduled_start: string
   scheduled_end: string
@@ -781,6 +833,16 @@ export interface PortalDesignationSchedule {
   group_code: string
   weekly_hours: number | null
   monthly_hours: number | null
+  source_kind: 'legacy' | 'published'
+  source_id: number
+  source_key: string
+  designation_id: number | null
+  publication_id: number | null
+  published_block_id: number | null
+  published_assignment_id: number | null
+  activity_kind: 'theory' | 'practice'
+  effective_from: string | null
+  effective_to: string | null
   schedule: PortalScheduleSlot[]
 }
 
@@ -803,6 +865,16 @@ export interface TeacherDesignationSchedule {
 
 export interface TeacherDesignationDetail {
   id: number
+  source_kind: 'legacy' | 'published'
+  source_id: number
+  source_key: string
+  designation_id: number | null
+  publication_id: number | null
+  published_block_id: number | null
+  published_assignment_id: number | null
+  activity_kind: 'theory' | 'practice'
+  effective_from: string | null
+  effective_to: string | null
   subject: string
   semester: string
   group_code: string
@@ -828,6 +900,11 @@ export interface PlanillaDetailRow {
   subject: string
   semester: string
   group_code: string
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  activity_kind: 'theory' | 'practice'
+  effective_from: string | null
+  effective_to: string | null
   base_monthly_hours: number
   absent_hours: number
   payable_hours: number

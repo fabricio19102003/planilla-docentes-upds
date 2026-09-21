@@ -21,11 +21,13 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from app.database import Base
 from app.models.attendance import AttendanceRecord
+from app.models.academic_management import AcademicSchedulePublishedAssignment
 from app.models.designation import Designation
 from app.models.teacher import Teacher  # noqa: F401 — needed for FK registration
 import app.models  # noqa: F401 — register all models for create_all
 
 from app.services.attendance_engine import AttendanceEngine, SlotResult, TOLERANCE_MINUTES
+from app.services.effective_schedule_service import EffectiveScheduleSlot
 
 
 # ---------------------------------------------------------------------------
@@ -678,6 +680,59 @@ class TestSaveAndSummary:
         svc = AttendanceEngine()
         saved = svc.save_results(db, results, upload_id=1, month=3, year=2026)
         assert saved == 2
+
+    def test_published_slot_keeps_matching_behavior_and_immutable_source(self, db: Session):
+        db.add(Teacher(ci="77777777", full_name="Published Teacher"))
+        db.flush()
+        db.add(AcademicSchedulePublishedAssignment(
+            id=91,
+            publication_block_id=999,
+            source_assignment_id=501,
+            teacher_ci="77777777",
+            teacher_name="Published Teacher",
+            effective_from=MONDAY,
+            effective_to=None,
+        ))
+        db.flush()
+        schedule_slot = EffectiveScheduleSlot(
+            source_type="published",
+            teacher_ci="77777777",
+            subject="IMMUTABLE SUBJECT",
+            group_code="P-1",
+            semester="1",
+            activity_type="theory",
+            weekday="lunes",
+            start_time=_t("08:00"),
+            end_time=_t("10:00"),
+            academic_hours=2,
+            published_assignment_id=91,
+            publication_id=7,
+            effective_from=MONDAY,
+        )
+        biometric = make_bio_record(
+            "08:06", "10:00", teacher_ci="77777777", rec_date=MONDAY
+        )
+
+        results = engine_svc.match_schedule_slots(
+            teacher_ci="77777777",
+            target_date=MONDAY,
+            slots=[schedule_slot],
+            biometric_records=[biometric],
+        )
+        assert len(results) == 1
+        assert results[0].status == "LATE"
+        assert results[0].late_minutes == 6
+        assert results[0].academic_hours == 2
+        assert results[0].designation_id is None
+        assert results[0].published_schedule_assignment_id == 91
+
+        saved = engine_svc.save_results(db, results, upload_id=1, month=3, year=2026)
+        record = db.query(AttendanceRecord).filter_by(teacher_ci="77777777").one()
+        assert saved == 1
+        assert record.source_kind == "published"
+        assert record.source_key == "published:91"
+        assert record.designation_id is None
+        assert record.published_schedule_assignment_id == 91
 
     def test_save_results_reprocessing_updates_existing_record(self, db: Session):
         """Running save_results() twice must update the existing natural-key row."""

@@ -177,6 +177,7 @@ def generate_audit_report_pdf(
     Returns the absolute path to the generated PDF file.
     """
     from app.models.biometric import BiometricRecord
+    from app.services.attendance_source_service import attendance_source_details
 
     styles = getSampleStyleSheet()
     cs = _make_cell_styles(styles)
@@ -238,18 +239,20 @@ def generate_audit_report_pdf(
         elements.append(Paragraph("Horario Asignado", cs["section"]))
 
         sched_header = [_cell(h, cs["header"]) for h in [
-            "Materia", "Grupo", "Semestre", "Hrs Mensuales", "Hrs Semanales", "Horarios"
+            "Materia / Fuente", "Grupo", "Semestre", "Hrs Mensuales", "Hrs Semanales", "Horarios"
         ]]
         sched_data: list = [sched_header]
 
         for d in designations:
             slots = d.schedule_json or []
+            activity_label = "Práctica" if getattr(d, "activity_type", "theory") == "practice" else "Teoría"
+            source_label = "Publicado" if getattr(d, "source_kind", "legacy") == "published" else "Legado"
             slots_text = ", ".join(
                 f"{s.get('dia', '')} {s.get('hora_inicio', '')}–{s.get('hora_fin', '')}"
                 for s in slots
             ) if slots else "—"
             sched_data.append([
-                _cell(d.subject, cs["cell"]),
+                _cell(f"{d.subject}<br/><font size='6'>{activity_label} · {source_label}</font>", cs["cell"]),
                 _cell(d.group_code or "—", cs["cell_center"]),
                 _cell(str(d.semester) if d.semester else "—", cs["cell_center"]),
                 _cell(f"{d.monthly_hours or 0}h", cs["cell_center"]),
@@ -272,9 +275,6 @@ def generate_audit_report_pdf(
     # ── SECTION 3: Attendance Detail Table ───────────────────────────────────
     elements.append(Paragraph("Detalle de Auditoría de Asistencia", cs["section"]))
 
-    # Build designation lookup
-    desig_map = {d.id: d for d in designations}
-
     # Build biometric lookup per record
     bio_by_id: dict[int, Any] = {}
     if att_records:
@@ -293,13 +293,13 @@ def generate_audit_report_pdf(
     row_colors: list[tuple] = []
 
     for idx, rec in enumerate(att_records):
-        desig = desig_map.get(rec.designation_id)
+        source = attendance_source_details(rec)
         row_num = idx + 1  # +1 for header row
 
         date_str = rec.date.strftime("%d/%m/%Y") if rec.date else "—"
         day_name = WEEKDAY_NAMES[rec.date.weekday()] if rec.date else "—"
-        subject = desig.subject if desig else "—"
-        group = desig.group_code if desig else "—"
+        subject = source.subject
+        group = source.group_code
         sched_time = (
             f"{rec.scheduled_start.strftime('%H:%M')}–{rec.scheduled_end.strftime('%H:%M')}"
             if rec.scheduled_start and rec.scheduled_end else "—"
