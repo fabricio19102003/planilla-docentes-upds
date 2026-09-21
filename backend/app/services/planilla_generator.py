@@ -58,6 +58,7 @@ from openpyxl.styles import (
     Side,
 )
 from openpyxl.utils import get_column_letter
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.attendance import AttendanceRecord
@@ -70,7 +71,12 @@ from app.services.payment_overrides import (
     calculate_override_total,
     get_teacher_override_allocations,
     normalize_payment_overrides,
+    resolve_row_override,
     validate_payment_override_targets,
+)
+from app.services.payroll_schedule_source_service import (
+    PayrollScheduleSource,
+    payroll_schedule_sources,
 )
 
 if TYPE_CHECKING:
@@ -268,6 +274,15 @@ class PlanillaRow:
     late_count: int = 0
     absent_count: int = 0
     has_biometric: bool = True         # False = no biometric records at all → full pay
+    source_kind: str = "legacy"
+    source_id: int | None = None
+    source_key: str | None = None
+    published_schedule_assignment_id: int | None = None
+    publication_id: int | None = None
+    published_block_id: int | None = None
+    activity_kind: str = "theory"
+    effective_from: date | None = None
+    effective_to: date | None = None
 
 
 @dataclass
@@ -1004,60 +1019,42 @@ class PlanillaGenerator:
         exclusions = excluded_days or []
         hourly_rate = app_settings_service.get_hourly_rate(db)
         active_period = app_settings_service.get_active_academic_period(db)
-        all_designations: list[Designation] = (
-            db.query(Designation)
-            .filter(
-                Designation.academic_period == active_period,
-                Designation.designation_type != "practice",
-            )
-            .all()
-        )
-
-        if not all_designations:
-            warnings.append("No hay designaciones en la base de datos")
-            return [], [], warnings
-
         period_start, period_end, _ = _resolve_payroll_period(
             month, year, start_date, end_date,
         )
-        effective_ranges = {
-            desig.id: _effective_designation_range(
-                desig, month, year, start_date, end_date,
-            )
-            for desig in all_designations
-        }
+        sources = payroll_schedule_sources(
+            db,
+            academic_period=active_period,
+            period_start=period_start,
+            period_end=period_end,
+            activity_kind="theory",
+        )
+        if not sources:
+            warnings.append("No hay fuentes horarias regulares para el período solicitado")
+            return [], [], warnings
 
         if discount_mode == "full":
             logger.info("discount_mode=full — skipping regular attendance queries")
-            att_index: dict[tuple[str, int], list[AttendanceRecord]] = {}
+            att_index: dict[str, list[AttendanceRecord]] = {}
         else:
-            designation_ids = [desig.id for desig in all_designations]
             att_query = db.query(AttendanceRecord).filter(
-                AttendanceRecord.designation_id.in_(designation_ids),
                 AttendanceRecord.date >= period_start,
                 AttendanceRecord.date <= period_end,
             )
             att_records: list[AttendanceRecord] = (
                 att_query
                 .order_by(
-                    AttendanceRecord.designation_id,
                     AttendanceRecord.date,
                     AttendanceRecord.scheduled_start,
                 )
                 .all()
             )
-            self._validate_attendance_coverage(
-                all_designations,
-                att_records,
-                effective_ranges,
-                exclusions,
-            )
+            self._validate_attendance_coverage(sources, att_records, exclusions)
             att_index = {}
             for rec in att_records:
-                key = (rec.teacher_ci, rec.designation_id)
-                att_index.setdefault(key, []).append(rec)
+                att_index.setdefault(rec.source_key, []).append(rec)
 
-        all_teacher_cis = {d.teacher_ci for d in all_designations}
+        all_teacher_cis = {source.teacher_ci for source in sources}
         teachers: dict[str, Teacher] = {
             t.ci: t
             for t in db.query(Teacher).filter(Teacher.ci.in_(all_teacher_cis)).all()
@@ -1065,28 +1062,31 @@ class PlanillaGenerator:
 
         planilla_rows: list[PlanillaRow] = []
         detail_rows: list[DetailRow] = []
-        for desig in all_designations:
-            ci = desig.teacher_ci
+        for source in sources:
+            ci = source.teacher_ci
             teacher = teachers.get(ci)
             if teacher is None:
                 raise PayrollDataError(
-                    f"La designación {desig.id} referencia al docente CI {ci}, que no existe",
+                    f"La fuente {source.source_key} referencia al docente CI {ci}, que no existe",
                     code="missing_teacher",
                 )
-
-            key = (ci, desig.id)
-            effective_range = effective_ranges[desig.id]
+            desig = source.designation_adapter()
+            effective_range = EffectiveDesignationRange(
+                requested_start=period_start,
+                requested_end=period_end,
+                start=source.effective_from,
+                end=source.effective_to,
+                is_explicit=start_date is not None or source.source_kind == "published",
+            )
             records = [
                 record
-                for record in att_index.get(key, [])
-                if effective_range.start is not None
-                and effective_range.end is not None
-                and effective_range.start <= record.date <= effective_range.end
+                for record in att_index.get(source.source_key, [])
+                if source.effective_from <= record.date <= source.effective_to
                 and not _is_excluded(
                     record.date,
-                    desig.semester,
-                    desig.subject,
-                    desig.group_code,
+                    source.semester,
+                    source.subject,
+                    source.group_code,
                     exclusions,
                 )
             ]
@@ -1105,6 +1105,16 @@ class PlanillaGenerator:
                 excluded_days=exclusions,
                 effective_range=effective_range,
             )
+            row.designation_id = source.source_id
+            row.source_kind = source.source_kind
+            row.source_id = source.source_id
+            row.source_key = source.source_key
+            row.published_schedule_assignment_id = source.published_assignment_id
+            row.publication_id = source.publication_id
+            row.published_block_id = source.published_block_id
+            row.activity_kind = source.activity_kind
+            row.effective_from = source.effective_from
+            row.effective_to = source.effective_to
             planilla_rows.append(row)
 
             for rec in records:
@@ -1114,9 +1124,9 @@ class PlanillaGenerator:
                         teacher_name=teacher.full_name,
                         date=rec.date,
                         day_letter=WEEKDAY_LETTERS[rec.date.weekday()],
-                        subject=desig.subject,
-                        group_code=desig.group_code,
-                        semester=desig.semester,
+                        subject=source.subject,
+                        group_code=source.group_code,
+                        semester=source.semester,
                         scheduled_start=rec.scheduled_start.strftime("%H:%M"),
                         scheduled_end=rec.scheduled_end.strftime("%H:%M"),
                         academic_hours=rec.academic_hours,
@@ -1136,66 +1146,51 @@ class PlanillaGenerator:
 
     def _validate_attendance_coverage(
         self,
-        designations: list[Designation],
+        sources: list[PayrollScheduleSource],
         records: list[AttendanceRecord],
-        effective_ranges: dict[int, EffectiveDesignationRange],
         excluded_days: "list[ExcludedDaySchema]",
     ) -> None:
-        records_by_designation: dict[int, list[AttendanceRecord]] = {}
+        records_by_source: dict[str, list[AttendanceRecord]] = {}
         for record in records:
-            records_by_designation.setdefault(record.designation_id, []).append(record)
+            records_by_source.setdefault(record.source_key, []).append(record)
 
         issues: list[str] = []
         missing_count = duplicate_count = unexpected_count = invalid_count = 0
         valid_statuses = {"ATTENDED", "LATE", "ABSENT", "NO_EXIT"}
-        for desig in designations:
-            effective_range = effective_ranges[desig.id]
-            if effective_range.start is None or effective_range.end is None:
-                continue
-            if int(desig.monthly_hours or 0) > 0 and not (desig.schedule_json or []):
-                raise PayrollDataError(
-                    f"La designación {desig.id} tiene horas mensuales pero no tiene horario",
-                    code="missing_schedule",
-                )
-            slots = _expand_schedule_to_slots(
-                desig.schedule_json or [],
-                effective_range.start,
-                effective_range.end,
-                designation_id=desig.id,
-            )
+        for source in sources:
             expected = {
-                (desig.teacher_ci, desig.id, slot.slot_date, slot.scheduled_start): slot
-                for slot in slots
+                (source.teacher_ci, source.source_key, slot.date, slot.scheduled_start): slot
+                for slot in source.payable_slots
                 if not _is_excluded(
-                    slot.slot_date,
-                    desig.semester,
-                    desig.subject,
-                    desig.group_code,
+                    slot.date,
+                    source.semester,
+                    source.subject,
+                    source.group_code,
                     excluded_days,
                 )
             }
             relevant = [
                 record
-                for record in records_by_designation.get(desig.id, [])
-                if effective_range.start <= record.date <= effective_range.end
+                for record in records_by_source.get(source.source_key, [])
+                if source.effective_from <= record.date <= source.effective_to
                 and not _is_excluded(
                     record.date,
-                    desig.semester,
-                    desig.subject,
-                    desig.group_code,
+                    source.semester,
+                    source.subject,
+                    source.group_code,
                     excluded_days,
                 )
             ]
-            actual: dict[tuple[str, int, date, time], list[AttendanceRecord]] = {}
+            actual: dict[tuple[str, str, date, time], list[AttendanceRecord]] = {}
             for record in relevant:
-                key = (record.teacher_ci, record.designation_id, record.date, record.scheduled_start)
+                key = (record.teacher_ci, record.source_key, record.date, record.scheduled_start)
                 actual.setdefault(key, []).append(record)
 
             for key, slot in expected.items():
                 matches = actual.get(key, [])
                 label = (
-                    f"designación {desig.id}, CI {desig.teacher_ci}, "
-                    f"{slot.slot_date.isoformat()} {slot.scheduled_start.strftime('%H:%M')}"
+                    f"fuente {source.source_key}, CI {source.teacher_ci}, "
+                    f"{slot.date.isoformat()} {slot.scheduled_start.strftime('%H:%M')}"
                 )
                 if not matches:
                     missing_count += 1
@@ -1224,7 +1219,7 @@ class PlanillaGenerator:
             unexpected_count += len(unexpected)
             issues.extend(
                 "AttendanceRecord sin slot programado: "
-                f"designación {key[1]}, CI {key[0]}, "
+                    f"fuente {key[1]}, CI {key[0]}, "
                 f"{key[2].isoformat()} {key[3].strftime('%H:%M')}"
                 for key in sorted(unexpected, key=lambda value: (value[1], value[2], value[3]))
             )
@@ -2492,25 +2487,7 @@ class PlanillaGenerator:
     ) -> Optional[float]:
         """Resolve the display override for a specific row."""
         teacher_rows = [candidate for candidate in all_rows if candidate.teacher_ci == row.teacher_ci]
-        allocations = self._get_teacher_override_allocations(teacher_rows, payment_overrides)
-        if allocations is not None:
-            return allocations.get(row.designation_id)
-
-        return self._resolve_override(row.teacher_ci, row.designation_id, payment_overrides)
-
-    def _resolve_override(
-        self,
-        teacher_ci: str,
-        designation_id: int,
-        overrides: dict[str, float],
-    ) -> Optional[float]:
-        """Resolve override precedence consistently across row and total calculations."""
-        row_key = f"{teacher_ci}:{designation_id}"
-        if row_key in overrides:
-            return overrides[row_key]
-        if teacher_ci in overrides:
-            return overrides[teacher_ci]
-        return None
+        return resolve_row_override(row, teacher_rows, payment_overrides)
 
     def _distribute_teacher_override(
         self,

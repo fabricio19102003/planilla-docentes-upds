@@ -1,28 +1,25 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.domain.teacher_types import TeacherType, normalize_teacher_type
-from app.models.attendance import AttendanceRecord
 from app.models.billing_publication import BillingPublication
-from app.models.designation import Designation
 from app.models.notification import Notification
 from app.models.teacher import Teacher
 from app.models.user import User
-from app.schemas.teacher import TeacherResponse
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
-from app.services.attendance_engine import WEEKDAY_MAP as _ENGINE_WEEKDAY_MAP, _normalize_day
 from app.services.exclusion_matching import exclusion_matches_designation
+from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.services.teacher_photo_service import (
     apply_photo_metadata,
     clear_photo_metadata,
@@ -30,10 +27,6 @@ from app.services.teacher_photo_service import (
     save_upload_file,
 )
 from app.utils.auth import require_docente
-
-# Map Python weekday() index → normalized (accent-free) Spanish lowercase day name.
-# Re-use the engine's canonical map so both use the same values.
-_WEEKDAY_MAP: dict[int, str] = _ENGINE_WEEKDAY_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +57,16 @@ class DesignationBilling(BaseModel):
     net_payment: float
     payment: float  # Compatibility alias for net_payment; do not use for new calculations.
     has_admin_override: bool
+    source_kind: Literal["legacy", "published"] = "legacy"
+    source_id: int | None = None
+    source_key: str | None = None
+    designation_id: int | None = None
+    publication_id: int | None = None
+    published_block_id: int | None = None
+    published_schedule_assignment_id: int | None = None
+    activity_kind: Literal["theory", "practice"] = "theory"
+    effective_from: str | None = None
+    effective_to: str | None = None
 
 
 class ExcludedDayInfo(BaseModel):
@@ -158,6 +161,16 @@ def _designation_billing_from_snapshot(data: dict[str, Any], has_retention: bool
         group=str(data.get("group", data.get("group_code", ""))),
         hours=int(data.get("payable_hours", data.get("hours", 0)) or 0),
         semester=str(data.get("semester", "")),
+        source_kind=data.get("source_kind", "legacy"),
+        source_id=data.get("source_id", data.get("designation_id")),
+        source_key=data.get("source_key"),
+        designation_id=data.get("designation_id"),
+        publication_id=data.get("publication_id"),
+        published_block_id=data.get("published_block_id"),
+        published_schedule_assignment_id=data.get("published_schedule_assignment_id"),
+        activity_kind=data.get("activity_kind", "theory"),
+        effective_from=data.get("effective_from"),
+        effective_to=data.get("effective_to"),
         **financials,
         payment=financials["net_payment"],
     )
@@ -276,6 +289,16 @@ class DesignationScheduleResponse(BaseModel):
     group_code: str
     weekly_hours: Optional[int] = None
     monthly_hours: Optional[int] = None
+    source_kind: Literal["legacy", "published"] = "legacy"
+    source_id: int
+    source_key: str
+    designation_id: Optional[int] = None
+    publication_id: Optional[int] = None
+    published_block_id: Optional[int] = None
+    published_assignment_id: Optional[int] = None
+    activity_kind: Literal["theory", "practice"] = "theory"
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
     schedule: list[ScheduleSlotResponse]
 
 
@@ -306,46 +329,6 @@ class UnreadCountResponse(BaseModel):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
-
-def _get_slot_hours_for_absent(schedule: list[dict], rec: AttendanceRecord) -> int:
-    """
-    Recover the scheduled academic hours for an ABSENT attendance record.
-
-    The attendance engine writes academic_hours=0 on ABSENT records, so we
-    cannot simply sum that column.  Instead we look up the matching slot in
-    designation.schedule_json using the same three-pass strategy as
-    PlanillaGenerator._get_slot_hours():
-
-      Pass 1 — weekday name + hora_inicio  (most specific)
-      Pass 2 — hora_inicio only             (fallback when slot lacks "dia")
-      Pass 3 — weekly average               (last-resort estimate)
-    """
-    if not schedule or rec.date is None:
-        return 0
-
-    rec_start_str = rec.scheduled_start.strftime("%H:%M")
-    target_weekday = rec.date.weekday()
-    # Use the engine's normalized (accent-free) day name for robust comparison
-    target_day_norm = _normalize_day(_WEEKDAY_MAP.get(target_weekday, ""))
-
-    # Pass 1: weekday + hora_inicio (using shared _normalize_day for accent tolerance)
-    for slot in schedule:
-        slot_dia_norm = _normalize_day(slot.get("dia", ""))
-        if slot.get("hora_inicio", "") == rec_start_str and slot_dia_norm == target_day_norm:
-            return int(slot.get("horas_academicas", 0))
-
-    # Pass 2: hora_inicio only (slot may lack "dia" field)
-    for slot in schedule:
-        if slot.get("hora_inicio", "") == rec_start_str:
-            return int(slot.get("horas_academicas", 0))
-
-    # Pass 3: weekly average across all slots (last resort)
-    if schedule:
-        total_weekly = sum(int(s.get("horas_academicas", 0)) for s in schedule)
-        return total_weekly // max(len(schedule), 1)
-
-    return 0
 
 
 def _get_teacher_or_raise(current_user: User, db: Session) -> Teacher:
@@ -404,147 +387,6 @@ def _filter_excluded_days_for_teacher(
         ExcludedDayInfo(date=date_key, reason="; ".join(reasons) if reasons else None)
         for date_key, reasons in reasons_by_date.items()
     ]
-
-
-def _build_billing(teacher_ci: str, month: int, year: int, db: Session, planilla_type: str = "regular") -> BillingResponse:
-    """
-    Build billing summary for a teacher using Payment Model C.
-
-    Model C:
-      - Base = designation.monthly_hours (assigned load)
-      - Deduct ONLY ABSENT hours from base
-      - Teachers without biometric data for the period get full pay (0 deductions)
-
-    When a PlanillaOutput exists for the period with discount_mode="full", we skip
-    absence deduction entirely — otherwise the fallback would show different (lower)
-    amounts than the actual published planilla. If no PlanillaOutput exists we keep
-    the historical behavior (attendance mode).
-    """
-    from app.models.biometric import BiometricRecord, BiometricUpload  # avoid circular at module level
-    from app.models.planilla import PlanillaOutput
-
-    rate = app_settings_service.get_hourly_rate(db)
-
-    # Respect the discount_mode of the stored planilla for this period.
-    # No stored planilla → default to attendance mode (legacy behavior).
-    stored_planilla = (
-        db.query(PlanillaOutput)
-        .filter(PlanillaOutput.month == month, PlanillaOutput.year == year)
-        .order_by(PlanillaOutput.generated_at.desc())
-        .first()
-    )
-    dm = stored_planilla.discount_mode if stored_planilla else "attendance"
-
-    # Get all designations for this teacher (scoped to active academic period)
-    all_designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher_ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
-            Designation.designation_type != "practice",
-        )
-        .all()
-    )
-
-    # Check if teacher has biometric data scoped to THIS specific period
-    has_biometric = (
-        db.query(BiometricRecord.id)
-        .join(BiometricUpload, BiometricRecord.upload_id == BiometricUpload.id)
-        .filter(
-            BiometricRecord.teacher_ci == teacher_ci,
-            BiometricUpload.month == month,
-            BiometricUpload.year == year,
-        )
-        .first()
-        is not None
-    )
-
-    teacher_obj = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
-    has_retention = (
-        (teacher_obj.invoice_retention or "").strip().upper() == "RETENCION"
-        if teacher_obj else False
-    )
-
-    designations: list[DesignationBilling] = []
-    total_hours = 0
-
-    for d in all_designations:
-        base_hours = d.monthly_hours or 0
-
-        if dm == "full":
-            # "Sin descuentos" mode: pay the full assigned load regardless of attendance.
-            absent_hours = 0
-        elif has_biometric:
-            # Model C: deduct ABSENT hours using scheduled slot hours from schedule_json.
-            # IMPORTANT: AttendanceRecord.academic_hours is always 0 for ABSENT records
-            # (set by the attendance engine), so summing that column returns 0 and absences
-            # are never deducted.  Instead, count ABSENT records and recover the scheduled
-            # hours from designation.schedule_json — same logic as PlanillaGenerator._get_slot_hours().
-            absent_records = (
-                db.query(AttendanceRecord)
-                .filter(
-                    AttendanceRecord.teacher_ci == teacher_ci,
-                    AttendanceRecord.designation_id == d.id,
-                    AttendanceRecord.month == month,
-                    AttendanceRecord.year == year,
-                    AttendanceRecord.status == "ABSENT",
-                )
-                .all()
-            )
-
-            schedule: list[dict] = d.schedule_json or []
-            absent_hours = 0
-
-            for rec in absent_records:
-                slot_hours = _get_slot_hours_for_absent(schedule, rec)
-                absent_hours += slot_hours
-        else:
-            absent_hours = 0
-
-        payable = max(0, base_hours - absent_hours)
-        total_hours += payable
-        designations.append(
-            DesignationBilling(
-                subject=d.subject,
-                group=d.group_code,
-                hours=payable,
-                semester=d.semester,
-                gross_payment=_money(payable * rate),
-                retention_rate=Decimal("0.13") if has_retention else Decimal("0"),
-                retention_amount=_money(payable * rate * (0.13 if has_retention else 0)),
-                admin_adjustment=Decimal("0.00"),
-                net_payment=_money(payable * rate * (0.87 if has_retention else 1)),
-                payment=_money(payable * rate * (0.87 if has_retention else 1)),
-                has_admin_override=False,
-            )
-        )
-
-    total_payment = round(total_hours * rate, 2)
-
-    # RC-IVA 13% retention
-    retention_rate = 0.13 if has_retention else 0.0
-    retention_amount = round(total_payment * retention_rate, 2)
-    final_payment = round(total_payment - retention_amount, 2)
-
-    return BillingResponse(
-        month=month,
-        year=year,
-        month_name=MONTH_NAMES.get(month, str(month)),
-        planilla_type=planilla_type,
-        total_hours=total_hours,
-        rate_per_hour=_money(rate),
-        gross_payment=_money(total_payment),
-        retention_rate=Decimal(str(retention_rate)),
-        retention_amount=_money(retention_amount),
-        admin_adjustment=Decimal("0.00"),
-        net_payment=_money(final_payment),
-        has_admin_override=False,
-        total_payment=_money(total_payment),
-        adjusted_payment=None,
-        has_retention=has_retention,
-        final_payment=_money(final_payment),
-        designations=designations,
-    )
 
 
 # ------------------------------------------------------------------
@@ -767,19 +609,15 @@ def get_docente_profile(
     """Get authenticated docente's own teacher profile with designation count."""
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Load active academic-period assignments. A designation represents a subject/group
-    # assignment, not a unique subject. Expose both counts so the UI can say
-    # "2 materias · 4 grupos" instead of calling 4 assignments "4 materias".
-    active_designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
-        )
-        .all()
+    academic_period = app_settings_service.get_active_academic_period(db)
+    workloads = effective_workloads(
+        db,
+        academic_period=academic_period,
+        target_date=active_period_effective_date(academic_period),
+        teacher_ci=teacher.ci,
     )
-    subject_count = len({(d.subject or "").strip().casefold() for d in active_designations if (d.subject or "").strip()})
-    group_count = len(active_designations)
+    subject_count = len({item.subject.strip().casefold() for item in workloads if item.subject.strip()})
+    group_count = len(workloads)
 
     return ProfileResponse(
         ci=teacher.ci,
@@ -969,23 +807,50 @@ def generate_retention_letter_endpoint(
 
     teacher = _get_teacher_or_raise(current_user, db)
 
-    # Get all subjects from designations (scoped to active academic period)
-    designations = (
-        db.query(Designation)
+    publications = (
+        db.query(BillingPublication)
         .filter(
-            Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
+            BillingPublication.month == payload.mes_cobro,
+            BillingPublication.year == payload.anio_cobro,
+            BillingPublication.status == "published",
         )
         .all()
     )
-    materias = sorted(set(d.subject for d in designations))
+    if not publications:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No existe facturación publicada e inmutable para el período solicitado.",
+        )
+    materias: set[str] = set()
+    for publication in publications:
+        snapshot = publication.billing_snapshot
+        if not isinstance(snapshot, dict):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La publicación no conserva evidencia inmutable para generar la carta.",
+            )
+        teacher_detail = next((
+            item for item in snapshot.get("teacher_details", [])
+            if isinstance(item, dict) and item.get("teacher_ci") == teacher.ci
+        ), None)
+        if teacher_detail:
+            materias.update(
+                str(item.get("subject", "")).strip()
+                for item in teacher_detail.get("designations", [])
+                if isinstance(item, dict) and str(item.get("subject", "")).strip()
+            )
+    if not materias:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La publicación no contiene carga pagada para este docente.",
+        )
 
     pdf_path = generate_retention_letter(
         teacher_name=teacher.full_name,
         teacher_ci=teacher.ci,
         titulo=payload.titulo,
         matricula=payload.matricula,
-        materias=materias,
+        materias=sorted(materias),
         mes_cobro=payload.mes_cobro,
         anio_cobro=payload.anio_cobro,
         periodo=payload.periodo,
@@ -1020,16 +885,15 @@ def export_schedule_pdf(
     from app.services.schedule_pdf import generate_schedule_pdf, schedule_download_filename
 
     teacher = _get_teacher_or_raise(current_user, db)
-    designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
-        )
-        .all()
+    academic_period = app_settings_service.get_active_academic_period(db)
+    workloads = effective_workloads(
+        db,
+        academic_period=academic_period,
+        target_date=active_period_effective_date(academic_period),
+        teacher_ci=teacher.ci,
     )
 
-    pdf = generate_schedule_pdf(teacher, designations)
+    pdf = generate_schedule_pdf(teacher, workloads)
 
     log_activity(
         db,
@@ -1037,7 +901,7 @@ def export_schedule_pdf(
         "profile",
         f"Horario exportado en PDF: {teacher.full_name}",
         user=current_user,
-        details={"teacher_ci": teacher.ci, "designation_count": len(designations)},
+        details={"teacher_ci": teacher.ci, "source_count": len(workloads)},
         request=request,
     )
     db.commit()
@@ -1065,29 +929,38 @@ def get_my_schedule(
         "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5,
     }
 
-    designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
-        )
-        .all()
+    academic_period = app_settings_service.get_active_academic_period(db)
+    workloads = effective_workloads(
+        db,
+        academic_period=academic_period,
+        target_date=active_period_effective_date(academic_period),
+        teacher_ci=teacher.ci,
     )
 
     result: list[DesignationScheduleResponse] = []
-    for d in designations:
-        slots = d.schedule_json or []
+    for workload in workloads:
+        slots = workload.schedule_json
         sorted_slots = sorted(
             slots,
             key=lambda s: (DAY_ORDER.get(s.get("dia", "").lower(), 99), s.get("hora_inicio", "")),
         )
         result.append(
             DesignationScheduleResponse(
-                subject=d.subject,
-                semester=d.semester,
-                group_code=d.group_code,
-                weekly_hours=d.weekly_hours,
-                monthly_hours=d.monthly_hours,
+                subject=workload.subject,
+                semester=workload.semester,
+                group_code=workload.group_code,
+                weekly_hours=workload.weekly_hours,
+                monthly_hours=workload.monthly_hours,
+                source_kind=workload.source_kind,
+                source_id=workload.source_id,
+                source_key=workload.source_key,
+                designation_id=workload.designation_id,
+                publication_id=workload.publication_id,
+                published_block_id=workload.published_block_id,
+                published_assignment_id=workload.published_assignment_id,
+                activity_kind=workload.activity_kind,
+                effective_from=workload.effective_from,
+                effective_to=workload.effective_to,
                 schedule=[
                     ScheduleSlotResponse(
                         dia=s.get("dia", ""),
@@ -1100,8 +973,8 @@ def get_my_schedule(
             )
         )
 
-    total_weekly_hours = sum(d.weekly_hours or 0 for d in designations)
-    subject_count = len({(d.subject or "").strip().casefold() for d in designations if (d.subject or "").strip()})
+    total_weekly_hours = sum(item.weekly_hours for item in workloads)
+    subject_count = len({item.subject.strip().casefold() for item in workloads if item.subject.strip()})
     group_count = len(result)
 
     return MyScheduleResponse(

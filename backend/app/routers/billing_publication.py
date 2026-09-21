@@ -108,9 +108,22 @@ def _rows_from_calculation_snapshot(snapshot: dict, expected_total) -> list[Simp
     overrides = snapshot.get("overrides", {})
     rows = []
     for item in snapshot["designations"]:
-        row_key = f'{item["teacher_ci"]}:{item["designation_id"]}'
+        source_kind = item.get("source_kind", "legacy")
+        source_id = item.get("source_id", item["designation_id"])
+        source_key = item.get("source_key", f"{source_kind}:{source_id}")
+        typed_row_key = f'{item["teacher_ci"]}:{source_kind}:{source_id}'
+        legacy_row_key = f'{item["teacher_ci"]}:{item["designation_id"]}'
         rows.append(SimpleNamespace(
             designation_id=item["designation_id"],
+            source_kind=source_kind,
+            source_id=source_id,
+            source_key=source_key,
+            publication_id=item.get("publication_id"),
+            published_block_id=item.get("published_block_id"),
+            published_schedule_assignment_id=item.get("published_schedule_assignment_id"),
+            activity_kind=item.get("activity_kind", "theory"),
+            effective_from=item.get("effective_from"),
+            effective_to=item.get("effective_to"),
             teacher_ci=item["teacher_ci"],
             teacher_name=item["teacher_name"],
             has_biometric=item["has_biometric"],
@@ -125,7 +138,11 @@ def _rows_from_calculation_snapshot(snapshot: dict, expected_total) -> list[Simp
             retention_amount=item["retention"],
             retention_rate=item["retention_rate"],
             final_payment=item["amount"],
-            has_admin_override=item["teacher_ci"] in overrides or row_key in overrides,
+            has_admin_override=(
+                item["teacher_ci"] in overrides
+                or typed_row_key in overrides
+                or (source_kind == "legacy" and legacy_row_key in overrides)
+            ),
         ))
     return rows
 
@@ -348,6 +365,16 @@ def publish_billing(
                 row_adjustment = _money(row_net - (row_gross - row_retention))
                 has_override = row.has_admin_override
                 t["designations"].append({
+                    "designation_id": row.designation_id,
+                    "source_kind": row.source_kind,
+                    "source_id": row.source_id,
+                    "source_key": row.source_key,
+                    "publication_id": row.publication_id,
+                    "published_block_id": row.published_block_id,
+                    "published_schedule_assignment_id": row.published_schedule_assignment_id,
+                    "activity_kind": row.activity_kind,
+                    "effective_from": row.effective_from,
+                    "effective_to": row.effective_to,
                     "subject": row.subject,
                     "group": row.group_code,
                     "semester": row.semester,
@@ -958,6 +985,16 @@ def publish_practice_billing(
                 row_adjustment = _money(row_net - (row_gross - row_retention))
                 has_override = row.has_admin_override
                 t["designations"].append({
+                    "designation_id": row.designation_id,
+                    "source_kind": row.source_kind,
+                    "source_id": row.source_id,
+                    "source_key": row.source_key,
+                    "publication_id": row.publication_id,
+                    "published_block_id": row.published_block_id,
+                    "published_schedule_assignment_id": row.published_schedule_assignment_id,
+                    "activity_kind": row.activity_kind,
+                    "effective_from": row.effective_from,
+                    "effective_to": row.effective_to,
                     "subject": row.subject,
                     "group": row.group_code,
                     "semester": row.semester,

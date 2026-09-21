@@ -22,15 +22,22 @@ def _opaque(key: str) -> str:
     return hashlib.sha256(f"payment-override:{key}".encode()).hexdigest()[:16]
 
 
-def _key_parts(key: Any) -> tuple[str, int | None]:
-    if not isinstance(key, str) or not key or key != key.strip() or key.count(":") > 1:
-        raise PaymentOverrideError("payment_override_key_invalid", "Override key must be a teacher CI or teacher CI plus designation ID", [str(key)])
+def _key_parts(key: Any) -> tuple[str, str | None, int | None]:
+    if not isinstance(key, str) or not key or key != key.strip() or key.count(":") not in {0, 1, 2}:
+        raise PaymentOverrideError("payment_override_key_invalid", "Override key must identify a teacher or an immutable schedule source", [str(key)])
     if ":" not in key:
-        return key, None
-    teacher_ci, designation_text = key.split(":")
-    if not teacher_ci or not designation_text.isdigit() or int(designation_text) <= 0:
-        raise PaymentOverrideError("payment_override_key_invalid", "Designation override key must use <teacher_ci>:<positive_designation_id>", [key])
-    return teacher_ci, int(designation_text)
+        return key, None, None
+    parts = key.split(":")
+    if len(parts) == 2:
+        teacher_ci, source_text = parts
+        source_kind = "legacy"
+    else:
+        teacher_ci, source_kind, source_text = parts
+        if source_kind not in {"legacy", "published"}:
+            raise PaymentOverrideError("payment_override_key_invalid", "Typed override source must be legacy or published", [key])
+    if not teacher_ci or not source_text.isdigit() or int(source_text) <= 0:
+        raise PaymentOverrideError("payment_override_key_invalid", "Source override key must end with a positive source ID", [key])
+    return teacher_ci, source_kind, int(source_text)
 
 
 def _amount(key: str, value: Any) -> Decimal:
@@ -57,33 +64,51 @@ def normalize_payment_overrides(overrides: dict[str, Any] | None) -> dict[str, D
 
 def validate_payment_override_targets(rows: list[Any], overrides: dict[str, Decimal]) -> None:
     valid_teachers = {row.teacher_ci for row in rows}
-    valid_rows = {f"{row.teacher_ci}:{row.designation_id}" for row in rows}
+    valid_rows = {
+        key
+        for row in rows
+        for key in (
+            f"{row.teacher_ci}:{getattr(row, 'source_kind', 'legacy')}:{getattr(row, 'source_id', None) or row.designation_id}",
+            *(
+                (f"{row.teacher_ci}:{row.designation_id}",)
+                if getattr(row, "source_kind", "legacy") == "legacy" else ()
+            ),
+        )
+    }
     unknown = [key for key in overrides if key not in valid_teachers and key not in valid_rows]
     if unknown:
         raise PaymentOverrideError("payment_override_unknown_key", "Override key does not match a calculated teacher or designation", unknown)
     row_totals: dict[str, Decimal] = {}
     for key, value in overrides.items():
-        teacher_ci, designation_id = _key_parts(key)
-        if designation_id is not None:
+        teacher_ci, _source_kind, source_id = _key_parts(key)
+        if source_id is not None:
             row_totals[teacher_ci] = row_totals.get(teacher_ci, Decimal("0")) + value
     exceeded = [teacher for teacher, total in row_totals.items() if teacher in overrides and total > overrides[teacher]]
     if exceeded:
         raise PaymentOverrideError("payment_override_rows_exceed_teacher", "Designation overrides cannot exceed the teacher override", exceeded)
 
 
-def get_teacher_override_allocations(teacher_rows: list[Any], overrides: dict[str, Decimal]) -> dict[int, Decimal] | None:
+def _allocation_key(row: Any) -> str | int:
+    """Keep legacy callers keyed by designation ID while typed rows use source keys."""
+    return getattr(row, "source_key", None) or row.designation_id
+
+
+def get_teacher_override_allocations(teacher_rows: list[Any], overrides: dict[str, Decimal]) -> dict[str | int, Decimal] | None:
     teacher_ci = teacher_rows[0].teacher_ci
     teacher_override = overrides.get(teacher_ci)
     if teacher_override is None:
         return None
-    allocations: dict[int, Decimal] = {}
+    allocations: dict[str | int, Decimal] = {}
     remaining_rows = []
-    for row in sorted(teacher_rows, key=lambda item: item.designation_id):
-        explicit = overrides.get(f"{teacher_ci}:{row.designation_id}")
+    for row in sorted(teacher_rows, key=lambda item: str(_allocation_key(item))):
+        source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+        typed_key = f"{teacher_ci}:{source_key}"
+        legacy_key = f"{teacher_ci}:{row.designation_id}" if source_key.startswith("legacy:") else None
+        explicit = overrides.get(typed_key, overrides.get(legacy_key) if legacy_key else None)
         if explicit is None:
             remaining_rows.append(row)
         else:
-            allocations[row.designation_id] = explicit
+            allocations[_allocation_key(row)] = explicit
     remaining = teacher_override - sum(allocations.values(), Decimal("0"))
     if remaining < 0:
         raise PaymentOverrideError("payment_override_rows_exceed_teacher", "Designation overrides cannot exceed the teacher override", [teacher_ci])
@@ -101,10 +126,35 @@ def get_teacher_override_allocations(teacher_rows: list[Any], overrides: dict[st
     allocated = Decimal("0")
     for row, weight in zip(remaining_rows[:-1], weights[:-1]):
         share = (remaining * weight / total_weight).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
-        allocations[row.designation_id] = share
+        allocations[_allocation_key(row)] = share
         allocated += share
-    allocations[remaining_rows[-1].designation_id] = remaining - allocated
+    final_row = remaining_rows[-1]
+    allocations[_allocation_key(final_row)] = remaining - allocated
     return allocations
+
+
+def resolve_row_override(
+    row: Any,
+    teacher_rows: list[Any],
+    overrides: dict[str, Decimal],
+    *,
+    allocations: dict[str | int, Decimal] | None = None,
+) -> Decimal | None:
+    """Resolve one row using source-specific-over-teacher precedence."""
+    if allocations is None:
+        allocations = get_teacher_override_allocations(teacher_rows, overrides)
+    if allocations is not None:
+        allocated = allocations.get(_allocation_key(row))
+        if allocated is not None:
+            return allocated
+
+    source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+    typed_key = f"{row.teacher_ci}:{source_key}"
+    if typed_key in overrides:
+        return overrides[typed_key]
+    if source_key.startswith("legacy:"):
+        return overrides.get(f"{row.teacher_ci}:{row.designation_id}")
+    return None
 
 
 def calculate_override_total(rows: list[Any], overrides: dict[str, Decimal]) -> Decimal:
@@ -115,8 +165,13 @@ def calculate_override_total(rows: list[Any], overrides: dict[str, Decimal]) -> 
     allocations = {teacher: get_teacher_override_allocations(items, overrides) for teacher, items in grouped.items()}
     total = Decimal("0")
     for row in rows:
-        value = (allocations[row.teacher_ci] or {}).get(row.designation_id)
+        value = resolve_row_override(
+            row,
+            grouped[row.teacher_ci],
+            overrides,
+            allocations=allocations[row.teacher_ci],
+        )
         if value is None:
-            value = overrides.get(f"{row.teacher_ci}:{row.designation_id}", Decimal(str(row.final_payment)))
+            value = Decimal(str(row.final_payment))
         total += value
     return total.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)

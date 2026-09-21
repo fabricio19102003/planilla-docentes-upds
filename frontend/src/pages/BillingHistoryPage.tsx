@@ -110,7 +110,7 @@ function BillingRow({
                 </thead>
                 <tbody>
                   {billing.designations.map((designation, index) => (
-                    <tr key={`${designation.subject}-${designation.semester}-${designation.group}-${index}`} className="border-t">
+                    <tr key={designation.source_key ?? `${designation.subject}-${designation.semester}-${designation.group}-${index}`} className="border-t">
                       <td className="px-3 py-2 font-medium">{designation.subject}</td>
                       <td className="px-3 py-2">{designation.semester}</td>
                       <td className="px-3 py-2">{designation.group}</td>

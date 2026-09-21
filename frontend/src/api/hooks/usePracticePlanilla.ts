@@ -68,6 +68,11 @@ export interface PracticePlanillaDetailRow {
   subject: string
   group_code: string
   semester: string
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  activity_kind: 'practice'
+  effective_from: string | null
+  effective_to: string | null
   base_monthly_hours: number
   absent_hours: number
   payable_hours: number

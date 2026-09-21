@@ -5,6 +5,7 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 
 import app.services.planilla_generator as regular_generator
+import app.services.practice_planilla_generator as practice_generator
 import app.services.report_generator as report_module
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
@@ -51,7 +52,7 @@ def test_financial_preview_and_pdf_require_at_least_one_snapshot(client, db_sess
 def _forbid_live_money(monkeypatch):
     fail = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("live money"))
     monkeypatch.setattr(regular_generator.PlanillaGenerator, "_build_planilla_data", fail)
-    monkeypatch.setattr(report_module.PracticePlanillaGenerator, "_build_planilla_data", fail)
+    monkeypatch.setattr(practice_generator.PracticePlanillaGenerator, "_build_planilla_data", fail)
 
 
 def test_preview_and_pdf_share_the_same_regular_and_practice_dataset(

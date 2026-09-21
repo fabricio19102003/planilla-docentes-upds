@@ -19,7 +19,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.designation import Designation
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -41,6 +40,7 @@ from app.services.monetary_snapshot import (
     require_reconciled_snapshot,
 )
 from app.services.payment_overrides import PaymentOverrideError
+from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.utils.auth import require_admin
 
 MONTH_NAMES = {
@@ -200,32 +200,17 @@ def get_practice_designation_options(
 
         active_period = _settings.get_active_academic_period(db)
 
-        base_filter = [
-            Designation.academic_period == active_period,
-            Designation.designation_type == "practice",
-        ]
-
-        subject_rows = (
-            db.query(Designation.subject, Designation.group_code, Designation.semester)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.subject, Designation.group_code, Designation.semester)
-            .all()
+        workloads = effective_workloads(
+            db,
+            academic_period=active_period,
+            target_date=active_period_effective_date(active_period),
+            activity_kind="practice",
         )
-        semester_rows = (
-            db.query(Designation.semester)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.semester)
-            .all()
-        )
-        group_rows = (
-            db.query(Designation.group_code)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.group_code)
-            .all()
-        )
+        subject_rows = sorted({
+            (item.subject, item.group_code, item.semester) for item in workloads
+        })
+        semesters = {item.semester for item in workloads}
+        groups = sorted({item.group_code for item in workloads})
 
         semester_order = {
             "PRIMERO": 1, "SEGUNDO": 2, "TERCERO": 3, "CUARTO": 4,
@@ -233,7 +218,7 @@ def get_practice_designation_options(
             "NOVENO": 9, "DECIMO": 10,
         }
         sorted_semesters = sorted(
-            [semester for (semester,) in semester_rows],
+            semesters,
             key=lambda s: semester_order.get(s.upper(), 99),
         )
 
@@ -243,7 +228,7 @@ def get_practice_designation_options(
                 for subject, group_code, semester in subject_rows
             ],
             "semesters": sorted_semesters,
-            "groups": [group_code for (group_code,) in group_rows],
+            "groups": groups,
         }
     except Exception as exc:
         logger.exception("Failed to load practice designation options: %s", exc)
@@ -442,6 +427,11 @@ def get_practice_planilla_detail(
                 "subject": row.subject,
                 "semester": row.semester,
                 "group_code": row.group_code,
+                "source_kind": getattr(row, "source_kind", "legacy"),
+                "source_key": getattr(row, "source_key", f"legacy:{row.designation_id}"),
+                "activity_kind": getattr(row, "activity_kind", "practice"),
+                "effective_from": getattr(row, "effective_from", None),
+                "effective_to": getattr(row, "effective_to", None),
                 "base_monthly_hours": row.base_monthly_hours,
                 "absent_hours": row.absent_hours,
                 "payable_hours": row.payable_hours,
