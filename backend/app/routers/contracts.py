@@ -1,53 +1,86 @@
-"""
-Router: Contracts
-
-Endpoints for generating and downloading teacher contract PDFs.
-"""
+"""Immutable teacher contract ledger and legacy file compatibility routes."""
 from __future__ import annotations
 
 import io
-import logging
 import zipfile
-from calendar import monthrange
-from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models.designation import Designation
+from app.models.contract import ContractDocument
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.contract_ledger_service import ContractIssuanceError, issue_contract
 from app.utils.auth import require_admin
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 
 DEPARTMENTS = [
-    "Pando", "La Paz", "Cochabamba", "Santa Cruz",
-    "Beni", "Oruro", "Potosí", "Chuquisaca", "Tarija",
+    "Pando", "La Paz", "Cochabamba", "Santa Cruz", "Beni", "Oruro",
+    "Potosí", "Chuquisaca", "Tarija",
 ]
-
-
-# ------------------------------------------------------------------
-# Schemas
-# ------------------------------------------------------------------
 
 
 class ContractRequest(BaseModel):
     department: str = "Pando"
+    academic_period: Optional[str] = None
 
 
 class BatchContractRequest(ContractRequest):
-    teacher_cis: Optional[list[str]] = None  # None = all teachers
+    teacher_cis: Optional[list[str]] = None
+
+
+class ContractLineResponse(BaseModel):
+    line_number: int
+    activity_kind: str
+    rate_class: str
+    hourly_rate: float
+    hours: float
+    hour_basis: str
+    subject_label: str
+    group_label: str
+    semester_label: str
+    schedule_label: str
+    effective_from: str
+    effective_to: str
+    source_kind: str
+    source_id: int
+    designation_id: Optional[int] = None
+    publication_id: Optional[int] = None
+    publication_sequence: Optional[int] = None
+    published_block_id: Optional[int] = None
+    published_assignment_id: Optional[int] = None
+    change_kind: str
+    previous_hours: Optional[float] = None
+    previous_hourly_rate: Optional[float] = None
+
+
+class ContractDocumentResponse(BaseModel):
+    id: int
+    public_id: str
+    teacher_ci: str
+    teacher_name: str
+    academic_period: str
+    document_kind: str
+    amendment_sequence: int
+    version: int
+    effective_date: str
+    issued_at: str
+    source_digest: str
+    artifact_sha256: str
+    artifact_size: int
+    filename: str
+    download_url: str
+    status: str
+    lines: list[ContractLineResponse]
 
 
 class ContractFileInfo(BaseModel):
@@ -55,6 +88,10 @@ class ContractFileInfo(BaseModel):
     teacher_name: str
     filename: str
     file_size: int
+    public_id: Optional[str] = None
+    document_kind: Optional[str] = None
+    version: Optional[int] = None
+    download_url: Optional[str] = None
 
 
 class BatchContractResponse(BaseModel):
@@ -62,11 +99,6 @@ class BatchContractResponse(BaseModel):
     contracts: list[ContractFileInfo]
     zip_filename: str
     errors: list[str] = Field(default_factory=list)
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
 
 
 def _contracts_dir() -> Path:
@@ -83,219 +115,124 @@ def _validate_department(department: str) -> None:
         )
 
 
-def _get_teacher_designations(teacher_ci: str, db: Session) -> tuple[Teacher, list[Designation]]:
-    teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
-    if teacher is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Docente con CI {teacher_ci} no encontrado",
-        )
-    designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher_ci,
-            Designation.academic_period == app_settings_service.get_active_academic_period(db),
-        )
-        .all()
+def _serialize(document: ContractDocument) -> ContractDocumentResponse:
+    return ContractDocumentResponse(
+        id=document.id,
+        public_id=document.public_id,
+        teacher_ci=document.teacher_ci,
+        teacher_name=document.teacher_name,
+        academic_period=document.academic_period,
+        document_kind=document.document_kind,
+        amendment_sequence=document.amendment_sequence,
+        version=document.amendment_sequence + 1,
+        effective_date=document.effective_date.isoformat(),
+        issued_at=document.issued_at.isoformat(),
+        source_digest=document.source_digest,
+        artifact_sha256=document.artifact_sha256,
+        artifact_size=document.artifact_size,
+        filename=document.artifact_filename,
+        download_url=f"/api/contracts/documents/{document.public_id}/download",
+        status=document.status,
+        lines=[ContractLineResponse(
+            line_number=line.line_number,
+            activity_kind=line.activity_kind,
+            rate_class=line.rate_class,
+            hourly_rate=float(line.hourly_rate),
+            hours=float(line.hours),
+            hour_basis=line.hour_basis,
+            subject_label=line.subject_label,
+            group_label=line.group_label,
+            semester_label=line.semester_label,
+            schedule_label=line.schedule_label,
+            effective_from=line.effective_from.isoformat(),
+            effective_to=line.effective_to.isoformat(),
+            source_kind=line.source_kind,
+            source_id=line.source_id,
+            designation_id=line.designation_id,
+            publication_id=line.publication_id,
+            publication_sequence=line.publication_sequence,
+            published_block_id=line.published_block_id,
+            published_assignment_id=line.published_assignment_id,
+            change_kind=line.change_kind,
+            previous_hours=float(line.previous_hours) if line.previous_hours is not None else None,
+            previous_hourly_rate=float(line.previous_hourly_rate) if line.previous_hourly_rate is not None else None,
+        ) for line in document.lines],
     )
-    return teacher, designations
 
 
-def _number_to_spanish(value: int) -> str:
-    """Return a compact Spanish literal for integers from 0 to 10000."""
-    if value < 0 or value > 10000:
-        raise ValueError("Solo se soportan montos entre 0 y 10000")
-
-    units = {
-        0: "cero", 1: "un", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
-        6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez",
-        11: "once", 12: "doce", 13: "trece", 14: "catorce", 15: "quince",
-        16: "dieciséis", 17: "diecisiete", 18: "dieciocho", 19: "diecinueve",
-        20: "veinte", 21: "veintiún", 22: "veintidós", 23: "veintitrés",
-        24: "veinticuatro", 25: "veinticinco", 26: "veintiséis", 27: "veintisiete",
-        28: "veintiocho", 29: "veintinueve",
-    }
-    tens = {
-        30: "treinta", 40: "cuarenta", 50: "cincuenta", 60: "sesenta",
-        70: "setenta", 80: "ochenta", 90: "noventa",
-    }
-    hundreds = {
-        100: "cien", 200: "doscientos", 300: "trescientos", 400: "cuatrocientos",
-        500: "quinientos", 600: "seiscientos", 700: "setecientos", 800: "ochocientos",
-        900: "novecientos",
-    }
-
-    if value < 30:
-        return units[value]
-    if value < 100:
-        ten = (value // 10) * 10
-        rest = value % 10
-        return tens[ten] if rest == 0 else f"{tens[ten]} y {units[rest]}"
-    if value < 1000:
-        hundred = (value // 100) * 100
-        rest = value % 100
-        if rest == 0:
-            return hundreds[hundred]
-        prefix = "ciento" if hundred == 100 else hundreds[hundred]
-        return f"{prefix} {_number_to_spanish(rest)}"
-    if value == 1000:
-        return "mil"
-    if value < 10000:
-        thousands = value // 1000
-        rest = value % 1000
-        prefix = "mil" if thousands == 1 else f"{_number_to_spanish(thousands)} mil"
-        return prefix if rest == 0 else f"{prefix} {_number_to_spanish(rest)}"
-    return "diez mil"
+def _get_document(db: Session, public_id: str) -> ContractDocument:
+    document = db.query(ContractDocument).options(
+        selectinload(ContractDocument.lines)
+    ).filter(ContractDocument.public_id == public_id).first()
+    if document is None:
+        raise HTTPException(status_code=404, detail="Contrato no encontrado")
+    return document
 
 
-def _format_contract_rate(rate: float) -> tuple[str, str]:
-    amount = Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if amount < 0 or amount > Decimal("10000.00"):
-        raise ValueError("La tarifa por hora debe estar entre 0 y 10000 Bs")
-
-    integer_part = int(amount)
-    cents = int((amount - Decimal(integer_part)) * 100)
-    numeric = f"{integer_part},{cents:02d}"
-    currency = "boliviano" if integer_part == 1 else "bolivianos"
-    literal = f"{_number_to_spanish(integer_part).capitalize()} {currency} {cents:02d}/100"
-    return numeric, literal
-
-
-def _resolve_contract_rate(designations: list[Designation], db: Session) -> tuple[str, str]:
-    """Pick the contract rate for one teacher's active-period designations."""
-    all_practice = bool(designations) and all(
-        designation.designation_type == "practice" for designation in designations
-    )
-    rate = (
-        app_settings_service.get_practice_hourly_rate(db)
-        if all_practice
-        else app_settings_service.get_hourly_rate(db)
-    )
-    return _format_contract_rate(rate)
-
-
-MONTH_NAMES = {
-    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
-    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
-}
-
-
-def _format_spanish_date(value: date) -> str:
-    return f"{value.day:02d} de {MONTH_NAMES[value.month]} de {value.year}"
-
-
-def _add_months(value: date, months: int) -> date:
-    month_index = value.month - 1 + months
-    year = value.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(value.day, monthrange(year, month)[1])
-    return date(year, month, day)
-
-
-def _format_duration_text(start: date, end: date) -> str:
-    if end < start:
-        raise ValueError("La fecha de fin del contrato no puede ser anterior a la fecha de inicio")
-
-    months = (end.year - start.year) * 12 + (end.month - start.month)
-    if end.day < start.day:
-        months -= 1
-
-    anchor = _add_months(start, months)
-    days = (end - anchor).days
-
-    parts: list[str] = []
-    if months:
-        parts.append(f"{months} mes{'es' if months != 1 else ''}")
-    if days:
-        parts.append(f"{days} día{'s' if days != 1 else ''}")
-    return " y ".join(parts) if parts else "0 días"
-
-
-def _resolve_contract_dates(designations: list[Designation]) -> tuple[str, str, str]:
-    if not designations:
-        raise ValueError("El docente no tiene designaciones en el período académico activo")
-
-    missing = [
-        f"{designation.subject} ({designation.group_code})"
-        for designation in designations
-        if designation.contract_start_date is None or designation.contract_end_date is None
-    ]
-    if missing:
-        raise ValueError(
-            "Faltan fechas de contrato en las siguientes designaciones: "
-            + "; ".join(missing)
+def _issue(db: Session, teacher_ci: str, payload: ContractRequest) -> ContractDocument:
+    _validate_department(payload.department)
+    academic_period = payload.academic_period or app_settings_service.get_active_academic_period(db)
+    try:
+        return issue_contract(
+            db,
+            teacher_ci=teacher_ci,
+            academic_period=academic_period,
+            department=payload.department,
         )
-
-    start = min(designation.contract_start_date for designation in designations if designation.contract_start_date)
-    end = max(designation.contract_end_date for designation in designations if designation.contract_end_date)
-    return _format_duration_text(start, end), _format_spanish_date(start), _format_spanish_date(end)
+    except ContractIssuanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-# ------------------------------------------------------------------
-# Endpoints
-# ------------------------------------------------------------------
-
-
-@router.post("/generate/{teacher_ci}", response_class=FileResponse)
-def generate_single_contract(
+@router.post("/issue/{teacher_ci}", response_model=ContractDocumentResponse)
+def issue_teacher_contract(
     teacher_ci: str,
     payload: ContractRequest,
     request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> FileResponse:
-    """Generate and return a contract PDF for a single teacher."""
-    from app.services.contract_pdf import generate_contract_pdf
-
-    _validate_department(payload.department)
-    teacher, designations = _get_teacher_designations(teacher_ci, db)
-
-    # TEMP teachers don't have a real CI — contracts cannot be issued for them
-    if teacher.ci.startswith("TEMP-"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede generar contrato para un docente sin CI real (TEMP). Vinculá el docente a su CI real primero.",
-        )
-
-    try:
-        hourly_rate, hourly_rate_literal = _resolve_contract_rate(designations, db)
-        duration_text, start_date, end_date = _resolve_contract_dates(designations)
-        pdf_path = generate_contract_pdf(
-            teacher=teacher,
-            designations=designations,
-            department=payload.department,
-            duration_text=duration_text,
-            start_date=start_date,
-            end_date=end_date,
-            hourly_rate=hourly_rate,
-            hourly_rate_literal=hourly_rate_literal,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to generate contract for teacher %s: %s", teacher_ci, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo generar el contrato PDF",
-        ) from exc
-
+) -> ContractDocumentResponse:
+    document = _issue(db, teacher_ci, payload)
     log_activity(
         db,
-        "generate_contract",
+        "issue_contract",
         "contracts",
-        f"Contrato generado: {teacher.full_name}",
+        f"Contrato {document.public_id} emitido o recuperado",
         user=current_user,
-        details={"teacher_ci": teacher_ci, "teacher_name": teacher.full_name, "department": payload.department},
+        details={"public_id": document.public_id, "source_digest": document.source_digest},
         request=request,
     )
     db.commit()
+    return _serialize(document)
 
-    safe_name = teacher.full_name.replace(" ", "_")
-    return FileResponse(
-        path=pdf_path,
-        filename=f"Contrato_{safe_name}.pdf",
-        media_type="application/pdf",
+
+@router.post("/generate/{teacher_ci}")
+def generate_single_contract_compatibility(
+    teacher_ci: str,
+    payload: ContractRequest,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Compatibility route: issue/read the ledger; never mutate Designation dates."""
+    document = _issue(db, teacher_ci, payload)
+    log_activity(
+        db,
+        "generate_contract_compatibility",
+        "contracts",
+        f"Contrato inmutable descargado: {document.public_id}",
+        user=current_user,
+        details={"public_id": document.public_id},
+        request=request,
+    )
+    db.commit()
+    return Response(
+        content=document.artifact_content,
+        media_type=document.artifact_media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{document.artifact_filename}"',
+            "ETag": f'"{document.artifact_sha256}"',
+            "X-Contract-Id": document.public_id,
+        },
     )
 
 
@@ -306,187 +243,145 @@ def generate_batch_contracts(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> BatchContractResponse:
-    """
-    Generate contracts for multiple teachers.
-
-    If teacher_cis is None or empty, generates for ALL teachers with designations.
-    PDFs are saved to data/contracts/. Returns metadata for client to download individually.
-    """
-    from app.services.contract_pdf import generate_contract_pdf
-
     _validate_department(payload.department)
-
-    # Determine which teachers to process — always exclude TEMP teachers (no real CI)
+    query = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-"))
     if payload.teacher_cis:
-        teachers = (
-            db.query(Teacher)
-            .filter(
-                Teacher.ci.in_(payload.teacher_cis),
-                ~Teacher.ci.startswith("TEMP-"),
-            )
-            .all()
-        )
-    else:
-        # All teachers with at least one designation in the active period, excluding TEMP
-        teachers = (
-            db.query(Teacher)
-            .join(Designation, Teacher.ci == Designation.teacher_ci)
-            .filter(
-                ~Teacher.ci.startswith("TEMP-"),
-                Designation.academic_period == app_settings_service.get_active_academic_period(db),
-            )
-            .distinct()
-            .all()
-        )
-
+        query = query.filter(Teacher.ci.in_(payload.teacher_cis))
+    teachers = query.order_by(Teacher.full_name).all()
     if not teachers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontraron docentes con designaciones para generar contratos",
-        )
-
+        raise HTTPException(status_code=404, detail="No se encontraron docentes para emitir contratos")
     contracts: list[ContractFileInfo] = []
     errors: list[str] = []
-
     for teacher in teachers:
-        designations = (
-            db.query(Designation)
-            .filter(
-                Designation.teacher_ci == teacher.ci,
-                Designation.academic_period == app_settings_service.get_active_academic_period(db),
-            )
-            .all()
-        )
-        if not designations:
-            continue
         try:
-            hourly_rate, hourly_rate_literal = _resolve_contract_rate(designations, db)
-            duration_text, start_date, end_date = _resolve_contract_dates(designations)
-            pdf_path_str = generate_contract_pdf(
-                teacher=teacher,
-                designations=designations,
-                department=payload.department,
-                duration_text=duration_text,
-                start_date=start_date,
-                end_date=end_date,
-                hourly_rate=hourly_rate,
-                hourly_rate_literal=hourly_rate_literal,
-            )
-            pdf_path = Path(pdf_path_str)
+            document = _issue(db, teacher.ci, payload)
             contracts.append(ContractFileInfo(
                 teacher_ci=teacher.ci,
-                teacher_name=teacher.full_name,
-                filename=pdf_path.name,
-                file_size=pdf_path.stat().st_size,
+                teacher_name=document.teacher_name,
+                filename=document.artifact_filename,
+                file_size=document.artifact_size,
+                public_id=document.public_id,
+                document_kind=document.document_kind,
+                version=document.amendment_sequence + 1,
+                download_url=f"/api/contracts/documents/{document.public_id}/download",
             ))
-        except Exception as exc:
-            logger.exception("Failed to generate contract for teacher %s: %s", teacher.ci, exc)
-            errors.append(f"{teacher.full_name} ({teacher.ci}): {exc}")
-
+        except HTTPException as exc:
+            errors.append(f"{teacher.full_name} ({teacher.ci}): {exc.detail}")
     if not contracts:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se pudo generar ningún contrato PDF. " + " | ".join(errors),
-        )
-
-    from datetime import datetime
-    zip_filename = f"Contratos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-
+        raise HTTPException(status_code=400, detail="No se pudo emitir ningún contrato. " + " | ".join(errors))
     log_activity(
         db,
-        "generate_batch_contracts",
+        "issue_batch_contracts",
         "contracts",
-        f"Contratos batch generados: {len(contracts)} docentes",
+        f"Contratos emitidos o recuperados: {len(contracts)}",
         user=current_user,
-        details={
-            "total_generated": len(contracts),
-            "department": payload.department,
-            "errors": errors,
-        },
+        details={"public_ids": [item.public_id for item in contracts], "errors": errors},
         request=request,
     )
     db.commit()
-
     return BatchContractResponse(
         total_generated=len(contracts),
         contracts=contracts,
-        zip_filename=zip_filename,
+        zip_filename=f"Contratos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
         errors=errors,
     )
 
 
-@router.get("/download/{filename}")
-def download_contract(
-    filename: str,
+@router.get("/history", response_model=list[ContractDocumentResponse])
+def list_contract_history(
+    teacher_ci: Optional[str] = None,
+    academic_period: Optional[str] = None,
     _: User = Depends(require_admin),
-) -> FileResponse:
-    """Download a previously generated contract PDF by filename."""
-    # Security: prevent path traversal
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nombre de archivo inválido",
-        )
+    db: Session = Depends(get_db),
+) -> list[ContractDocumentResponse]:
+    query = db.query(ContractDocument).options(selectinload(ContractDocument.lines))
+    if teacher_ci:
+        query = query.filter(ContractDocument.teacher_ci == teacher_ci)
+    if academic_period:
+        query = query.filter(ContractDocument.academic_period == academic_period)
+    documents = query.order_by(
+        ContractDocument.teacher_name,
+        ContractDocument.academic_period,
+        ContractDocument.amendment_sequence,
+    ).all()
+    return [_serialize(document) for document in documents]
 
-    contracts_dir = _contracts_dir()
-    file_path = contracts_dir / filename
 
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Archivo de contrato no encontrado",
-        )
+@router.get("/documents/{public_id}", response_model=ContractDocumentResponse)
+def get_contract_document(
+    public_id: str,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ContractDocumentResponse:
+    return _serialize(_get_document(db, public_id))
 
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type="application/pdf",
+
+@router.get("/documents/{public_id}/download")
+def download_contract_document(
+    public_id: str,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    document = _get_document(db, public_id)
+    return Response(
+        content=document.artifact_content,
+        media_type=document.artifact_media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{document.artifact_filename}"',
+            "ETag": f'"{document.artifact_sha256}"',
+            "Cache-Control": "private, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
+
+
+@router.get("/download/{filename}")
+def download_legacy_contract(filename: str, _: User = Depends(require_admin)) -> FileResponse:
+    """Keep historical filesystem PDFs readable without rewriting them."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido")
+    file_path = _contracts_dir() / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo de contrato no encontrado")
+    return FileResponse(path=file_path, filename=filename, media_type="application/pdf")
+
+
+@router.get("/list")
+def list_legacy_contracts(_: User = Depends(require_admin)) -> list[dict]:
+    """Preserve the historical filesystem response shape."""
+    files = sorted(_contracts_dir().glob("*.pdf"), key=lambda item: item.stat().st_mtime, reverse=True)
+    return [
+        {"filename": item.name, "file_size": item.stat().st_size, "created_at": item.stat().st_mtime}
+        for item in files
+    ]
 
 
 @router.post("/download-zip")
 def download_contracts_zip(
     filenames: list[str],
     _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    """Download multiple contract PDFs as a single ZIP archive."""
-    contracts_dir = _contracts_dir()
-
+    """Download ledger artifacts and historical filesystem files by stable filename."""
+    ledger = {
+        item.artifact_filename: item
+        for item in db.query(ContractDocument).filter(ContractDocument.artifact_filename.in_(filenames)).all()
+    }
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for filename in filenames:
-            # Security: prevent path traversal
             if "/" in filename or "\\" in filename or ".." in filename:
                 continue
-            file_path = contracts_dir / filename
-            if file_path.exists() and file_path.is_file():
-                zf.write(file_path, arcname=filename)
-
+            if filename in ledger:
+                archive.writestr(filename, ledger[filename].artifact_content)
+                continue
+            legacy_path = _contracts_dir() / filename
+            if legacy_path.is_file():
+                archive.write(legacy_path, arcname=filename)
     zip_buffer.seek(0)
-
-    from datetime import datetime
     zip_name = f"Contratos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-
     return StreamingResponse(
         zip_buffer,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )
-
-
-@router.get("/list")
-def list_contracts(
-    _: User = Depends(require_admin),
-) -> list[dict]:
-    """List all generated contract PDF files in data/contracts/."""
-    contracts_dir = _contracts_dir()
-    files = sorted(contracts_dir.glob("*.pdf"), key=lambda f: f.stat().st_mtime, reverse=True)
-
-    return [
-        {
-            "filename": f.name,
-            "file_size": f.stat().st_size,
-            "created_at": f.stat().st_mtime,
-        }
-        for f in files
-    ]

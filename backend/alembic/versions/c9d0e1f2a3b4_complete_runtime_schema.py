@@ -487,6 +487,24 @@ def upgrade() -> None:
     for name in TARGET_TABLES:
         if inspector.has_table(name):
             errors = _validate_complete(inspector, tables[name])
+            if name == "practice_attendance_logs" and errors:
+                # A schema pre-created from current ORM metadata may already be
+                # at the later dual-source provenance contract. Validate that
+                # exact target rather than weakening this migration's checks.
+                import importlib.util
+                from pathlib import Path
+
+                target_path = Path(__file__).with_name(
+                    "d2f4a6b8e017_add_published_practice_attendance_provenance.py"
+                )
+                spec = importlib.util.spec_from_file_location("practice_provenance_target", target_path)
+                if spec is not None and spec.loader is not None:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    _target_metadata, target_table = module._schema(target=True)
+                    helpers = module._validation_helpers()
+                    if not helpers._validate_table(inspector, target_table):
+                        errors = []
             if errors:
                 raise RuntimeError(f"Incompatible pre-existing table {name}: " + "; ".join(errors))
 
@@ -504,6 +522,12 @@ def upgrade() -> None:
     inspector = sa.inspect(op.get_bind())
     for name in TARGET_TABLES:
         errors = _validate_complete(inspector, tables[name])
+        if (
+            name == "practice_attendance_logs"
+            and errors
+            and "published_schedule_assignment_id" in _column_map(inspector, name)
+        ):
+            errors = []  # Exact later target was validated before any mutation above.
         if errors:
             raise RuntimeError(f"Runtime schema validation failed for {name}: " + "; ".join(errors))
 

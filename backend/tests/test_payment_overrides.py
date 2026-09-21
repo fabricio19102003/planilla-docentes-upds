@@ -10,6 +10,7 @@ from app.services.payment_overrides import (
     calculate_override_total,
     get_teacher_override_allocations,
     normalize_payment_overrides,
+    resolve_row_override,
     validate_payment_override_targets,
 )
 from app.services.planilla_generator import PlanillaGenerator
@@ -96,6 +97,61 @@ def test_valid_teacher_and_row_overrides_have_predictable_precedence():
 
     assert allocations == {1: Decimal("400.00"), 2: Decimal("600.00")}
     assert calculate_override_total(rows, overrides) == Decimal("1050.00")
+
+
+def test_typed_published_override_targets_immutable_source_without_legacy_collision():
+    rows = [
+        SimpleNamespace(
+            teacher_ci="teacher-a", designation_id=7, source_kind="legacy",
+            source_id=7, source_key="legacy:7", total_hours=1,
+            final_payment=Decimal("70.00"),
+        ),
+        SimpleNamespace(
+            teacher_ci="teacher-a", designation_id=7, source_kind="published",
+            source_id=7, source_key="published:7", total_hours=1,
+            final_payment=Decimal("70.00"),
+        ),
+    ]
+    overrides = normalize_payment_overrides({
+        "teacher-a": "100.00",
+        "teacher-a:published:7": "60.00",
+    })
+
+    validate_payment_override_targets(rows, overrides)
+    assert get_teacher_override_allocations(rows, overrides) == {
+        "legacy:7": Decimal("40.00"),
+        "published:7": Decimal("60.00"),
+    }
+    assert calculate_override_total(rows, overrides) == Decimal("100.00")
+
+
+def test_shared_row_resolution_preserves_legacy_keys_and_source_precedence():
+    legacy = SimpleNamespace(
+        teacher_ci="teacher-a", designation_id=7, source_kind="legacy",
+        source_id=7, source_key="legacy:7", total_hours=1,
+        final_payment=Decimal("70.00"),
+    )
+    published = SimpleNamespace(
+        teacher_ci="teacher-a", designation_id=7, source_kind="published",
+        source_id=7, source_key="published:7", total_hours=1,
+        final_payment=Decimal("70.00"),
+    )
+    rows = [legacy, published]
+
+    source_only = normalize_payment_overrides({
+        "teacher-a:7": "40.00",
+        "teacher-a:published:7": "60.00",
+    })
+    assert resolve_row_override(legacy, rows, source_only) == Decimal("40.00")
+    assert resolve_row_override(published, rows, source_only) == Decimal("60.00")
+    assert calculate_override_total(rows, source_only) == Decimal("100.00")
+
+    with_teacher = normalize_payment_overrides({
+        "teacher-a": "100.00",
+        "teacher-a:published:7": "60.00",
+    })
+    assert resolve_row_override(published, rows, with_teacher) == Decimal("60.00")
+    assert resolve_row_override(legacy, rows, with_teacher) == Decimal("40.00")
 
 
 def test_all_explicit_rows_must_allocate_exact_teacher_override():

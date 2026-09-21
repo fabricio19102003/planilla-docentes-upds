@@ -148,12 +148,23 @@ class ScheduleResolutionDesignation(BaseModel):
     group_code: str
     weekly_hours: Optional[int] = None
     monthly_hours: Optional[int] = None
+    source_kind: Literal["legacy", "published"] = "legacy"
+    source_id: Optional[int] = None
+    source_key: Optional[str] = None
+    designation_id: Optional[int] = None
+    publication_id: Optional[int] = None
+    published_block_id: Optional[int] = None
+    published_assignment_id: Optional[int] = None
+    activity_kind: Literal["theory", "practice"] = "theory"
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
     schedule: list[ScheduleResolutionSlot]
 
 
 class ScheduleResolutionSnapshot(BaseModel):
     kind: Literal["schedule_detail"]
     academic_period: str
+    effective_date: Optional[str] = None
     designations: list[ScheduleResolutionDesignation]
 
 

@@ -30,7 +30,7 @@ export function consumePostLoginReturnUrl(role: 'admin' | 'docente'): string | n
   const adminRoots = new Set([
     '', 'upload', 'attendance', 'attendance-audit', 'observations', 'planilla',
     'teachers', 'users', 'requests', 'reports', 'contracts', 'activity', 'backup',
-    'practice-attendance', 'practice-planilla', 'settings',
+    'practice-attendance', 'practice-planilla', 'settings', 'academic-management', 'schedule-planner',
   ])
   return adminRoots.has(pathname.split('/')[1] ?? '') ? returnUrl : null
 }

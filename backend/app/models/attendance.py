@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, DateTime, Date, Time, Text, ForeignKey, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, date, time
 from typing import Optional
@@ -10,9 +10,24 @@ class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
 
     __table_args__ = (
-        UniqueConstraint(
+        CheckConstraint(
+            "(designation_id IS NOT NULL AND published_schedule_assignment_id IS NULL) OR "
+            "(designation_id IS NULL AND published_schedule_assignment_id IS NOT NULL)",
+            name="ck_attendance_record_exactly_one_source",
+        ),
+        Index(
+            "uq_attendance_record_legacy_source",
             "teacher_ci", "designation_id", "date", "scheduled_start",
-            name="uq_attendance_record"
+            unique=True,
+            postgresql_where=text("designation_id IS NOT NULL"),
+            sqlite_where=text("designation_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_attendance_record_published_source",
+            "teacher_ci", "published_schedule_assignment_id", "date", "scheduled_start",
+            unique=True,
+            postgresql_where=text("published_schedule_assignment_id IS NOT NULL"),
+            sqlite_where=text("published_schedule_assignment_id IS NOT NULL"),
         ),
     )
 
@@ -20,8 +35,14 @@ class AttendanceRecord(Base):
     teacher_ci: Mapped[str] = mapped_column(
         String(20), ForeignKey("teachers.ci", ondelete="CASCADE"), nullable=False, index=True
     )
-    designation_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("designations.id", ondelete="CASCADE"), nullable=False, index=True
+    designation_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("designations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    published_schedule_assignment_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("academic_schedule_published_assignments.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     scheduled_start: Mapped[time] = mapped_column(Time, nullable=False)
@@ -43,12 +64,30 @@ class AttendanceRecord(Base):
     teacher: Mapped["Teacher"] = relationship(  # noqa: F821
         "Teacher", back_populates="attendance_records"
     )
-    designation: Mapped["Designation"] = relationship(  # noqa: F821
+    designation: Mapped[Optional["Designation"]] = relationship(  # noqa: F821
         "Designation", back_populates="attendance_records"
+    )
+    published_schedule_assignment: Mapped[Optional["AcademicSchedulePublishedAssignment"]] = relationship(  # noqa: F821
+        "AcademicSchedulePublishedAssignment", back_populates="attendance_records"
     )
     biometric_record: Mapped[Optional["BiometricRecord"]] = relationship(  # noqa: F821
         "BiometricRecord", back_populates="attendance_records"
     )
+
+    @property
+    def source_kind(self) -> str:
+        return "legacy" if self.designation_id is not None else "published"
+
+    @property
+    def source_id(self) -> int:
+        source_id = self.designation_id or self.published_schedule_assignment_id
+        if source_id is None:  # pragma: no cover - database CHECK invariant
+            raise ValueError("Attendance source identity is missing")
+        return source_id
+
+    @property
+    def source_key(self) -> str:
+        return f"{self.source_kind}:{self.source_id}"
 
     def __repr__(self) -> str:
         return f"<AttendanceRecord ci={self.teacher_ci} date={self.date} status={self.status}>"

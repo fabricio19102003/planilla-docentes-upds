@@ -6,10 +6,10 @@ from datetime import date, time as time_type
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models.designation import Designation
+from app.models.academic_management import AcademicSchedulePublishedAssignment
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -30,6 +30,8 @@ from app.services.planilla_generator import (
     _effective_designation_range,
     _resolve_payroll_period,
 )
+from app.services.payroll_schedule_source_service import payroll_schedule_sources
+from app.services.practice_attendance_source_service import practice_attendance_source_details
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -95,28 +97,26 @@ def generate_practice_attendance(
 
     academic_period = app_settings_service.get_active_academic_period(db)
 
-    # Get all practice designations for the active period
-    practice_designations = (
-        db.query(Designation)
-        .filter(
-            Designation.designation_type == "practice",
-            Designation.academic_period == academic_period,
-        )
-        .all()
+    sources = payroll_schedule_sources(
+        db,
+        academic_period=academic_period,
+        period_start=period_start,
+        period_end=period_end,
+        activity_kind="practice",
     )
-
-    if not practice_designations:
+    if not sources:
         raise HTTPException(
             404,
             detail="No se encontraron designaciones de práctica para el período académico activo",
         )
 
     # Build a set of existing entries to avoid duplicates
-    existing = set()
+    existing: set[tuple[str, str, date, time_type]] = set()
     existing_rows = (
         db.query(
             PracticeAttendanceLog.teacher_ci,
             PracticeAttendanceLog.designation_id,
+            PracticeAttendanceLog.published_schedule_assignment_id,
             PracticeAttendanceLog.date,
             PracticeAttendanceLog.scheduled_start,
         )
@@ -127,64 +127,28 @@ def generate_practice_attendance(
         .all()
     )
     for row in existing_rows:
-        existing.add((row[0], row[1], row[2], row[3]))
+        source_key = f"legacy:{row[1]}" if row[1] is not None else f"published:{row[2]}"
+        existing.add((row[0], source_key, row[3], row[4]))
 
     created = 0
-    for desig in practice_designations:
-        schedule_json = desig.schedule_json or []
-        if not schedule_json:
-            continue
-        effective_range = _effective_designation_range(
-            desig,
-            month,
-            year,
-            payload.start_date,
-            payload.end_date,
-        )
-        if effective_range.start is None or effective_range.end is None:
-            continue
-
-        # Build weekday → list of slots mapping
-        slots_by_weekday: dict[str, list[dict]] = {}
-        for slot in schedule_json:
-            dia = _normalize_day(slot.get("dia", ""))
-            if dia:
-                slots_by_weekday.setdefault(dia, []).append(slot)
-
-        # Iterate each day in the range
-        from datetime import timedelta
-
-        effective_days = (effective_range.end - effective_range.start).days + 1
-        for i in range(effective_days):
-            current_date = effective_range.start + timedelta(days=i)
-            weekday_name = WEEKDAY_MAP.get(current_date.weekday(), "")
-            day_slots = slots_by_weekday.get(weekday_name, [])
-
-            for slot in day_slots:
-                hora_inicio = _parse_time(slot.get("hora_inicio", ""))
-                hora_fin = _parse_time(slot.get("hora_fin", ""))
-                academic_hours = int(slot.get("horas_academicas", 0) or 0)
-
-                if not hora_inicio or not hora_fin:
-                    continue
-
-                key = (desig.teacher_ci, desig.id, current_date, hora_inicio)
-                if key in existing:
-                    continue
-
-                entry = PracticeAttendanceLog(
-                    teacher_ci=desig.teacher_ci,
-                    designation_id=desig.id,
-                    date=current_date,
-                    scheduled_start=hora_inicio,
-                    scheduled_end=hora_fin,
-                    academic_hours=academic_hours,
-                    status="absent",
-                    registered_by=current_user.ci,
-                )
-                db.add(entry)
-                existing.add(key)
-                created += 1
+    for source in sources:
+        for slot in source.payable_slots:
+            key = (source.teacher_ci, source.source_key, slot.date, slot.scheduled_start)
+            if key in existing:
+                continue
+            db.add(PracticeAttendanceLog(
+                teacher_ci=source.teacher_ci,
+                designation_id=source.designation_id,
+                published_schedule_assignment_id=source.published_assignment_id,
+                date=slot.date,
+                scheduled_start=slot.scheduled_start,
+                scheduled_end=slot.scheduled_end,
+                academic_hours=slot.academic_hours,
+                status="absent",
+                registered_by=current_user.ci,
+            ))
+            existing.add(key)
+            created += 1
 
     db.flush()
 
@@ -216,9 +180,14 @@ def list_practice_attendance(
     period_start, period_end = _resolve_period(month, year, start_date, end_date)
 
     query = (
-        db.query(PracticeAttendanceLog, Teacher.full_name, Designation.subject, Designation.group_code, Designation.semester)
+        db.query(PracticeAttendanceLog, Teacher.full_name)
         .join(Teacher, Teacher.ci == PracticeAttendanceLog.teacher_ci)
-        .join(Designation, Designation.id == PracticeAttendanceLog.designation_id)
+        .options(
+            joinedload(PracticeAttendanceLog.designation),
+            joinedload(PracticeAttendanceLog.published_schedule_assignment).joinedload(
+                AcademicSchedulePublishedAssignment.block
+            ),
+        )
         .filter(
             PracticeAttendanceLog.date >= period_start,
             PracticeAttendanceLog.date <= period_end,
@@ -232,16 +201,20 @@ def list_practice_attendance(
     rows = query.all()
 
     result = []
-    for log, teacher_name, subject, group_code, semester in rows:
+    for log, teacher_name in rows:
+        source = practice_attendance_source_details(log)
         result.append(
             PracticeAttendanceResponse(
                 id=log.id,
                 teacher_ci=log.teacher_ci,
                 teacher_name=teacher_name,
                 designation_id=log.designation_id,
-                subject=subject,
-                group_code=group_code,
-                semester=semester,
+                published_schedule_assignment_id=log.published_schedule_assignment_id,
+                source_kind=source.source_kind,
+                source_key=source.source_key,
+                subject=source.subject,
+                group_code=source.group_code,
+                semester=source.semester,
                 date=log.date,
                 scheduled_start=log.scheduled_start,
                 scheduled_end=log.scheduled_end,
@@ -360,7 +333,18 @@ def update_practice_attendance(
 
     # Fetch teacher name and designation info for response
     teacher = db.query(Teacher).filter(Teacher.ci == entry.teacher_ci).first()
-    desig = db.query(Designation).filter(Designation.id == entry.designation_id).first()
+    entry = (
+        db.query(PracticeAttendanceLog)
+        .options(
+            joinedload(PracticeAttendanceLog.designation),
+            joinedload(PracticeAttendanceLog.published_schedule_assignment).joinedload(
+                AcademicSchedulePublishedAssignment.block
+            ),
+        )
+        .filter(PracticeAttendanceLog.id == entry_id)
+        .one()
+    )
+    source = practice_attendance_source_details(entry)
 
     new_status = update_data.get("status", old_status)
     if new_status != old_status:
@@ -382,9 +366,12 @@ def update_practice_attendance(
         teacher_ci=entry.teacher_ci,
         teacher_name=teacher.full_name if teacher else None,
         designation_id=entry.designation_id,
-        subject=desig.subject if desig else None,
-        group_code=desig.group_code if desig else None,
-        semester=desig.semester if desig else None,
+        published_schedule_assignment_id=entry.published_schedule_assignment_id,
+        source_kind=source.source_kind,
+        source_key=source.source_key,
+        subject=source.subject,
+        group_code=source.group_code,
+        semester=source.semester,
         date=entry.date,
         scheduled_start=entry.scheduled_start,
         scheduled_end=entry.scheduled_end,

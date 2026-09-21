@@ -14,6 +14,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Check, X, Filter, Eye } from 'lucide-react'
 import type { DetailRequestInfo } from '@/api/types'
+import { ResolutionSnapshotPanel } from '@/components/requests/ResolutionSnapshotPanel'
+import { selectAdminRequestEvidence } from '@/lib/adminRequestResolution'
 
 type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected'
 
@@ -54,8 +56,13 @@ function RequestDetailDialog({
   request: DetailRequestInfo | null
   onClose: () => void
 }) {
-  // Use stored discount_mode so values match the approved planilla
-  const { data: reqPlanillaStatus } = usePlanillaStatus(request?.month ?? 0, request?.year ?? 0)
+  const shouldLoadLiveContext = request?.status === 'pending'
+  // Live data is decision support only while the request is pending.
+  const { data: reqPlanillaStatus } = usePlanillaStatus(
+    request?.month ?? 0,
+    request?.year ?? 0,
+    Boolean(request) && shouldLoadLiveContext,
+  )
   const reqDiscountMode = (reqPlanillaStatus?.discount_mode === 'attendance' || reqPlanillaStatus?.discount_mode === 'full')
     ? reqPlanillaStatus.discount_mode
     : 'attendance'
@@ -64,7 +71,7 @@ function RequestDetailDialog({
   const { data: planillaDetail } = usePlanillaDetail(
     request?.month ?? 0,
     request?.year ?? 0,
-    Boolean(request),
+    Boolean(request) && shouldLoadLiveContext,
     undefined,
     undefined,
     reqDiscountMode,
@@ -73,7 +80,7 @@ function RequestDetailDialog({
   // Load teacher designations with schedule info
   const { data: teacherSchedule } = useTeacherDesignations(
     request?.teacher_ci ?? '',
-    Boolean(request),
+    Boolean(request) && shouldLoadLiveContext,
   )
 
   const teacherBilling = planillaDetail?.teacher_totals?.find(
@@ -84,6 +91,11 @@ function RequestDetailDialog({
   )
 
   if (!request) return null
+  const evidence = selectAdminRequestEvidence(request, {
+    billing: teacherBilling,
+    designations: teacherDesignations,
+    schedule: teacherSchedule,
+  })
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={onClose}>
@@ -147,10 +159,35 @@ function RequestDetailDialog({
             )}
           </div>
 
+          {evidence.kind === 'historical' && (
+            <div className="rounded-lg border border-blue-300 bg-blue-50/40 p-3">
+              <p className="mb-3 text-sm font-semibold text-[#003366]">
+                Evidencia histórica autoritativa
+              </p>
+              <ResolutionSnapshotPanel
+                snapshot={evidence.snapshot}
+                heading="Resolución histórica guardada"
+              />
+            </div>
+          )}
+
+          {evidence.kind === 'legacy-fallback' && (
+            <div
+              role="status"
+              aria-label="Solicitud histórica sin resolución guardada"
+              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+            >
+              <p className="font-semibold">Solicitud histórica sin evidencia guardada</p>
+              <p className="mt-1 text-xs">
+                Esta solicitud fue resuelta antes de incorporar instantáneas inmutables. El contexto actual no se usa como reemplazo.
+              </p>
+            </div>
+          )}
+
           {/* Teacher billing info */}
-          {teacherBilling && (
+          {evidence.kind === 'live-pending' && teacherBilling && (
             <div className="bg-blue-50/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Facturación del período</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contexto actual de facturación · solo apoyo</p>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Total a facturar</span>
                 <span className="text-lg font-bold" style={{ color: '#003366' }}>
@@ -176,17 +213,20 @@ function RequestDetailDialog({
           )}
 
           {/* Teacher Schedule */}
-          {teacherSchedule && teacherSchedule.designations.length > 0 && (
+          {evidence.kind === 'live-pending' && teacherSchedule && teacherSchedule.designations.length > 0 && (
             <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
+                Contexto actual de horarios · solo apoyo ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
               </p>
               <div className="space-y-2">
                 {teacherSchedule.designations.map(d => (
-                  <div key={d.id} className="text-sm">
+                  <div key={d.source_key} className="text-sm">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-gray-800">{d.subject}</span>
                       <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                      <Badge className="bg-blue-50 text-blue-700 text-xs">
+                        {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
+                      </Badge>
                       <span className="text-xs text-gray-400">{d.semester}</span>
                     </div>
                     <div className="flex flex-wrap gap-1 ml-2">
@@ -291,10 +331,13 @@ function RespondDialog({
               </p>
               <div className="space-y-2">
                 {teacherSchedule.designations.map(d => (
-                  <div key={d.id} className="text-sm">
+                  <div key={d.source_key} className="text-sm">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-gray-800">{d.subject}</span>
                       <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                      <Badge className="bg-blue-50 text-blue-700 text-xs">
+                        {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
+                      </Badge>
                       <span className="text-xs text-gray-400">{d.semester}</span>
                     </div>
                     <div className="flex flex-wrap gap-1 ml-2">
@@ -312,8 +355,9 @@ function RespondDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Observaciones para el docente (opcional)</Label>
+            <Label htmlFor="admin-request-observation">Observaciones para el docente (opcional)</Label>
             <Textarea
+              id="admin-request-observation"
               value={adminResponse}
               onChange={(e) => setAdminResponse(e.target.value)}
               placeholder="Agregá una observación sobre la resolución..."
@@ -322,7 +366,7 @@ function RespondDialog({
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
               {error}
             </p>
           )}

@@ -15,9 +15,24 @@ from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.practice_planilla import PracticePlanillaOutput
+from app.models.contract import ContractDocument, ContractLine
 from app.models.medicine_schedule import (
     MedicineCorrection, MedicineImportIssue, MedicineMeeting, MedicineOffering,
     MedicineScheduleVersion, MedicineSimulation, MedicineVersionEvent,
+)
+from app.models.academic_management import (
+    AcademicGroup,
+    AcademicProgram,
+    AcademicScheduleBlock,
+    AcademicScheduleAssignment,
+    AcademicScheduleDraft,
+    AcademicSchedulePublication,
+    AcademicSchedulePublishedAssignment,
+    AcademicSchedulePublishedBlock,
+    AcademicSubject,
+    Classroom,
+    SubjectOffering,
+    TeacherAvailability,
 )
 
 __all__ = [
@@ -38,6 +53,8 @@ __all__ = [
     "AppSetting",
     "PracticeAttendanceLog",
     "PracticePlanillaOutput",
+    "ContractDocument",
+    "ContractLine",
     "MedicineScheduleVersion",
     "MedicineOffering",
     "MedicineMeeting",
@@ -45,6 +62,18 @@ __all__ = [
     "MedicineCorrection",
     "MedicineVersionEvent",
     "MedicineSimulation",
+    "AcademicProgram",
+    "AcademicScheduleDraft",
+    "AcademicScheduleBlock",
+    "AcademicScheduleAssignment",
+    "AcademicSchedulePublication",
+    "AcademicSchedulePublishedBlock",
+    "AcademicSchedulePublishedAssignment",
+    "AcademicSubject",
+    "SubjectOffering",
+    "AcademicGroup",
+    "Classroom",
+    "TeacherAvailability",
 ]
 
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference

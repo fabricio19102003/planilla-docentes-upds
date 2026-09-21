@@ -394,7 +394,7 @@ export function PracticeAttendancePage() {
           </div>
         )}
         {generateMutation.isError && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <div role="alert" aria-live="assertive" className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             Error: {(generateMutation.error as Error)?.message ?? 'No se pudo generar la asistencia'}
           </div>
         )}
@@ -527,6 +527,7 @@ export function PracticeAttendancePage() {
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Docente</th>
                       <th className="text-left px-3 py-3 font-medium text-gray-600">Materia</th>
                       <th className="text-left px-3 py-3 font-medium text-gray-600">Grupo</th>
+                      <th className="text-center px-3 py-3 font-medium text-gray-600">Origen</th>
                       <th className="text-center px-3 py-3 font-medium text-gray-600">Horario</th>
                       <th className="text-center px-3 py-3 font-medium text-gray-600">Estado</th>
                       <th className="text-center px-3 py-3 font-medium text-gray-600">Hora Llegada</th>
@@ -547,6 +548,9 @@ export function PracticeAttendancePage() {
                             {entry.subject}
                           </td>
                           <td className="px-3 py-2.5 text-gray-600">{entry.group_code}</td>
+                          <td className="text-center px-3 py-2.5">
+                            <Badge variant="outline">{entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}</Badge>
+                          </td>
                           <td className="text-center px-3 py-2.5 text-gray-600 whitespace-nowrap">
                             {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
                           </td>
@@ -601,12 +605,14 @@ export function PracticeAttendancePage() {
                                   autoFocus
                                 />
                                 <button
+                                  aria-label="Guardar observación"
                                   className="text-green-600 hover:text-green-800"
                                   onClick={() => handleObsSave(entry.id)}
                                 >
                                   <CheckCircle size={14} />
                                 </button>
                                 <button
+                                  aria-label="Cancelar edición de observación"
                                   className="text-gray-400 hover:text-gray-600"
                                   onClick={() => { setEditingObs(null); setObsValue('') }}
                                 >
@@ -625,6 +631,7 @@ export function PracticeAttendancePage() {
                           </td>
                           <td className="px-2 py-2.5">
                             <button
+                              aria-label={`Eliminar asistencia de ${entry.teacher_name ?? entry.teacher_ci}`}
                               className="text-gray-300 hover:text-red-500 transition-colors"
                               title="Eliminar"
                               onClick={() => {
@@ -671,6 +678,7 @@ export function PracticeAttendancePage() {
                       <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Materia</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Grupo</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">Origen</th>
                       <th className="text-center px-3 py-2 font-medium text-gray-600">Horario Prog.</th>
                       <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
                       <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Inicio</th>
@@ -688,7 +696,7 @@ export function PracticeAttendancePage() {
                         <Fragment key={entry.id}>
                         {showDateHeader && (
                           <tr className="bg-gray-100/80">
-                            <td colSpan={10} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            <td colSpan={11} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                               {formatDate(entry.date)}
                             </td>
                           </tr>
@@ -699,6 +707,9 @@ export function PracticeAttendancePage() {
                             {entry.subject}
                           </td>
                           <td className="px-3 py-2 text-gray-600">{entry.group_code}</td>
+                          <td className="text-center px-3 py-2">
+                            <Badge variant="outline">{entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}</Badge>
+                          </td>
                           <td className="text-center px-3 py-2 text-gray-600 whitespace-nowrap">
                             {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
                           </td>

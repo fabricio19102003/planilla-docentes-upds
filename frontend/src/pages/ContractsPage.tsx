@@ -14,8 +14,11 @@ import { useTeachers } from '@/api/hooks/useTeachers'
 import { useAppSettings } from '@/api/hooks/useAppSettings'
 import {
   useGenerateBatchContracts,
-  downloadContract,
+  useContractHistory,
+  downloadContractFile,
+  downloadContractDocument,
   downloadContractsZip,
+  type ContractDocument,
   type ContractFileInfo,
   type BatchContractRequest,
 } from '@/api/hooks/useContracts'
@@ -35,7 +38,11 @@ function formatBytes(bytes: number): string {
 
 function getContractErrorMessage(error: unknown): string {
   const axiosError = error as { response?: { data?: { detail?: string } } }
-  return axiosError.response?.data?.detail ?? 'Error al generar contratos. Verificá que cada designación tenga fecha de inicio y fin de contrato.'
+  return axiosError.response?.data?.detail ?? 'No se pudo emitir el contrato desde la carga académica efectiva.'
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -60,6 +67,7 @@ export function ContractsPage() {
   // Exclude placeholder TEMP teachers — they have no real CI and should not get contracts
   const teachers = (teachersData?.items ?? []).filter((t) => !t.ci.startsWith('TEMP-'))
   const generateBatch = useGenerateBatchContracts()
+  const contractHistory = useContractHistory()
 
   const filteredTeachers = teachers.filter((t) => {
     if (!searchTerm) return true
@@ -110,10 +118,19 @@ export function ContractsPage() {
     }
   }
 
-  const handleDownloadOne = async (filename: string) => {
-    setDownloadingFile(filename)
+  const handleDownloadOne = async (contract: ContractFileInfo) => {
+    setDownloadingFile(contract.public_id ?? contract.filename)
     try {
-      await downloadContract(filename)
+      await downloadContractFile(contract)
+    } finally {
+      setDownloadingFile(null)
+    }
+  }
+
+  const handleHistoryDownload = async (document: ContractDocument) => {
+    setDownloadingFile(document.public_id)
+    try {
+      await downloadContractDocument(document)
     } finally {
       setDownloadingFile(null)
     }
@@ -124,10 +141,10 @@ export function ContractsPage() {
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold" style={{ color: '#003366' }}>
-          Generación de Contratos
+          Contratos Docentes
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          Generá contratos de prestación de servicios para los docentes
+          Emití y consultá contratos consolidados y sus enmiendas inmutables
         </p>
       </div>
 
@@ -140,7 +157,7 @@ export function ContractsPage() {
             </div>
             <div>
               <h2 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Configuración del Contrato
+                Configuración de Emisión
               </h2>
               <p className="text-xs text-gray-500">
                 Parámetros que se aplicarán a todos los contratos generados
@@ -167,7 +184,7 @@ export function ContractsPage() {
             </div>
 
             <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 lg:col-span-3">
-              Las fechas y la duración se calculan automáticamente desde cada designación del docente. Cargalas en el detalle del docente, en la tabla de designaciones. Las tarifas se toman automáticamente de Configuración: prácticas Bs {settings?.practice_hourly_rate ?? '—'}; teoría/mixtas Bs {settings?.hourly_rate ?? '—'}.
+              La carga y vigencia se toman del horario publicado o de la fuente legacy efectiva, sin modificar designaciones históricas. Tarifas: prácticas Bs {settings?.practice_hourly_rate ?? '—'}; teoría Bs {settings?.hourly_rate ?? '—'}.
             </div>
           </div>
         </div>
@@ -287,12 +304,12 @@ export function ContractsPage() {
           {generateBatch.isPending ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              Generando contratos...
+              Emitiendo contratos...
             </>
           ) : (
             <>
               <FileSignature size={16} />
-              Generar Contratos
+              Emitir o Recuperar Contratos
             </>
           )}
         </Button>
@@ -307,7 +324,7 @@ export function ContractsPage() {
 
       {/* Error state */}
       {generateBatch.isError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-sm text-red-600">
             {getContractErrorMessage(generateBatch.error)}
           </p>
@@ -315,7 +332,7 @@ export function ContractsPage() {
       )}
 
       {generationErrors.length > 0 && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+        <div role="status" aria-live="polite" className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-sm font-medium text-amber-800">Algunos docentes se omitieron:</p>
           <ul className="mt-2 list-disc pl-5 text-xs text-amber-700 space-y-1">
             {generationErrors.map((error) => (
@@ -327,13 +344,13 @@ export function ContractsPage() {
 
       {/* Results card */}
       {generatedContracts.length > 0 && (
-        <div className="card-3d-static overflow-hidden border-l-4" style={{ borderLeftColor: '#16a34a' }}>
+        <div role="status" aria-live="polite" className="card-3d-static overflow-hidden border-l-4" style={{ borderLeftColor: '#16a34a' }}>
           <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <CheckCircle size={20} className="text-green-600" />
               <div>
                 <h3 className="text-base font-semibold text-green-700">
-                  {generatedContracts.length} contrato{generatedContracts.length !== 1 ? 's' : ''} generado{generatedContracts.length !== 1 ? 's' : ''}
+                  {generatedContracts.length} contrato{generatedContracts.length !== 1 ? 's' : ''} emitido{generatedContracts.length !== 1 ? 's' : ''} o recuperado{generatedContracts.length !== 1 ? 's' : ''}
                 </h3>
                 <p className="text-xs text-gray-500">Listos para descargar</p>
               </div>
@@ -368,11 +385,11 @@ export function ContractsPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => void handleDownloadOne(contract.filename)}
-                  disabled={downloadingFile === contract.filename}
+                  onClick={() => void handleDownloadOne(contract)}
+                  disabled={downloadingFile === (contract.public_id ?? contract.filename)}
                   className="inline-flex items-center gap-1.5 text-[#0066CC] hover:underline text-sm font-medium disabled:opacity-50"
                 >
-                  {downloadingFile === contract.filename ? (
+                  {downloadingFile === (contract.public_id ?? contract.filename) ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
                     <Download size={14} />
@@ -385,11 +402,74 @@ export function ContractsPage() {
         </div>
       )}
 
+      <section aria-labelledby="contract-history-heading" className="card-3d-static overflow-hidden">
+        <div className="border-b border-gray-100 px-6 py-5">
+          <h2 id="contract-history-heading" className="text-base font-semibold text-[#003366]">
+            Historial Inmutable
+          </h2>
+          <p className="mt-1 text-xs text-gray-500">Originales y enmiendas ordenados por docente y versión.</p>
+        </div>
+        {contractHistory.isLoading && (
+          <p role="status" aria-live="polite" aria-busy="true" className="px-6 py-8 text-sm text-gray-500">
+            Cargando historial de contratos…
+          </p>
+        )}
+        {contractHistory.isError && (
+          <p role="alert" className="m-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            No se pudo cargar el historial de contratos.
+          </p>
+        )}
+        {contractHistory.isSuccess && contractHistory.data.length === 0 && (
+          <p className="px-6 py-8 text-sm text-gray-500">Todavía no se emitieron contratos inmutables.</p>
+        )}
+        {contractHistory.isSuccess && contractHistory.data.length > 0 && (
+          <ol className="divide-y divide-gray-100">
+            {contractHistory.data.map((document) => (
+              <li key={document.public_id} className="px-6 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-semibold text-gray-900">{document.teacher_name}</h3>
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
+                        {document.document_kind === 'original' ? 'Original' : `Enmienda ${document.amendment_sequence}`}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {document.academic_period} · efectiva {formatDate(document.effective_date)} · emitida {formatDate(document.issued_at)}
+                    </p>
+                    <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                      {document.lines.map((line) => (
+                        <li key={`${document.public_id}-${line.line_number}`}>
+                          <span className="font-medium">{line.activity_kind === 'theory' ? 'Teoría' : 'Práctica'}:</span>{' '}
+                          {line.subject_label} ({line.group_label}) · {line.hours}h · Bs {line.hourly_rate}
+                          {line.change_kind !== 'full' ? ` · ${line.change_kind}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2 self-start"
+                    onClick={() => void handleHistoryDownload(document)}
+                    disabled={downloadingFile === document.public_id}
+                    aria-label={`Descargar ${document.document_kind === 'original' ? 'contrato original' : `enmienda ${document.amendment_sequence}`} de ${document.teacher_name}`}
+                  >
+                    {downloadingFile === document.public_id ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+                    Descargar PDF
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
       {/* Empty state after successful generation with 0 results */}
       {generateBatch.isSuccess && generatedContracts.length === 0 && (
         <div className="card-3d-static p-8 text-center">
           <p className="text-gray-400 text-sm">
-            No se generaron contratos. Verificá que los docentes seleccionados tengan designaciones.
+            No se emitieron contratos. Revisá que los docentes tengan carga efectiva y tarifas completas.
           </p>
         </div>
       )}

@@ -76,6 +76,9 @@ interface FlatSlot {
   subject: string
   group_code: string
   semester: string
+  source_key: string
+  source_kind: 'legacy' | 'published'
+  activity_kind: 'theory' | 'practice'
 }
 
 function buildFlatSlots(
@@ -98,6 +101,7 @@ function buildFlatSlots(
         d.subject,
         d.group_code,
         d.semester,
+        d.source_key,
       ].join('|')
       const occurrence = keyOccurrences.get(baseKey) ?? 0
       keyOccurrences.set(baseKey, occurrence + 1)
@@ -111,6 +115,9 @@ function buildFlatSlots(
         subject: d.subject,
         group_code: d.group_code,
         semester: d.semester,
+        source_key: d.source_key,
+        source_kind: d.source_kind,
+        activity_kind: d.activity_kind,
       })
     }
   }
@@ -196,6 +203,9 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
                           {slot.group_code}
                         </Badge>
                         <span className="text-xs text-gray-400">{slot.semester}</span>
+                        <span className="text-xs text-gray-400">
+                          {slot.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {slot.source_kind === 'published' ? 'Publicado' : 'Legado'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -234,11 +244,11 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
   return (
     <div className="space-y-4">
       {filtered.map((d) => {
-        const color = getSubjectColor(d.subject)
+        const color = getSubjectColor(`${d.subject}|${d.activity_kind}`)
         const sorted = [...d.schedule].sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
 
         return (
-          <div key={`${d.subject}-${d.group_code}-${d.semester}`} className="card-3d-static overflow-hidden">
+          <div key={d.source_key} className="card-3d-static overflow-hidden">
             <div
               className="px-4 py-3 flex items-center gap-3"
               style={{ background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
@@ -254,6 +264,9 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
                     {d.group_code}
                   </Badge>
                   <span className="text-xs text-gray-500">{d.semester}</span>
+                  <span className="text-xs text-gray-500">
+                    {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {d.source_kind === 'published' ? 'Publicado' : 'Legado'}
+                  </span>
                   {d.weekly_hours != null && (
                     <span className="text-xs text-gray-500 ml-auto">{d.weekly_hours}h/sem</span>
                   )}
@@ -263,7 +276,7 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
             {sorted.length > 0 ? (
               <div className="divide-y divide-gray-100">
                 {sorted.map((slot) => (
-                  <div key={`${d.subject}|${d.group_code}|${d.semester}|${normDay(slot.dia)}|${slot.hora_inicio}|${slot.hora_fin}`} className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
+                  <div key={`${d.source_key}|${normDay(slot.dia)}|${slot.hora_inicio}|${slot.hora_fin}`} className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
                     <div
                       className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: DAY_COLORS[
@@ -348,7 +361,7 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
                       <td key={day} className="align-top px-1 py-1 text-center">
                         <div className="space-y-1">
                           {cellSlots.map((slot) => {
-                            const color = getSubjectColor(slot.subject)
+                            const color = getSubjectColor(`${slot.subject}|${slot.activity_kind}`)
 
                             return (
                               <div
@@ -359,6 +372,9 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
                                 <p className="text-xs font-semibold leading-tight text-white">{slot.subject}</p>
                                 <p className="mt-1 text-[11px] text-white/90">Grupo {slot.group_code}</p>
                                 <p className="text-[11px] text-white/80">{slot.semester}</p>
+                                <p className="text-[10px] text-white/75">
+                                  {slot.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {slot.source_kind === 'published' ? 'Publicado' : 'Legado'}
+                                </p>
                                 <p className="mt-1 text-[10px] font-mono text-white/75">
                                   {slot.hora_inicio}-{slot.hora_fin} · {slot.horas_academicas}h
                                 </p>
@@ -391,15 +407,15 @@ function SubjectLegend({ designations }: { designations: PortalDesignationSchedu
       </p>
       <div className="flex flex-wrap gap-2">
         {designations.map((d) => {
-          const color = getSubjectColor(d.subject)
+          const color = getSubjectColor(`${d.subject}|${d.activity_kind}`)
           return (
             <div
-              key={`${d.subject}-${d.group_code}-${d.semester}`}
+              key={d.source_key}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
               style={{ backgroundColor: `${color}18`, color, border: `1px solid ${color}30` }}
             >
               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-              {d.subject} ({d.group_code})
+              {d.subject} ({d.group_code}) · {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
             </div>
           )
         })}

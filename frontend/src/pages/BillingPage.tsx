@@ -199,7 +199,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                 ) : (
                   billing.designations.map((d, i) => (
                     <tr
-                      key={i}
+                      key={d.source_key ?? `${d.subject}-${d.group}-${d.semester}-${i}`}
                       className={`border-b last:border-0 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}
                     >
                       <td className="px-4 py-3 font-medium text-gray-800">{d.subject}</td>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import json
+from collections import Counter
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -15,7 +16,6 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricUpload
-from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
@@ -33,6 +33,7 @@ from app.services.attendance_engine import AttendanceEngine
 from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.salary_report_generator import SalaryReportGenerator
+from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.services.activity_logger import log_activity
 from app.services.monetary_snapshot import (
     SnapshotReconciliationError,
@@ -343,33 +344,17 @@ def get_designation_options(
     try:
         active_period = app_settings_service.get_active_academic_period(db)
 
-        # Exclude practice designations — they have a separate planilla flow
-        base_filter = [
-            Designation.academic_period == active_period,
-            Designation.designation_type != "practice",
-        ]
-
-        subject_rows = (
-            db.query(Designation.subject, Designation.group_code, Designation.semester)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.subject, Designation.group_code, Designation.semester)
-            .all()
+        workloads = effective_workloads(
+            db,
+            academic_period=active_period,
+            target_date=active_period_effective_date(active_period),
+            activity_kind="theory",
         )
-        semester_rows = (
-            db.query(Designation.semester)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.semester)
-            .all()
-        )
-        group_rows = (
-            db.query(Designation.group_code)
-            .filter(*base_filter)
-            .distinct()
-            .order_by(Designation.group_code)
-            .all()
-        )
+        subject_rows = sorted({
+            (item.subject, item.group_code, item.semester) for item in workloads
+        })
+        semesters = {item.semester for item in workloads}
+        groups = sorted({item.group_code for item in workloads})
 
         # Sort semesters by logical order (PRIMERO=1, SEGUNDO=2, etc.)
         semester_order = {
@@ -378,7 +363,7 @@ def get_designation_options(
             "NOVENO": 9, "DECIMO": 10,
         }
         sorted_semesters = sorted(
-            [semester for (semester,) in semester_rows],
+            semesters,
             key=lambda s: semester_order.get(s.upper(), 99),
         )
 
@@ -388,7 +373,7 @@ def get_designation_options(
                 for subject, group_code, semester in subject_rows
             ],
             "semesters": sorted_semesters,
-            "groups": [group_code for (group_code,) in group_rows],
+            "groups": groups,
         }
     except Exception as exc:
         logger.exception("Failed to load designation options: %s", exc)
@@ -512,8 +497,10 @@ def get_planilla_detail(
                     teacher_allocations[teacher_ci] = allocations
 
             for row in rows:
-                row_key = f"{row.teacher_ci}:{row.designation_id}"
-                allocation = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
+                source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+                row_key = f"{row.teacher_ci}:{source_key}"
+                source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+                allocation = teacher_allocations.get(row.teacher_ci, {}).get(source_key)
                 if allocation is not None:
                     resolved_payments[row_key] = float(allocation)
                 elif row_key in stored_overrides:
@@ -521,7 +508,8 @@ def get_planilla_detail(
 
         detail = []
         for row in rows:
-            row_key = f"{row.teacher_ci}:{row.designation_id}"
+            source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+            row_key = f"{row.teacher_ci}:{source_key}"
             effective_payment = resolved_payments.get(row_key, row.final_payment)
             detail.append({
                 "teacher_ci": row.teacher_ci,
@@ -529,6 +517,11 @@ def get_planilla_detail(
                 "subject": row.subject,
                 "semester": row.semester,
                 "group_code": row.group_code,
+                "source_kind": getattr(row, "source_kind", "legacy"),
+                "source_key": getattr(row, "source_key", f"legacy:{row.designation_id}"),
+                "activity_kind": getattr(row, "activity_kind", "theory"),
+                "effective_from": getattr(row, "effective_from", None),
+                "effective_to": getattr(row, "effective_to", None),
                 "base_monthly_hours": row.base_monthly_hours,
                 "absent_hours": row.absent_hours,
                 "payable_hours": row.payable_hours,
@@ -620,35 +613,44 @@ def get_teacher_designations(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Return all designations (with schedule details) for a given teacher."""
+    """Return the teacher's effective typed workload with schedule details."""
     try:
         teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
         if teacher is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
 
-        designations = (
-            db.query(Designation)
-            .filter(
-                Designation.teacher_ci == teacher_ci,
-                Designation.academic_period == app_settings_service.get_active_academic_period(db),
-            )
-            .all()
+        academic_period = app_settings_service.get_active_academic_period(db)
+        workloads = effective_workloads(
+            db,
+            academic_period=academic_period,
+            target_date=active_period_effective_date(academic_period),
+            teacher_ci=teacher_ci,
         )
 
         DAY_ORDER = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
 
         result = []
-        for d in designations:
-            slots = d.schedule_json or []
+        for workload in workloads:
+            slots = workload.schedule_json
             sorted_slots = sorted(slots, key=lambda s: (DAY_ORDER.get(s.get("dia", "").lower(), 99), s.get("hora_inicio", "")))
             result.append({
-                "id": d.id,
-                "subject": d.subject,
-                "semester": d.semester,
-                "group_code": d.group_code,
-                "semester_hours": d.semester_hours,
-                "monthly_hours": d.monthly_hours,
-                "weekly_hours": d.weekly_hours,
+                "id": workload.source_id,
+                "source_kind": workload.source_kind,
+                "source_id": workload.source_id,
+                "source_key": workload.source_key,
+                "designation_id": workload.designation_id,
+                "publication_id": workload.publication_id,
+                "published_block_id": workload.published_block_id,
+                "published_assignment_id": workload.published_assignment_id,
+                "activity_kind": workload.activity_kind,
+                "effective_from": workload.effective_from,
+                "effective_to": workload.effective_to,
+                "subject": workload.subject,
+                "semester": workload.semester,
+                "group_code": workload.group_code,
+                "semester_hours": None,
+                "monthly_hours": workload.monthly_hours,
+                "weekly_hours": workload.weekly_hours,
                 "schedule": [
                     {
                         "dia": slot.get("dia", ""),
@@ -658,7 +660,7 @@ def get_teacher_designations(
                     }
                     for slot in sorted_slots
                 ],
-                "schedule_raw": d.schedule_raw,
+                "schedule_raw": None,
             })
 
         return {
@@ -716,24 +718,30 @@ def global_search(
         (Teacher.full_name.ilike(term)) | (Teacher.ci.ilike(term))
     ).limit(5).all()
 
-    desigs = db.query(Designation).filter(
-        Designation.academic_period == app_settings_service.get_active_academic_period(db),
-        (Designation.subject.ilike(term)) | (Designation.group_code.ilike(term))
-    ).limit(10).all()
+    academic_period = app_settings_service.get_active_academic_period(db)
+    normalized_query = q.casefold()
+    matching_workloads = [
+        item for item in effective_workloads(
+            db,
+            academic_period=academic_period,
+            target_date=active_period_effective_date(academic_period),
+        )
+        if normalized_query in item.subject.casefold() or normalized_query in item.group_code.casefold()
+    ][:10]
 
     seen_subjects: set[str] = set()
     subjects = []
-    for d in desigs:
-        if d.subject not in seen_subjects:
-            seen_subjects.add(d.subject)
-            subjects.append({"subject": d.subject, "semester": d.semester})
+    for workload in matching_workloads:
+        if workload.subject not in seen_subjects:
+            seen_subjects.add(workload.subject)
+            subjects.append({"subject": workload.subject, "semester": workload.semester})
 
     seen_groups: set[str] = set()
     groups = []
-    for d in desigs:
-        if d.group_code not in seen_groups:
-            seen_groups.add(d.group_code)
-            groups.append({"group_code": d.group_code})
+    for workload in matching_workloads:
+        if workload.group_code not in seen_groups:
+            seen_groups.add(workload.group_code)
+            groups.append({"group_code": workload.group_code})
 
     return {
         "teachers": [
@@ -758,12 +766,13 @@ def dashboard_summary(
             .all()
         )
         teacher_count = db.query(func.count(Teacher.ci)).scalar() or 0
-        designation_count = (
-            db.query(func.count(Designation.id))
-            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
-            .scalar()
-            or 0
+        active_period = app_settings_service.get_active_academic_period(db)
+        current_workloads = effective_workloads(
+            db,
+            academic_period=active_period,
+            target_date=active_period_effective_date(active_period),
         )
+        designation_count = len(current_workloads)
 
         latest_attendance_period = (
             db.query(AttendanceRecord.month, AttendanceRecord.year)
@@ -834,168 +843,50 @@ def dashboard_summary(
         top_earners = []
         total_monthly_payment = 0.0
         if latest_period:
-            try:
-                from app.schemas.planilla import ExcludedDaySchema
-
-                def apply_payment_overrides(rows, generator, overrides: dict[str, float]) -> None:
-                    rows_by_teacher: dict[str, list] = {}
-                    for row in rows:
-                        rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
-
-                    teacher_allocations: dict[str, dict[int, float]] = {}
-                    for teacher_ci, teacher_rows in rows_by_teacher.items():
-                        allocations = generator._get_teacher_override_allocations(teacher_rows, overrides)
-                        if allocations is not None:
-                            teacher_allocations[teacher_ci] = allocations
-
-                    for row in rows:
-                        row_key = f"{row.teacher_ci}:{row.designation_id}"
-                        override = teacher_allocations.get(row.teacher_ci, {}).get(row.designation_id)
-                        if override is None and row_key in overrides:
-                            override = overrides[row_key]
-                        if override is not None:
-                            row.calculated_payment = float(override)
-                            row.retention_amount = 0.0
-                            row.final_payment = float(override)
-
-                # Look up stored planilla first so we can reuse its discount_mode
-                # when computing the rows — otherwise top_earners would default to
-                # "attendance" even when the stored planilla was generated in "full" mode.
-                stored_planilla = (
-                    db.query(PlanillaOutput)
-                    .filter(
-                        PlanillaOutput.month == latest_period.month,
-                        PlanillaOutput.year == latest_period.year,
+            stored_outputs = [
+                db.query(model)
+                .filter(model.month == latest_period.month, model.year == latest_period.year)
+                .order_by(model.generated_at.desc())
+                .first()
+                for model in (PlanillaOutput, PracticePlanillaOutput)
+            ]
+            teacher_payments: dict[str, dict[str, object]] = {}
+            for output in (item for item in stored_outputs if item is not None):
+                # Legacy outputs predate immutable snapshots. Keep the dashboard
+                # available without reconstructing money from mutable live data.
+                if output.calculation_snapshot is None:
+                    continue
+                rows = calculation_snapshot_rows(output.calculation_snapshot, output.total_payment)
+                for row in rows:
+                    totals = teacher_payments.setdefault(
+                        row.teacher_ci,
+                        {"name": row.teacher_name, "hours": 0, "payment": Decimal("0.00")},
                     )
-                    .order_by(PlanillaOutput.generated_at.desc())
-                    .first()
-                )
-                stored_dm = stored_planilla.discount_mode if stored_planilla else "attendance"
-                stored_sd = stored_planilla.start_date if stored_planilla else None
-                stored_ed = stored_planilla.end_date if stored_planilla else None
-
-                # Load stored exclusions so dashboard matches the generated planilla
-                stored_excl: list[ExcludedDaySchema] = []
-                if stored_planilla and stored_planilla.excluded_days_json:
-                    try:
-                        stored_excl = [
-                            ExcludedDaySchema.model_validate(item)
-                            for item in stored_planilla.excluded_days_json
-                        ]
-                    except Exception as exc:
-                        raise PayrollDataError(
-                            "La planilla almacenada contiene exclusiones inválidas; regenerala antes de usar el dashboard",
-                            code="invalid_stored_exclusions",
-                        ) from exc
-
-                gen = PlanillaGenerator()
-                # Top earners require per-teacher rows. Totals use stored snapshots below
-                # when available, but the chart still needs a live breakdown.
-                planilla_rows, _, _ = gen._build_planilla_data(
-                    db,
-                    month=latest_period.month,
-                    year=latest_period.year,
-                    start_date=stored_sd,
-                    end_date=stored_ed,
-                    discount_mode=stored_dm,
-                    excluded_days=stored_excl or None,
-                )
-                if stored_planilla and stored_planilla.payment_overrides_json:
-                    apply_payment_overrides(planilla_rows, gen, stored_planilla.payment_overrides_json)
-
-                teacher_payments: dict = {}
-                for r in planilla_rows:
-                    if r.teacher_ci not in teacher_payments:
-                        teacher_payments[r.teacher_ci] = {"name": r.teacher_name, "hours": 0, "payment": 0.0}
-                    teacher_payments[r.teacher_ci]["hours"] += r.payable_hours
-                    teacher_payments[r.teacher_ci]["payment"] += r.final_payment
-                total_monthly_payment = sum(v["payment"] for v in teacher_payments.values())
-                top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
-
-                # If there is a stored planilla with admin overrides, use its total
-                if stored_planilla:
-                    total_monthly_payment = float(stored_planilla.total_payment)
-
-                stored_practice_planilla = (
-                    db.query(PracticePlanillaOutput)
-                    .filter(
-                        PracticePlanillaOutput.month == latest_period.month,
-                        PracticePlanillaOutput.year == latest_period.year,
-                    )
-                    .order_by(PracticePlanillaOutput.generated_at.desc())
-                    .first()
-                )
-                practice_dm = stored_practice_planilla.discount_mode if stored_practice_planilla else "attendance"
-                practice_sd = stored_practice_planilla.start_date if stored_practice_planilla else None
-                practice_ed = stored_practice_planilla.end_date if stored_practice_planilla else None
-                practice_excl: list[ExcludedDaySchema] = []
-                if stored_practice_planilla and stored_practice_planilla.excluded_days_json:
-                    try:
-                        practice_excl = [
-                            ExcludedDaySchema.model_validate(item)
-                            for item in stored_practice_planilla.excluded_days_json
-                        ]
-                    except Exception as exc:
-                        raise PayrollDataError(
-                            "La planilla práctica almacenada contiene exclusiones inválidas; regenerala antes de usar el dashboard",
-                            code="invalid_stored_exclusions",
-                        ) from exc
-
-                practice_gen = PracticePlanillaGenerator()
-                practice_rows, _ = practice_gen._build_planilla_data(
-                    db,
-                    month=latest_period.month,
-                    year=latest_period.year,
-                    start_date=practice_sd,
-                    end_date=practice_ed,
-                    discount_mode=practice_dm,
-                    excluded_days=practice_excl or None,
-                )
-                if stored_practice_planilla and stored_practice_planilla.payment_overrides_json:
-                    apply_payment_overrides(
-                        practice_rows,
-                        practice_gen,
-                        stored_practice_planilla.payment_overrides_json,
-                    )
-
-                practice_total = 0.0
-                for r in practice_rows:
-                    if r.teacher_ci not in teacher_payments:
-                        teacher_payments[r.teacher_ci] = {"name": r.teacher_name, "hours": 0, "payment": 0.0}
-                    teacher_payments[r.teacher_ci]["hours"] += r.payable_hours
-                    teacher_payments[r.teacher_ci]["payment"] += r.final_payment
-                    practice_total += r.final_payment
-
-                total_monthly_payment += (
-                    float(stored_practice_planilla.total_payment)
-                    if stored_practice_planilla
-                    else practice_total
-                )
-                top_earners = sorted(teacher_payments.values(), key=lambda x: -x["payment"])[:10]
-            except PayrollDataError:
-                raise
-            except Exception:
-                logger.warning("Could not compute top earners for dashboard")
+                    totals["hours"] = int(totals["hours"]) + row.payable_hours
+                    totals["payment"] = Decimal(str(totals["payment"])) + row.final_payment
+            total_monthly_payment = float(sum(
+                (Decimal(str(item["payment"])) for item in teacher_payments.values()),
+                Decimal("0.00"),
+            ))
+            top_earners = [
+                {**item, "payment": float(Decimal(str(item["payment"])))}
+                for item in sorted(
+                    teacher_payments.values(),
+                    key=lambda item: -Decimal(str(item["payment"])),
+                )[:10]
+            ]
 
         # ── Group distribution (for pie/bar chart) ───────
-        group_dist_query = (
-            db.query(Designation.group_code, func.count(Designation.id))
-            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
-            .group_by(Designation.group_code)
-            .order_by(func.count(Designation.id).desc())
-            .all()
-        )
-        group_distribution = [{"group": g, "count": c} for g, c in group_dist_query]
+        group_distribution = [
+            {"group": group, "count": count}
+            for group, count in Counter(item.group_code for item in current_workloads).most_common()
+        ]
 
         # ── Semester distribution ────────────────────────
-        semester_dist_query = (
-            db.query(Designation.semester, func.count(Designation.id))
-            .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
-            .group_by(Designation.semester)
-            .order_by(func.count(Designation.id).desc())
-            .all()
-        )
-        semester_distribution = [{"semester": s, "count": c} for s, c in semester_dist_query]
+        semester_distribution = [
+            {"semester": semester, "count": count}
+            for semester, count in Counter(item.semester for item in current_workloads).most_common()
+        ]
 
         # ── Pending requests ─────────────────────────────
         from app.models.detail_request import DetailRequest
@@ -1015,7 +906,7 @@ def dashboard_summary(
             billing_period_year=latest_period.year if latest_period else None,
             pending_requests=pending_requests,
         )
-    except PayrollDataError as exc:
+    except (PayrollDataError, SnapshotReconciliationError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.as_detail(),

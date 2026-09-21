@@ -36,6 +36,12 @@ def test_publish_billing_sends_email_after_successful_commit(client, db_session,
             assert publication.billing_snapshot["source"] == "planilla_output"
             assert publication.billing_snapshot["teacher_details"][0]["teacher_ci"] == active_docente.teacher_ci
             assert publication.billing_snapshot["calculation_snapshot_version"] == 1
+            published_row = publication.billing_snapshot["teacher_details"][0]["designations"][0]
+            assert published_row["source_key"] == "published:301"
+            assert published_row["publication_id"] == 11
+            assert published_row["published_block_id"] == 21
+            assert published_row["published_schedule_assignment_id"] == 301
+            assert published_row["activity_kind"] == "theory"
             assert sum(
                 row["net_payment"]
                 for teacher in publication.billing_snapshot["teacher_details"]
@@ -399,6 +405,15 @@ def _fake_planilla_rows(self, db, month, year, start_date=None, end_date=None, d
                 teacher_ci="EMAIL-DOC-1" if month == 5 else "UNKNOWN",
                 teacher_name="Docente EMAIL-DOC-1",
                 designation_id=101,
+                source_kind="published",
+                source_id=301,
+                source_key="published:301",
+                publication_id=11,
+                published_block_id=21,
+                published_schedule_assignment_id=301,
+                activity_kind="theory",
+                effective_from=date(2026, 5, 1),
+                effective_to=date(2026, 5, 31),
                 subject="Anatomía",
                 group_code="A",
                 semester="1",

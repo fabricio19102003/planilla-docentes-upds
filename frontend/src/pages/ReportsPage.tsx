@@ -159,10 +159,11 @@ function FinancialPreview({ data }: { data: any }) {
 
 function AttendancePreview({ data }: { data: any }) {
   const STATUS_LABELS: Record<string, string> = {
-    ATTENDED: 'Asistido', LATE: 'Tardanza', ABSENT: 'Ausente', NO_EXIT: 'Sin salida',
+    ATTENDED: 'Asistido', JUSTIFIED: 'Justificado', LATE: 'Tardanza', ABSENT: 'Ausente', NO_EXIT: 'Sin salida',
   }
   const STATUS_COLORS: Record<string, string> = {
     ATTENDED: 'bg-green-100 text-green-700',
+    JUSTIFIED: 'bg-blue-100 text-blue-700',
     LATE: 'bg-yellow-100 text-yellow-700',
     ABSENT: 'bg-red-100 text-red-700',
     NO_EXIT: 'bg-blue-100 text-blue-700',
@@ -189,18 +190,19 @@ function AttendancePreview({ data }: { data: any }) {
         <table className="w-full text-sm">
           <thead className="sticky top-0">
             <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Fecha', 'Docente', 'Estado', 'Entrada', 'Salida', 'Hrs Acad.'].map(h => (
+              {['Fecha', 'Docente', 'Tipo', 'Estado', 'Entrada', 'Salida', 'Hrs Acad.'].map(h => (
                 <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.records_sample.map((rec: any, i: number) => (
-              <tr key={i} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+              <tr key={`${rec.record_kind}:${rec.source_key}:${rec.date}:${rec.scheduled_start}`} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
                 <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                   {rec.date ? new Date(rec.date).toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit' }) : '—'}
                 </td>
                 <td className="px-3 py-2 text-gray-700 font-mono text-xs">{rec.teacher_ci}</td>
+                <td className="px-3 py-2 text-gray-600">{rec.record_kind === 'practice' ? 'Práctica' : 'Regular'}</td>
                 <td className="px-3 py-2">
                   <Badge className={`text-xs ${STATUS_COLORS[rec.status] ?? 'bg-gray-100 text-gray-600'}`}>
                     {STATUS_LABELS[rec.status] ?? rec.status}
@@ -491,7 +493,7 @@ function ReconciliationPreview({ data }: { data: any }) {
           <table className="w-full text-sm">
             <thead className="sticky top-0">
               <tr style={{ backgroundColor: '#7c3aed' }}>
-                {['Nº', 'Docente', 'Tipo', 'Descripción', 'Hrs Esperadas', 'Hrs Reales', 'Severidad'].map(h => (
+                {['Nº', 'Docente', 'Fuente', 'Tipo', 'Descripción', 'Hrs Esperadas', 'Hrs Reales', 'Severidad'].map(h => (
                   <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -500,9 +502,10 @@ function ReconciliationPreview({ data }: { data: any }) {
               {data.discrepancies.map((row: any, i: number) => {
                 const sev = SEVERITY_COLORS[row.severity] ?? SEVERITY_COLORS.medium
                 return (
-                  <tr key={i} className={`border-b last:border-0 hover:bg-purple-50/50 transition-colors ${sev.bg}`}>
+                  <tr key={`${row.teacher_ci ?? row.teacher_name}:${row.source}:${row.type}:${(row.source_keys ?? []).join(',')}`} className={`border-b last:border-0 hover:bg-purple-50/50 transition-colors ${sev.bg}`}>
                     <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
                     <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.teacher_name}</td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.source ?? '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.type}</td>
                     <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate">{row.description}</td>
                     <td className="px-3 py-2 text-center text-gray-700">{row.expected_hours}h</td>

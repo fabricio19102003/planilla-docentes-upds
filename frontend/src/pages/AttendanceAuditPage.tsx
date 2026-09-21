@@ -36,7 +36,10 @@ interface AuditScheduleSlot {
 }
 
 interface AuditSchedule {
-  designation_id: number
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  designation_id: number | null
+  published_schedule_assignment_id: number | null
   subject: string
   group_code: string
   semester: string
@@ -44,6 +47,10 @@ interface AuditSchedule {
 }
 
 interface AuditAttendanceRow {
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  designation_id: number | null
+  published_schedule_assignment_id: number | null
   date: string
   day_name: string
   subject: string
@@ -497,7 +504,7 @@ export function AttendanceAuditPage() {
               </div>
               <div className="p-4 space-y-2">
                 {data.schedule.map((s: AuditSchedule) => (
-                  <div key={s.designation_id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <div key={s.source_key} className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-medium text-gray-800">{s.subject}</span>
                     <Badge className="bg-gray-100 text-gray-600 text-xs">{s.group_code}</Badge>
                     <Badge className="bg-blue-50 text-blue-600 text-xs">{s.semester}</Badge>
@@ -570,7 +577,7 @@ export function AttendanceAuditPage() {
                   <tbody>
                     {data.attendance_detail.map((row: AuditAttendanceRow, i: number) => (
                       <tr
-                        key={i}
+                        key={`${row.source_key}:${row.date}:${row.scheduled_start}`}
                         className={`border-b hover:bg-blue-50/50 transition-colors ${
                           row.status === 'ABSENT'
                             ? 'bg-red-50/30'

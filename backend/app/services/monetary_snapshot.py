@@ -101,6 +101,21 @@ def build_calculation_snapshot(
         profiles[opaque_ref] = profile
         designations.append({
             "designation_id": row.designation_id,
+            "source_kind": getattr(row, "source_kind", "legacy"),
+            "source_id": getattr(row, "source_id", None) or row.designation_id,
+            "source_key": getattr(row, "source_key", None) or f"legacy:{row.designation_id}",
+            "publication_id": getattr(row, "publication_id", None),
+            "published_block_id": getattr(row, "published_block_id", None),
+            "published_schedule_assignment_id": getattr(row, "published_schedule_assignment_id", None),
+            "activity_kind": getattr(row, "activity_kind", "theory"),
+            "effective_from": (
+                getattr(row, "effective_from", None).isoformat()
+                if getattr(row, "effective_from", None) is not None else period_start.isoformat()
+            ),
+            "effective_to": (
+                getattr(row, "effective_to", None).isoformat()
+                if getattr(row, "effective_to", None) is not None else period_end.isoformat()
+            ),
             "teacher_ref": opaque_ref,
             "teacher_ci": str(row.teacher_ci),
             "teacher_name": str(row.teacher_name),
@@ -118,7 +133,7 @@ def build_calculation_snapshot(
             "retention_rate": _serialized_money(row.retention_rate, f"designation:{row.designation_id}"),
             "amount": format(amount, ".2f"),
         })
-    designations.sort(key=lambda item: item["designation_id"])
+    designations.sort(key=lambda item: (item["source_kind"], item["source_id"]))
     teachers = [
         {"teacher_ref": ref, "designation_ids": sorted(teacher_designations[ref]), "total": format(total, ".2f")}
         for ref, total in sorted(teacher_totals.items())
@@ -238,9 +253,19 @@ def calculation_snapshot_rows(
             raise SnapshotReconciliationError(
                 "snapshot_profile_missing", "Snapshot payroll profile is incomplete", [item["teacher_ref"]],
             )
+        source_kind = item.get("source_kind", "legacy")
+        source_id = item.get("source_id", item["designation_id"])
+        source_key = item.get("source_key", f"{source_kind}:{source_id}")
         row_key = f'{item["teacher_ci"]}:{item["designation_id"]}'
+        typed_row_key = f'{item["teacher_ci"]}:{source_key}'
         rows.append(SimpleNamespace(
             designation_id=item["designation_id"], teacher_ci=item["teacher_ci"],
+            source_kind=source_kind, source_id=source_id, source_key=source_key,
+            publication_id=item.get("publication_id"),
+            published_block_id=item.get("published_block_id"),
+            published_schedule_assignment_id=item.get("published_schedule_assignment_id"),
+            activity_kind=item.get("activity_kind", "theory"),
+            effective_from=item.get("effective_from"), effective_to=item.get("effective_to"),
             teacher_name=item["teacher_name"], subject=item["subject"],
             group_code=item["group"], semester=item["semester"],
             has_biometric=item["has_biometric"], has_retention=item["has_retention"],
@@ -248,7 +273,11 @@ def calculation_snapshot_rows(
             payable_hours=item["payable_hours"], rate_per_hour=_money(item["rate"]),
             calculated_payment=_money(item["gross"]), retention_amount=_money(item["retention"]),
             retention_rate=_money(item["retention_rate"]), final_payment=_money(item["amount"]),
-            has_admin_override=item["teacher_ci"] in overrides or row_key in overrides,
+            has_admin_override=(
+                item["teacher_ci"] in overrides
+                or typed_row_key in overrides
+                or (source_kind == "legacy" and row_key in overrides)
+            ),
             late_count=0, absent_count=0, observations=[],
             **{field: (profile or {}).get(field) for field in PAYROLL_PROFILE_FIELDS},
         ))

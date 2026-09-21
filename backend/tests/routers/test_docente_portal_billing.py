@@ -240,11 +240,7 @@ def test_snapshotless_history_is_omitted_for_two_unverifiable_docentes(client, d
     ))
     app_settings_service.update_setting(db_session, "ACTIVE_ACADEMIC_PERIOD", "I/2026")
     db_session.commit()
-    monkeypatch.setattr(
-        docente_portal_router,
-        "_build_billing",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy billing was recalculated")),
-    )
+    assert not hasattr(docente_portal_router, "_build_billing")
 
     def history_by_teacher():
         result = {}

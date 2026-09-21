@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,6 +16,10 @@ export interface ContractFileInfo {
   teacher_name: string
   filename: string
   file_size: number
+  public_id?: string | null
+  document_kind?: 'original' | 'amendment' | null
+  version?: number | null
+  download_url?: string | null
 }
 
 export interface BatchContractResponse {
@@ -29,6 +33,46 @@ export interface ContractListItem {
   filename: string
   file_size: number
   created_at: number
+}
+
+export interface ContractLine {
+  line_number: number
+  activity_kind: 'theory' | 'practice'
+  rate_class: 'regular' | 'practice'
+  hourly_rate: number
+  hours: number
+  hour_basis: 'weekly' | 'payable'
+  subject_label: string
+  group_label: string
+  semester_label: string
+  schedule_label: string
+  effective_from: string
+  effective_to: string
+  source_kind: 'legacy' | 'published'
+  source_id: number
+  change_kind: 'full' | 'added' | 'removed' | 'changed'
+  previous_hours: number | null
+  previous_hourly_rate: number | null
+}
+
+export interface ContractDocument {
+  id: number
+  public_id: string
+  teacher_ci: string
+  teacher_name: string
+  academic_period: string
+  document_kind: 'original' | 'amendment'
+  amendment_sequence: number
+  version: number
+  effective_date: string
+  issued_at: string
+  source_digest: string
+  artifact_sha256: string
+  artifact_size: number
+  filename: string
+  download_url: string
+  status: 'issued'
+  lines: ContractLine[]
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
@@ -63,9 +107,23 @@ export function useGenerateContract() {
 }
 
 export function useGenerateBatchContracts() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (payload: BatchContractRequest): Promise<BatchContractResponse> => {
       const response = await api.post<BatchContractResponse>('/contracts/generate-batch', payload)
+      return response.data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['contract-history'] })
+    },
+  })
+}
+
+export function useContractHistory() {
+  return useQuery({
+    queryKey: ['contract-history'],
+    queryFn: async (): Promise<ContractDocument[]> => {
+      const response = await api.get<ContractDocument[]>('/contracts/history')
       return response.data
     },
   })
@@ -91,6 +149,36 @@ export async function downloadContract(filename: string): Promise<void> {
   link.href = url
   link.download = filename
   document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export async function downloadContractFile(contract: ContractFileInfo): Promise<void> {
+  if (!contract.download_url) {
+    await downloadContract(contract.filename)
+    return
+  }
+  const response = await api.get(contract.download_url.replace(/^\/api/, ''), { responseType: 'blob' })
+  const url = window.URL.createObjectURL(new Blob([response.data as BlobPart]))
+  const link = window.document.createElement('a')
+  link.href = url
+  link.download = contract.filename
+  window.document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export async function downloadContractDocument(document: ContractDocument): Promise<void> {
+  const response = await api.get(document.download_url.replace(/^\/api/, ''), {
+    responseType: 'blob',
+  })
+  const url = window.URL.createObjectURL(new Blob([response.data as BlobPart]))
+  const link = window.document.createElement('a')
+  link.href = url
+  link.download = document.filename
+  window.document.body.appendChild(link)
   link.click()
   link.remove()
   window.URL.revokeObjectURL(url)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from fastapi.responses import FileResponse
 from pydantic import BaseModel as PydanticBaseModel, ValidationError
 from sqlalchemy import func, or_, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
@@ -34,6 +34,7 @@ from app.schemas.teacher import (
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
 from app.services.schedule_pdf import generate_schedule_pdf, schedule_download_filename
+from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.services.teacher_profile_import_service import (
     TeacherProfileImportError,
     TeacherProfileImportPlan,
@@ -108,12 +109,7 @@ def get_teacher(
             detail="Solo podés ver tu propio perfil de docente",
         )
     try:
-        teacher = (
-            db.query(Teacher)
-            .options(selectinload(Teacher.designations))
-            .filter(Teacher.ci == ci)
-            .first()
-        )
+        teacher = db.query(Teacher).filter(Teacher.ci == ci).first()
         if teacher is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
 
@@ -127,9 +123,38 @@ def get_teacher(
             total_academic_hours=sum(row.academic_hours for row in attendance_rows),
         )
 
-        payload = TeacherDetailResponse.model_validate(teacher)
-        payload.attendance_summary = summary
-        return payload
+        active_period = app_settings_service.get_active_academic_period(db)
+        workloads = effective_workloads(
+            db,
+            academic_period=active_period,
+            target_date=active_period_effective_date(active_period),
+            teacher_ci=teacher.ci,
+        )
+        teacher_payload = TeacherResponse.model_validate(teacher).model_dump()
+        return TeacherDetailResponse(
+            **teacher_payload,
+            attendance_summary=summary,
+            designations=[{
+                "source_kind": workload.source_kind,
+                "source_id": workload.source_id,
+                "source_key": workload.source_key,
+                "designation_id": workload.designation_id,
+                "publication_id": workload.publication_id,
+                "published_block_id": workload.published_block_id,
+                "published_assignment_id": workload.published_assignment_id,
+                "activity_kind": workload.activity_kind,
+                "subject": workload.subject,
+                "semester": workload.semester,
+                "group_code": workload.group_code,
+                "schedule_json": list(workload.schedule_json),
+                "monthly_hours": workload.monthly_hours,
+                "weekly_hours": workload.weekly_hours,
+                "effective_from": workload.effective_from.isoformat()
+                if workload.effective_from else None,
+                "effective_to": workload.effective_to.isoformat()
+                if workload.effective_to else None,
+            } for workload in workloads],
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -455,16 +480,13 @@ def download_teacher_schedule(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
 
     active_period = app_settings_service.get_active_academic_period(db)
-    designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == teacher.ci,
-            Designation.academic_period == active_period,
-        )
-        .order_by(Designation.subject.asc(), Designation.group_code.asc())
-        .all()
+    workloads = effective_workloads(
+        db,
+        academic_period=active_period,
+        target_date=active_period_effective_date(active_period),
+        teacher_ci=teacher.ci,
     )
-    pdf = generate_schedule_pdf(teacher, designations)
+    pdf = generate_schedule_pdf(teacher, workloads)
     log_activity(
         db,
         "export_teacher_schedule",
@@ -474,7 +496,7 @@ def download_teacher_schedule(
         details={
             "teacher_ci": teacher.ci,
             "academic_period": active_period,
-            "designation_count": len(designations),
+            "source_count": len(workloads),
         },
         request=request,
     )
@@ -498,50 +520,15 @@ def update_designation_contract_dates(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DesignationResponse:
-    """Update contract dates for one assignment/designation."""
-    try:
-        designation = db.query(Designation).filter(Designation.id == designation_id).first()
-        if designation is None:
-            raise HTTPException(status_code=404, detail="Designación no encontrada")
-
-        if (
-            payload.contract_start_date is not None
-            and payload.contract_end_date is not None
-            and payload.contract_end_date < payload.contract_start_date
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La fecha de fin no puede ser anterior a la fecha de inicio",
-            )
-
-        designation.contract_start_date = payload.contract_start_date
-        designation.contract_end_date = payload.contract_end_date
-
-        log_activity(
-            db,
-            "update_designation_contract_dates",
-            "teachers",
-            f"Fechas de contrato actualizadas: {designation.subject} {designation.group_code}",
-            user=current_user,
-            details={
-                "designation_id": designation.id,
-                "teacher_ci": designation.teacher_ci,
-                "contract_start_date": str(designation.contract_start_date) if designation.contract_start_date else None,
-                "contract_end_date": str(designation.contract_end_date) if designation.contract_end_date else None,
-            },
-            request=request,
-        )
-
-        db.commit()
-        db.refresh(designation)
-        return DesignationResponse.model_validate(designation)
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as exc:
-        db.rollback()
-        logger.exception("Failed to update designation %s contract dates: %s", designation_id, exc)
-        raise HTTPException(status_code=500, detail="No se pudieron actualizar las fechas de contrato") from exc
+    """Reject the retired mutable contract-date workflow without changing legacy data."""
+    del request, designation_id, payload, current_user, db
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Las fechas de contrato ya no son editables. Emití el contrato inmutable desde "
+            "Contratos; las fechas históricas existentes se conservan sin cambios."
+        ),
+    )
 
 
 MAX_TEACHER_PROFILE_UPLOAD_BYTES = 10 * 1024 * 1024

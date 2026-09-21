@@ -9,6 +9,7 @@ Output: backend/data/contracts/Contrato_{TeacherName}_{date}.pdf
 from __future__ import annotations
 
 import logging
+import io
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
+from reportlab.pdfgen.canvas import Canvas
+from xml.sax.saxutils import escape
 
 if TYPE_CHECKING:
     from app.models.teacher import Teacher
@@ -32,6 +35,14 @@ logger = logging.getLogger(__name__)
 
 CONTRACT_PAGE_SIZE = (8.5 * inch, 13 * inch)
 _LEGACY_SUBJECT_TABLE_COLUMN_WEIGHTS = (1.0, 9.0, 3.0, 2.5)
+
+
+class _InvariantContractCanvas(Canvas):
+    """ReportLab canvas with reproducible metadata and document identifiers."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["invariant"] = 1
+        super().__init__(*args, **kwargs)
 
 def _output_dir() -> Path:
     path = Path(__file__).resolve().parents[2] / "data" / "contracts"
@@ -756,3 +767,164 @@ def generate_contract_pdf(
 
     logger.info("Generated contract PDF: %s", filename)
     return str(filepath)
+
+
+def render_contract_document_pdf(document: dict) -> bytes:
+    """Render an immutable ledger DTO without consulting live ORM objects."""
+    styles = _make_styles()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=CONTRACT_PAGE_SIZE,
+        leftMargin=2.0 * cm,
+        rightMargin=2.0 * cm,
+        topMargin=2.0 * cm,
+        bottomMargin=2.0 * cm,
+        title=f"Contrato {document['public_id']}",
+        author="UPDS",
+        subject="Contrato docente inmutable",
+    )
+    kind = document["document_kind"]
+    teacher = document["teacher"]
+    period = document["academic_period"]
+    elements: list = [
+        Paragraph(
+            "ADENDA AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES"
+            if kind == "amendment"
+            else "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+            styles["title_main"],
+        ),
+        Spacer(1, 4 * mm),
+        Paragraph(
+            f"<b>Documento:</b> {escape(str(document['public_id']))}<br/>"
+            f"<b>Docente:</b> {escape(str(teacher['full_name']))} — CI {escape(str(teacher['ci']))} "
+            f"{escape(str(document['department']))}<br/>"
+            f"<b>Período académico:</b> {escape(str(period['identity']))} "
+            f"({escape(str(period['start']))} al {escape(str(period['end']))})<br/>"
+            f"<b>Versión de plantilla:</b> {escape(str(document['template_version']))}<br/>"
+            f"<b>Fecha efectiva:</b> {escape(str(document['effective_date']))}<br/>"
+            f"<b>Fecha de emisión:</b> {escape(str(document['issued_at']))}",
+            styles["normal"],
+        ),
+        Spacer(1, 4 * mm),
+    ]
+    if kind == "amendment":
+        elements.extend([
+            Paragraph(
+                f"Esta adenda N.º {int(document['amendment_sequence'])} modifica desde la fecha "
+                f"efectiva indicada el contrato original {escape(str(document['root_public_id']))}. "
+                "El documento original y las adendas anteriores permanecen inalterados.",
+                styles["justify"],
+            ),
+            Spacer(1, 4 * mm),
+        ])
+
+    metadata_changes = document.get("metadata_changes", [])
+    if metadata_changes:
+        elements.append(Paragraph("Cambios de identificación contractual", styles["clause_title"]))
+        metadata_table = Table(
+            [["Dato", "Anterior", "Actual"]] + [
+                [
+                    escape(str(change["label"])),
+                    escape(str(change["previous"])),
+                    escape(str(change["current"])),
+                ]
+                for change in metadata_changes
+            ],
+            colWidths=[5.0 * cm, 6.0 * cm, 6.0 * cm],
+            repeatRows=1,
+        )
+        metadata_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#EAF1F8")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        elements.extend([metadata_table, Spacer(1, 4 * mm)])
+
+    labels = {"theory": "Carga de teoría", "practice": "Carga de práctica"}
+    changes = {
+        "full": "Vigente", "added": "Alta", "removed": "Retiro", "changed": "Cambio",
+    }
+    for activity in ("theory", "practice"):
+        lines = [line for line in document["lines"] if line["activity_kind"] == activity]
+        if not lines:
+            continue
+        elements.append(Paragraph(labels[activity], styles["clause_title"]))
+        table_data = [["Cambio", "Materia / grupo", "Horario", "Horas", "Tarifa", "Vigencia"]]
+        for line in lines:
+            previous = ""
+            if line.get("previous_hours") is not None:
+                previous = f" (antes {line['previous_hours']}h"
+                if line.get("previous_hourly_rate") != line.get("hourly_rate"):
+                    previous += f" / Bs {line['previous_hourly_rate']}"
+                if line.get("previous_source_key"):
+                    previous += f" / fuente {line['previous_source_key']}"
+                previous += ")"
+            if line["source_kind"] == "published":
+                provenance = (
+                    f"Fuente publicada #{line['source_id']} · publicación #{line['publication_id']} "
+                    f"rev. {line['publication_sequence']} · programa #{line['publication_program_id']} · "
+                    f"autoridad {line['authority_effective_from']} · bloque #{line['published_block_id']} · "
+                    f"asignación #{line['published_assignment_id']}"
+                )
+            else:
+                provenance = (
+                    f"Fuente heredada #{line['source_id']} · designación #{line['designation_id']} · "
+                    f"autoridad {line['authority_effective_from']}"
+                )
+            table_data.append([
+                changes[line["change_kind"]],
+                Paragraph(
+                    f"{escape(str(line['subject_label']))}<br/>"
+                    f"{escape(str(line['group_label']))} · {escape(str(line['semester_label']))}<br/>"
+                    f"<font size='6'>{escape(provenance)}</font>",
+                    styles["normal"],
+                ),
+                Paragraph(escape(str(line["schedule_label"])), styles["normal"]),
+                f"{line['hours']} {line['hour_basis']}{previous}",
+                f"Bs {line['hourly_rate']}\n{line['rate_class']}",
+                f"{line['effective_from']}\n{line['effective_to']}",
+            ])
+        table = Table(
+            table_data,
+            colWidths=[1.4 * cm, 3.3 * cm, 4.7 * cm, 2.6 * cm, 1.8 * cm, 2.8 * cm],
+            repeatRows=1,
+        )
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#EAF1F8")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.extend([table, Spacer(1, 4 * mm)])
+
+    elements.extend([
+        Paragraph(
+            "Las tarifas de teoría y práctica se aplican separadamente conforme a las líneas "
+            "precedentes. Este ejemplar corresponde al snapshot inmutable identificado arriba.",
+            styles["justify"],
+        ),
+        Spacer(1, 25 * mm),
+        Table(
+            [["___________________________", "___________________________"],
+             ["EL COMITENTE", "EL CONTRATISTA"]],
+            colWidths=[9.0 * cm, 9.0 * cm],
+            style=[("ALIGN", (0, 0), (-1, -1), "CENTER")],
+        ),
+    ])
+    doc.build(
+        elements,
+        onFirstPage=_page_number_canvas,
+        onLaterPages=_page_number_canvas,
+        canvasmaker=_InvariantContractCanvas,
+    )
+    return buffer.getvalue()

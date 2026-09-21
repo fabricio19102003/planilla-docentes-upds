@@ -7,7 +7,8 @@ from app.schemas.planilla import validate_optional_period
 
 class PracticeAttendanceCreate(BaseModel):
     teacher_ci: str
-    designation_id: int
+    designation_id: int | None = None
+    published_schedule_assignment_id: int | None = None
     date: date
     scheduled_start: time
     scheduled_end: time
@@ -42,7 +43,11 @@ class PracticeAttendanceResponse(BaseModel):
     id: int
     teacher_ci: str
     teacher_name: str | None = None
-    designation_id: int
+    designation_id: int | None = None
+    published_schedule_assignment_id: int | None = None
+    source_kind: Literal["legacy", "published"]
+    source_key: str
+    activity_type: Literal["practice"] = "practice"
     subject: str | None = None
     group_code: str | None = None
     semester: str | None = None

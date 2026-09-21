@@ -25,6 +25,7 @@ import {
   FileSignature,
   Database,
   Settings,
+  School,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
@@ -60,6 +61,8 @@ const adminNavItems: AdminNavEntry[] = [
       { to: '/upload', label: 'Subir Archivos', icon: Upload },
       { to: '/teachers', label: 'Docentes', icon: Users },
       { to: '/contracts', label: 'Contratos', icon: FileSignature },
+      { to: '/academic-management', label: 'Gestión académica', icon: School },
+      { to: '/schedule-planner', label: 'Planificador de horarios', icon: Calendar },
     ],
   },
   {

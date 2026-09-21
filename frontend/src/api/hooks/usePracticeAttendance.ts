@@ -7,7 +7,11 @@ export interface PracticeAttendanceEntry {
   id: number
   teacher_ci: string
   teacher_name: string | null
-  designation_id: number
+  designation_id: number | null
+  published_schedule_assignment_id: number | null
+  source_kind: 'legacy' | 'published'
+  source_key: string
+  activity_type: 'practice'
   subject: string | null
   group_code: string | null
   semester: string | null
