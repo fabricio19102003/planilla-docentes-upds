@@ -18,7 +18,6 @@ import {
   useTeacherDetail,
   useUpdateTeacher,
   useDeleteTeacher,
-  useUpdateDesignationContractDates,
   useUploadTeacherPhoto,
   useDeleteTeacherPhoto,
   downloadTeacherPhoto,
@@ -47,7 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Designation, ScheduleSlot, TeacherDetail } from '@/api/types'
+import type { ScheduleSlot, TeacherDetail, TeacherWorkload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 function formatSchedule(schedule: ScheduleSlot[]): string {
@@ -65,53 +64,7 @@ function formatSchedule(schedule: ScheduleSlot[]): string {
     .join('; ')
 }
 
-function ContractDateEditor({ designation }: { designation: Designation }) {
-  const updateDates = useUpdateDesignationContractDates()
-  const [startDate, setStartDate] = useState(designation.contract_start_date ?? '')
-  const [endDate, setEndDate] = useState(designation.contract_end_date ?? '')
-  const [error, setError] = useState<string | null>(null)
-
-  const save = async () => {
-    setError(null)
-    try {
-      await updateDates.mutateAsync({
-        designationId: designation.id,
-        contract_start_date: startDate || null,
-        contract_end_date: endDate || null,
-      })
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setError(axiosErr?.response?.data?.detail ?? 'No se pudieron guardar las fechas')
-    }
-  }
-
-  return (
-    <div className="space-y-1">
-      <div className="flex flex-col gap-1 min-w-36">
-        <Input
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          onBlur={() => void save()}
-          className="h-8 text-xs"
-          aria-label="Fecha de inicio de contrato"
-        />
-        <Input
-          type="date"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          onBlur={() => void save()}
-          className="h-8 text-xs"
-          aria-label="Fecha de fin de contrato"
-        />
-      </div>
-      {updateDates.isPending && <p className="text-[11px] text-gray-400">Guardando...</p>}
-      {error && <p className="text-[11px] text-red-600">{error}</p>}
-    </div>
-  )
-}
-
-const designationColumns: Column<Designation>[] = [
+const designationColumns: Column<TeacherWorkload>[] = [
   {
     key: 'subject',
     header: 'Materia',
@@ -119,6 +72,11 @@ const designationColumns: Column<Designation>[] = [
   },
   { key: 'semester', header: 'Semestre' },
   { key: 'group_code', header: 'Grupo' },
+  {
+    key: 'source_kind',
+    header: 'Fuente',
+    render: (item) => item.source_kind === 'published' ? 'Publicado' : 'Legado',
+  },
   {
     key: 'schedule_json',
     header: 'Horario',
@@ -130,19 +88,13 @@ const designationColumns: Column<Designation>[] = [
     key: 'weekly_hours',
     header: 'Hs Semanales',
     render: (item) => {
-      const h = item.weekly_hours ?? item.weekly_hours_calculated
-      return h != null ? `${h}h` : '—'
+      return `${item.weekly_hours}h`
     },
   },
   {
     key: 'monthly_hours',
     header: 'Hs Mensuales',
     render: (item) => (item.monthly_hours != null ? `${item.monthly_hours}h` : '—'),
-  },
-  {
-    key: 'contract_dates',
-    header: 'Contrato inicio / fin',
-    render: (item) => <ContractDateEditor designation={item} />,
   },
 ]
 

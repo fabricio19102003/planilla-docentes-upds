@@ -78,8 +78,10 @@ def collect_schedule_grid(designations) -> ScheduleGrid:
     all_slots: list[dict] = []
 
     for designation in designations:
-        if designation.subject not in subject_color_map:
-            subject_color_map[designation.subject] = SUBJECT_COLORS[
+        activity = getattr(designation, "activity_kind", "theory")
+        color_key = f"{designation.subject}|{activity}"
+        if color_key not in subject_color_map:
+            subject_color_map[color_key] = SUBJECT_COLORS[
                 len(subject_color_map) % len(SUBJECT_COLORS)
             ]
 
@@ -92,6 +94,8 @@ def collect_schedule_grid(designations) -> ScheduleGrid:
                 'subject': designation.subject,
                 'group_code': designation.group_code,
                 'semester': designation.semester,
+                'activity_kind': activity,
+                'color_key': color_key,
             })
 
     slots_by_cell: dict[tuple[str, str], list[dict]] = {}
@@ -111,7 +115,7 @@ def generate_schedule_pdf(teacher, designations) -> bytes:
 
     Args:
         teacher: Teacher ORM model instance.
-        designations: List of Designation ORM model instances.
+        designations: Effective typed workload snapshots.
 
     Returns:
         PDF document bytes. No server-side file is retained.
@@ -211,7 +215,8 @@ def generate_schedule_pdf(teacher, designations) -> bytes:
             matching = grid.slots_by_cell.get((start_time, day), [])
             if matching:
                 content = "<br/><br/>".join(
-                    f"<b>{slot['subject']}</b><br/>{slot['group_code']} ({slot['hora_fin']})"
+                    f"<b>{slot['subject']}</b><br/>{slot['group_code']} · "
+                    f"{'Práctica' if slot['activity_kind'] == 'practice' else 'Teoría'} ({slot['hora_fin']})"
                     for slot in matching
                 )
                 row.append(Paragraph(content, cell_subject))
@@ -242,7 +247,7 @@ def generate_schedule_pdf(teacher, designations) -> bytes:
         for col_idx, day in enumerate(WEEKDAYS, start=1):
             matching = grid.slots_by_cell.get((start_time, day), [])
             if matching:
-                cell_color = subject_color_map.get(matching[0]['subject'], NAVY)
+                cell_color = subject_color_map.get(matching[0]['color_key'], NAVY)
                 grid_style_cmds.append(
                     ('BACKGROUND', (col_idx, row_idx), (col_idx, row_idx), cell_color)
                 )
@@ -269,12 +274,17 @@ def generate_schedule_pdf(teacher, designations) -> bytes:
         legend_rows: list[list] = []
         temp_row: list = []
 
-        for i, subject in enumerate(subjects_list):
-            desig = next((d for d in designations if d.subject == subject), None)
+        for i, color_key in enumerate(subjects_list):
+            subject, activity = color_key.rsplit("|", 1)
+            desig = next((
+                d for d in designations
+                if d.subject == subject and getattr(d, "activity_kind", "theory") == activity
+            ), None)
             group = desig.group_code if desig else ''
             hrs = desig.weekly_hours or 0 if desig else 0
 
-            cell_text = f'<font color="white"><b>{subject}</b> ({group}) — {hrs}h/sem</font>'
+            activity_label = "Práctica" if activity == "practice" else "Teoría"
+            cell_text = f'<font color="white"><b>{subject}</b> ({group}) · {activity_label} — {hrs}h/sem</font>'
             temp_row.append(Paragraph(cell_text, legend_cell_style))
 
             if len(temp_row) == 3 or i == len(subjects_list) - 1:

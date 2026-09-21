@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import type {
-  Designation,
   PaginatedResponse,
   Teacher,
   TeacherDetail,
@@ -175,30 +174,6 @@ export async function downloadTeacherSchedule(ci: string, teacherName?: string):
   const safeName = safeDownloadSegment(teacherName, 'docente')
   const year = new Date().getFullYear()
   await downloadApiBlob(`/teachers/${encodeURIComponent(ci)}/schedule/pdf`, `Horario_de_${safeName}_Gestion_${year}.pdf`)
-}
-
-export function useUpdateDesignationContractDates() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({
-      designationId,
-      contract_start_date,
-      contract_end_date,
-    }: {
-      designationId: number
-      contract_start_date: string | null
-      contract_end_date: string | null
-    }) => {
-      const res = await api.put<Designation>(`/teachers/designations/${designationId}/contract-dates`, {
-        contract_start_date,
-        contract_end_date,
-      })
-      return res.data
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
-    },
-  })
 }
 
 export function useDeleteTeacher() {

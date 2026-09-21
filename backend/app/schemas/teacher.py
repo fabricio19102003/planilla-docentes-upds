@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from app.domain.teacher_types import TeacherType, normalize_teacher_type
 
@@ -81,6 +81,25 @@ class TeacherAttendanceSummary(BaseModel):
     total_academic_hours: int = 0
 
 
+class TeacherWorkloadResponse(BaseModel):
+    source_kind: Literal["legacy", "published"]
+    source_id: int
+    source_key: str
+    designation_id: int | None = None
+    publication_id: int | None = None
+    published_block_id: int | None = None
+    published_assignment_id: int | None = None
+    activity_kind: str
+    subject: str
+    semester: str
+    group_code: str
+    schedule_json: list[dict[str, Any]] = Field(default_factory=list)
+    monthly_hours: int | None = None
+    weekly_hours: int
+    effective_from: str | None = None
+    effective_to: str | None = None
+
+
 class PaginatedTeachersResponse(BaseModel):
     items: list[TeacherResponse] = Field(default_factory=list)
     total: int
@@ -89,7 +108,7 @@ class PaginatedTeachersResponse(BaseModel):
 
 
 class TeacherDetailResponse(TeacherResponse):
-    designations: list[DesignationResponse] = Field(default_factory=list)
+    designations: list[TeacherWorkloadResponse] = Field(default_factory=list)
     attendance_summary: TeacherAttendanceSummary = Field(default_factory=TeacherAttendanceSummary)
 
     model_config = ConfigDict(from_attributes=True)
