@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -9,13 +9,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.attendance import AttendanceRecord
 from app.models.biometric import BiometricRecord, BiometricUpload
-from app.models.designation import Designation
 from app.models.detail_request import DetailRequest
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.schemas.auth import DetailRequestAction, DetailRequestCreate, DetailRequestResponse
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.utils.auth import get_current_user, require_admin, require_docente
 
 logger = logging.getLogger(__name__)
@@ -36,18 +36,19 @@ DAY_ORDER = {
 
 def _schedule_resolution(req: DetailRequest, db: Session) -> dict:
     academic_period = app_settings_service.get_active_academic_period(db)
-    designations = (
-        db.query(Designation)
-        .filter(
-            Designation.teacher_ci == req.teacher_ci,
-            Designation.academic_period == academic_period,
-        )
-        .order_by(Designation.subject, Designation.group_code, Designation.semester)
-        .all()
+    target_date = active_period_effective_date(
+        academic_period,
+        date(req.year, req.month, 1),
+    )
+    workloads = effective_workloads(
+        db,
+        academic_period=academic_period,
+        target_date=target_date,
+        teacher_ci=req.teacher_ci,
     )
     result = []
-    for designation in designations:
-        raw_slots = designation.schedule_json if isinstance(designation.schedule_json, list) else []
+    for workload in workloads:
+        raw_slots = workload.schedule_json
         slots = sorted(
             raw_slots,
             key=lambda slot: (
@@ -57,11 +58,21 @@ def _schedule_resolution(req: DetailRequest, db: Session) -> dict:
         )
         result.append(
             {
-                "subject": designation.subject,
-                "semester": designation.semester,
-                "group_code": designation.group_code,
-                "weekly_hours": designation.weekly_hours,
-                "monthly_hours": designation.monthly_hours,
+                "subject": workload.subject,
+                "semester": workload.semester,
+                "group_code": workload.group_code,
+                "weekly_hours": workload.weekly_hours,
+                "monthly_hours": workload.monthly_hours,
+                "source_kind": workload.source_kind,
+                "source_id": workload.source_id,
+                "source_key": workload.source_key,
+                "designation_id": workload.designation_id,
+                "publication_id": workload.publication_id,
+                "published_block_id": workload.published_block_id,
+                "published_assignment_id": workload.published_assignment_id,
+                "activity_kind": workload.activity_kind,
+                "effective_from": workload.effective_from.isoformat() if workload.effective_from else None,
+                "effective_to": workload.effective_to.isoformat() if workload.effective_to else None,
                 "schedule": [
                     {
                         "dia": str(slot.get("dia", "")),
@@ -76,6 +87,7 @@ def _schedule_resolution(req: DetailRequest, db: Session) -> dict:
     return {
         "kind": "schedule_detail",
         "academic_period": academic_period,
+        "effective_date": target_date.isoformat(),
         "designations": result,
     }
 

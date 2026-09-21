@@ -9,7 +9,6 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.planilla import PlanillaOutput
 from app.models.report import Report
 from app.models.user import User
 from app.services import app_settings_service
@@ -58,7 +57,7 @@ def generate_report(
             report = gen.generate_attendance_report(
                 db, month=month, year=year,
                 teacher_ci=teacher_ci, semester=semester,
-                group_code=group_code,
+                group_code=group_code, subject=subject,
                 generated_by=current_user.id,
                 generated_by_name=user_name,
             )
@@ -162,8 +161,6 @@ def preview_report(
 ):
     """Return data that would go into the report (for preview without generating PDF)."""
     from app.models.attendance import AttendanceRecord
-    from app.models.designation import Designation
-
     try:
         if report_type == 'financial':
             return ReportGenerator().build_financial_dataset(
@@ -172,128 +169,38 @@ def preview_report(
             )
 
         elif report_type == 'attendance':
-            query = db.query(AttendanceRecord).filter(
-                AttendanceRecord.month == month,
-                AttendanceRecord.year == year,
-            )
-            if teacher_ci:
-                query = query.filter(AttendanceRecord.teacher_ci == teacher_ci)
-
-            records = query.order_by(AttendanceRecord.date).all()
-
-            # Filter by designation attributes if needed
-            if semester or group_code:
-                desig_ids = set(r.designation_id for r in records)
-                desigs = {
-                    d.id: d
-                    for d in db.query(Designation).filter(Designation.id.in_(desig_ids)).all()
-                } if desig_ids else {}
-                filtered_ids: set[int] = set()
-                for did, d in desigs.items():
-                    if semester and d.semester.upper() != semester.upper():
-                        continue
-                    if group_code and d.group_code != group_code:
-                        continue
-                    filtered_ids.add(did)
-                records = [r for r in records if r.designation_id in filtered_ids]
-
-            attended = sum(1 for r in records if r.status == 'ATTENDED')
-            late = sum(1 for r in records if r.status == 'LATE')
-            absent = sum(1 for r in records if r.status == 'ABSENT')
-
-            return {
-                "report_type": "attendance",
-                "total_records": len(records),
-                "attended": attended,
-                "late": late,
-                "absent": absent,
-                "attendance_rate": round((attended + late) / len(records) * 100, 1) if records else 0,
-                "records_sample": [
-                    {
-                        "date": r.date.isoformat() if r.date else None,
-                        "teacher_ci": r.teacher_ci,
-                        "status": r.status,
-                        "check_in": r.actual_entry.strftime('%H:%M') if r.actual_entry else None,
-                        "check_out": r.actual_exit.strftime('%H:%M') if r.actual_exit else None,
-                        "academic_hours": r.academic_hours,
-                    }
-                    for r in records[:50]
-                ],
-            }
+            return ReportGenerator().build_attendance_dataset(
+                db,
+                month=month,
+                year=year,
+                teacher_ci=teacher_ci,
+                semester=semester,
+                group_code=group_code,
+                subject=subject,
+            ).as_preview()
 
         elif report_type == 'comparative':
-            from app.services.planilla_generator import PlanillaGenerator as PG
-            from app.services.report_generator import MONTH_NAMES as MN
-
-            months_query = db.query(
-                AttendanceRecord.month
-            ).filter(AttendanceRecord.year == year).distinct().order_by(AttendanceRecord.month).all()
-            months = [m[0] for m in months_query]
-
-            gen = PG()
-            monthly_data = []
-            for m in months:
-                # Look up the stored planilla for this month first so we can reuse
-                # its discount_mode when computing rows — without this, months
-                # generated in "full" mode would be recomputed in "attendance" mode
-                # here and show inconsistent totals.
-                stored_m = (
-                    db.query(PlanillaOutput)
-                    .filter(PlanillaOutput.month == m, PlanillaOutput.year == year)
-                    .order_by(PlanillaOutput.generated_at.desc())
-                    .first()
-                )
-                m_dm = stored_m.discount_mode if stored_m else "attendance"
-                m_sd = stored_m.start_date if stored_m else None
-                m_ed = stored_m.end_date if stored_m else None
-                planilla_rows, detail_rows, warn_rows = gen._build_planilla_data(
-                    db,
-                    month=m,
-                    year=year,
-                    start_date=m_sd,
-                    end_date=m_ed,
-                    discount_mode=m_dm,
-                    excluded_days=ReportGenerator._load_planilla_exclusions(stored_m),
-                )
-                rows = planilla_rows
-                if teacher_ci:
-                    rows = [r for r in rows if r.teacher_ci == teacher_ci]
-
-                # Prefer stored PlanillaOutput total when no teacher filter
-                if not teacher_ci:
-                    month_total = float(stored_m.total_payment) if stored_m else sum(r.final_payment for r in rows)
-                else:
-                    month_total = sum(r.final_payment for r in rows)  # net — after retention
-
-                monthly_data.append({
-                    'month': m,
-                    'month_name': MN.get(m, str(m)),
-                    'teachers': len(set(r.teacher_ci for r in rows)),
-                    'base_hours': sum(r.base_monthly_hours for r in rows),
-                    'absent_hours': sum(r.absent_hours for r in rows),
-                    'payable_hours': sum(r.payable_hours for r in rows),
-                    'total_payment': month_total,
-                })
-
-            return {
-                "report_type": "comparative",
-                "year": year,
-                "months": monthly_data,
-                "grand_total": sum(m['total_payment'] for m in monthly_data),
-            }
+            return ReportGenerator().build_comparative_dataset(
+                db,
+                year=year,
+                teacher_ci=teacher_ci,
+            )
 
         elif report_type == 'roster':
             from app.models.teacher import Teacher
-            from app.models.designation import Designation
             from collections import Counter
 
             teachers = db.query(Teacher).filter(~Teacher.ci.startswith("TEMP-")).order_by(Teacher.full_name).all()
             desig_counts: Counter[str] = Counter()
-            all_desigs = db.query(Designation).filter(
-                Designation.academic_period == app_settings_service.get_active_academic_period(db)
-            ).all()
-            for d in all_desigs:
-                desig_counts[d.teacher_ci] += 1
+            from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
+            academic_period = app_settings_service.get_active_academic_period(db)
+            workloads = effective_workloads(
+                db,
+                academic_period=academic_period,
+                target_date=active_period_effective_date(academic_period),
+            )
+            for workload in workloads:
+                desig_counts[workload.teacher_ci] += 1
 
             with_retention = sum(1 for t in teachers if (t.invoice_retention or "").upper() == "RETENCION")
             with_nit = sum(1 for t in teachers if t.nit)
@@ -339,11 +246,7 @@ def preview_report(
                 .distinct().all()
             }
 
-            all_teacher_cis = {
-                r[0] for r in db.query(Designation.teacher_ci)
-                .filter(Designation.academic_period == app_settings_service.get_active_academic_period(db))
-                .distinct().all()
-            }
+            all_teacher_cis = {record.teacher_ci for record in records}
 
             teachers_without_bio = all_teacher_cis - bio_cis
             teacher_names = {
@@ -397,94 +300,13 @@ def preview_report(
             }
 
         elif report_type == 'reconciliation':
-            from app.models.biometric import BiometricRecord, BiometricUpload
-            from app.models.teacher import Teacher
-            from collections import defaultdict
-
             if not month or not year:
                 raise HTTPException(400, detail="month and year required for reconciliation reports")
-
-            att_records = db.query(AttendanceRecord).filter(
-                AttendanceRecord.month == month, AttendanceRecord.year == year,
-            ).all()
-
-            designations = db.query(Designation).filter(
-                Designation.academic_period == app_settings_service.get_active_academic_period(db)
-            ).all()
-
-            teacher_cis = set(d.teacher_ci for d in designations)
-            teacher_names = {t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_(teacher_cis)).all()}
-
-            att_by_teacher: dict = defaultdict(list)
-            for r in att_records:
-                att_by_teacher[r.teacher_ci].append(r)
-
-            desig_by_teacher: dict = defaultdict(list)
-            for d in designations:
-                desig_by_teacher[d.teacher_ci].append(d)
-
-            discrepancies = []
-            for ci in sorted(teacher_cis):
-                if ci.startswith("TEMP-"):
-                    continue
-                name = teacher_names.get(ci, ci)
-                teacher_att = att_by_teacher.get(ci, [])
-                teacher_desigs = desig_by_teacher.get(ci, [])
-
-                expected_monthly_hours = sum(d.monthly_hours or 0 for d in teacher_desigs)
-
-                if not teacher_att:
-                    discrepancies.append({
-                        "teacher_ci": ci,
-                        "teacher_name": name,
-                        "type": "no_records",
-                        "description": "Sin registros de asistencia",
-                        "expected_hours": expected_monthly_hours,
-                        "actual_hours": 0,
-                        "severity": "high",
-                    })
-                    continue
-
-                absences = sum(1 for r in teacher_att if r.status == "ABSENT")
-                total = len(teacher_att)
-                absence_rate = absences / total if total > 0 else 0
-                attended_hours = sum(r.academic_hours for r in teacher_att if r.status in ("ATTENDED", "LATE"))
-
-                already_added = False
-                if absence_rate > 0.3:
-                    discrepancies.append({
-                        "teacher_ci": ci,
-                        "teacher_name": name,
-                        "type": "high_absence",
-                        "description": f"Tasa de ausencia: {absence_rate*100:.0f}% ({absences}/{total} clases)",
-                        "expected_hours": expected_monthly_hours,
-                        "actual_hours": attended_hours,
-                        "severity": "high" if absence_rate > 0.5 else "medium",
-                    })
-                    already_added = True
-
-                if expected_monthly_hours > 0 and attended_hours < expected_monthly_hours * 0.5:
-                    if not already_added:
-                        discrepancies.append({
-                            "teacher_ci": ci,
-                            "teacher_name": name,
-                            "type": "hours_mismatch",
-                            "description": f"Horas asistidas ({attended_hours}h) < 50% de esperadas ({expected_monthly_hours}h)",
-                            "expected_hours": expected_monthly_hours,
-                            "actual_hours": attended_hours,
-                            "severity": "medium",
-                        })
-
-            return {
-                "report_type": "reconciliation",
-                "month": month,
-                "year": year,
-                "total_teachers": len(teacher_cis),
-                "total_discrepancies": len(discrepancies),
-                "high_severity": sum(1 for d in discrepancies if d["severity"] == "high"),
-                "medium_severity": sum(1 for d in discrepancies if d["severity"] == "medium"),
-                "discrepancies": discrepancies,
-            }
+            return ReportGenerator().build_reconciliation_dataset(
+                db,
+                month=month,
+                year=year,
+            ).as_preview()
 
         else:
             raise HTTPException(status_code=400, detail=f"Unknown report type: {report_type}")

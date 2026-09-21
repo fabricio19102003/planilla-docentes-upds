@@ -128,6 +128,7 @@ def test_admin_response_persists_typed_historical_resolution_snapshots(
     assert schedule["resolution_snapshot"] == {
         "kind": "schedule_detail",
         "academic_period": "I/2026",
+        "effective_date": "2026-04-01",
         "designations": [
             {
                 "subject": "Anatomy I",
@@ -135,6 +136,16 @@ def test_admin_response_persists_typed_historical_resolution_snapshots(
                 "group_code": "M1",
                 "weekly_hours": 2,
                 "monthly_hours": 8,
+                "source_kind": "legacy",
+                "source_id": designation.id,
+                "source_key": f"legacy:{designation.id}",
+                "designation_id": designation.id,
+                "publication_id": None,
+                "published_block_id": None,
+                "published_assignment_id": None,
+                "activity_kind": "theory",
+                "effective_from": None,
+                "effective_to": None,
                 "schedule": [
                     {
                         "dia": "Lunes",
