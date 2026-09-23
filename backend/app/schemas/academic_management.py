@@ -116,11 +116,17 @@ class ClassroomCreate(BaseModel):
     code: str = Field(min_length=1, max_length=30)
     name: str = Field(min_length=1, max_length=200)
     campus: str = Field(min_length=1, max_length=120)
-    capacity: int = Field(gt=0, le=10000)
+    capacity: int | None = Field(default=None, gt=0, le=10000)
     classroom_type: ClassroomType
     resources: list[str] = Field(default_factory=list, max_length=50)
     _normalize_code = field_validator("code")(_code)
     _normalize_name = field_validator("name", "campus")(_required_text)
+
+    @model_validator(mode="after")
+    def validate_capacity_for_type(self):
+        if self.classroom_type in {"classroom", "laboratory"} and self.capacity is None:
+            raise ValueError("La capacidad es obligatoria para aulas y laboratorios.")
+        return self
 
     @field_validator("resources")
     @classmethod

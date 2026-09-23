@@ -337,7 +337,7 @@ export interface Classroom extends AcademicCatalogBase {
   code: string
   name: string
   campus: string
-  capacity: number
+  capacity: number | null
   classroom_type: ClassroomType
   resources: string[]
 }

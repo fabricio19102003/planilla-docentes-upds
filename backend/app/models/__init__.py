@@ -33,6 +33,7 @@ from app.models.academic_management import (
     Classroom,
     SubjectOffering,
     TeacherAvailability,
+    HistoricalScheduleImport,
 )
 
 __all__ = [
@@ -74,6 +75,7 @@ __all__ = [
     "AcademicGroup",
     "Classroom",
     "TeacherAvailability",
+    "HistoricalScheduleImport",
 ]
 
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference

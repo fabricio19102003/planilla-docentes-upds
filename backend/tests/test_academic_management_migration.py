@@ -40,6 +40,11 @@ def _academic_model_tables():
     return [Base.metadata.tables[name] for name in TABLES]
 
 
+def _deployed_migration_tables():
+    _metadata, tables = _module()._schema()
+    return list(tables.values())
+
+
 def test_academic_management_migration_upgrades_sqlite(tmp_path, monkeypatch):
     engine, config = _config(tmp_path, monkeypatch, "academic-management.sqlite3")
     command.upgrade(config, REVISION)
@@ -59,7 +64,8 @@ def test_academic_management_migration_upgrades_sqlite(tmp_path, monkeypatch):
 def test_compatible_precreated_tables_are_adopted_without_data_loss(tmp_path, monkeypatch):
     engine, config = _config(tmp_path, monkeypatch, "compatible-academic-management.sqlite3")
     command.upgrade(config, PREDECESSOR)
-    Base.metadata.create_all(engine, tables=_academic_model_tables())
+    metadata, tables = _module()._schema()
+    metadata.create_all(engine, tables=list(tables.values()))
     with engine.begin() as connection:
         connection.execute(sa.text(
             "INSERT INTO academic_programs (id, code, name, active, created_at, updated_at) "

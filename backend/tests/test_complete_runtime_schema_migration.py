@@ -83,7 +83,9 @@ def test_empty_database_upgrade_to_head_creates_every_model_table(tmp_path, monk
 
 def test_upgrade_adopts_compatible_precreated_tables_without_data_loss(tmp_path, monkeypatch):
     engine, config = _engine_and_config(tmp_path, monkeypatch, "compatible-runtime.sqlite3")
-    Base.metadata.create_all(engine)
+    command.upgrade(config, START_REVISION)
+    metadata, tables = _runtime_schema_migration_module()._schema()
+    metadata.create_all(engine, tables=[tables[name] for name in TARGET_TABLES])
     with engine.begin() as connection:
         connection.execute(
             sa.text(
@@ -91,8 +93,6 @@ def test_upgrade_adopts_compatible_precreated_tables_without_data_loss(tmp_path,
                 "VALUES ('MIGRATION_SENTINEL', 'preserve-me', CURRENT_TIMESTAMP)"
             )
         )
-    command.stamp(config, START_REVISION)
-
     command.upgrade(config, "head")
 
     with engine.connect() as connection:
@@ -127,8 +127,6 @@ def test_upgrade_rejects_incompatible_precreated_table_before_creating_missing_t
 
 def test_downgrade_is_non_destructive_and_requires_restore(tmp_path, monkeypatch):
     engine, config = _engine_and_config(tmp_path, monkeypatch, "blocked-downgrade.sqlite3")
-    Base.metadata.create_all(engine)
-    command.stamp(config, START_REVISION)
     command.upgrade(config, "head")
     head = _head(config)
 
