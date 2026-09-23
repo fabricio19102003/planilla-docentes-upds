@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.models.activity_log import ActivityLog
+from app.models.academic_management import Classroom
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.services.auth_service import auth_service
@@ -82,6 +86,21 @@ def test_classroom_validation_resource_normalization_and_deactivation(client):
               "classroom_type": "laboratory", "resources": []},
     )
     assert invalid.status_code == 422
+    missing_physical_capacity = client.post(
+        f"{BASE}/classrooms",
+        json={"code": "A-NULL", "name": "Aula sin capacidad", "campus": "Central", "capacity": None,
+              "classroom_type": "classroom", "resources": []},
+    )
+    assert missing_physical_capacity.status_code == 422
+
+    for classroom_type in ("virtual", "other"):
+        non_physical = client.post(
+            f"{BASE}/classrooms",
+            json={"code": f"{classroom_type}-null", "name": classroom_type, "campus": "Central",
+                  "capacity": None, "classroom_type": classroom_type, "resources": []},
+        )
+        assert non_physical.status_code == 201, non_physical.text
+        assert non_physical.json()["capacity"] is None
 
     created = client.post(
         f"{BASE}/classrooms",
@@ -91,6 +110,24 @@ def test_classroom_validation_resource_normalization_and_deactivation(client):
     assert created.status_code == 201, created.text
     assert created.json()["resources"] == ["proyector", "pizarra"]
     assert client.post(f"{BASE}/classrooms/{created.json()['id']}/deactivate").json()["active"] is False
+
+
+def test_classroom_model_enforces_conditional_capacity(db_session):
+    db_session.add(Classroom(
+        code="MODEL-PHYSICAL", name="Physical", campus="Central", capacity=None,
+        classroom_type="classroom", resources=[],
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+    non_physical = Classroom(
+        code="MODEL-OTHER", name="Field", campus="Central", capacity=None,
+        classroom_type="other", resources=[],
+    )
+    db_session.add(non_physical)
+    db_session.flush()
+    assert non_physical.capacity is None
 
 
 def test_availability_overlap_adjacency_period_scope_and_compatibility(client, db_session):
@@ -181,7 +218,10 @@ def test_admin_authorization_required(client, db_session):
         client.headers["Authorization"] = authorization
 
 
-def _schedule_fixture(client, *, theory_hours=4, practice_hours=2, expected_size=25, capacity=30):
+def _schedule_fixture(
+    client, *, theory_hours=4, practice_hours=2, expected_size=25,
+    capacity=30, classroom_type="classroom",
+):
     program = _program(client, "arq")
     subject = _subject(client, "dis-101")
     offering = client.post(f"{BASE}/offerings", json={
@@ -195,7 +235,7 @@ def _schedule_fixture(client, *, theory_hours=4, practice_hours=2, expected_size
     }).json()
     classroom_response = client.post(f"{BASE}/classrooms", json={
         "code": "A-101", "name": "Aula 101", "campus": "Central", "capacity": capacity,
-        "classroom_type": "classroom", "resources": [],
+        "classroom_type": classroom_type, "resources": [],
     })
     assert classroom_response.status_code == 201, classroom_response.text
     classroom = classroom_response.json()
@@ -272,3 +312,14 @@ def test_schedule_blocks_reject_insufficient_capacity_and_archived_edits(client)
     assert "capacidad" in response.json()["detail"]
     assert client.post(f"{BASE}/schedule-drafts/{draft['id']}/archive").status_code == 200
     assert client.post(f"{BASE}/schedule-drafts/{draft['id']}/blocks", json=payload).status_code == 409
+
+
+def test_schedule_block_accepts_non_physical_location_without_capacity(client):
+    _program, offering, group, classroom, draft = _schedule_fixture(
+        client, expected_size=40, capacity=None, classroom_type="other",
+    )
+    response = client.post(f"{BASE}/schedule-drafts/{draft['id']}/blocks", json={
+        "offering_id": offering["id"], "group_id": group["id"], "classroom_id": classroom["id"],
+        "activity_type": "practice", "weekday": "friday", "start_time": "10:00", "end_time": "11:00",
+    })
+    assert response.status_code == 201, response.text

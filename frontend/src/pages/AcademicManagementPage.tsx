@@ -38,7 +38,7 @@ type Field = {
   name: string
   label: string
   type?: 'text' | 'number' | 'select'
-  required?: boolean
+  required?: boolean | ((form: FormState) => boolean)
   min?: number
   options?: Option[]
   placeholder?: string
@@ -171,14 +171,15 @@ function CatalogSection<T extends AcademicCatalogBase>({
           <form onSubmit={submit} className="flex flex-col gap-4">
             {fields.map((field) => {
               const id = `${resource}-${field.name}`
+              const required = typeof field.required === 'function' ? field.required(form) : field.required
               return (
                 <div key={field.name} className="flex flex-col gap-1.5">
-                  <Label htmlFor={id}>{field.label}{field.required ? ' *' : ''}</Label>
+                  <Label htmlFor={id}>{field.label}{required ? ' *' : ''}</Label>
                   {field.type === 'select' ? (
                     <select
                       id={id}
                       value={form[field.name] ?? ''}
-                      required={field.required}
+                      required={required}
                       aria-invalid={Boolean(error)}
                       aria-describedby={error ? errorId : undefined}
                       onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
@@ -192,7 +193,7 @@ function CatalogSection<T extends AcademicCatalogBase>({
                       id={id}
                       type={field.type ?? 'text'}
                       min={field.min}
-                      required={field.required}
+                      required={required}
                       placeholder={field.placeholder}
                       value={form[field.name] ?? ''}
                       aria-invalid={Boolean(error)}
@@ -355,7 +356,7 @@ export function AcademicManagementPage() {
         <TabsContent value="subjects"><CatalogSection<AcademicSubject> resource="subjects" title="Asignaturas" description="Materias globales independientes de cada carrera." query={subjects} fields={[...commonFields, { name: 'description', label: 'Descripción' }]} emptyForm={{ code: '', name: '', description: '' }} toForm={(item) => ({ code: item.code, name: item.name, description: item.description ?? '' })} toPayload={(form) => ({ ...form, description: form.description || null })} summary={(item) => `${item.code} — ${item.name}`} /></TabsContent>
         <TabsContent value="offerings"><CatalogSection<SubjectOffering> resource="offerings" title="Ofertas académicas" description="Carga teórica y práctica por programa, período y semestre." query={offerings} fields={[{ name: 'subject_id', label: 'Asignatura', type: 'select', required: true, options: subjectOptions }, { name: 'program_id', label: 'Programa', type: 'select', required: true, options: programOptions }, { name: 'academic_period', label: 'Período académico', required: true, placeholder: 'II/2026' }, { name: 'semester', label: 'Semestre', type: 'number', min: 1, required: true }, { name: 'theory_hours', label: 'Horas de teoría', type: 'number', min: 0, required: true }, { name: 'practice_hours', label: 'Horas de práctica', type: 'number', min: 0, required: true }]} emptyForm={{ subject_id: '', program_id: '', academic_period: '', semester: '1', theory_hours: '0', practice_hours: '0' }} toForm={(item) => ({ subject_id: String(item.subject_id), program_id: String(item.program_id), academic_period: item.academic_period, semester: String(item.semester), theory_hours: String(item.theory_hours), practice_hours: String(item.practice_hours) })} toPayload={(form) => ({ ...form, subject_id: Number(form.subject_id), program_id: Number(form.program_id), semester: Number(form.semester), theory_hours: Number(form.theory_hours), practice_hours: Number(form.practice_hours) })} summary={(item) => `${item.subject.code} · ${item.program.code} · ${item.academic_period} · Sem. ${item.semester} · T${item.theory_hours}/P${item.practice_hours}`} /></TabsContent>
         <TabsContent value="groups"><CatalogSection<AcademicGroup> resource="groups" title="Grupos" description="Cohortes reutilizables dentro de un período." query={groups} fields={[{ name: 'program_id', label: 'Programa', type: 'select', required: true, options: programOptions }, { name: 'academic_period', label: 'Período académico', required: true }, { name: 'semester', label: 'Semestre', type: 'number', min: 1, required: true }, { name: 'shift', label: 'Turno', required: true }, { name: 'code', label: 'Código', required: true }, { name: 'expected_size', label: 'Cantidad esperada', type: 'number', min: 1 }]} emptyForm={{ program_id: '', academic_period: '', semester: '1', shift: '', code: '', expected_size: '' }} toForm={(item) => ({ program_id: String(item.program_id), academic_period: item.academic_period, semester: String(item.semester), shift: item.shift, code: item.code, expected_size: item.expected_size ? String(item.expected_size) : '' })} toPayload={(form) => ({ ...form, program_id: Number(form.program_id), semester: Number(form.semester), expected_size: optionalPositiveInteger(form.expected_size) })} summary={(item) => `${item.program.code} · ${item.code} · ${item.academic_period} · Sem. ${item.semester} · ${item.shift}`} /></TabsContent>
-        <TabsContent value="classrooms"><CatalogSection<Classroom> resource="classrooms" title="Aulas" description="Ambientes, capacidad y equipamiento disponible." query={classrooms} fields={[...commonFields, { name: 'campus', label: 'Campus', required: true }, { name: 'capacity', label: 'Capacidad', type: 'number', min: 1, required: true }, { name: 'classroom_type', label: 'Tipo', type: 'select', required: true, options: [{ value: 'classroom', label: 'Aula' }, { value: 'laboratory', label: 'Laboratorio' }, { value: 'virtual', label: 'Virtual' }, { value: 'other', label: 'Otro' }] }, { name: 'resources', label: 'Recursos (separados por comas)', placeholder: 'proyector, pizarra' }]} emptyForm={{ code: '', name: '', campus: '', capacity: '', classroom_type: 'classroom', resources: '' }} toForm={(item) => ({ code: item.code, name: item.name, campus: item.campus, capacity: String(item.capacity), classroom_type: item.classroom_type, resources: item.resources.join(', ') })} toPayload={(form) => ({ ...form, capacity: Number(form.capacity), resources: normalizeClassroomResources(form.resources) })} summary={(item) => `${item.code} — ${item.name} · ${item.campus} · Cap. ${item.capacity} · ${item.resources.join(', ') || 'Sin recursos'}`} /></TabsContent>
+        <TabsContent value="classrooms"><CatalogSection<Classroom> resource="classrooms" title="Aulas" description="Ambientes, capacidad y equipamiento disponible." query={classrooms} fields={[...commonFields, { name: 'campus', label: 'Campus', required: true }, { name: 'capacity', label: 'Capacidad', type: 'number', min: 1, required: (form) => form.classroom_type === 'classroom' || form.classroom_type === 'laboratory' }, { name: 'classroom_type', label: 'Tipo', type: 'select', required: true, options: [{ value: 'classroom', label: 'Aula' }, { value: 'laboratory', label: 'Laboratorio' }, { value: 'virtual', label: 'Virtual' }, { value: 'other', label: 'Otro' }] }, { name: 'resources', label: 'Recursos (separados por comas)', placeholder: 'proyector, pizarra' }]} emptyForm={{ code: '', name: '', campus: '', capacity: '', classroom_type: 'classroom', resources: '' }} toForm={(item) => ({ code: item.code, name: item.name, campus: item.campus, capacity: item.capacity === null ? '' : String(item.capacity), classroom_type: item.classroom_type, resources: item.resources.join(', ') })} toPayload={(form) => ({ ...form, capacity: form.capacity ? Number(form.capacity) : null, resources: normalizeClassroomResources(form.resources) })} summary={(item) => `${item.code} — ${item.name} · ${item.campus} · Cap. ${item.capacity ?? 'No aplica'} · ${item.resources.join(', ') || 'Sin recursos'}`} /></TabsContent>
         <TabsContent value="availability"><AvailabilitySection /></TabsContent>
       </Tabs>
     </div>

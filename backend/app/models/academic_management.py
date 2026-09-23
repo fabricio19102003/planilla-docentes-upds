@@ -126,7 +126,11 @@ class Classroom(TimestampedCatalog, Base):
     __tablename__ = "classrooms"
     __table_args__ = (
         UniqueConstraint("code", name="uq_classroom_code"),
-        CheckConstraint("capacity > 0", name="ck_classroom_capacity_positive"),
+        CheckConstraint(
+            "(classroom_type IN ('classroom', 'laboratory') AND capacity IS NOT NULL AND capacity > 0) "
+            "OR (classroom_type IN ('virtual', 'other') AND (capacity IS NULL OR capacity > 0))",
+            name="ck_classroom_capacity_by_type",
+        ),
         CheckConstraint(
             "classroom_type IN ('classroom', 'laboratory', 'virtual', 'other')",
             name="ck_classroom_type",
@@ -137,7 +141,7 @@ class Classroom(TimestampedCatalog, Base):
     code: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     campus: Mapped[str] = mapped_column(String(120), nullable=False)
-    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    capacity: Mapped[Optional[int]] = mapped_column(Integer)
     classroom_type: Mapped[str] = mapped_column(String(20), nullable=False)
     resources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
@@ -390,4 +394,37 @@ class AcademicSchedulePublishedAssignment(Base):
     )
     practice_attendance_logs: Mapped[list[Any]] = relationship(
         "PracticeAttendanceLog", back_populates="published_schedule_assignment"
+    )
+
+
+class HistoricalScheduleImport(Base):
+    """Durable receipt for a privileged, digest-bound historical import."""
+
+    __tablename__ = "historical_schedule_imports"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_historical_schedule_import_key"),
+        UniqueConstraint("preview_digest", name="uq_historical_schedule_import_digest"),
+        CheckConstraint(
+            "policy = 'historical_availability_not_recorded'",
+            name="ck_historical_schedule_import_policy",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    preview_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    pre_state_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    applied_state_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    academic_period: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    actor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_hashes: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False)
+    counts: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
     )

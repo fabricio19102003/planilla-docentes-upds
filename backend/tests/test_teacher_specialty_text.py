@@ -97,8 +97,7 @@ def test_clean_migration_chain_ends_with_text_specialty(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'clean.sqlite3'}"
     engine = sa.create_engine(url)
     config = _config(url, monkeypatch)
-    Base.metadata.create_all(engine)
-    command.stamp(config, DOWN_REVISION)
+    command.upgrade(config, DOWN_REVISION)
 
     command.upgrade(config, "head")
 

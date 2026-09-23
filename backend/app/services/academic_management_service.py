@@ -387,7 +387,11 @@ def _validate_schedule_block(
         raise HTTPException(409, detail="El grupo no pertenece al programa y período del borrador.")
     if offering.semester != group.semester:
         raise HTTPException(409, detail="La oferta y el grupo deben pertenecer al mismo semestre.")
-    if group.expected_size is not None and classroom.capacity < group.expected_size:
+    if (
+        group.expected_size is not None
+        and classroom.capacity is not None
+        and classroom.capacity < group.expected_size
+    ):
         raise HTTPException(409, detail="La capacidad del aula es menor que el tamaño esperado del grupo.")
 
     configured_hours = offering.theory_hours if values["activity_type"] == "theory" else offering.practice_hours

@@ -69,6 +69,14 @@ test('normalizes form state and constructs availability payloads', () => {
   )
 })
 
+test('handles conditional classroom capacity without inventing values', () => {
+  assert.match(types, /capacity: number \| null/)
+  assert.match(page, /item\.capacity === null \? '' : String\(item\.capacity\)/)
+  assert.match(page, /capacity: form\.capacity \? Number\(form\.capacity\) : null/)
+  assert.match(page, /item\.capacity \?\? 'No aplica'/)
+  assert.match(page, /form\.classroom_type === 'classroom' \|\| form\.classroom_type === 'laboratory'/)
+})
+
 test('keeps forms labeled and exposes field-linked non-toast errors', () => {
   assert.match(page, /<Label htmlFor=/)
   assert.match(page, /aria-invalid=/)
