@@ -21,6 +21,7 @@ from app.models.academic_management import (
     TeacherAvailability,
 )
 from app.models.activity_log import ActivityLog
+from app.models.billing_publication import BillingPublication
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.user import User
 from app.services import academic_management_service
@@ -348,7 +349,7 @@ def test_retroactive_evidence_blocks_without_partial_writes(db_session, tmp_path
     db_session.flush()
     preview = _preview(db_session, inputs)
     assert preview["can_apply"] is False
-    assert preview["operational_blockers"]["practice_payroll"] == 1
+    assert preview["operational_blockers"] == {"practice_payroll": 1}
     with pytest.raises(HistoricalImportError, match="blocked"):
         apply_import(
             db_session, inputs, actor_ci="ADMIN-HIST-1", policy="historical_availability_not_recorded",
@@ -356,3 +357,58 @@ def test_retroactive_evidence_blocks_without_partial_writes(db_session, tmp_path
             expected_digest=preview["digest"],
         )
     assert db_session.query(AcademicSchedulePublication).count() == 0
+
+
+def test_regular_billing_publication_does_not_block_or_change(db_session, tmp_path):
+    _admin(db_session)
+    inputs, _ci = _fixture(tmp_path)
+    regular = BillingPublication(
+        month=8, year=2026, planilla_type="regular", status="published", version=3,
+        total_teachers=0, total_payment=0,
+        billing_snapshot={"teacher_details": [], "source": "immutable-regular"},
+    )
+    db_session.add(regular)
+    db_session.flush()
+
+    preview = _preview(db_session, inputs)
+    assert preview["can_apply"] is True
+    assert "billing" not in preview["operational_blockers"]
+    apply_import(
+        db_session, inputs, actor_ci="ADMIN-HIST-1",
+        policy="historical_availability_not_recorded",
+        effective_date=date(2026, 8, 20), historical_availability_unrecorded=True,
+        expected_digest=preview["digest"],
+    )
+
+    db_session.refresh(regular)
+    assert regular.planilla_type == "regular"
+    assert regular.status == "published"
+    assert regular.version == 3
+    assert regular.billing_snapshot == {"teacher_details": [], "source": "immutable-regular"}
+
+
+def test_practice_billing_publication_remains_fail_closed(db_session, tmp_path):
+    _admin(db_session)
+    inputs, _ci = _fixture(tmp_path)
+    practice = BillingPublication(
+        month=8, year=2026, planilla_type="practice", status="published", version=1,
+        total_teachers=0, total_payment=0,
+        billing_snapshot={"teacher_details": [], "source": "immutable-practice"},
+    )
+    db_session.add(practice)
+    db_session.flush()
+
+    preview = _preview(db_session, inputs)
+    assert preview["can_apply"] is False
+    assert preview["operational_blockers"] == {"billing": 1}
+    with pytest.raises(HistoricalImportError, match="blocked"):
+        apply_import(
+            db_session, inputs, actor_ci="ADMIN-HIST-1",
+            policy="historical_availability_not_recorded",
+            effective_date=date(2026, 8, 20), historical_availability_unrecorded=True,
+            expected_digest=preview["digest"],
+        )
+    assert db_session.query(AcademicSchedulePublication).count() == 0
+    db_session.refresh(practice)
+    assert practice.status == "published"
+    assert practice.billing_snapshot == {"teacher_details": [], "source": "immutable-practice"}
