@@ -589,6 +589,7 @@ def _operational_blockers(db: Session) -> dict[str, int]:
             (PracticePlanillaOutput.year > 2026) | ((PracticePlanillaOutput.year == 2026) & (PracticePlanillaOutput.month >= 8))
         ).count(),
         "billing": db.query(BillingPublication.id).filter(
+            BillingPublication.planilla_type == "practice",
             (BillingPublication.year > 2026) | ((BillingPublication.year == 2026) & (BillingPublication.month >= 8))
         ).count(),
         "contracts": db.query(ContractLine.id).join(ContractDocument).filter(
