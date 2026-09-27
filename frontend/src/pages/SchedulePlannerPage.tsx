@@ -28,6 +28,7 @@ import type {
   ScheduleWeekday,
   SubjectOffering,
 } from '@/api/types'
+import { DesignationBootstrapDialog } from '@/components/academic-management/DesignationBootstrapDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -394,6 +395,10 @@ export function SchedulePlannerPage() {
             <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 07:00 y 22:00.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <DesignationBootstrapDialog
+              programs={programs.data ?? []}
+              onContinue={(draftId) => setSelectedDraftId(draftId)}
+            />
             <Button variant="outline" onClick={() => { setError(null); setPublicationHistoryOpen(true) }}>
               Historial de publicaciones
             </Button>
@@ -405,7 +410,7 @@ export function SchedulePlannerPage() {
         </header>
 
         <div role="note" className="rounded-md border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
-          No despliegue esta publicación sola en producción. La integración de asistencia regular permanece en modo de lectura; práctica, planillas, contratos y facturación todavía usan el origen heredado.
+          La importación inicial incorpora teoría y práctica al borrador. No despliegue esta publicación sola en producción: la integración de asistencia regular permanece en modo de lectura, y planillas, contratos y facturación todavía usan el origen heredado.
         </div>
 
         {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}

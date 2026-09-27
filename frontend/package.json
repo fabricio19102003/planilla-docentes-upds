@@ -16,6 +16,7 @@
     "test:schedule-planner": "node --experimental-strip-types --test scripts/check-schedule-planner.mjs",
     "test:schedule-assignments": "node --experimental-strip-types --test scripts/check-schedule-assignments.mjs",
     "test:schedule-publication": "node --experimental-strip-types --test scripts/check-schedule-publication.mjs",
+    "test:designation-bootstrap": "node --experimental-strip-types --test scripts/check-designation-bootstrap.mjs",
     "test:contract-ledger": "node scripts/check-contract-ledger.mjs",
     "test:admin-request-resolution": "node --experimental-strip-types --test scripts/check-admin-request-resolution.mjs",
     "test:report-preview": "node --test scripts/check-report-preview.mjs",
