@@ -35,6 +35,7 @@ from app.models.academic_management import (
     TeacherAvailability,
     HistoricalScheduleImport,
 )
+from app.models.designation_bootstrap import DesignationBootstrapReceipt
 
 __all__ = [
     "Teacher",
@@ -76,6 +77,7 @@ __all__ = [
     "Classroom",
     "TeacherAvailability",
     "HistoricalScheduleImport",
+    "DesignationBootstrapReceipt",
 ]
 
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference

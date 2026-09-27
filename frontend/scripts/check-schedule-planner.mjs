@@ -61,8 +61,9 @@ test('uses official dnd-kit primitives with accessible fallback and states', () 
   assert.match(page, /focus-visible:ring/)
 })
 
-test('uses draft and block APIs without touching designation endpoints', () => {
+test('keeps schedule editing on draft and block APIs while bootstrap stays isolated', () => {
   assert.match(hooks, /schedule-drafts/)
   assert.match(hooks, /\/blocks/)
-  assert.doesNotMatch(`${page}\n${hooks}`, /designation/i)
+  assert.doesNotMatch(hooks, /designation-bootstrap/i)
+  assert.match(page, /DesignationBootstrapDialog/)
 })

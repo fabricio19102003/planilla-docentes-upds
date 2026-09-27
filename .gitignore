@@ -70,6 +70,7 @@ nul
 
 # Local agent artifacts
 .atl/
+/.codegraph/
 
 # Local production deployment state
 /deploy/state/
