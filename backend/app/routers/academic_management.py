@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import settings
 from app.models.academic_management import (
     AcademicGroup,
     AcademicProgram,
@@ -26,6 +29,10 @@ from app.schemas.academic_management import (
     ClassroomCreate,
     ClassroomResponse,
     ClassroomUpdate,
+    DesignationBootstrapApplyResponse,
+    DesignationBootstrapAliasSelections,
+    DesignationBootstrapPreviewResponse,
+    DesignationBootstrapResolutionContextResponse,
     CompatibleTeacherResponse,
     GroupCreate,
     GroupResponse,
@@ -59,6 +66,20 @@ from app.schemas.academic_management import (
 )
 from app.services import academic_management_service as service
 from app.services import academic_schedule_publication_service as publication_service
+from app.services.designation_bootstrap_preview import (
+    WorkbookValidationError,
+    build_designation_bootstrap_preview,
+    preflight_xlsx,
+)
+from app.services.designation_bootstrap_apply import (
+    DesignationBootstrapApplyError,
+    apply_designation_bootstrap,
+)
+from app.services.designation_bootstrap_resolution import (
+    DesignationBootstrapResolutionError,
+    build_designation_bootstrap_alias_artifact,
+    build_designation_bootstrap_resolution_context,
+)
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -67,6 +88,191 @@ router = APIRouter(
     tags=["academic-management"],
     dependencies=[Depends(require_admin)],
 )
+
+MAX_BOOTSTRAP_WORKBOOK_BYTES = 20 * 1024 * 1024
+MAX_BOOTSTRAP_ALIAS_BYTES = 1024 * 1024
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _validate_bootstrap_upload(upload: UploadFile) -> None:
+    if not upload.filename or not upload.filename.lower().endswith(".xlsx"):
+        raise HTTPException(415, detail="Each workbook must use the .xlsx extension.")
+    if upload.content_type != XLSX_MEDIA_TYPE:
+        raise HTTPException(415, detail="Each workbook must use the XLSX media type.")
+
+
+async def _read_bootstrap_inputs(
+    official_workbook: UploadFile,
+    salary_workbook: UploadFile,
+    alias_resolution: UploadFile | None,
+) -> tuple[bytes, bytes, bytes | None]:
+    _validate_bootstrap_upload(official_workbook)
+    _validate_bootstrap_upload(salary_workbook)
+    if alias_resolution is not None and (
+        not alias_resolution.filename
+        or not alias_resolution.filename.lower().endswith(".json")
+        or alias_resolution.content_type != "application/json"
+    ):
+        raise HTTPException(415, detail="Alias resolution must be a JSON file.")
+    official_content = await official_workbook.read(MAX_BOOTSTRAP_WORKBOOK_BYTES + 1)
+    salary_content = await salary_workbook.read(MAX_BOOTSTRAP_WORKBOOK_BYTES + 1)
+    alias_content = (
+        await alias_resolution.read(MAX_BOOTSTRAP_ALIAS_BYTES + 1)
+        if alias_resolution is not None else None
+    )
+    if not official_content or not salary_content:
+        raise HTTPException(400, detail="Both XLSX workbooks are required.")
+    if max(len(official_content), len(salary_content)) > MAX_BOOTSTRAP_WORKBOOK_BYTES:
+        raise HTTPException(413, detail="A workbook exceeds the 20 MiB limit.")
+    if alias_content is not None and (not alias_content or len(alias_content) > MAX_BOOTSTRAP_ALIAS_BYTES):
+        raise HTTPException(413 if alias_content else 400, detail="Alias resolution is empty or too large.")
+    try:
+        preflight_xlsx(official_content)
+        preflight_xlsx(salary_content)
+    except WorkbookValidationError as exc:
+        raise HTTPException(400, detail={"code": exc.code}) from exc
+    return official_content, salary_content, alias_content
+
+
+@router.post(
+    "/designation-bootstrap/preview",
+    response_model=DesignationBootstrapPreviewResponse,
+)
+async def preview_designation_bootstrap(
+    official_workbook: UploadFile = File(),
+    salary_workbook: UploadFile = File(),
+    alias_resolution: UploadFile | None = File(default=None),
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_date: date = Form(),
+    program_identity: str = Form(min_length=1, max_length=200),
+    db: Session = Depends(get_db),
+):
+    academic_period = " ".join(academic_period.split()).upper()
+    program_identity = " ".join(program_identity.split())
+    if not academic_period or not re.fullmatch(r"[A-Z0-9]+/[0-9]{4}", academic_period.upper()):
+        raise HTTPException(422, detail="academic_period is malformed.")
+    if not program_identity:
+        raise HTTPException(422, detail="program_identity is required.")
+    official_content, salary_content, alias_content = await _read_bootstrap_inputs(
+        official_workbook, salary_workbook, alias_resolution,
+    )
+    return build_designation_bootstrap_preview(
+        db,
+        official_content=official_content,
+        salary_content=salary_content,
+        academic_period=academic_period,
+        effective_date=effective_date,
+        program_identity=program_identity,
+        alias_content=alias_content,
+    )
+
+
+@router.post(
+    "/designation-bootstrap/resolution-context",
+    response_model=DesignationBootstrapResolutionContextResponse,
+)
+async def designation_bootstrap_resolution_context(
+    official_workbook: UploadFile = File(),
+    salary_workbook: UploadFile = File(),
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_date: date = Form(),
+):
+    official_content, salary_content, _alias_content = await _read_bootstrap_inputs(
+        official_workbook, salary_workbook, None,
+    )
+    try:
+        return build_designation_bootstrap_resolution_context(
+            official_content=official_content,
+            salary_content=salary_content,
+            academic_period=" ".join(academic_period.split()).upper(),
+            effective_date=effective_date,
+            signing_key=settings.JWT_SECRET,
+        )
+    except DesignationBootstrapResolutionError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+
+
+@router.post("/designation-bootstrap/alias-artifact")
+async def designation_bootstrap_alias_artifact(
+    official_workbook: UploadFile = File(),
+    salary_workbook: UploadFile = File(),
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_date: date = Form(),
+    resolution_token: str = Form(min_length=1, max_length=2048),
+    selections: str = Form(min_length=2, max_length=200_000),
+):
+    official_content, salary_content, _alias_content = await _read_bootstrap_inputs(
+        official_workbook, salary_workbook, None,
+    )
+    try:
+        parsed_selections = DesignationBootstrapAliasSelections.model_validate_json(selections)
+        artifact = build_designation_bootstrap_alias_artifact(
+            official_content=official_content,
+            salary_content=salary_content,
+            academic_period=" ".join(academic_period.split()).upper(),
+            effective_date=effective_date,
+            resolution_token=resolution_token,
+            teacher_selections=[item.model_dump() for item in parsed_selections.teacher_selections],
+            subject_selections=[item.model_dump() for item in parsed_selections.subject_selections],
+            signing_key=settings.JWT_SECRET,
+        )
+    except (DesignationBootstrapResolutionError, ValidationError, json.JSONDecodeError) as exc:
+        code = exc.code if isinstance(exc, DesignationBootstrapResolutionError) else "invalid_alias_selections"
+        raise HTTPException(409, detail={"code": code}) from exc
+    return Response(
+        content=artifact,
+        media_type="application/json",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="designation-alias-v2.json"',
+        },
+    )
+
+
+@router.post(
+    "/designation-bootstrap/apply",
+    response_model=DesignationBootstrapApplyResponse,
+)
+async def apply_designation_bootstrap_endpoint(
+    official_workbook: UploadFile = File(),
+    salary_workbook: UploadFile = File(),
+    alias_resolution: UploadFile | None = File(default=None),
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_date: date = Form(),
+    program_identity: str = Form(min_length=1, max_length=200),
+    confirmation_digest: str = Form(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    academic_period = " ".join(academic_period.split()).upper()
+    program_identity = " ".join(program_identity.split())
+    if not academic_period or not re.fullmatch(r"[A-Z0-9]+/[0-9]{4}", academic_period):
+        raise HTTPException(422, detail="academic_period is malformed.")
+    if not program_identity:
+        raise HTTPException(422, detail="program_identity is required.")
+    official_content, salary_content, alias_content = await _read_bootstrap_inputs(
+        official_workbook, salary_workbook, alias_resolution,
+    )
+    try:
+        result = apply_designation_bootstrap(
+            db,
+            official_content=official_content,
+            salary_content=salary_content,
+            alias_content=alias_content,
+            academic_period=academic_period,
+            effective_date=effective_date,
+            program_identity=program_identity,
+            confirmation_digest=confirmation_digest,
+            actor=user,
+        )
+        db.commit()
+        return result
+    except DesignationBootstrapApplyError as exc:
+        db.rollback()
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _audit(
