@@ -452,6 +452,141 @@ export interface SchedulePublicationPreview {
   diff: SchedulePublicationDiff
 }
 
+export interface DesignationBootstrapSourceSummary {
+  official_sha256: string
+  official_sheet_count: number
+  salary_sha256: string
+  salary_sheet_count: number
+  alias_sha256: string | null
+  alias_present: boolean
+}
+
+export interface DesignationBootstrapTheorySummary {
+  row_count: number
+  parsed_row_count: number
+  skipped_row_count: number
+  error_row_count: number
+  block_count: number
+  assignment_count: number
+  duplicate_count: number
+  error_count: number
+}
+
+export interface DesignationBootstrapPracticeSummary {
+  official_row_count: number
+  official_parsed_row_count: number
+  official_skipped_row_count: number
+  official_error_row_count: number
+  salary_row_count: number
+  salary_parsed_row_count: number
+  salary_skipped_row_count: number
+  salary_error_row_count: number
+  join_covered_count: number
+  join_missing_count: number
+  join_ambiguous_count: number
+  join_missing_ci_count: number
+  join_conflicting_ci_count: number
+  orphan_salary_count: number
+  unresolved_teacher_alias_count: number
+  unresolved_subject_alias_count: number
+  salary_payment_occurrence_count: number
+  salary_payment_hours_total: number
+  salary_hours_noncomparable_count: number
+}
+
+export interface DesignationBootstrapResolutionSummary {
+  teacher_resolved_count: number
+  teacher_missing_count: number
+  teacher_ambiguous_count: number
+  subject_resolved_count: number
+  offering_resolved_count: number
+  group_resolved_count: number
+  classroom_resolved_count: number
+}
+
+export interface DesignationBootstrapPlannedSummary {
+  theory_block_count: number
+  practice_block_count: number
+  theory_assignment_count: number
+  practice_assignment_count: number
+}
+
+export interface DesignationBootstrapIssue {
+  code: string
+  count: number
+}
+
+export interface DesignationBootstrapPreview {
+  policy_version: string
+  academic_period: string
+  effective_date: string
+  sources: DesignationBootstrapSourceSummary
+  theory: DesignationBootstrapTheorySummary
+  practice: DesignationBootstrapPracticeSummary
+  resolution: DesignationBootstrapResolutionSummary
+  planned: DesignationBootstrapPlannedSummary
+  warnings: DesignationBootstrapIssue[]
+  blockers: DesignationBootstrapIssue[]
+  can_apply: boolean
+  database_state_fingerprint: string
+  preview_digest: string
+}
+
+export interface DesignationBootstrapApplyResult {
+  status: 'applied' | 'replayed'
+  replayed: boolean
+  draft_id: number
+  theory_block_count: number
+  practice_block_count: number
+  theory_assignment_count: number
+  practice_assignment_count: number
+  preview_digest: string
+}
+
+export interface DesignationBootstrapTeacherCandidate {
+  candidate_token: string
+  salary_teacher_display: string
+  salary_teacher_key: string
+  masked_ci: string
+}
+
+export interface DesignationBootstrapTeacherResolution {
+  official_teacher_display: string
+  official_teacher_key: string
+  candidates: DesignationBootstrapTeacherCandidate[]
+}
+
+export interface DesignationBootstrapSubjectCandidate {
+  official_subject_display: string
+  official_subject_key: string
+}
+
+export interface DesignationBootstrapSubjectResolution {
+  salary_subject_display: string
+  salary_subject_key: string
+  semester: number
+  candidates: DesignationBootstrapSubjectCandidate[]
+}
+
+export interface DesignationBootstrapResolutionContext {
+  resolution_token: string
+  expires_in_seconds: number
+  teacher_resolutions: DesignationBootstrapTeacherResolution[]
+  subject_resolutions: DesignationBootstrapSubjectResolution[]
+}
+
+export interface DesignationBootstrapAliasSelections {
+  teacher_selections: Array<{
+    official_teacher_key: string
+    candidate_token: string
+  }>
+  subject_selections: Array<{
+    salary_subject_key: string
+    semester: number
+    official_subject_key: string
+  }>
+}
+
 export interface PublishedScheduleAssignment {
   id: number
   source_assignment_id: number
