@@ -400,3 +400,142 @@ class SchedulePublicationResponse(BaseModel):
 class SchedulePublicationCloneRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     _normalize_name = field_validator("name")(_required_text)
+
+
+class BootstrapSourceSummary(BaseModel):
+    official_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    official_sheet_count: int = Field(ge=0)
+    salary_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    salary_sheet_count: int = Field(ge=0)
+    alias_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    alias_present: bool
+
+
+class BootstrapTheorySummary(BaseModel):
+    row_count: int = Field(ge=0)
+    parsed_row_count: int = Field(ge=0)
+    skipped_row_count: int = Field(ge=0)
+    error_row_count: int = Field(ge=0)
+    block_count: int = Field(ge=0)
+    assignment_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+
+
+class BootstrapPracticeSummary(BaseModel):
+    official_row_count: int = Field(ge=0)
+    official_parsed_row_count: int = Field(ge=0)
+    official_skipped_row_count: int = Field(ge=0)
+    official_error_row_count: int = Field(ge=0)
+    salary_row_count: int = Field(ge=0)
+    salary_parsed_row_count: int = Field(ge=0)
+    salary_skipped_row_count: int = Field(ge=0)
+    salary_error_row_count: int = Field(ge=0)
+    join_covered_count: int = Field(ge=0)
+    join_missing_count: int = Field(ge=0)
+    join_ambiguous_count: int = Field(ge=0)
+    join_missing_ci_count: int = Field(ge=0)
+    join_conflicting_ci_count: int = Field(ge=0)
+    orphan_salary_count: int = Field(ge=0)
+    unresolved_teacher_alias_count: int = Field(ge=0)
+    unresolved_subject_alias_count: int = Field(ge=0)
+    salary_payment_occurrence_count: int = Field(ge=0)
+    salary_payment_hours_total: int = Field(ge=0)
+    salary_hours_noncomparable_count: int = Field(ge=0)
+
+
+class BootstrapResolutionSummary(BaseModel):
+    teacher_resolved_count: int = Field(ge=0)
+    teacher_missing_count: int = Field(ge=0)
+    teacher_ambiguous_count: int = Field(ge=0)
+    subject_resolved_count: int = Field(ge=0)
+    offering_resolved_count: int = Field(ge=0)
+    group_resolved_count: int = Field(ge=0)
+    classroom_resolved_count: int = Field(ge=0)
+
+
+class BootstrapPlannedSummary(BaseModel):
+    theory_block_count: int = Field(ge=0)
+    practice_block_count: int = Field(ge=0)
+    theory_assignment_count: int = Field(ge=0)
+    practice_assignment_count: int = Field(ge=0)
+
+
+class BootstrapBlocker(BaseModel):
+    code: str
+    count: int = Field(gt=0)
+
+
+class DesignationBootstrapPreviewResponse(BaseModel):
+    policy_version: str
+    academic_period: str
+    effective_date: date
+    sources: BootstrapSourceSummary
+    theory: BootstrapTheorySummary
+    practice: BootstrapPracticeSummary
+    resolution: BootstrapResolutionSummary
+    planned: BootstrapPlannedSummary
+    warnings: list[BootstrapBlocker] = Field(default_factory=list)
+    blockers: list[BootstrapBlocker] = Field(default_factory=list)
+    can_apply: bool
+    database_state_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    preview_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DesignationBootstrapApplyResponse(BaseModel):
+    status: Literal["applied", "replayed"]
+    replayed: bool
+    draft_id: int = Field(gt=0)
+    theory_block_count: int = Field(ge=0)
+    practice_block_count: int = Field(ge=0)
+    theory_assignment_count: int = Field(ge=0)
+    practice_assignment_count: int = Field(ge=0)
+    preview_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class BootstrapTeacherCandidate(BaseModel):
+    candidate_token: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
+    salary_teacher_display: str
+    salary_teacher_key: str
+    masked_ci: str
+
+
+class BootstrapTeacherResolution(BaseModel):
+    official_teacher_display: str
+    official_teacher_key: str
+    candidates: list[BootstrapTeacherCandidate]
+
+
+class BootstrapSubjectCandidate(BaseModel):
+    official_subject_display: str
+    official_subject_key: str
+
+
+class BootstrapSubjectResolution(BaseModel):
+    salary_subject_display: str
+    salary_subject_key: str
+    semester: int = Field(gt=0, le=20)
+    candidates: list[BootstrapSubjectCandidate]
+
+
+class DesignationBootstrapResolutionContextResponse(BaseModel):
+    resolution_token: str
+    expires_in_seconds: int = Field(gt=0, le=3600)
+    teacher_resolutions: list[BootstrapTeacherResolution]
+    subject_resolutions: list[BootstrapSubjectResolution]
+
+
+class BootstrapTeacherAliasSelection(BaseModel):
+    official_teacher_key: str = Field(min_length=1, max_length=300)
+    candidate_token: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
+
+
+class BootstrapSubjectAliasSelection(BaseModel):
+    salary_subject_key: str = Field(min_length=1, max_length=300)
+    semester: int = Field(gt=0, le=20)
+    official_subject_key: str = Field(min_length=1, max_length=300)
+
+
+class DesignationBootstrapAliasSelections(BaseModel):
+    teacher_selections: list[BootstrapTeacherAliasSelection] = Field(max_length=500)
+    subject_selections: list[BootstrapSubjectAliasSelection] = Field(max_length=500)
