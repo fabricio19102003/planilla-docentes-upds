@@ -926,7 +926,7 @@ def apply_import(
     db.add(ActivityLog(
         user_id=actor.id, user_ci=None, user_name=None, user_role="admin",
         action="historical_assistential_import", category="academic_schedule",
-        description="Applied digest-bound II/2026 historical assistential schedule import",
+        description="Importación histórica de horarios asistenciales II/2026 aplicada",
         details={
             "actor_id": actor.id, "source_sha256": preview["source_hashes"],
             "preview_digest": preview["digest"], "policy": preview["policy"],

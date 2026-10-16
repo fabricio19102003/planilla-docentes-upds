@@ -335,7 +335,7 @@ def apply_designation_bootstrap(
         user_role="admin",
         action="apply_designation_bootstrap",
         category="academic_schedule",
-        description="Applied digest-bound designation bootstrap to a new schedule draft",
+        description="Carga inicial de designaciones aplicada a un nuevo borrador de horarios",
         details={
             "draft_id": draft.id,
             "preview_digest": preview["preview_digest"],
