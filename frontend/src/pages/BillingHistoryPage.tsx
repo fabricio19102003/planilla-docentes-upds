@@ -94,11 +94,13 @@ function BillingRow({
           <td colSpan={6} className="px-6 py-4">
             <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div><span className="text-gray-500">Bruto:</span> <strong>{formatBs(billing.gross_payment ?? 0)}</strong></div>
-              <div><span className="text-gray-500">RC-IVA / retención:</span> <strong className="text-red-700">- {formatBs(billing.retention_amount ?? 0)}</strong></div>
+              {(billing.retention_amount ?? 0) > 0 && (
+                <div><span className="text-gray-500">RC-IVA / retención:</span> <strong className="text-red-700">- {formatBs(billing.retention_amount ?? 0)}</strong></div>
+              )}
               {billing.has_admin_override && (
                 <div><span className="text-gray-500">Ajuste administrativo:</span> <strong className="text-yellow-700">{formatBs(billing.admin_adjustment ?? 0)}</strong></div>
               )}
-              <div><span className="text-gray-500">Neto final:</span> <strong style={{ color: '#003366' }}>{formatBs(billing.net_payment ?? 0)}</strong></div>
+              <div><span className="text-gray-500">Total a cobrar:</span> <strong style={{ color: '#003366' }}>{formatBs(billing.net_payment ?? 0)}</strong></div>
             </div>
             <div className="overflow-x-auto rounded border border-blue-100 bg-white">
               <table className="w-full text-xs">
@@ -232,7 +234,7 @@ function BillingMonthCard({
               </div>
             )}
             <div className="flex justify-between gap-4 border-t border-blue-100 pt-1.5">
-              <dt className="font-semibold text-gray-600">Neto final</dt>
+              <dt className="font-semibold text-gray-600">Total a cobrar</dt>
               <dd className="font-semibold" style={{ color: '#003366' }}>{formatBs(billing.net_payment ?? 0)}</dd>
             </div>
           </dl>
@@ -337,7 +339,7 @@ export function BillingHistoryPage() {
           icon={TrendingUp}
           title="Total Acumulado"
           value={formatBs(totalPayment)}
-          subtitle="solo datos conciliables"
+          subtitle="suma de los meses publicados"
           color="#4DA8DA"
         />
       </div>
@@ -376,7 +378,7 @@ export function BillingHistoryPage() {
             <table className="min-w-[720px] w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
-                  {['Mes', 'Año', 'Tipo', 'Horas', 'Neto Final', 'Materias'].map((h) => (
+                  {['Mes', 'Año', 'Tipo', 'Horas', 'Total a cobrar', 'Materias'].map((h) => (
                     <th
                       key={h}
                       className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"

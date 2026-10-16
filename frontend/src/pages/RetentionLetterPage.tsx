@@ -158,6 +158,8 @@ export function RetentionLetterPage() {
     periodo: `I/${currentYear}`,
   })
 
+  const noRetention = profile?.has_retention === false
+
   const materias: string[] = [
     ...new Set(schedule?.designations?.map((d: { subject: string }) => d.subject) ?? []),
   ].sort()
@@ -170,7 +172,7 @@ export function RetentionLetterPage() {
     form.periodo.trim() !== ''
 
   const handleGenerate = async () => {
-    if (!isFormValid) return
+    if (!isFormValid || noRetention) return
     setIsGenerating(true)
     setError(null)
     setSuccess(false)
@@ -220,9 +222,15 @@ export function RetentionLetterPage() {
         </div>
       </div>
 
+      {noRetention && (
+        <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Vos emitís factura: no necesitás carta de retención.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Form card */}
-        <div className="card-3d-static space-y-5 p-4 sm:p-6">
+        <fieldset disabled={noRetention} className="card-3d-static min-w-0 space-y-5 p-4 disabled:opacity-60 sm:p-6">
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
             Datos de la carta
           </h3>
@@ -354,7 +362,7 @@ export function RetentionLetterPage() {
           <Button
             type="button"
             onClick={handleGenerate}
-            disabled={isGenerating || !isFormValid}
+            disabled={isGenerating || !isFormValid || noRetention}
             className="w-full gap-2 text-white"
             style={{ backgroundColor: '#003366' }}
           >
@@ -370,7 +378,7 @@ export function RetentionLetterPage() {
               </>
             )}
           </Button>
-        </div>
+        </fieldset>
 
         {/* Preview */}
         <div className="space-y-3">
