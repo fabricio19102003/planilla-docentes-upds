@@ -4,7 +4,7 @@ import { invoiceInstruction, RETENTION_LETTER_PATH } from '@/lib/billingInvoice'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff, BookOpen } from 'lucide-react'
-import type { BillingInfo, BillingUnavailableInfo } from '@/api/types'
+import type { BillingDesignation, BillingInfo, BillingUnavailableInfo } from '@/api/types'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -22,6 +22,48 @@ function formatPortalDate(value: string) {
 
 const REGULAR_GRADIENT = 'linear-gradient(135deg, #003366 0%, #0066CC 60%, #4DA8DA 100%)'
 const PRACTICE_GRADIENT = 'linear-gradient(135deg, #1a5c3a 0%, #2d8a5a 60%, #5ab98a 100%)'
+
+function formatAdjustment(value: number) {
+  return `${value >= 0 ? '+' : '-'} ${formatBs(Math.abs(value))}`
+}
+
+function DesignationMobileCard({ designation }: { designation: BillingDesignation }) {
+  return (
+    <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 break-words font-medium text-gray-800">{designation.subject}</p>
+        <Badge className="shrink-0 bg-blue-100 text-blue-700 border-blue-200 font-mono">
+          {designation.group}
+        </Badge>
+      </div>
+      <p className="mt-1 text-xs text-gray-500">
+        Semestre {designation.semester} · <span className="font-semibold text-gray-700">{designation.hours}h</span>
+      </p>
+      <dl className="mt-3 space-y-1.5 text-sm">
+        <div className="flex justify-between gap-4">
+          <dt className="text-gray-500">Bruto</dt>
+          <dd className="text-gray-700">{formatBs(designation.gross_payment)}</dd>
+        </div>
+        {designation.retention_amount > 0 && (
+          <div className="flex justify-between gap-4">
+            <dt className="text-gray-500">Retención</dt>
+            <dd className="text-red-700">- {formatBs(designation.retention_amount)}</dd>
+          </div>
+        )}
+        {designation.has_admin_override && (
+          <div className="flex justify-between gap-4">
+            <dt className="text-gray-500">Ajuste</dt>
+            <dd className="text-yellow-700">{formatAdjustment(designation.admin_adjustment)}</dd>
+          </div>
+        )}
+        <div className="flex justify-between gap-4 border-t border-gray-100 pt-1.5">
+          <dt className="font-semibold text-gray-600">Neto</dt>
+          <dd className="font-semibold" style={{ color: '#003366' }}>{formatBs(designation.net_payment)}</dd>
+        </div>
+      </dl>
+    </article>
+  )
+}
 
 function BillingCard({ billing }: { billing: BillingInfo }) {
   const isPractice = billing.planilla_type === 'practice'
@@ -190,7 +232,53 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div data-testid="designation-mobile-list" className="space-y-3 p-4 sm:hidden">
+            {!billing.designations.length ? (
+              <p className="py-4 text-center text-gray-400">Sin designaciones este mes</p>
+            ) : (
+              <>
+                {billing.designations.map((d, i) => (
+                  <DesignationMobileCard
+                    key={d.source_key ?? `${d.subject}-${d.group}-${d.semester}-${i}`}
+                    designation={d}
+                  />
+                ))}
+                <article
+                  data-testid="billing-mobile-totals"
+                  className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-600">Total</p>
+                  <dl className="mt-2 space-y-1.5 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-gray-500">Horas</dt>
+                      <dd className="font-bold text-gray-800">{billing.total_hours}h</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-gray-500">Bruto</dt>
+                      <dd className="font-bold text-gray-800">{formatBs(billing.gross_payment)}</dd>
+                    </div>
+                    {billing.retention_amount > 0 && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-gray-500">Retención</dt>
+                        <dd className="font-bold text-red-700">- {formatBs(billing.retention_amount)}</dd>
+                      </div>
+                    )}
+                    {hasAdjustments && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-gray-500">Ajuste</dt>
+                        <dd className="font-bold text-yellow-700">{formatAdjustment(billing.admin_adjustment)}</dd>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-4 border-t border-gray-200 pt-1.5">
+                      <dt className="font-semibold text-gray-600">Neto</dt>
+                      <dd className="text-lg font-bold" style={{ color: '#003366' }}>{formatBs(displayPayment)}</dd>
+                    </div>
+                  </dl>
+                </article>
+              </>
+            )}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
