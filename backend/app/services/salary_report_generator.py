@@ -115,8 +115,8 @@ class SalaryReportGenerator:
     """Generate the "Planilla Salarios" Excel file for a given month/year."""
 
     def __init__(self, output_dir: str = "data/output"):
+        # Created lazily on save: read-only consumers must not touch the filesystem.
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Public API
@@ -205,6 +205,7 @@ class SalaryReportGenerator:
         # Step 4: save file
         filename = f"planilla_salario_{month:02d}_{year}.xlsx"
         file_path = self.output_dir / filename
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         wb.save(str(file_path))
         logger.info("Saved salary report to %s", file_path)
 
@@ -234,6 +235,7 @@ class SalaryReportGenerator:
         self._write_totals_row(ws, total_row, last_data_row if rows else DATA_ROW_START - 1)
         self._apply_print_setup(ws, total_row)
         file_path = self.output_dir / f"planilla_salario_{month:02d}_{year}.xlsx"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         wb.save(str(file_path))
         return file_path
 
