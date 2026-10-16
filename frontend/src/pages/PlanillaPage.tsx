@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail, MessageCircle } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { useBillingNotificationBatch, useBillingNotificationReadiness, useConfirmBillingNotifications, usePreviewBillingNotifications, usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails, type BillingNotificationPreview } from '@/api/hooks/useBillingPublication'
@@ -9,6 +10,7 @@ import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
+import { formatHours } from '@/lib/displayFormat'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
 import { ConfirmActionDialog } from '@/components/shared/ConfirmActionDialog'
@@ -142,7 +144,15 @@ export function PlanillaPage() {
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
 
-  const [planillaTab, setPlanillaTab] = useState<'teoricas' | 'practicas'>('teoricas')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const planillaTab: 'teoricas' | 'practicas' = searchParams.get('tab') === 'practicas' ? 'practicas' : 'teoricas'
+  const setPlanillaTab = (next: 'teoricas' | 'practicas') => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      params.set('tab', next)
+      return params
+    }, { replace: true })
+  }
   const [month, setMonth] = useState<number>(currentMonth)
   const [year, setYear] = useState<number>(currentYear)
   const [lastResult, setLastResult] = useState<PlanillaGenerateResponse | null>(null)
@@ -1046,7 +1056,7 @@ export function PlanillaPage() {
                     ¡Planilla generada exitosamente!
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
-                    {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {lastResult.total_hours}h totales
+                    {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {formatHours(lastResult.total_hours)} totales
                   </p>
                   <p className="text-lg font-bold mt-2" style={{ color: '#003366' }}>
                     Total: Bs {parseFloat(lastResult.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1171,7 +1181,7 @@ export function PlanillaPage() {
                           {item.total_teachers}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 font-medium">{item.total_hours}h</td>
+                      <td className="px-4 py-3 text-gray-700 font-medium">{formatHours(item.total_hours)}</td>
                       <td className="px-4 py-3">
                         <span className="font-bold" style={{ color: '#003366' }}>
                           {paymentState.display}

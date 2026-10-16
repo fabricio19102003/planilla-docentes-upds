@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAppSettings, useUpdateAppSettings } from '@/api/hooks/useAppSettings'
+import { describeWhatsappReasons } from '@/lib/displayFormat'
 import {
   buildSettingsPayload,
   MONEY_INPUT_MIN,
@@ -348,7 +349,7 @@ export function SettingsPage() {
                   settings.whatsapp_billing_delivery.effective_enabled
                     ? 'Disponible para generar vistas previas y confirmar nuevos lotes.'
                     : settings.whatsapp_billing_delivery.blocking_reasons.length > 0
-                      ? `No disponible: ${settings.whatsapp_billing_delivery.blocking_reasons.join(', ')}.`
+                      ? `No disponible: ${describeWhatsappReasons(settings.whatsapp_billing_delivery.blocking_reasons)}.`
                       : 'La entrega está desactivada por administración.'
                 }
                 onChange={(checked) => setForm({ ...form, whatsapp_billing_requested_enabled: checked })}

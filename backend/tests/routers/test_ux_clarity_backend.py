@@ -94,3 +94,69 @@ def test_whatsapp_preference_audit_description_is_spanish(client, db_session):
     descriptions = [row.description for row in db_session.query(ActivityLog).filter_by(category="whatsapp")]
     assert descriptions
     assert all(description == "Preferencia de WhatsApp actualizada" for description in descriptions)
+
+
+ENGLISH_AUDIT_TEXTS = (
+    "WhatsApp activation authorization expired",
+    "Controlled WhatsApp activation created",
+    "WhatsApp activation dispatch authorized",
+    "WhatsApp activation cancelled",
+    "Applied digest-bound designation bootstrap to a new schedule draft",
+    "Applied digest-bound II/2026 historical assistential schedule import",
+    "Medicine version {event_type}",
+    "WhatsApp preference lifecycle updated",
+)
+
+
+def test_backend_writes_activity_log_descriptions_in_spanish():
+    from pathlib import Path
+
+    source = "\n".join(path.read_text(encoding="utf-8") for path in Path("app").rglob("*.py"))
+
+    assert [text for text in ENGLISH_AUDIT_TEXTS if text in source] == []
+
+
+def test_medicine_schedule_events_have_spanish_descriptions():
+    from app.services.medicine_schedule_version_service import MEDICINE_EVENT_DESCRIPTIONS
+
+    assert MEDICINE_EVENT_DESCRIPTIONS == {
+        "upload": "Versión de horario de Medicina cargada",
+        "correction": "Versión de horario de Medicina corregida",
+        "warning_acceptance": "Advertencia de horario de Medicina aceptada",
+        "activation": "Versión de horario de Medicina activada",
+        "restore": "Versión de horario de Medicina restaurada",
+    }
+
+
+def _split_row(ci, amount):
+    return SimpleNamespace(teacher_ci=ci, teacher_name=ci, payable_hours=1, final_payment=Decimal(amount))
+
+
+@pytest.mark.parametrize(
+    ("regular_rows", "practice_rows", "regular_legacy", "exp_regular", "exp_practice"),
+    [
+        ([("A", "0.10"), ("B", "585241.20")], [("A", "18487.00")], False, 585241.30, 18487.00),
+        ([("A", "100.00")], None, False, 100.00, 0.0),
+        (None, [("A", "0.20"), ("C", "0.10")], False, 0.0, 0.30),
+        ([("A", "999.00")], [("A", "50.50")], True, 0.0, 50.50),
+    ],
+)
+def test_dashboard_split_sums_to_total(client, db_session, monkeypatch, regular_rows, practice_rows,
+                                       regular_legacy, exp_regular, exp_practice):
+    rows = {}
+    if regular_rows is not None:
+        rows["r"] = [_split_row(*r) for r in regular_rows]
+        db_session.add(PlanillaOutput(month=12, year=2099, total_payment=Decimal("1"),
+                                      calculation_snapshot=None if regular_legacy else {"k": "r"}))
+    if practice_rows is not None:
+        rows["p"] = [_split_row(*r) for r in practice_rows]
+        db_session.add(PracticePlanillaOutput(month=12, year=2099, total_payment=Decimal("1"),
+                                              calculation_snapshot={"k": "p"}))
+    db_session.commit()
+    monkeypatch.setattr(planilla_router, "calculation_snapshot_rows", lambda snap, total: rows[snap["k"]])
+
+    body = client.get("/api/dashboard/summary").json()
+
+    assert body["total_regular_payment"] == pytest.approx(exp_regular)
+    assert body["total_practice_payment"] == pytest.approx(exp_practice)
+    assert round(body["total_regular_payment"] + body["total_practice_payment"], 2) == round(body["total_monthly_payment"], 2)

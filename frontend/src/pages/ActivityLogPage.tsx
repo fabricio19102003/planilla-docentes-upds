@@ -18,21 +18,11 @@ import {
 import { StatCard } from '@/components/shared/StatCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ACTIVITY_CATEGORY_LABELS, resolveActivityCategoryLabel } from '@/lib/displayFormat'
 
 // ------------------------------------------------------------------
 // Constants
 // ------------------------------------------------------------------
-
-const CATEGORY_LABELS: Record<string, string> = {
-  auth: 'Autenticación',
-  upload: 'Subidas',
-  planilla: 'Planilla',
-  billing: 'Facturación',
-  reports: 'Reportes',
-  users: 'Usuarios',
-  requests: 'Solicitudes',
-  profile: 'Perfil',
-}
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   auth: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
@@ -73,7 +63,7 @@ function formatDateTime(isoStr: string): string {
 
 function CategoryBadge({ category }: { category: string }) {
   const colors = CATEGORY_COLORS[category] ?? { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' }
-  const label = CATEGORY_LABELS[category] ?? category
+  const label = resolveActivityCategoryLabel(category)
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${colors.bg} ${colors.text} ${colors.border}`}>
       {label}
@@ -201,7 +191,7 @@ export function ActivityLogPage() {
 
   // Find most active category
   const topCategory = stats?.actions_by_category?.[0]
-  const topCategoryLabel = topCategory ? (CATEGORY_LABELS[topCategory.category] ?? topCategory.category) : '—'
+  const topCategoryLabel = topCategory ? resolveActivityCategoryLabel(topCategory.category) : '—'
 
   // Filter rows by status client-side (status filter not in backend yet is fine)
   const displayItems = logsData?.items ?? []
@@ -288,7 +278,7 @@ export function ActivityLogPage() {
                 className="h-8 px-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white"
               >
                 <option value="">Todas</option>
-                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                {Object.entries(ACTIVITY_CATEGORY_LABELS).map(([key, label]) => (
                   <option key={key} value={key}>{label}</option>
                 ))}
               </select>

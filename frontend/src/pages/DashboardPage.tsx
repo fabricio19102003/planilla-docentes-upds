@@ -12,6 +12,7 @@ import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatPaymentBreakdown } from '@/lib/displayFormat'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -68,6 +69,9 @@ export function DashboardPage() {
   const lastUpload = data?.recent_uploads?.[0]
   const totalPayment = data?.total_monthly_payment ?? 0
   const pendingRequests = data?.pending_requests ?? 0
+  const paymentBreakdown = totalPayment > 0 && data?.total_regular_payment != null && data?.total_practice_payment != null
+    ? formatPaymentBreakdown(data.total_regular_payment, data.total_practice_payment)
+    : null
   const isPublished = publicationStatus?.status === 'published'
   const planillaStatusText = !planillaStatus
     ? 'Sin generar'
@@ -150,13 +154,27 @@ export function DashboardPage() {
           />
         </div>
         <div>
-          <StatCard
-            icon={DollarSign}
-            title="Total Facturación"
-            value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
-            subtitle={billingPeriodLabel}
-            color="#1C398E"
-          />
+          {paymentBreakdown ? (
+            <div className="card-3d p-5 flex items-center gap-4 group">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 gradient-stat-navy shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <DollarSign size={22} className="text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-gray-500 text-sm font-medium">Total a pagar (teoría + asistencial)</p>
+                <p className="text-2xl font-bold text-gray-800 leading-tight animate-count-up">{formatCurrency(totalPayment)}</p>
+                <p className="text-gray-500 text-xs mt-0.5">{paymentBreakdown}</p>
+                <p className="text-gray-400 text-xs mt-0.5">{billingPeriodLabel}</p>
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              icon={DollarSign}
+              title="Total a pagar (teoría + asistencial)"
+              value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
+              subtitle={billingPeriodLabel}
+              color="#1C398E"
+            />
+          )}
         </div>
         <div>
           <StatCard

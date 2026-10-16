@@ -15,7 +15,8 @@ import {
 const root = resolve(import.meta.dirname, '..')
 const read = (path) => readFileSync(resolve(root, path), 'utf8')
 const app = read('src/App.tsx')
-const sidebar = read('src/components/layout/Sidebar.tsx')
+// Navigation entries live in the shared nav definition consumed by the sidebar.
+const sidebar = read('src/lib/navigation.ts')
 const page = read('src/pages/AcademicManagementPage.tsx')
 const hooks = read('src/api/hooks/useAcademicManagement.ts')
 const types = read('src/api/types.ts')

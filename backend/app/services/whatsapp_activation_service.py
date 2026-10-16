@@ -74,7 +74,7 @@ def _apply_activation_lifecycle(
         if media is not None and media.revoked_at is None:
             media.revoked_at = now
         db.add(ActivityLog(user_id=None, user_ci=None, action="whatsapp_activation_expired", category="whatsapp",
-            description="WhatsApp activation authorization expired",
+            description="Autorización de activación de WhatsApp vencida",
             details={"activation_id": activation.id, "job_id": job.id, "reason": "authorization_expired", "authorization_state": "expired"}))
         return True
     changed = False
@@ -247,7 +247,7 @@ class WhatsAppActivationService:
             self.db.flush()
             self.db.add(ActivityLog(
                 user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_created", category="whatsapp",
-                description="Controlled WhatsApp activation created",
+                description="Activación controlada de WhatsApp creada",
                 details={"activation_id": activation.id, "teacher_ci_at_creation": request.teacher_ci,
                          "consent_revision": request.consent_revision, "publication_revision_id": revision.id,
                          "publication_version": revision.version, "job_id": job.id,
@@ -300,7 +300,7 @@ class WhatsAppActivationService:
         authorization.released_at = now
         self.db.add(ActivityLog(
             user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_dispatch_authorized",
-            category="whatsapp", description="WhatsApp activation dispatch authorized",
+            category="whatsapp", description="Envío de activación de WhatsApp autorizado",
             details={"activation_id": activation.id, "job_id": job.id, "attestation": request.attestation, "authorization_state": "authorized"}, ip_address=ip_address,
         ))
         self.db.flush()
@@ -340,7 +340,7 @@ class WhatsAppActivationService:
             media.revoked_at = now
         self.db.add(ActivityLog(
             user_id=actor.id, user_ci=actor.ci, action="whatsapp_activation_cancelled",
-            category="whatsapp", description="WhatsApp activation cancelled",
+            category="whatsapp", description="Activación de WhatsApp cancelada",
             details={"activation_id": activation.id, "job_id": job.id, "reason": request.reason, "authorization_state": "cancelled"}, ip_address=ip_address,
         ))
         self.db.flush()

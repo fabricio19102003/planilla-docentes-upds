@@ -15,6 +15,15 @@ from app.schemas.medicine_schedule import MedicineWorkbookPreview
 from app.services.activity_logger import log_activity
 
 
+# Activity-log descriptions shown to admins (Spanish) per version event type.
+MEDICINE_EVENT_DESCRIPTIONS = {
+    "upload": "Versión de horario de Medicina cargada",
+    "correction": "Versión de horario de Medicina corregida",
+    "warning_acceptance": "Advertencia de horario de Medicina aceptada",
+    "activation": "Versión de horario de Medicina activada",
+    "restore": "Versión de horario de Medicina restaurada",
+}
+
 class MedicineVersionError(ValueError):
     pass
 
@@ -32,7 +41,8 @@ class MedicineScheduleVersionService:
         payload = details or {}
         db.add(MedicineVersionEvent(version_id=version.id, event_type=event_type,
                                     actor_id=actor.id, details=payload))
-        log_activity(db, event_type, "medicine_schedule", f"Medicine version {event_type}",
+        description = MEDICINE_EVENT_DESCRIPTIONS.get(event_type, f"Evento de horario de Medicina: {event_type}")
+        log_activity(db, event_type, "medicine_schedule", description,
                      user=actor, details={"version_id": version.id, **payload})
     def persist_preview(self, db: Session, preview: MedicineWorkbookPreview, academic_period: str,
                         uploader_id: int, source_file_path: str, description: str | None = None

@@ -48,6 +48,7 @@ import {
   SCHEDULE_TIMES,
   SCHEDULE_WEEKDAYS,
 } from '@/lib/schedulePlannerState'
+import { formatHours } from '@/lib/displayFormat'
 import type { ScheduleBlockForm } from '@/lib/schedulePlannerState'
 
 const errorMessage = (error: unknown) => {
@@ -466,7 +467,7 @@ export function SchedulePlannerPage() {
                 <ul className="mt-3 flex flex-col gap-2">
                   {workload.data?.items.map((item) => <li key={item.teacher_ci} className="rounded-md bg-slate-50 p-2 text-xs">
                     <p className="font-semibold text-slate-800">{item.teacher_name}</p>
-                    <p className="text-slate-600">Teoría {item.theory_minutes_week / 60} h · Práctica {item.practice_minutes_week / 60} h · Total {item.total_minutes_week / 60} h</p>
+                    <p className="text-slate-600">Teoría {formatHours(item.theory_minutes_week / 60)} · Práctica {formatHours(item.practice_minutes_week / 60)} · Total {formatHours(item.total_minutes_week / 60)}</p>
                   </li>)}
                 </ul>
               </div>
