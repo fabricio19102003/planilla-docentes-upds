@@ -96,9 +96,17 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                 <Receipt size={18} className="text-white/70" />
               )}
               <p className="text-white/70 text-sm font-medium uppercase tracking-wider">
-                {isPractice ? 'Prácticas Internas' : 'Facturación'} — {billing.month_name} {billing.year}
+                {isPractice ? 'Prácticas Internas' : 'Teóricas'} — {billing.month_name} {billing.year}
               </p>
             </div>
+            {hasBillingPeriod && billing.start_date && billing.end_date && (
+              <p className="flex items-center gap-1.5 text-sm text-white/80">
+                <Calendar size={14} className="shrink-0" />
+                <span>
+                  Corte: {formatPortalDate(billing.start_date)} al {formatPortalDate(billing.end_date)}
+                </span>
+              </p>
+            )}
             {instruction && (
               <p className="mt-3 text-sm font-semibold text-white/90">{instruction.headline}</p>
             )}
@@ -156,15 +164,17 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-            Conciliación del pago
+            Cómo se calcula tu pago
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div className="flex justify-between gap-4"><span>Bruto</span><strong>{formatBs(billing.gross_payment)}</strong></div>
-          <div className="flex justify-between gap-4 text-red-700">
-            <span>RC-IVA / retención ({(billing.retention_rate * 100).toFixed(0)}%)</span>
-            <strong>- {formatBs(billing.retention_amount)}</strong>
-          </div>
+          {billing.retention_amount > 0 && (
+            <div className="flex justify-between gap-4 text-red-700">
+              <span>RC-IVA / retención ({(billing.retention_rate * 100).toFixed(0)}%)</span>
+              <strong>- {formatBs(billing.retention_amount)}</strong>
+            </div>
+          )}
           {billing.has_admin_override && (
             <div className="flex justify-between gap-4 text-yellow-700">
               <span>Ajuste administrativo</span>
@@ -172,54 +182,40 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
             </div>
           )}
           <div className="flex justify-between gap-4 border-t pt-2 text-base" style={{ color: '#003366' }}>
-            <span className="font-semibold">Neto final</span><strong>{formatBs(billing.net_payment)}</strong>
+            <span className="font-semibold">Total a cobrar</span><strong>{formatBs(billing.net_payment)}</strong>
           </div>
         </CardContent>
       </Card>
 
-      {(hasBillingPeriod || hasExcludedDays) && (
+      {hasExcludedDays && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
               Contexto de planilla
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {hasBillingPeriod && billing.start_date && billing.end_date && (
-              <div className="flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#003366] shadow-sm">
-                  <Calendar size={18} />
+          <CardContent>
+            <div className="rounded-xl border border-gray-200 bg-white">
+              <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 text-[#003366]">
+                  <CalendarOff size={18} />
                 </div>
-                <p className="text-sm text-gray-700">
-                  <span className="font-semibold" style={{ color: '#003366' }}>Período:</span>{' '}
-                  {formatPortalDate(billing.start_date)} al {formatPortalDate(billing.end_date)}
-                </p>
-              </div>
-            )}
-
-            {hasExcludedDays && (
-              <div className="rounded-xl border border-gray-200 bg-white">
-                <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 text-[#003366]">
-                    <CalendarOff size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold" style={{ color: '#003366' }}>
-                      Días no trabajados
-                    </p>
-                    <p className="text-xs text-gray-500">Aplican a tus materias o semestre asignado.</p>
-                  </div>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#003366' }}>
+                    Días no trabajados
+                  </p>
+                  <p className="text-xs text-gray-500">Aplican a tus materias o semestre asignado.</p>
                 </div>
-                <ul className="divide-y divide-gray-100">
-                  {billing.excluded_days?.map((day) => (
-                    <li key={day.date} className="px-4 py-3 text-sm text-gray-700">
-                      <span className="font-medium text-gray-900">{formatPortalDate(day.date)}</span>
-                      {day.reason && <span className="text-gray-500"> — {day.reason}</span>}
-                    </li>
-                  ))}
-                </ul>
               </div>
-            )}
+              <ul className="divide-y divide-gray-100">
+                {billing.excluded_days?.map((day) => (
+                  <li key={day.date} className="px-4 py-3 text-sm text-gray-700">
+                    <span className="font-medium text-gray-900">{formatPortalDate(day.date)}</span>
+                    {day.reason && <span className="text-gray-500"> — {day.reason}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -367,7 +363,7 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
           <div>
             <p className="text-yellow-800 font-medium text-sm">Pago ajustado por administración</p>
             <p className="text-yellow-600 text-xs mt-0.5">
-              El ajuste administrativo de {formatBs(billing.admin_adjustment)} deja un neto final de {formatBs(billing.net_payment)}.
+              El ajuste administrativo de {formatBs(billing.admin_adjustment)} deja un total a cobrar de {formatBs(billing.net_payment)}.
               Para más información contactá al área de planillas.
             </p>
           </div>
