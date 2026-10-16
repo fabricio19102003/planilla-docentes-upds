@@ -148,7 +148,7 @@ class WhatsAppPreferenceService:
         ))
         self.db.add(ActivityLog(
             user_id=actor_id, action="whatsapp_preference_mutated", category="whatsapp",
-            description="WhatsApp preference lifecycle updated",
+            description="Preferencia de WhatsApp actualizada",
             details={"teacher_ci": preference.teacher_ci, "event_type": event_type,
                      "consent_revision": preference.consent_revision,
                      "source": preference.consent_source,

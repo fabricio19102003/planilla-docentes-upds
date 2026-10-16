@@ -835,6 +835,9 @@ export interface DashboardSummary {
   group_distribution: { group: string; count: number }[]
   semester_distribution: { semester: string; count: number }[]
   total_monthly_payment: number
+  /** Theory (regular) and practice parts of total_monthly_payment. */
+  total_regular_payment?: number
+  total_practice_payment?: number
   pending_requests: number
 }
 
@@ -954,6 +957,8 @@ export interface PortalProfile extends ProfileUpdatePayload {
   designation_count: number
   subject_count?: number
   group_count?: number
+  /** True when the teacher has RC-IVA retention: signs a retention letter instead of invoicing. */
+  has_retention?: boolean
 }
 
 // ─── Portal Schedule ──────────────────────────────────────────────────────────

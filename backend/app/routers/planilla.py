@@ -753,6 +753,28 @@ def global_search(
     }
 
 
+def _payment_totals_by_kind(outputs) -> tuple[Decimal, Decimal]:
+    """Split stored payroll totals into theory (regular) and practice parts.
+
+    Uses the same immutable snapshot rows as the dashboard total; legacy outputs
+    without a snapshot are skipped, exactly like the total.
+    """
+    regular = Decimal("0.00")
+    practice = Decimal("0.00")
+    for output in outputs:
+        if output is None or output.calculation_snapshot is None:
+            continue
+        amount = sum(
+            (Decimal(str(row.final_payment)) for row in calculation_snapshot_rows(output.calculation_snapshot, output.total_payment)),
+            Decimal("0.00"),
+        )
+        if isinstance(output, PracticePlanillaOutput):
+            practice += amount
+        else:
+            regular += amount
+    return regular, practice
+
+
 @router.get("/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary(
     _: User = Depends(require_admin),
@@ -842,6 +864,8 @@ def dashboard_summary(
         # ── Top earners (for bar chart) ──────────────────
         top_earners = []
         total_monthly_payment = 0.0
+        total_regular_payment = Decimal("0.00")
+        total_practice_payment = Decimal("0.00")
         if latest_period:
             stored_outputs = [
                 db.query(model)
@@ -868,6 +892,7 @@ def dashboard_summary(
                 (Decimal(str(item["payment"])) for item in teacher_payments.values()),
                 Decimal("0.00"),
             ))
+            total_regular_payment, total_practice_payment = _payment_totals_by_kind(stored_outputs)
             top_earners = [
                 {**item, "payment": float(Decimal(str(item["payment"])))}
                 for item in sorted(
@@ -902,6 +927,8 @@ def dashboard_summary(
             group_distribution=group_distribution,
             semester_distribution=semester_distribution,
             total_monthly_payment=total_monthly_payment,
+            total_regular_payment=float(total_regular_payment),
+            total_practice_payment=float(total_practice_payment),
             billing_period_month=latest_period.month if latest_period else None,
             billing_period_year=latest_period.year if latest_period else None,
             pending_requests=pending_requests,
