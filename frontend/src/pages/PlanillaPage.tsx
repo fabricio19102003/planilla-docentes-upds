@@ -252,10 +252,14 @@ export function PlanillaPage() {
   const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
   const selectedHistoryState = planillaStatus ? getHistoricalPaymentState(planillaStatus) : null
   const canUseSelectedSnapshot = !planillaStatusLoading && (!selectedHistoryState || selectedHistoryState.snapshotAvailable)
-  const detailQuery = usePlanillaDetail(month, year, showDetail && canUseSelectedSnapshot, optionalDate(startDate), optionalDate(endDate), effectiveDiscountMode ?? undefined, previewExclusions)
+  const detailQuery = usePlanillaDetail(month, year, showDetail && canUseSelectedSnapshot && effectiveDiscountMode !== null, optionalDate(startDate), optionalDate(endDate), effectiveDiscountMode ?? undefined, previewExclusions)
   const detail = getVisiblePlanillaDetail(detailQuery.data, detailQuery.isPlaceholderData, canUseSelectedSnapshot)
   const detailLoading = detailQuery.isLoading
   const detailError = detailQuery.isError
+  // Generate must wait until the preview reflects the current form, so the
+  // confirmation never shows totals computed for other dates or another mode.
+  const previewPending = showDetail && canUseSelectedSnapshot && effectiveDiscountMode !== null
+    && (detailQuery.isFetching || detailQuery.isDebouncing)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const sendBillingEmails = useSendBillingEmails()
@@ -384,6 +388,7 @@ export function PlanillaPage() {
     endDate,
     mode: effectiveDiscountMode,
     statusLoading: planillaStatusLoading,
+    previewPending,
   })
 
   const validateExclusions = () => {
@@ -441,8 +446,9 @@ export function PlanillaPage() {
       startDate: stored ? stored.start_date : startDate,
       endDate: stored ? stored.end_date : endDate,
       mode: stored ? (stored.discount_mode ?? null) : effectiveDiscountMode,
-      docentes: live ? live.total_teachers : stored?.total_teachers,
-      totalPayment: live ? live.total_payment : storedState?.amount,
+      docentes: live ? live.total_teachers : stored ? stored.total_teachers : detail?.total_teachers,
+      totalPayment: live ? live.total_payment : stored ? storedState?.amount : detail?.total_payment,
+      totalsAreEstimate: pendingConfirm === 'generate',
       hasStoredPlanilla: Boolean(planillaStatus),
     })
   })()
@@ -1403,7 +1409,7 @@ export function PlanillaPage() {
               Detalle por Docente
             </h3>
             <p className="text-xs text-gray-500">
-              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
             </p>
           </div>
         </div>
@@ -1887,6 +1893,10 @@ export function PlanillaPage() {
                   </table>
                 </div>
               )}
+            </div>
+          ) : effectiveDiscountMode === null ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              Elegí el modo de cálculo para ver la vista previa.
             </div>
           ) : (
             <div className="text-center py-10 text-gray-400 text-sm">

@@ -213,3 +213,42 @@ test('optionalDate maps blank dates to undefined for read-only queries', () => {
   assert.equal(optionalDate(''), undefined)
   assert.equal(optionalDate('2026-09-21'), '2026-09-21')
 })
+
+test('a preview still updating blocks generation with its own reason', () => {
+  const guard = getGenerationGuard({ startDate: '2026-09-21', endDate: '2026-10-20', mode: 'full', previewPending: true })
+  assert.deepEqual(guard, { canGenerate: false, reasons: ['Actualizando la vista previa…'] })
+})
+
+test('guard boundaries: same start and end date is allowed', () => {
+  assert.deepEqual(
+    getGenerationGuard({ startDate: '2026-10-01', endDate: '2026-10-01', mode: 'attendance' }),
+    { canGenerate: true, reasons: [] },
+  )
+  assert.equal(resolveDiscountMode({ manualMode: null, storedMode: 'foo' }), null)
+  assert.equal(resolveDiscountMode({ manualMode: 'attendance', storedMode: 'full' }), 'attendance')
+})
+
+test('generate confirmation labels preview totals as estimates', () => {
+  const summary = buildConfirmSummary({
+    action: 'generate', kind: 'teoricas', month: 10, year: 2026,
+    startDate: '2026-09-21', endDate: '2026-10-20', mode: 'full',
+    docentes: 150, totalPayment: 585241.3, totalsAreEstimate: true,
+  })
+  assert.deepEqual(summary.rows.slice(-2), [
+    { label: 'Docentes (vista previa)', value: '150' },
+    { label: 'Total estimado (Bs)', value: bs(585241.3) },
+  ])
+})
+
+test('preview is requested only with a chosen mode and feeds the generate confirmation', () => {
+  for (const page of [theoryPage, practicePage]) {
+    assert.match(page, /effectiveDiscountMode !== null/)
+    assert.match(page, /previewPending/)
+    assert.match(page, /totalsAreEstimate: pendingConfirm === 'generate'/)
+  }
+})
+
+test('detail hooks expose whether the preview parameters are still debouncing', () => {
+  assert.match(read('src/api/hooks/usePlanilla.ts'), /isDebouncing/)
+  assert.match(read('src/api/hooks/usePracticePlanilla.ts'), /isDebouncing/)
+})

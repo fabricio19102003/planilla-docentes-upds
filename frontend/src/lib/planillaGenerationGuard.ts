@@ -22,6 +22,7 @@ export const DATES_REASON = 'Completá las fechas de corte'
 export const DATE_ORDER_REASON = 'La fecha de inicio no puede ser posterior a la fecha de fin'
 export const MODE_REASON = 'Elegí el modo de cálculo'
 export const STATUS_LOADING_REASON = 'Cargando el estado de la planilla…'
+export const PREVIEW_PENDING_REASON = 'Actualizando la vista previa…'
 
 function isDiscountMode(value: unknown): value is DiscountMode {
   return value === 'attendance' || value === 'full'
@@ -67,9 +68,12 @@ export function getGenerationGuard(input: {
   endDate: string
   mode: DiscountMode | null
   statusLoading?: boolean
+  /** The preview no longer matches the form (debouncing or fetching): its totals would be stale. */
+  previewPending?: boolean
 }): { canGenerate: boolean; reasons: string[] } {
   const reasons: string[] = []
   if (input.statusLoading) reasons.push(STATUS_LOADING_REASON)
+  if (input.previewPending) reasons.push(PREVIEW_PENDING_REASON)
   if (!input.startDate || !input.endDate) {
     reasons.push(DATES_REASON)
   } else if (input.startDate > input.endDate) {
@@ -119,6 +123,8 @@ export function buildConfirmSummary(input: {
   docentes?: number | null
   totalPayment?: number | null
   hasStoredPlanilla?: boolean
+  /** Totals come from the preview of the planilla about to be generated, not from a stored one. */
+  totalsAreEstimate?: boolean
 }): ConfirmSummary {
   const kindLabel = PLANILLA_KIND_LABELS[input.kind]
   const period = formatPeriod(input.month, input.year)
@@ -130,10 +136,10 @@ export function buildConfirmSummary(input: {
     { label: 'Modo', value: formatMode(input.mode) },
   ]
   if (typeof input.docentes === 'number' && Number.isFinite(input.docentes)) {
-    rows.push({ label: 'Docentes', value: String(input.docentes) })
+    rows.push({ label: input.totalsAreEstimate ? 'Docentes (vista previa)' : 'Docentes', value: String(input.docentes) })
   }
   if (typeof input.totalPayment === 'number' && Number.isFinite(input.totalPayment)) {
-    rows.push({ label: 'Total (Bs)', value: formatBs(input.totalPayment) })
+    rows.push({ label: input.totalsAreEstimate ? 'Total estimado (Bs)' : 'Total (Bs)', value: formatBs(input.totalPayment) })
   }
 
   const base = { rows, consequence: null, warning: null, tone: 'default' as const }

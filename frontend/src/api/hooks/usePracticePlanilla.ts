@@ -277,7 +277,13 @@ export function usePracticePlanillaDetailWithExclusions(
     return () => window.clearTimeout(timeout)
   }, [startDate, endDate, discountMode, excludedDaysJson])
 
-  return useQuery<PracticePlanillaDetailResponse>({
+  const isDebouncing =
+    debouncedParams.startDate !== startDate ||
+    debouncedParams.endDate !== endDate ||
+    debouncedParams.discountMode !== discountMode ||
+    debouncedParams.excludedDaysJson !== excludedDaysJson
+  // Callers comparing the preview with the form need to know when it lags behind.
+  return Object.assign(useQuery<PracticePlanillaDetailResponse>({
     queryKey: ['practice-planilla-detail', month, year, debouncedParams.startDate, debouncedParams.endDate, debouncedParams.discountMode, debouncedParams.excludedDaysJson],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -292,7 +298,7 @@ export function usePracticePlanillaDetailWithExclusions(
       return res.data
     },
     enabled,
-  })
+  }), { isDebouncing })
 }
 
 // ─── Practice Publication ─────────────────────────────────────────────────────

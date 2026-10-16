@@ -293,13 +293,17 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   const detailQuery = usePracticePlanillaDetailWithExclusions(
     month,
     year,
-    canUseSelectedSnapshot,
+    canUseSelectedSnapshot && effectiveDiscountMode !== null,
     optionalDate(startDate),
     optionalDate(endDate),
     effectiveDiscountMode ?? undefined,
     previewExclusions,
   )
   const detail = getVisiblePlanillaDetail(detailQuery.data, detailQuery.isPlaceholderData, canUseSelectedSnapshot)
+  // Generate must wait until the preview reflects the current form, so the
+  // confirmation never shows totals computed for other dates or another mode.
+  const previewPending = canUseSelectedSnapshot && effectiveDiscountMode !== null
+    && (detailQuery.isFetching || detailQuery.isDebouncing)
   const detailLoading = detailQuery.isLoading
   const detailError = detailQuery.isError
 
@@ -378,6 +382,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     endDate,
     mode: effectiveDiscountMode,
     statusLoading: planillaStatusLoading,
+    previewPending,
   })
 
   const validateExclusions = () => {
@@ -431,8 +436,9 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
       startDate: stored ? stored.start_date : startDate,
       endDate: stored ? stored.end_date : endDate,
       mode: stored ? (stored.discount_mode ?? null) : effectiveDiscountMode,
-      docentes: live ? live.total_teachers : stored?.total_teachers,
-      totalPayment: live ? live.total_payment : storedState?.amount,
+      docentes: live ? live.total_teachers : stored ? stored.total_teachers : detail?.total_teachers,
+      totalPayment: live ? live.total_payment : stored ? storedState?.amount : detail?.total_net,
+      totalsAreEstimate: pendingConfirm === 'generate',
       hasStoredPlanilla: Boolean(planillaStatus),
     })
   })()
@@ -1212,7 +1218,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           <div>
             <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Detalle por Docente</h3>
             <p className="text-xs text-gray-500">
-              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
             </p>
           </div>
         </div>
@@ -1559,6 +1565,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                   </table>
                 </div>
               </details>
+            </div>
+          ) : effectiveDiscountMode === null ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              Elegí el modo de cálculo para ver la vista previa.
             </div>
           ) : (
             <div className="text-center py-10 text-gray-400 text-sm">
