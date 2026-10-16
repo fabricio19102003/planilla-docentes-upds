@@ -237,6 +237,8 @@ class ProfileResponse(BaseModel):
     designation_count: int = 0
     subject_count: int = 0
     group_count: int = 0
+    # RC-IVA retention teachers sign a retention letter instead of invoicing.
+    has_retention: bool = False
 
     @field_validator("external_permanent", mode="before")
     @classmethod
@@ -637,6 +639,7 @@ def get_docente_profile(
         designation_count=group_count,
         subject_count=subject_count,
         group_count=group_count,
+        has_retention=(teacher.invoice_retention or "").strip().upper() == "RETENCION",
     )
 
 

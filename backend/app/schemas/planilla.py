@@ -136,6 +136,9 @@ class DashboardSummaryResponse(BaseModel):
     group_distribution: list[dict] = Field(default_factory=list)
     semester_distribution: list[dict] = Field(default_factory=list)
     total_monthly_payment: float = 0.0
+    # Theory (regular) and practice parts of total_monthly_payment.
+    total_regular_payment: float = 0.0
+    total_practice_payment: float = 0.0
     pending_requests: int = 0
 
     # Billing period used for totals/charts (may differ from current calendar month)
