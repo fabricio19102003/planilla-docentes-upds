@@ -140,6 +140,142 @@ function BillingRow({
   )
 }
 
+function BillingMonthCard({
+  billing,
+  isExpanded,
+  onToggle,
+}: {
+  billing: BillingHistoryInfo
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  const isPractice = billing.planilla_type === 'practice'
+  const isAvailable = billing.data_status === 'available'
+  const instruction = isAvailable ? invoiceInstruction(billing) : null
+  const detailId = `billing-detail-${billing.year}-${billing.month}-${billing.planilla_type ?? 'regular'}-mobile`
+
+  const typeBadge = isPractice ? (
+    <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Prácticas</Badge>
+  ) : (
+    <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs">Teóricas</Badge>
+  )
+
+  return (
+    <article className={`rounded-xl border p-4 ${isAvailable ? 'border-gray-200 bg-white' : 'border-amber-200 bg-amber-50/50'}`}>
+      <div className="flex items-start justify-between gap-3">
+        {isAvailable ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={isExpanded}
+            aria-controls={detailId}
+            className="flex items-center gap-2 rounded px-1 py-0.5 text-left font-medium text-gray-800 transition-colors hover:text-[#0066CC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC] focus-visible:ring-offset-2"
+          >
+            {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+            <span>{billing.month_name} {billing.year}</span>
+            <span className="sr-only">{isExpanded ? 'Ocultar detalle' : 'Mostrar detalle'}</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 font-medium text-gray-800">
+            <AlertCircle size={14} className="text-amber-600" aria-hidden="true" />
+            {billing.month_name} {billing.year}
+          </div>
+        )}
+        <div className="shrink-0">{typeBadge}</div>
+      </div>
+
+      {isAvailable ? (
+        <div className="mt-3">
+          <p className="text-xs text-gray-500">
+            <span className="font-semibold text-gray-700">
+              {billing.total_hours !== null ? `${billing.total_hours}h` : '—'}
+            </span>
+            {' · '}
+            {billing.designations.length} materia{billing.designations.length !== 1 ? 's' : ''}
+          </p>
+          {instruction && (
+            <p className="mt-2 text-xs font-normal text-gray-500">{instruction.headline}</p>
+          )}
+          <p className="break-words text-xl font-bold" style={{ color: '#003366' }}>
+            {billing.net_payment !== null ? formatBs(billing.net_payment) : 'Dato no disponible'}
+            {billing.has_admin_override && (
+              <Badge className="ml-2 bg-yellow-100 text-yellow-700 border-yellow-200 align-middle text-xs">
+                Ajustado
+              </Badge>
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-amber-800">
+          <p className="font-medium">Histórico incompleto</p>
+          <p className="mt-1">{billing.unavailable_reason ?? 'El detalle histórico no está disponible.'}</p>
+        </div>
+      )}
+
+      {isAvailable && isExpanded && (
+        <div id={detailId} className="mt-4 space-y-3 border-t border-blue-100 pt-4">
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-gray-500">Bruto</dt>
+              <dd className="font-semibold">{formatBs(billing.gross_payment ?? 0)}</dd>
+            </div>
+            {(billing.retention_amount ?? 0) > 0 && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-gray-500">Retención</dt>
+                <dd className="font-semibold text-red-700">- {formatBs(billing.retention_amount ?? 0)}</dd>
+              </div>
+            )}
+            {billing.has_admin_override && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-gray-500">Ajuste</dt>
+                <dd className="font-semibold text-yellow-700">{formatBs(billing.admin_adjustment ?? 0)}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4 border-t border-blue-100 pt-1.5">
+              <dt className="font-semibold text-gray-600">Neto final</dt>
+              <dd className="font-semibold" style={{ color: '#003366' }}>{formatBs(billing.net_payment ?? 0)}</dd>
+            </div>
+          </dl>
+          {billing.designations.map((designation, index) => (
+            <div
+              key={designation.source_key ?? `${designation.subject}-${designation.semester}-${designation.group}-${index}`}
+              className="rounded-lg border border-blue-100 bg-white p-3 text-sm"
+            >
+              <p className="break-words font-medium text-gray-800">{designation.subject}</p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Semestre {designation.semester} · Grupo {designation.group} ·{' '}
+                <span className="font-semibold text-gray-700">{designation.hours}h</span>
+              </p>
+              <dl className="mt-2 space-y-1">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-gray-500">Bruto</dt>
+                  <dd>{formatBs(designation.gross_payment)}</dd>
+                </div>
+                {designation.retention_amount > 0 && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-gray-500">Retención</dt>
+                    <dd className="text-red-700">- {formatBs(designation.retention_amount)}</dd>
+                  </div>
+                )}
+                {designation.has_admin_override && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-gray-500">Ajuste</dt>
+                    <dd className="text-yellow-700">{formatBs(designation.admin_adjustment)}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between gap-4 border-t border-gray-100 pt-1">
+                  <dt className="font-semibold text-gray-600">Neto</dt>
+                  <dd className="font-semibold" style={{ color: '#003366' }}>{formatBs(designation.net_payment)}</dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
 export function BillingHistoryPage() {
   const { data: history, isLoading, error } = useBillingHistory()
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null)
@@ -217,7 +353,26 @@ export function BillingHistoryPage() {
           </p>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div data-testid="history-mobile-list" className="space-y-3 p-4 sm:hidden">
+            {!history.length ? (
+              <p className="py-8 text-center text-gray-400">
+                No hay meses publicados en tu historial de facturación
+              </p>
+            ) : (
+              history.map((billing) => {
+                const key = `${billing.planilla_type ?? 'regular'}-${billing.year}-${billing.month}`
+                return (
+                  <BillingMonthCard
+                    key={key}
+                    billing={billing}
+                    isExpanded={expandedMonth === key}
+                    onToggle={() => toggleExpand(key)}
+                  />
+                )
+              })
+            )}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="min-w-[720px] w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: '#003366' }}>
