@@ -169,8 +169,8 @@ class PracticePlanillaGenerator:
     """
 
     def __init__(self, output_dir: str = "backend/data/output"):
+        # Created lazily on save: read-only consumers must not touch the filesystem.
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Public API
@@ -231,6 +231,7 @@ class PracticePlanillaGenerator:
         # Step 3: Save file
         filename = f"planilla_practicas_{month:02d}_{year}.xlsx"
         file_path = self.output_dir / filename
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         wb.save(str(file_path))
         logger.info("Saved practice planilla to %s", file_path)
 
