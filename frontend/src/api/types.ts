@@ -89,6 +89,7 @@ export interface BillingInfo {
   admin_adjustment: number
   net_payment: number
   has_admin_override: boolean
+  has_retention?: boolean
   designations: BillingDesignation[]
 }
 
@@ -122,6 +123,7 @@ export interface BillingHistoryInfo {
   admin_adjustment: number | null
   net_payment: number | null
   has_admin_override: boolean
+  has_retention?: boolean
   designations: BillingDesignation[]
 }
 

@@ -1,4 +1,6 @@
+import { Link } from 'react-router-dom'
 import { useCurrentBilling } from '@/api/hooks/useAuth'
+import { invoiceInstruction, RETENTION_LETTER_PATH } from '@/lib/billingInvoice'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Receipt, Clock, DollarSign, AlertCircle, Calendar, CalendarOff, BookOpen } from 'lucide-react'
@@ -24,7 +26,8 @@ const PRACTICE_GRADIENT = 'linear-gradient(135deg, #1a5c3a 0%, #2d8a5a 60%, #5ab
 function BillingCard({ billing }: { billing: BillingInfo }) {
   const isPractice = billing.planilla_type === 'practice'
   const gradient = isPractice ? PRACTICE_GRADIENT : REGULAR_GRADIENT
-  const displayPayment = billing.net_payment
+  const instruction = invoiceInstruction(billing)
+  const displayPayment = instruction?.amount ?? billing.net_payment
   const hasAdjustments = billing.has_admin_override
   const hasBillingPeriod = Boolean(billing.start_date && billing.end_date)
   const hasExcludedDays = Boolean(billing.excluded_days?.length)
@@ -54,9 +57,25 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                 {isPractice ? 'Prácticas Internas' : 'Facturación'} — {billing.month_name} {billing.year}
               </p>
             </div>
-            <p className="mt-4 break-words text-3xl font-black tracking-tight sm:text-5xl">
+            {instruction && (
+              <p className="mt-3 text-sm font-semibold text-white/90">{instruction.headline}</p>
+            )}
+            <p className="mt-1 break-words text-3xl font-black tracking-tight sm:text-5xl">
               {formatBs(displayPayment)}
             </p>
+            {instruction && (
+              <p className="mt-2 text-sm text-white/80">
+                {instruction.note}
+                {instruction.kind === 'retention_letter' && (
+                  <>
+                    {' '}
+                    <Link to={RETENTION_LETTER_PATH} className="font-semibold text-white underline">
+                      Generar carta de retención
+                    </Link>
+                  </>
+                )}
+              </p>
+            )}
             {billing.has_admin_override && (
               <div className="mt-2 flex items-center gap-2">
                 <Badge className="bg-yellow-400/20 text-yellow-200 border-yellow-300/30 text-xs">

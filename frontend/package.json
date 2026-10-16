@@ -21,6 +21,7 @@
     "test:admin-request-resolution": "node --experimental-strip-types --test scripts/check-admin-request-resolution.mjs",
     "test:report-preview": "node --test scripts/check-report-preview.mjs",
     "test:whatsapp-consent": "node scripts/check-whatsapp-consent-card.mjs",
+    "test:billing-invoice": "node --experimental-strip-types --test scripts/check-billing-invoice.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"

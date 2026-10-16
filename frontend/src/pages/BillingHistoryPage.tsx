@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/shared/StatCard'
 import { TrendingUp, Receipt, Clock, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
 import type { BillingHistoryInfo } from '@/api/types'
+import { invoiceInstruction } from '@/lib/billingInvoice'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -21,6 +22,7 @@ function BillingRow({
 }) {
   const isPractice = billing.planilla_type === 'practice'
   const isAvailable = billing.data_status === 'available'
+  const instruction = isAvailable ? invoiceInstruction(billing) : null
   const detailId = `billing-detail-${billing.year}-${billing.month}-${billing.planilla_type ?? 'regular'}`
 
   return (
@@ -67,6 +69,9 @@ function BillingRow({
             <Badge className="ml-2 bg-yellow-100 text-yellow-700 border-yellow-200 text-xs">
               Ajustado
             </Badge>
+          )}
+          {instruction && (
+            <span className="block text-xs font-normal text-gray-500">{instruction.headline}</span>
           )}
         </td>
         <td className="px-4 py-3 text-gray-500 text-xs">
