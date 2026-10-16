@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, ChevronDown, Bell, Search, Users, BookOpen, Layers, Menu } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useUnreadCount } from '@/api/hooks/useNotifications'
+import { getTitleFromPath } from '@/lib/navigation'
 import { api } from '@/api/client'
 import { SheetTrigger } from '@/components/ui/sheet'
 import {
@@ -13,31 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-
-const routeTitles: Record<string, string> = {
-  '/': 'Dashboard',
-  '/upload': 'Subir Archivos',
-  '/attendance': 'Asistencia',
-  '/observations': 'Observaciones',
-  '/planilla': 'Planilla',
-  '/teachers': 'Docentes',
-  '/users': 'Gestión de Usuarios',
-  '/requests': 'Solicitudes de Docentes',
-  '/portal': 'Mi Facturación',
-  '/portal/history': 'Histórico de Facturación',
-  '/portal/requests': 'Mis Solicitudes',
-  '/portal/profile': 'Mi Perfil',
-  '/portal/notifications': 'Notificaciones',
-}
-
-function getTitleFromPath(pathname: string): string {
-  if (routeTitles[pathname]) return routeTitles[pathname]
-  if (pathname.startsWith('/teachers/')) return 'Detalle de Docente'
-  const match = Object.keys(routeTitles)
-    .filter((key) => key !== '/')
-    .find((key) => pathname.startsWith(key))
-  return match ? routeTitles[match] : 'UPDS Planilla'
-}
 
 interface SearchResults {
   teachers: { ci: string; full_name: string; email: string | null }[]

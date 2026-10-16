@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   GraduationCap,
+  CalendarCheck,
   Upload,
   ClipboardCheck,
   AlertTriangle,
@@ -30,91 +31,57 @@ import {
 import { Logo } from './Logo'
 import { useAuth } from '@/context/AuthContext'
 import { useSidebar } from '@/context/SidebarContext'
+import { useMyProfile } from '@/api/hooks/useAuth'
+import {
+  adminNav,
+  getActiveGroupLabel,
+  getDocenteNavItems,
+  isNavGroup,
+  isPathActive,
+  type AdminNavEntry,
+  type NavGroupDef,
+  type NavIconName,
+  type NavItemDef,
+} from '@/lib/navigation'
 import type { LucideIcon } from 'lucide-react'
 
-interface NavItem {
-  to: string
-  label: string
-  icon: LucideIcon
-  exact?: boolean
-  badge?: number
+const navIcons: Record<NavIconName, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  calendarCheck: CalendarCheck,
+  upload: Upload,
+  attendance: ClipboardCheck,
+  audit: ShieldCheck,
+  observations: AlertTriangle,
+  planilla: FileSpreadsheet,
+  reports: FileText,
+  academic: GraduationCap,
+  teachers: Users,
+  contracts: FileSignature,
+  school: School,
+  schedule: Calendar,
+  requests: MessageSquare,
+  settings: Settings,
+  users: Shield,
+  activity: Activity,
+  backup: Database,
+  billing: Receipt,
+  history: History,
+  letter: FileText,
+  notifications: Bell,
+  profile: User,
 }
-
-interface NavGroup {
-  label: string
-  icon: LucideIcon
-  children: NavItem[]
-}
-
-type AdminNavEntry = NavItem | NavGroup
-
-function isNavGroup(entry: AdminNavEntry): entry is NavGroup {
-  return 'children' in entry
-}
-
-const adminNavItems: AdminNavEntry[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  {
-    label: 'Gestión Académica',
-    icon: GraduationCap,
-    children: [
-      { to: '/upload', label: 'Subir Archivos', icon: Upload },
-      { to: '/teachers', label: 'Docentes', icon: Users },
-      { to: '/contracts', label: 'Contratos', icon: FileSignature },
-      { to: '/academic-management', label: 'Gestión académica', icon: School },
-      { to: '/schedule-planner', label: 'Planificador de horarios', icon: Calendar },
-    ],
-  },
-  {
-    label: 'Asistencia',
-    icon: ClipboardCheck,
-    children: [
-      { to: '/attendance', label: 'Asistencia Teóricas', icon: ClipboardCheck },
-      { to: '/practice-attendance', label: 'Asistencia Prácticas', icon: ClipboardCheck },
-      { to: '/attendance-audit', label: 'Auditoría Asistencia', icon: ShieldCheck },
-      { to: '/observations', label: 'Observaciones', icon: AlertTriangle },
-    ],
-  },
-  {
-    label: 'Planillas',
-    icon: FileSpreadsheet,
-    children: [
-      { to: '/planilla', label: 'Planilla', icon: FileSpreadsheet },
-      { to: '/reports', label: 'Reportes', icon: FileText },
-    ],
-  },
-  {
-    label: 'Administración',
-    icon: Settings,
-    children: [
-      { to: '/users', label: 'Gestión Usuarios', icon: Shield },
-      { to: '/requests', label: 'Solicitudes', icon: MessageSquare },
-      { to: '/activity', label: 'Registro de Actividad', icon: Activity },
-      { to: '/backup', label: 'Respaldos', icon: Database },
-      { to: '/settings', label: 'Configuración', icon: Settings },
-    ],
-  },
-]
-
-const docenteNavItems: NavItem[] = [
-  { to: '/portal', label: 'Mi Facturación', icon: Receipt, exact: true },
-  { to: '/portal/history', label: 'Histórico', icon: History },
-  { to: '/portal/schedule', label: 'Mi Horario', icon: Calendar },
-  { to: '/portal/retention-letter', label: 'Carta Retención', icon: FileText },
-  { to: '/portal/requests', label: 'Mis Solicitudes', icon: MessageSquare },
-  { to: '/portal/notifications', label: 'Notificaciones', icon: Bell },
-  { to: '/portal/profile', label: 'Mi Perfil', icon: User },
-]
 
 function NavItemLink({
   item,
   collapsed,
   onNavigate,
 }: {
-  item: NavItem
+  item: NavItemDef
   collapsed?: boolean
   onNavigate?: () => void
 }) {
+  const Icon = navIcons[item.icon]
+
   return (
     <NavLink
       to={item.to}
@@ -131,7 +98,7 @@ function NavItemLink({
       }
       title={collapsed ? item.label : undefined}
     >
-      <item.icon size={collapsed ? 20 : 18} />
+      <Icon size={collapsed ? 20 : 18} />
       {!collapsed && <span>{item.label}</span>}
       {!collapsed && item.badge != null && item.badge > 0 && (
         <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -147,10 +114,6 @@ function NavItemLink({
   )
 }
 
-function isItemActive(pathname: string, item: NavItem) {
-  return item.exact ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)
-}
-
 function NavGroupComponent({
   group,
   collapsed,
@@ -161,7 +124,7 @@ function NavGroupComponent({
   onToggle,
   onNavigate,
 }: {
-  group: NavGroup
+  group: NavGroupDef
   collapsed: boolean
   expanded: boolean
   active: boolean
@@ -170,6 +133,8 @@ function NavGroupComponent({
   onToggle: () => void
   onNavigate?: () => void
 }) {
+  const GroupIcon = navIcons[group.icon]
+
   if (collapsed) {
     return (
       <div className={`group relative mx-2 ${showSeparator ? 'mt-2 border-t border-white/[0.08] pt-2' : ''}`}>
@@ -180,7 +145,7 @@ function NavGroupComponent({
           }`}
           title={group.label}
         >
-          <group.icon size={20} className="text-sky-400/70" />
+          <GroupIcon size={20} className="text-sky-400/70" />
         </button>
         {/* Invisible bridge: fills the gap between icon and flyout so hover doesn't break */}
         <div className="absolute left-full top-0 z-[59] hidden h-full w-4 group-hover:block" />
@@ -188,7 +153,8 @@ function NavGroupComponent({
           <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-white/60">{group.label}</p>
           <div className="space-y-1">
             {group.children.map((child) => {
-              const childActive = isItemActive(pathname, child)
+              const childActive = isPathActive(pathname, child)
+              const ChildIcon = navIcons[child.icon]
 
               return (
                 <NavLink
@@ -200,7 +166,7 @@ function NavGroupComponent({
                     childActive ? 'bg-sky-500/20 text-white' : 'text-white/50 hover:bg-white/[0.08] hover:text-white/90'
                   }`}
                 >
-                  <child.icon size={16} />
+                  <ChildIcon size={16} />
                   <span>{child.label}</span>
                   {child.badge != null && child.badge > 0 && (
                     <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -227,7 +193,7 @@ function NavGroupComponent({
             : 'border-transparent text-white/60 hover:bg-white/[0.08] hover:text-white/90'
         }`}
       >
-        <group.icon size={18} className="text-sky-400/70" />
+        <GroupIcon size={18} className="text-sky-400/70" />
         <span className="text-[11px] font-bold uppercase tracking-widest">{group.label}</span>
         {expanded ? <ChevronDown size={16} className="ml-auto" /> : <ChevronRight size={16} className="ml-auto" />}
       </button>
@@ -236,7 +202,10 @@ function NavGroupComponent({
       >
         <div className="overflow-hidden">
           <div className="ml-6 border-l border-white/10 py-1">
-            {group.children.map((child) => (
+            {group.children.map((child) => {
+              const ChildIcon = navIcons[child.icon]
+
+              return (
               <NavLink
                 key={child.to}
                 to={child.to}
@@ -251,7 +220,7 @@ function NavGroupComponent({
                   ].join(' ')
                 }
               >
-                <child.icon size={16} />
+                <ChildIcon size={16} />
                 <span>{child.label}</span>
                 {child.badge != null && child.badge > 0 && (
                   <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -259,7 +228,8 @@ function NavGroupComponent({
                   </span>
                 )}
               </NavLink>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -267,18 +237,30 @@ function NavGroupComponent({
   )
 }
 
-export function Sidebar({ mobile = false }: { mobile?: boolean }) {
-  const { user, isAdmin, logout } = useAuth()
-  const { collapsed: desktopCollapsed, toggle, closeMobile } = useSidebar()
+function SidebarNav({
+  navItems,
+  collapsed,
+  mobile,
+}: {
+  navItems: AdminNavEntry[]
+  collapsed: boolean
+  mobile: boolean
+}) {
+  const { closeMobile } = useSidebar()
   const { pathname } = useLocation()
-  const collapsed = mobile ? false : desktopCollapsed
-  const navItems = isAdmin ? adminNavItems : docenteNavItems
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-  const activeGroupLabel = isAdmin
-    ? adminNavItems.find(
-        (item) => isNavGroup(item) && item.children.some((child) => isItemActive(pathname, child)),
-      )?.label
-    : undefined
+  const activeGroupLabel = getActiveGroupLabel(pathname, navItems)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(activeGroupLabel ? [activeGroupLabel] : []),
+  )
+  const [seenPathname, setSeenPathname] = useState(pathname)
+
+  // Opening another group's route expands it; manual toggles stay untouched otherwise.
+  if (seenPathname !== pathname) {
+    setSeenPathname(pathname)
+    if (activeGroupLabel && !expandedGroups.has(activeGroupLabel)) {
+      setExpandedGroups(new Set(expandedGroups).add(activeGroupLabel))
+    }
+  }
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((current) => {
@@ -293,6 +275,52 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
       return next
     })
   }
+
+  return (
+    <nav
+      className={`flex-1 py-4 ${
+        collapsed
+          ? 'overflow-visible'
+          : 'overflow-y-auto [scrollbar-color:rgba(255,255,255,0.1)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent'
+      }`}
+    >
+      {navItems.map((item, index) => (
+        isNavGroup(item) ? (
+          <NavGroupComponent
+            key={item.label}
+            group={item}
+            collapsed={collapsed}
+            expanded={expandedGroups.has(item.label)}
+            active={item.children.some((child) => isPathActive(pathname, child))}
+            pathname={pathname}
+            showSeparator={navItems.slice(0, index).some(isNavGroup)}
+            onToggle={() => toggleGroup(item.label)}
+            onNavigate={mobile ? closeMobile : undefined}
+          />
+        ) : (
+          <NavItemLink
+            key={item.to}
+            item={item}
+            collapsed={collapsed}
+            onNavigate={mobile ? closeMobile : undefined}
+          />
+        )
+      ))}
+    </nav>
+  )
+}
+
+// Only mounted for docentes: /portal/profile is not available to admins.
+function DocenteSidebarNav({ collapsed, mobile }: { collapsed: boolean; mobile: boolean }) {
+  const { data: profile } = useMyProfile()
+
+  return <SidebarNav navItems={getDocenteNavItems(profile?.has_retention)} collapsed={collapsed} mobile={mobile} />
+}
+
+export function Sidebar({ mobile = false }: { mobile?: boolean }) {
+  const { user, isAdmin, logout } = useAuth()
+  const { collapsed: desktopCollapsed, toggle, closeMobile } = useSidebar()
+  const collapsed = mobile ? false : desktopCollapsed
 
   return (
     <aside
@@ -338,36 +366,11 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
       </div>
 
       {/* Navigation */}
-      <nav
-        className={`flex-1 py-4 ${
-          collapsed
-            ? 'overflow-visible'
-            : 'overflow-y-auto [scrollbar-color:rgba(255,255,255,0.1)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent'
-        }`}
-      >
-        {navItems.map((item, index) => (
-          isNavGroup(item) ? (
-            <NavGroupComponent
-              key={item.label}
-              group={item}
-              collapsed={collapsed}
-              expanded={expandedGroups.has(item.label) || activeGroupLabel === item.label}
-              active={item.children.some((child) => isItemActive(pathname, child))}
-              pathname={pathname}
-              showSeparator={navItems.slice(0, index).some(isNavGroup)}
-              onToggle={() => toggleGroup(item.label)}
-              onNavigate={mobile ? closeMobile : undefined}
-            />
-          ) : (
-            <NavItemLink
-              key={item.to}
-              item={item}
-              collapsed={collapsed}
-              onNavigate={mobile ? closeMobile : undefined}
-            />
-          )
-        ))}
-      </nav>
+      {isAdmin ? (
+        <SidebarNav navItems={adminNav} collapsed={collapsed} mobile={mobile} />
+      ) : (
+        <DocenteSidebarNav collapsed={collapsed} mobile={mobile} />
+      )}
 
       {/* Toggle button */}
       {!mobile && <div className="border-t border-white/10">
