@@ -142,7 +142,13 @@ export function usePlanillaDetail(
     return () => window.clearTimeout(timeout)
   }, [startDate, endDate, discountMode, excludedDaysJson])
 
-  return useQuery({
+  const isDebouncing =
+    debouncedParams.startDate !== startDate ||
+    debouncedParams.endDate !== endDate ||
+    debouncedParams.discountMode !== discountMode ||
+    debouncedParams.excludedDaysJson !== excludedDaysJson
+  // Callers comparing the preview with the form need to know when it lags behind.
+  return Object.assign(useQuery({
     queryKey: ['planilla-detail', month, year, debouncedParams.startDate, debouncedParams.endDate, debouncedParams.discountMode, debouncedParams.excludedDaysJson],
     queryFn: () => fetchPlanillaDetail(
       month,
@@ -153,7 +159,7 @@ export function usePlanillaDetail(
       debouncedParams.excludedDaysJson,
     ),
     enabled,
-  })
+  }), { isDebouncing })
 }
 
 async function fetchTeacherDesignations(teacherCi: string) {

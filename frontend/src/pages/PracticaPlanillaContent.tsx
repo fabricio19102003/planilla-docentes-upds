@@ -45,6 +45,17 @@ import { Badge } from '@/components/ui/badge'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import type { ExcludedDay } from '@/api/types'
+import { ConfirmActionDialog } from '@/components/shared/ConfirmActionDialog'
+import {
+  buildConfirmSummary,
+  DISCOUNT_MODE_LABELS,
+  formatGenerationSummary,
+  getGenerationGuard,
+  optionalDate,
+  resolveDiscountMode,
+  type DiscountMode,
+  type PlanillaConfirmAction,
+} from '@/lib/planillaGenerationGuard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -190,8 +201,9 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   const [datesManuallySet, setDatesManuallySet] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedTeachers, setSelectedTeachers] = useState<Set<string>>(() => new Set())
-  const [discountMode, setDiscountMode] = useState<'attendance' | 'full'>('attendance')
+  const [discountMode, setDiscountMode] = useState<DiscountMode | null>(null)
   const [discountModeManuallySet, setDiscountModeManuallySet] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<PlanillaConfirmAction | null>(null)
 
   // Payment override state
   const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
@@ -231,6 +243,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     }
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
+    setDiscountMode(null)
+    setPendingConfirm(null)
     setPaymentOverrides({})
     setPaymentOverridesEdited(false)
     setExclusionsEdited(false)
@@ -264,12 +278,12 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     setPaymentOverrides(planillaStatus?.payment_overrides_json ?? {})
   }, [planillaStatus?.payment_overrides_json, paymentOverridesEdited, month, year])
 
-  // Effective discount mode: manual override takes precedence, then stored value
-  const effectiveDiscountMode: 'attendance' | 'full' = discountModeManuallySet
-    ? discountMode
-    : (planillaStatus?.discount_mode === 'attendance' || planillaStatus?.discount_mode === 'full')
-      ? planillaStatus.discount_mode
-      : discountMode
+  // Effective discount mode: the admin's explicit choice for this period, else the
+  // stored planilla's mode, else none (Generate stays blocked until one is chosen).
+  const effectiveDiscountMode: DiscountMode | null = resolveDiscountMode({
+    manualMode: discountModeManuallySet ? discountMode : null,
+    storedMode: planillaStatus?.discount_mode,
+  })
 
   const expandedExcludedDays = expandExcludedDays(excludedDays)
   const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
@@ -279,14 +293,19 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
   const detailQuery = usePracticePlanillaDetailWithExclusions(
     month,
     year,
-    canUseSelectedSnapshot,
-    startDate || undefined,
-    endDate || undefined,
-    effectiveDiscountMode,
+    canUseSelectedSnapshot && effectiveDiscountMode !== null,
+    optionalDate(startDate),
+    optionalDate(endDate),
+    effectiveDiscountMode ?? undefined,
     previewExclusions,
   )
   const detail = getVisiblePlanillaDetail(detailQuery.data, detailQuery.isPlaceholderData, canUseSelectedSnapshot)
+  // Generate must wait until the preview reflects the current form, so the
+  // confirmation never shows totals computed for other dates or another mode.
+  const previewPending = canUseSelectedSnapshot && effectiveDiscountMode !== null
+    && (detailQuery.isFetching || detailQuery.isDebouncing)
   const detailLoading = detailQuery.isLoading
+  const detailError = detailQuery.isError
 
   const isBillingPublished = publication?.status === 'published'
 
@@ -358,31 +377,80 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
     )
   }
 
-  const handleGenerate = () => {
+  const generationGuard = getGenerationGuard({
+    startDate,
+    endDate,
+    mode: effectiveDiscountMode,
+    statusLoading: planillaStatusLoading,
+    previewPending,
+  })
+
+  const validateExclusions = () => {
     for (let i = 0; i < excludedDays.length; i++) {
       const row = excludedDays[i]
       if (row.scope === 'semester' && (!row.selectedSemesters || row.selectedSemesters.length === 0)) {
         alert(`Exclusión #${i + 1}: seleccioná al menos un semestre o cambiá el alcance.`)
-        return
+        return false
       }
       if (row.scope === 'subject' && (!row.subjectSelections || row.subjectSelections.length === 0)) {
         alert(`Exclusión #${i + 1}: seleccioná al menos una materia/grupo o cambiá el alcance.`)
-        return
+        return false
       }
     }
+    return true
+  }
+
+  const runGenerate = () => {
+    // Guard guarantees both dates and a mode; never send undefined cutoffs.
+    if (!generationGuard.canGenerate || !effectiveDiscountMode) return
     setLastResult(null)
     generatePlanilla.mutate(
       {
         month,
         year,
         payment_overrides: paymentOverrides,
-        start_date: startDate || undefined,
-        end_date: endDate || undefined,
+        start_date: startDate,
+        end_date: endDate,
         discount_mode: effectiveDiscountMode,
         excluded_days: expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined,
       },
       { onSuccess: (data) => { setLastResult(data); setPaymentOverridesEdited(false) } },
     )
+  }
+
+  const requestConfirm = (action: PlanillaConfirmAction) => {
+    if (action === 'generate' && (!generationGuard.canGenerate || !validateExclusions())) return
+    setPendingConfirm(action)
+  }
+
+  const confirmSummary = (() => {
+    if (!pendingConfirm) return null
+    const stored = pendingConfirm === 'generate' ? null : planillaStatus
+    const storedState = stored ? getHistoricalPaymentState(stored) : null
+    const live = pendingConfirm === 'unpublish' && publication?.status === 'published' ? publication : null
+    return buildConfirmSummary({
+      action: pendingConfirm,
+      kind: 'practicas',
+      month,
+      year,
+      startDate: stored ? stored.start_date : startDate,
+      endDate: stored ? stored.end_date : endDate,
+      mode: stored ? (stored.discount_mode ?? null) : effectiveDiscountMode,
+      docentes: live ? live.total_teachers : stored ? stored.total_teachers : detail?.total_teachers,
+      totalPayment: live ? live.total_payment : stored ? storedState?.amount : detail?.total_net,
+      totalsAreEstimate: pendingConfirm === 'generate',
+      hasStoredPlanilla: Boolean(planillaStatus),
+    })
+  })()
+
+  const runConfirmedAction = () => {
+    const action = pendingConfirm
+    setPendingConfirm(null)
+    if (action === 'generate') runGenerate()
+    else if (action === 'approve' && planillaStatus) approvePlanilla.mutate(planillaStatus.id)
+    else if (action === 'reject' && planillaStatus) rejectPlanilla.mutate(planillaStatus.id)
+    else if (action === 'publish') publishBilling.mutate({ month, year })
+    else if (action === 'unpublish') unpublishBilling.mutate({ month, year })
   }
 
   const resetNewExclusion = () => {
@@ -433,8 +501,8 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
         <div className="px-6 py-5">
           <div className="flex flex-wrap items-end gap-4">
             <Button
-              onClick={handleGenerate}
-              disabled={generatePlanilla.isPending}
+              onClick={() => requestConfirm('generate')}
+              disabled={generatePlanilla.isPending || !generationGuard.canGenerate}
               className="h-11 px-6 font-semibold rounded-xl shadow-lg shadow-emerald-900/25 hover:shadow-xl hover:shadow-emerald-900/35 active:scale-[0.97] transition-all duration-200"
               style={{ background: 'linear-gradient(135deg, #15803d 0%, #16a34a 100%)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)' }}
@@ -452,6 +520,17 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                 </>
               )}
             </Button>
+            <div className="text-sm self-center" aria-live="polite">
+              {generationGuard.canGenerate && effectiveDiscountMode ? (
+                <p className="text-gray-600">
+                  {formatGenerationSummary({ kind: 'practicas', month, year, startDate, endDate, mode: effectiveDiscountMode })}
+                </p>
+              ) : (
+                generationGuard.reasons.map((reason) => (
+                  <p key={reason} className="text-amber-700 font-medium">{reason}</p>
+                ))
+              )}
+            </div>
           </div>
 
           {Object.keys(paymentOverrides).length > 0 && (
@@ -493,40 +572,37 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
             </div>
           </div>
 
-          {/* Discount Mode Switch */}
+          {/* Discount Mode Selector */}
           <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-700">Modo de cálculo</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {effectiveDiscountMode === 'attendance'
-                    ? 'Se aplican descuentos por ausencias registradas'
-                    : 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'}
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={effectiveDiscountMode === 'full'}
-                onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(prev => prev === 'attendance' ? 'full' : 'attendance') }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:ring-offset-2 ${
-                  effectiveDiscountMode === 'full' ? 'bg-[#0066CC]' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    effectiveDiscountMode === 'full' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+            <p id="discount-mode-label" className="text-sm font-medium text-gray-700">Modo de cálculo</p>
+            <div role="radiogroup" aria-labelledby="discount-mode-label" className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(['attendance', 'full'] as const).map((option) => {
+                const selected = effectiveDiscountMode === option
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(option) }}
+                    className={`text-left rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] ${
+                      selected
+                        ? 'border-[#003366] bg-[#003366] text-white shadow-sm'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-blue-50'
+                    }`}
+                  >
+                    {DISCOUNT_MODE_LABELS[option]}
+                  </button>
+                )
+              })}
             </div>
-            <div className="mt-2 flex items-center gap-2">
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                effectiveDiscountMode === 'attendance' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-              }`}>
-                {effectiveDiscountMode === 'attendance' ? 'Con descuentos' : 'Sin descuentos — pago completo'}
-              </span>
-            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {effectiveDiscountMode === 'attendance'
+                ? 'Se aplican descuentos por ausencias registradas'
+                : effectiveDiscountMode === 'full'
+                  ? 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'
+                  : 'Elegí el modo de cálculo para este período.'}
+            </p>
             {effectiveDiscountMode === 'full' && (
               <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 mt-3">
                 <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
@@ -853,9 +929,9 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                         await downloadPracticeSalaryReport({
                           month: lastResult.month,
                           year: lastResult.year,
-                          discount_mode: effectiveDiscountMode,
-                          start_date: startDate || undefined,
-                          end_date: endDate || undefined,
+                          discount_mode: effectiveDiscountMode ?? lastResult.discount_mode,
+                          start_date: optionalDate(startDate),
+                          end_date: optionalDate(endDate),
                         })
                       } finally {
                         setSalaryReportLoading(prev => ({ ...prev, current: false }))
@@ -1038,14 +1114,14 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
             {planillaStatus.status === 'generated' && (
               <div className="flex items-center gap-2">
                 <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1"
-                  onClick={() => approvePlanilla.mutate(planillaStatus.id)}
-                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot}
-                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : undefined}
+                  onClick={() => requestConfirm('approve')}
+                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot || detailError}
+                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : detailError ? 'No se pudo cargar el detalle de la planilla' : undefined}
                 >
                   <Check size={14} /> Aprobar
                 </Button>
                 <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
-                  onClick={() => rejectPlanilla.mutate(planillaStatus.id)}
+                  onClick={() => requestConfirm('reject')}
                   disabled={rejectPlanilla.isPending}
                 >
                   <X size={14} /> Rechazar
@@ -1086,7 +1162,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           </div>
           {publication?.status === 'published' ? (
             <Button variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
-              onClick={() => unpublishBilling.mutate({ month, year })}
+              onClick={() => requestConfirm('unpublish')}
               disabled={unpublishBilling.isPending}
             >
               <EyeOff size={14} />
@@ -1095,10 +1171,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           ) : (
             <Button
               className="gap-2 text-white"
-              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited ? '#16a34a' : '#9ca3af' }}
-              onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot}
-              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
+              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited && !detailError ? '#16a34a' : '#9ca3af' }}
+              onClick={() => requestConfirm('publish')}
+              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot || detailError}
+              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : detailError ? 'No se pudo cargar el detalle de la planilla' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
             >
               <Send size={14} />
               {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
@@ -1142,7 +1218,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           <div>
             <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Detalle por Docente</h3>
             <p className="text-xs text-gray-500">
-              {detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
             </p>
           </div>
         </div>
@@ -1151,6 +1227,20 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           {detailLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 size={24} className="animate-spin text-[#003366]" />
+            </div>
+          ) : detailError ? (
+            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center">
+              <AlertCircle size={24} className="text-red-500" />
+              <p className="text-sm text-red-600 font-medium">No se pudo cargar el detalle de la planilla.</p>
+              <Button
+                variant="outline"
+                className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
+                onClick={() => void detailQuery.refetch()}
+                disabled={detailQuery.isFetching}
+              >
+                {detailQuery.isFetching ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                Reintentar
+              </Button>
             </div>
           ) : detail ? (
             <div className="space-y-4">
@@ -1476,6 +1566,10 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                 </div>
               </details>
             </div>
+          ) : effectiveDiscountMode === null ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              Elegí el modo de cálculo para ver la vista previa.
+            </div>
           ) : (
             <div className="text-center py-10 text-gray-400 text-sm">
               No hay datos para {MONTH_NAMES[month]} {year}. Generá la planilla para ver el detalle.
@@ -1483,6 +1577,12 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
           )}
         </div>
       </div>
+
+      <ConfirmActionDialog
+        summary={confirmSummary}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   )
 }

@@ -23,6 +23,7 @@
     "test:whatsapp-consent": "node scripts/check-whatsapp-consent-card.mjs",
     "test:billing-invoice": "node --experimental-strip-types --test scripts/check-billing-invoice.mjs",
     "test:billing-mobile-cards": "node --experimental-strip-types --test scripts/check-billing-mobile-cards.mjs",
+    "test:planilla-generation-guard": "node --experimental-strip-types --test scripts/check-planilla-generation-guard.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"

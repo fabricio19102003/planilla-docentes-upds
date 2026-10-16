@@ -11,6 +11,17 @@ import { Badge } from '@/components/ui/badge'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
+import { ConfirmActionDialog } from '@/components/shared/ConfirmActionDialog'
+import {
+  buildConfirmSummary,
+  DISCOUNT_MODE_LABELS,
+  formatGenerationSummary,
+  getGenerationGuard,
+  optionalDate,
+  resolveDiscountMode,
+  type DiscountMode,
+  type PlanillaConfirmAction,
+} from '@/lib/planillaGenerationGuard'
 import { PracticaPlanillaContent } from './PracticaPlanillaContent'
 
 const MONTH_NAMES: Record<number, string> = {
@@ -142,8 +153,9 @@ export function PlanillaPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [detailTab, setDetailTab] = useState<'designations' | 'teachers'>('teachers')
   const [selectedTeachers, setSelectedTeachers] = useState<Set<string>>(() => new Set())
-  const [discountMode, setDiscountMode] = useState<'attendance' | 'full'>('attendance')
+  const [discountMode, setDiscountMode] = useState<DiscountMode | null>(null)
   const [discountModeManuallySet, setDiscountModeManuallySet] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<PlanillaConfirmAction | null>(null)
 
   // Payment override state
   const [paymentOverrides, setPaymentOverrides] = useState<Record<string, number>>({})
@@ -176,6 +188,8 @@ export function PlanillaPage() {
 
     setDatesManuallySet(false)
     setDiscountModeManuallySet(false)
+    setDiscountMode(null)
+    setPendingConfirm(null)
     setExclusionsEdited(false)
     setExcludedDays([])
   }, [month, year])
@@ -224,15 +238,13 @@ export function PlanillaPage() {
     setExclusionsEdited(false)
   }, [planillaStatus?.excluded_days_json, exclusionsEdited, month, year])
 
-  // Derive the effective discount mode: if the user manually toggled, use their
-  // choice. Otherwise fall back to the stored planilla's mode (if one exists),
-  // then to the local state default ("attendance"). This is a single source of
-  // truth — no sync effect, no race condition, no clobbering on refetch.
-  const effectiveDiscountMode: 'attendance' | 'full' = discountModeManuallySet
-    ? discountMode
-    : (planillaStatus?.discount_mode === 'attendance' || planillaStatus?.discount_mode === 'full')
-      ? planillaStatus.discount_mode
-      : discountMode
+  // Derive the effective discount mode: the admin's explicit choice for this
+  // period, else the stored planilla's mode, else none (Generate stays blocked
+  // until a mode is chosen). It never carries over from another period.
+  const effectiveDiscountMode: DiscountMode | null = resolveDiscountMode({
+    manualMode: discountModeManuallySet ? discountMode : null,
+    storedMode: planillaStatus?.discount_mode,
+  })
 
   const expandedExcludedDays = expandExcludedDays(excludedDays)
   // Pass exclusions to detail preview only when the user has actively edited them.
@@ -240,9 +252,14 @@ export function PlanillaPage() {
   const previewExclusions = exclusionsEdited ? expandedExcludedDays : undefined
   const selectedHistoryState = planillaStatus ? getHistoricalPaymentState(planillaStatus) : null
   const canUseSelectedSnapshot = !planillaStatusLoading && (!selectedHistoryState || selectedHistoryState.snapshotAvailable)
-  const detailQuery = usePlanillaDetail(month, year, showDetail && canUseSelectedSnapshot, startDate || undefined, endDate || undefined, effectiveDiscountMode, previewExclusions)
+  const detailQuery = usePlanillaDetail(month, year, showDetail && canUseSelectedSnapshot && effectiveDiscountMode !== null, optionalDate(startDate), optionalDate(endDate), effectiveDiscountMode ?? undefined, previewExclusions)
   const detail = getVisiblePlanillaDetail(detailQuery.data, detailQuery.isPlaceholderData, canUseSelectedSnapshot)
   const detailLoading = detailQuery.isLoading
+  const detailError = detailQuery.isError
+  // Generate must wait until the preview reflects the current form, so the
+  // confirmation never shows totals computed for other dates or another mode.
+  const previewPending = showDetail && canUseSelectedSnapshot && effectiveDiscountMode !== null
+    && (detailQuery.isFetching || detailQuery.isDebouncing)
   const publishBilling = usePublishBilling()
   const unpublishBilling = useUnpublishBilling()
   const sendBillingEmails = useSendBillingEmails()
@@ -366,19 +383,32 @@ export function PlanillaPage() {
     )
   }
 
-  const handleGenerate = () => {
-    // Validate exclusion rows before generating
+  const generationGuard = getGenerationGuard({
+    startDate,
+    endDate,
+    mode: effectiveDiscountMode,
+    statusLoading: planillaStatusLoading,
+    previewPending,
+  })
+
+  const validateExclusions = () => {
     for (let i = 0; i < excludedDays.length; i++) {
       const row = excludedDays[i]
       if (row.scope === 'semester' && (!row.selectedSemesters || row.selectedSemesters.length === 0)) {
         alert(`Exclusión #${i + 1}: seleccioná al menos un semestre o cambiá el alcance.`)
-        return
+        return false
       }
       if (row.scope === 'subject' && (!row.subjectSelections || row.subjectSelections.length === 0)) {
         alert(`Exclusión #${i + 1}: seleccioná al menos una materia/grupo o cambiá el alcance.`)
-        return
+        return false
       }
     }
+    return true
+  }
+
+  const runGenerate = () => {
+    // Guard guarantees both dates and a mode; never send undefined cutoffs.
+    if (!generationGuard.canGenerate || !effectiveDiscountMode) return
 
     setLastResult(null)
 
@@ -387,8 +417,8 @@ export function PlanillaPage() {
         month,
         year,
         payment_overrides: paymentOverrides,
-        start_date: startDate || undefined,
-        end_date: endDate || undefined,
+        start_date: startDate,
+        end_date: endDate,
         discount_mode: effectiveDiscountMode,
         excluded_days: expandedExcludedDays.length > 0 ? expandedExcludedDays : undefined,
       },
@@ -396,6 +426,41 @@ export function PlanillaPage() {
         onSuccess: (data) => setLastResult(data),
       },
     )
+  }
+
+  const requestConfirm = (action: PlanillaConfirmAction) => {
+    if (action === 'generate' && (!generationGuard.canGenerate || !validateExclusions())) return
+    setPendingConfirm(action)
+  }
+
+  const confirmSummary = (() => {
+    if (!pendingConfirm) return null
+    const stored = pendingConfirm === 'generate' ? null : planillaStatus
+    const storedState = stored ? getHistoricalPaymentState(stored) : null
+    const live = pendingConfirm === 'unpublish' && publication?.status === 'published' ? publication : null
+    return buildConfirmSummary({
+      action: pendingConfirm,
+      kind: 'teoricas',
+      month,
+      year,
+      startDate: stored ? stored.start_date : startDate,
+      endDate: stored ? stored.end_date : endDate,
+      mode: stored ? (stored.discount_mode ?? null) : effectiveDiscountMode,
+      docentes: live ? live.total_teachers : stored ? stored.total_teachers : detail?.total_teachers,
+      totalPayment: live ? live.total_payment : stored ? storedState?.amount : detail?.total_payment,
+      totalsAreEstimate: pendingConfirm === 'generate',
+      hasStoredPlanilla: Boolean(planillaStatus),
+    })
+  })()
+
+  const runConfirmedAction = () => {
+    const action = pendingConfirm
+    setPendingConfirm(null)
+    if (action === 'generate') runGenerate()
+    else if (action === 'approve' && planillaStatus) approvePlanilla.mutate(planillaStatus.id)
+    else if (action === 'reject' && planillaStatus) rejectPlanilla.mutate(planillaStatus.id)
+    else if (action === 'publish') publishBilling.mutate({ month, year })
+    else if (action === 'unpublish') unpublishBilling.mutate({ month, year })
   }
 
   const resetNewExclusion = () => {
@@ -516,8 +581,8 @@ export function PlanillaPage() {
         <div className="px-6 py-5">
           <div className="flex flex-wrap items-end gap-4">
             <Button
-              onClick={handleGenerate}
-              disabled={generatePlanilla.isPending}
+              onClick={() => requestConfirm('generate')}
+              disabled={generatePlanilla.isPending || !generationGuard.canGenerate}
               className="h-11 px-6 font-semibold rounded-xl shadow-lg shadow-blue-900/25 hover:shadow-xl hover:shadow-blue-900/35 active:scale-[0.97] transition-all duration-200"
               style={{ background: 'linear-gradient(135deg, #1C398E 0%, #193CB8 100%)' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #193CB8 0%, #155DFC 100%)' }}
@@ -535,6 +600,17 @@ export function PlanillaPage() {
                 </>
               )}
             </Button>
+            <div className="text-sm self-center" aria-live="polite">
+              {generationGuard.canGenerate && effectiveDiscountMode ? (
+                <p className="text-gray-600">
+                  {formatGenerationSummary({ kind: 'teoricas', month, year, startDate, endDate, mode: effectiveDiscountMode })}
+                </p>
+              ) : (
+                generationGuard.reasons.map((reason) => (
+                  <p key={reason} className="text-amber-700 font-medium">{reason}</p>
+                ))
+              )}
+            </div>
           </div>
 
           {Object.keys(paymentOverrides).length > 0 && (
@@ -621,42 +697,37 @@ export function PlanillaPage() {
             )}
           </div>
 
-          {/* Discount Mode Switch */}
+          {/* Discount Mode Selector */}
           <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-700">Modo de cálculo</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {effectiveDiscountMode === 'attendance'
-                    ? 'Se aplican descuentos por ausencias registradas en el biométrico'
-                    : 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'}
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={effectiveDiscountMode === 'full'}
-                onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(prev => prev === 'attendance' ? 'full' : 'attendance') }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:ring-offset-2 ${
-                  effectiveDiscountMode === 'full' ? 'bg-[#0066CC]' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    effectiveDiscountMode === 'full' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+            <p id="discount-mode-label" className="text-sm font-medium text-gray-700">Modo de cálculo</p>
+            <div role="radiogroup" aria-labelledby="discount-mode-label" className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(['attendance', 'full'] as const).map((option) => {
+                const selected = effectiveDiscountMode === option
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(option) }}
+                    className={`text-left rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] ${
+                      selected
+                        ? 'border-[#003366] bg-[#003366] text-white shadow-sm'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-blue-50'
+                    }`}
+                  >
+                    {DISCOUNT_MODE_LABELS[option]}
+                  </button>
+                )
+              })}
             </div>
-            <div className="mt-2 flex items-center gap-2">
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                effectiveDiscountMode === 'attendance'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-green-100 text-green-700'
-              }`}>
-                {effectiveDiscountMode === 'attendance' ? 'Con descuentos' : 'Sin descuentos — pago completo'}
-              </span>
-            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {effectiveDiscountMode === 'attendance'
+                ? 'Se aplican descuentos por ausencias registradas en el biométrico'
+                : effectiveDiscountMode === 'full'
+                  ? 'Todos los docentes cobran el 100% de sus horas asignadas (sin descuentos)'
+                  : 'Elegí el modo de cálculo para este período.'}
+            </p>
             {effectiveDiscountMode === 'full' && (
               <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 mt-3">
                 <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
@@ -1004,9 +1075,9 @@ export function PlanillaPage() {
                         await downloadSalaryReport({
                           month: lastResult.month,
                           year: lastResult.year,
-                          discount_mode: effectiveDiscountMode,
-                          start_date: startDate || undefined,
-                          end_date: endDate || undefined,
+                          discount_mode: effectiveDiscountMode ?? lastResult.discount_mode,
+                          start_date: optionalDate(startDate),
+                          end_date: optionalDate(endDate),
                         })
                       } finally {
                         setSalaryReportLoading((prev) => ({ ...prev, current: false }))
@@ -1215,9 +1286,9 @@ export function PlanillaPage() {
                 <Button
                   size="sm"
                   className="bg-green-600 hover:bg-green-700 text-white gap-1"
-                  onClick={() => approvePlanilla.mutate(planillaStatus.id)}
-                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot}
-                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : undefined}
+                  onClick={() => requestConfirm('approve')}
+                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot || detailError}
+                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : detailError ? 'No se pudo cargar el detalle de la planilla' : undefined}
                 >
                   <Check size={14} /> Aprobar
                 </Button>
@@ -1225,7 +1296,7 @@ export function PlanillaPage() {
                   size="sm"
                   variant="outline"
                   className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
-                  onClick={() => rejectPlanilla.mutate(planillaStatus.id)}
+                  onClick={() => requestConfirm('reject')}
                   disabled={rejectPlanilla.isPending}
                 >
                   <X size={14} /> Rechazar
@@ -1274,7 +1345,7 @@ export function PlanillaPage() {
             <Button
               variant="outline"
               className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
-              onClick={() => unpublishBilling.mutate({ month, year })}
+              onClick={() => requestConfirm('unpublish')}
               disabled={unpublishBilling.isPending}
             >
               <EyeOff size={14} />
@@ -1283,10 +1354,10 @@ export function PlanillaPage() {
           ) : (
             <Button
               className="gap-2 text-white"
-              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited ? '#16a34a' : '#9ca3af' }}
-              onClick={() => publishBilling.mutate({ month, year })}
-              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot}
-              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
+              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited && !detailError ? '#16a34a' : '#9ca3af' }}
+              onClick={() => requestConfirm('publish')}
+              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot || detailError}
+              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : detailError ? 'No se pudo cargar el detalle de la planilla' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
             >
               <Send size={14} />
               {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
@@ -1338,7 +1409,7 @@ export function PlanillaPage() {
               Detalle por Docente
             </h3>
             <p className="text-xs text-gray-500">
-              {detail ? `${detail.total_teachers} docentes` : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
             </p>
           </div>
         </div>
@@ -1348,6 +1419,20 @@ export function PlanillaPage() {
           {detailLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 size={24} className="animate-spin text-[#003366]" />
+            </div>
+          ) : detailError ? (
+            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center">
+              <AlertCircle size={24} className="text-red-500" />
+              <p className="text-sm text-red-600 font-medium">No se pudo cargar el detalle de la planilla.</p>
+              <Button
+                variant="outline"
+                className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
+                onClick={() => void detailQuery.refetch()}
+                disabled={detailQuery.isFetching}
+              >
+                {detailQuery.isFetching ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                Reintentar
+              </Button>
             </div>
           ) : detail ? (
             <div className="space-y-4">
@@ -1809,6 +1894,10 @@ export function PlanillaPage() {
                 </div>
               )}
             </div>
+          ) : effectiveDiscountMode === null ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              Elegí el modo de cálculo para ver la vista previa.
+            </div>
           ) : (
             <div className="text-center py-10 text-gray-400 text-sm">
               No hay datos para {MONTH_NAMES[month]} {year}. Generá la planilla para ver el detalle.
@@ -1820,6 +1909,11 @@ export function PlanillaPage() {
       </div>
       )}
 
+      <ConfirmActionDialog
+        summary={confirmSummary}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   )
 }
