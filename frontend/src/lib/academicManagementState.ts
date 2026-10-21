@@ -51,3 +51,63 @@ export function availabilityPayload(
     end_time: form.end_time,
   }
 }
+
+const foldText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** Accent- and case-insensitive match on code or name; a blank query matches everything. */
+export function matchesCatalogSearch(item: { code: string; name?: string }, query: string): boolean {
+  const needle = foldText(query)
+  if (!needle) return true
+  return foldText(`${item.code} ${item.name ?? ''}`).includes(needle)
+}
+
+interface SubjectLike { id: number; code: string; name: string }
+interface OfferingLike { subject_id: number; academic_period: string; semester: number; theory_hours: number; practice_hours: number; active: boolean }
+
+export interface SubjectSemesterSection<S extends SubjectLike, O extends OfferingLike> {
+  semester: number | null
+  rows: Array<{ subject: S; offering: O | null }>
+}
+
+/** Subjects grouped by the semester of their offerings in the period; subjects without one go last. */
+export function groupSubjectsBySemester<S extends SubjectLike, O extends OfferingLike>(
+  subjects: S[], offerings: O[], period: string,
+): SubjectSemesterSection<S, O>[] {
+  const sections = new Map<number | null, SubjectSemesterSection<S, O>>()
+  const add = (semester: number | null, subject: S, offering: O | null) => {
+    const section = sections.get(semester) ?? { semester, rows: [] }
+    section.rows.push({ subject, offering })
+    sections.set(semester, section)
+  }
+  for (const subject of subjects) {
+    const own = offerings.filter((item) => item.subject_id === subject.id && item.academic_period === period)
+    if (!own.length) add(null, subject, null)
+    for (const offering of own) add(offering.semester, subject, offering)
+  }
+  for (const section of sections.values()) section.rows.sort((a, b) => a.subject.code.localeCompare(b.subject.code))
+  return [...sections.values()].sort((a, b) => (a.semester === null ? 1 : 0) - (b.semester === null ? 1 : 0)
+    || (a.semester ?? 0) - (b.semester ?? 0))
+}
+
+const groupKey = (code: string) => {
+  const match = /^([A-Za-z]+)-?0*(\d+)$/.exec(code.trim())
+  return match ? [match[1].toUpperCase(), Number(match[2])] as const : [code, 0] as const
+}
+
+/** Groups of the period by semester, ordered by shift letter and number (M-2 before M-10). */
+export function groupGroupsBySemester<G extends { academic_period: string; semester: number; code: string }>(
+  groups: G[], period: string,
+): Array<{ semester: number; rows: G[] }> {
+  const sections = new Map<number, G[]>()
+  for (const group of groups.filter((item) => item.academic_period === period)) {
+    sections.set(group.semester, [...(sections.get(group.semester) ?? []), group])
+  }
+  return [...sections.entries()].sort(([a], [b]) => a - b).map(([semester, rows]) => ({
+    semester,
+    rows: rows.sort((a, b) => {
+      const [prefixA, numberA] = groupKey(a.code)
+      const [prefixB, numberB] = groupKey(b.code)
+      return prefixA.localeCompare(prefixB) || numberA - numberB
+    }),
+  }))
+}
