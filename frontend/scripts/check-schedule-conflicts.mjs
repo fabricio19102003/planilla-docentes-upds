@@ -99,7 +99,7 @@ test('wires hooks, tabs and screens', () => {
   assert.match(page, /TabsTrigger value="conflicts">Conflictos y huecos</)
   assert.match(page, /TabsTrigger value="designation-load">Cargar designación</)
   const conflicts = read('src/components/academic-management/ScheduleConflictsSection.tsx')
-  for (const text of ['Alerta de carga desde', 'Choques', 'Carga docente', 'Horarios libres', 'Sin docente']) {
+  for (const text of ['Alertar con más de', 'Choques', 'Carga docente', 'Horarios libres', 'Sin docente']) {
     assert.ok(conflicts.includes(text), text)
   }
   const loader = read('src/components/academic-management/DesignationLoadSection.tsx')

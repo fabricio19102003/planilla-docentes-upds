@@ -153,7 +153,7 @@ export function ScheduleConflictsSection() {
           <Input id="conflicts-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="conflicts-threshold">Alerta de carga desde (h/semana)</Label>
+          <Label htmlFor="conflicts-threshold">Alertar con más de (h/semana)</Label>
           <Input id="conflicts-threshold" type="number" min={1} max={80} value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
         </div>
       </div>
