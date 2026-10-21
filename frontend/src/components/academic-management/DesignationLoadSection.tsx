@@ -114,6 +114,17 @@ function LoadPreview({ preview }: { preview: DesignationLoadPreview }) {
           </AlertDescription>
         </Alert>
       )}
+      {preview.warnings.length > 0 && (
+        <Alert>
+          <TriangleAlert aria-hidden="true" />
+          <AlertTitle>Avisos de la designación</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc pl-4">
+              {preview.warnings.map((item) => <li key={`${item.code}-${item.designation_id}`}>Designación {item.designation_id} ({item.subject}, {item.group_code}): {item.message}</li>)}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
       <p>
         <span className="font-medium">{preview.draft_name}</span>: {counts.designations} designaciones, {counts.blocks} bloques y {counts.assignments} asignaciones docentes.
       </p>

@@ -103,7 +103,7 @@ test('wires hooks, tabs and screens', () => {
     assert.ok(conflicts.includes(text), text)
   }
   const loader = read('src/components/academic-management/DesignationLoadSection.tsx')
-  for (const text of ['Catálogo de aulas', 'Excel de designación', 'Vista previa', 'Crear borrador', 'Abrir en el planificador']) {
+  for (const text of ['Catálogo de aulas', 'Excel de designación', 'Vista previa', 'Crear borrador', 'Abrir en el planificador', 'Avisos de la designación']) {
     assert.ok(loader.includes(text), text)
   }
   const types = read('src/api/types.ts')

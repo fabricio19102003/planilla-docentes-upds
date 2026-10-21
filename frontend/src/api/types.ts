@@ -1338,6 +1338,7 @@ export interface DesignationLoadPreview {
   counts: { designations: number; blocks: number; assignments: number }
   create: { subjects: string[]; offerings: number; groups: string[]; classrooms: string[]; availability: number }
   blockers: DesignationLoadBlocker[]
+  warnings: DesignationLoadBlocker[]
   conflicts: { summary: ScheduleConflictsSummary; clashes: ScheduleClash[] }
 }
 

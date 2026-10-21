@@ -115,6 +115,7 @@ def test_preview_plans_the_draft_and_writes_nothing(client, seeded):
     data = response.json()
     assert data["can_apply"] is True, data["blockers"]
     assert data["blockers"] == []
+    assert data["warnings"] == []
     assert data["program_id"] == seeded.info["program_id"]
     assert data["draft_name"] == "Designación vigente II/2026 desde 2026-11-02"
     assert data["counts"] == {"designations": 2, "blocks": 3, "assignments": 3}
@@ -267,6 +268,21 @@ def test_ended_practice_and_other_period_designations_are_not_loaded(client, see
 
     assert [item["designation_id"] for item in data["blocks"]] == [kept.id]
     assert data["blockers"] == []
+
+
+def test_subject_outside_its_curriculum_semester_is_a_warning(client, seeded):
+    misplaced = _designation(seeded, "LD-T2", "ANATOMÍA HUMANA I", "SEGUNDO", "M-1", [("lunes", "08:00", "09:30", 2)])
+    workbook = _workbook([("LD-T2", "ANATOMÍA HUMANA I", "SEGUNDO", "M-1", 7)])
+
+    data = _post(client, "preview", workbook).json()
+
+    assert data["can_apply"] is True
+    assert data["create"]["offerings"] == 1
+    assert data["warnings"] == [{
+        "code": "subject_other_semester", "designation_id": misplaced.id, "teacher_ci": "LD-T2",
+        "subject": "ANATOMÍA HUMANA I", "semester": "SEGUNDO", "group_code": "M-1",
+        "message": "La materia MED-101 está en la malla del semestre 1, pero la designación dice semestre 2: se creará una oferta en el semestre 2.",
+    }]
 
 
 def test_request_validation(client, seeded):

@@ -237,6 +237,26 @@ def _plan(db: Session, *, academic_period: str, effective_from: date, workbook: 
 
     offerings = {(offering.subject_id, offering.semester) for offering in db.query(SubjectOffering).filter(
         SubjectOffering.program_id == program.id, SubjectOffering.academic_period == academic_period)}
+    curriculum: dict[int, set[int]] = {}
+    for subject_id, semester in offerings:
+        curriculum.setdefault(subject_id, set()).add(semester)
+    warnings: list[dict] = []
+    for item in planned.values():
+        semesters = curriculum.get(item.subject.id, set()) if item.subject else set()
+        if not semesters or item.semester in semesters:
+            continue
+        for *_rest, designation_id in item.assignments:
+            if any(warning["designation_id"] == designation_id for warning in warnings):
+                continue
+            source = next(row for row in designations if row.id == designation_id)
+            listed = ", ".join(str(value) for value in sorted(semesters))
+            warnings.append({
+                "code": "subject_other_semester", "designation_id": designation_id, "teacher_ci": source.teacher_ci,
+                "subject": source.subject, "semester": source.semester, "group_code": source.group_code,
+                "message": (f"La materia {item.subject.code} está en la malla del semestre {listed}, pero la designación "
+                            f"dice semestre {item.semester}: se creará una oferta en el semestre {item.semester}."),
+            })
+    warnings.sort(key=lambda warning: warning["designation_id"])
     groups = {(group.semester, normalized_group(group.code)) for group in db.query(AcademicGroup).filter(
         AcademicGroup.program_id == program.id, AcademicGroup.academic_period == academic_period)}
     rooms = {code for (code,) in db.query(Classroom.code)}
@@ -284,7 +304,7 @@ def _plan(db: Session, *, academic_period: str, effective_from: date, workbook: 
         "create": {"subjects": new_subjects, "offerings": len(new_offerings),
                    "groups": [f"{semester} {code}" for semester, code in new_groups],
                    "classrooms": new_rooms, "availability": len(new_windows)},
-        "blockers": blockers, "blocks": block_rows, "conflicts": conflicts,
+        "blockers": blockers, "warnings": warnings, "blocks": block_rows, "conflicts": conflicts,
     }
     return {"preview": preview, "program": program, "blocks": blocks, "new_windows": new_windows}
 
