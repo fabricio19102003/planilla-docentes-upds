@@ -113,6 +113,19 @@ def postgres_publication_migration(monkeypatch):
     engine.dispose()
 
 
+# Columns that later revisions add on top of this migration's tables.
+LATER_COLUMNS = {"academic_schedule_published_blocks": {"academic_hours"}}
+
+
+def test_later_publication_columns_exist_at_head(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "publication-head.sqlite3")
+    command.upgrade(config, "head")
+    inspector = sa.inspect(engine)
+    for table, columns in LATER_COLUMNS.items():
+        assert columns <= {item["name"] for item in inspector.get_columns(table)}
+    engine.dispose()
+
+
 def test_publication_migration_fresh_upgrade_and_model_parity(tmp_path, monkeypatch):
     engine, config = _config(tmp_path, monkeypatch, "publication-fresh.sqlite3")
     command.upgrade(config, REVISION)
@@ -122,7 +135,7 @@ def test_publication_migration_fresh_upgrade_and_model_parity(tmp_path, monkeypa
     for table in tables:
         assert module._validate_table(inspector, table) == []
         model = Base.metadata.tables[table.name]
-        assert set(model.c.keys()) == set(table.c.keys())
+        assert set(model.c.keys()) - LATER_COLUMNS.get(table.name, set()) == set(table.c.keys())
         assert {item.name for item in model.indexes} == {item.name for item in table.indexes}
         assert {item.name for item in model.constraints if item.name} == {
             item.name for item in table.constraints if item.name
