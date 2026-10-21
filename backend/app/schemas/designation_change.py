@@ -82,3 +82,19 @@ class DesignationChangeResult(BaseModel):
     created_designation_ids: list[int]
     regenerate: list[DesignationChangeRegeneration]
     impact: DesignationChangeImpact
+
+
+class PublicationPayrollSimulationRequest(BaseModel):
+    effective_from: date
+    month: int = Field(ge=1, le=12)
+    year: int = Field(ge=2000, le=2100)
+
+
+class PublicationPayrollSimulation(BaseModel):
+    draft_id: int
+    effective_from: date
+    month: int
+    year: int
+    teachers: list[DesignationChangeTeacherImpact]
+    total_before: float
+    total_after: float

@@ -541,6 +541,62 @@ def preview_publication(
     }
 
 
+def _materialize_publication(
+    db: Session,
+    draft: AcademicScheduleDraft,
+    effective_from: date,
+    sequence: int,
+    digest: str,
+    user_id: int | None,
+) -> AcademicSchedulePublication:
+    """Write the immutable publication rows for a draft (flush only; callers own the transaction)."""
+    publication = AcademicSchedulePublication(
+        program_id=draft.program_id,
+        academic_period=draft.academic_period,
+        effective_from=effective_from,
+        sequence=sequence,
+        content_digest=digest,
+        source_draft_id=draft.id,
+        created_by=user_id,
+    )
+    db.add(publication)
+    db.flush()
+    for block in sorted(draft.blocks, key=lambda item: item.id):
+        snapshot = AcademicSchedulePublishedBlock(
+            publication_id=publication.id,
+            source_block_id=block.id,
+            source_offering_id=block.offering_id,
+            source_subject_id=block.offering.subject_id,
+            source_group_id=block.group_id,
+            source_classroom_id=block.classroom_id,
+            subject_code=block.offering.subject.code,
+            subject_name=block.offering.subject.name,
+            group_code=block.group.code,
+            semester=block.group.semester,
+            classroom_code=block.classroom.code,
+            classroom_name=block.classroom.name,
+            activity_type=block.activity_type,
+            weekday=block.weekday,
+            start_time=block.start_time,
+            end_time=block.end_time,
+            academic_hours=block.academic_hours,
+            notes=None,
+        )
+        db.add(snapshot)
+        db.flush()
+        for assignment in _relevant_assignments(block, effective_from):
+            db.add(AcademicSchedulePublishedAssignment(
+                publication_block_id=snapshot.id,
+                source_assignment_id=assignment.id,
+                teacher_ci=assignment.teacher_ci,
+                teacher_name=assignment.teacher.full_name,
+                effective_from=assignment.effective_from,
+                effective_to=assignment.effective_to,
+            ))
+    db.flush()
+    return publication
+
+
 def publish(
     db: Session,
     draft_id: int,
@@ -560,50 +616,10 @@ def publish(
             detail="El borrador o la secuencia cambió desde la vista previa. Genere una nueva vista previa.",
         )
     draft = _draft_graph(db, draft_id, lock=False)
-    publication = AcademicSchedulePublication(
-        program_id=draft.program_id,
-        academic_period=draft.academic_period,
-        effective_from=effective_from,
-        sequence=preview["sequence"],
-        content_digest=preview["digest"],
-        source_draft_id=draft.id,
-        created_by=user_id,
-    )
     try:
-        db.add(publication)
-        db.flush()
-        for block in sorted(draft.blocks, key=lambda item: item.id):
-            snapshot = AcademicSchedulePublishedBlock(
-                publication_id=publication.id,
-                source_block_id=block.id,
-                source_offering_id=block.offering_id,
-                source_subject_id=block.offering.subject_id,
-                source_group_id=block.group_id,
-                source_classroom_id=block.classroom_id,
-                subject_code=block.offering.subject.code,
-                subject_name=block.offering.subject.name,
-                group_code=block.group.code,
-                semester=block.group.semester,
-                classroom_code=block.classroom.code,
-                classroom_name=block.classroom.name,
-                activity_type=block.activity_type,
-                weekday=block.weekday,
-                start_time=block.start_time,
-                end_time=block.end_time,
-                academic_hours=block.academic_hours,
-                notes=None,
-            )
-            db.add(snapshot)
-            db.flush()
-            for assignment in _relevant_assignments(block, effective_from):
-                db.add(AcademicSchedulePublishedAssignment(
-                    publication_block_id=snapshot.id,
-                    source_assignment_id=assignment.id,
-                    teacher_ci=assignment.teacher_ci,
-                    teacher_name=assignment.teacher.full_name,
-                    effective_from=assignment.effective_from,
-                    effective_to=assignment.effective_to,
-                ))
+        publication = _materialize_publication(
+            db, draft, effective_from, preview["sequence"], preview["digest"], user_id,
+        )
         draft.status = "published"
         db.flush()
         if before_commit:

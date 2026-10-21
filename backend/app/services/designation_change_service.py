@@ -8,8 +8,6 @@ designation keeps paying exactly what it pays today until a change is applied.
 
 from __future__ import annotations
 
-import calendar
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -35,6 +33,7 @@ from app.schemas.designation_change import (
 )
 from app.services import app_settings_service
 from app.services.payroll_schedule_source_service import payroll_schedule_sources
+from app.services.payroll_simulation_service import hours_by_teacher, month_bounds, teacher_impacts
 
 REGULAR_PRESENT = ("ATTENDED", "LATE", "NO_EXIT")
 PRACTICE_PRESENT = ("attended", "late")
@@ -62,10 +61,6 @@ class _Plan:
 
 def _kind(designation: Designation) -> str:
     return "practice" if designation.designation_type == "practice" else "regular"
-
-
-def _month_bounds(year: int, month: int) -> tuple[date, date]:
-    return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
 
 
 def _resolve(db: Session, request: DesignationChangeRequest) -> _Plan:
@@ -173,7 +168,7 @@ def _payroll_checks(
     models = {"regular": PlanillaOutput, "practice": PracticePlanillaOutput}
     for kind in kinds:
         for output in db.query(models[kind]).order_by(models[kind].year, models[kind].month).all():
-            month_start, month_end = _month_bounds(output.year, output.month)
+            month_start, month_end = month_bounds(output.year, output.month)
             start = output.start_date or month_start
             end = output.end_date or month_end
             if end < day or (last_day is not None and start > last_day):
@@ -195,7 +190,7 @@ def _payroll_checks(
             .all()
         )
         for publication in publications:
-            month_start, month_end = _month_bounds(publication.year, publication.month)
+            month_start, month_end = month_bounds(publication.year, publication.month)
             if month_end < day or (last_day is not None and month_start > last_day):
                 continue
             blockers.append(DesignationChangeBlocker(
@@ -234,41 +229,19 @@ def _mutate(db: Session, plan: _Plan) -> tuple[list[int], list[int]]:
     return ended, [item.id for item in created]
 
 
-def _hours_by_teacher(db: Session, plan: _Plan, teachers: set[str]) -> dict[tuple[str, str], int]:
-    start, end = _month_bounds(plan.effective_from.year, plan.effective_from.month)
-    totals: dict[tuple[str, str], int] = defaultdict(int)
-    for activity in sorted({"practice" if _kind(i) == "practice" else "theory" for i in plan.designations}):
-        for source in payroll_schedule_sources(
-            db, academic_period=plan.period, period_start=start, period_end=end, activity_kind=activity,
-        ):
-            if source.teacher_ci in teachers:
-                totals[(source.teacher_ci, activity)] += int(source.monthly_hours or 0)
-    return totals
+def _activities(plan: _Plan) -> set[str]:
+    return {"practice" if _kind(item) == "practice" else "theory" for item in plan.designations}
 
 
-def _impact(db: Session, plan: _Plan, before: dict, after: dict) -> DesignationChangeImpact:
-    rates = {
-        "theory": app_settings_service.get_hourly_rate(db),
-        "practice": app_settings_service.get_practice_hourly_rate(db),
-    }
-    names = {t.ci: t.full_name for t in db.query(Teacher).filter(Teacher.ci.in_({k[0] for k in {**before, **after}})).all()}
-    teachers = []
-    for key in sorted(set(before) | set(after)):
-        ci, activity = key
-        hours_before, hours_after = before.get(key, 0), after.get(key, 0)
-        teachers.append(DesignationChangeTeacherImpact(
-            teacher_ci=ci, teacher_name=names.get(ci, ci), activity=activity,
-            hours_before=hours_before, hours_after=hours_after,
-            amount_before=round(hours_before * rates[activity], 2),
-            amount_after=round(hours_after * rates[activity], 2),
-        ))
-    return DesignationChangeImpact(month=plan.effective_from.month, year=plan.effective_from.year, teachers=teachers)
+def _hours(db: Session, plan: _Plan, teachers: set[str]) -> dict:
+    start, end = month_bounds(plan.effective_from.year, plan.effective_from.month)
+    return hours_by_teacher(db, plan.period, start, end, _activities(plan), teachers)
 
 
 def _published_warnings(db: Session, plan: _Plan) -> list[str]:
-    start, end = _month_bounds(plan.effective_from.year, plan.effective_from.month)
+    start, end = month_bounds(plan.effective_from.year, plan.effective_from.month)
     warnings = []
-    for activity in sorted({"practice" if _kind(i) == "practice" else "theory" for i in plan.designations}):
+    for activity in sorted(_activities(plan)):
         published = {
             (s.subject.casefold().strip(), s.group_code.casefold().strip(), str(s.semester).casefold().strip())
             for s in payroll_schedule_sources(
@@ -292,7 +265,7 @@ def _evaluate(db: Session, request: DesignationChangeRequest) -> tuple[_Plan, De
     payroll_blockers, regenerate = _payroll_checks(db, plan)
     blockers.extend(payroll_blockers)
     teachers = {item.teacher_ci for item in plan.designations} | {plan.incoming.ci}
-    before = _hours_by_teacher(db, plan, teachers)
+    before = _hours(db, plan, teachers)
     if any(b.code in STRUCTURAL_BLOCKERS for b in blockers):
         after = dict(before)
     else:
@@ -300,14 +273,10 @@ def _evaluate(db: Session, request: DesignationChangeRequest) -> tuple[_Plan, De
         savepoint = db.begin_nested()
         try:
             _mutate(db, plan)
-            after = _hours_by_teacher(db, plan, teachers)
+            after = _hours(db, plan, teachers)
         finally:
             savepoint.rollback()
-    activities = {"practice" if _kind(i) == "practice" else "theory" for i in plan.designations}
-    for ci in teachers:
-        for activity in activities:
-            before.setdefault((ci, activity), 0)
-            after.setdefault((ci, activity), 0)
+    keys = set(before) | set(after) | {(ci, activity) for ci in teachers for activity in _activities(plan)}
     items = [
         DesignationChangeItem(
             designation_id=item.id, subject=item.subject, semester=str(item.semester), group_code=item.group_code,
@@ -323,7 +292,10 @@ def _evaluate(db: Session, request: DesignationChangeRequest) -> tuple[_Plan, De
         blockers=blockers,
         warnings=_published_warnings(db, plan),
         regenerate=regenerate,
-        impact=_impact(db, plan, before, after),
+        impact=DesignationChangeImpact(
+            month=plan.effective_from.month, year=plan.effective_from.year,
+            teachers=[DesignationChangeTeacherImpact(**item) for item in teacher_impacts(db, before, after, keys)],
+        ),
     )
     return plan, preview
 

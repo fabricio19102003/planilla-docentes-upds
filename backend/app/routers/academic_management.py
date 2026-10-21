@@ -88,8 +88,10 @@ from app.schemas.designation_change import (
     DesignationChangePreview,
     DesignationChangeRequest,
     DesignationChangeResult,
+    PublicationPayrollSimulation,
+    PublicationPayrollSimulationRequest,
 )
-from app.services import designation_change_service
+from app.services import designation_change_service, payroll_simulation_service
 from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
 from app.utils.auth import require_admin
 
@@ -699,6 +701,20 @@ def preview_schedule_publication(
     db: Session = Depends(get_db),
 ):
     return publication_service.preview_publication(db, draft_id, payload.effective_from)
+
+
+@router.post(
+    "/schedule-drafts/{draft_id}/payroll-simulation",
+    response_model=PublicationPayrollSimulation,
+)
+def simulate_schedule_publication_payroll(
+    draft_id: int,
+    payload: PublicationPayrollSimulationRequest,
+    db: Session = Depends(get_db),
+):
+    return payroll_simulation_service.simulate_publication(
+        db, draft_id, payload.effective_from, payload.month, payload.year,
+    )
 
 
 @router.post(
