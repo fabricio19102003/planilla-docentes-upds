@@ -60,9 +60,15 @@ def _fold(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+_SHIFT_ORDER = {"M": 0, "T": 1, "N": 2}
+
+
 def _group_sort(code: str) -> tuple:
+    """Morning, afternoon, night by number, then other codes (A, EXTRA) alphabetically."""
     match = re.fullmatch(r"([A-Z]+)-(\d+)", code)
-    return (match.group(1), int(match.group(2)), code) if match else (code, 0, code)
+    if match and match.group(1) in _SHIFT_ORDER:
+        return (_SHIFT_ORDER[match.group(1)], int(match.group(2)), code)
+    return (len(_SHIFT_ORDER), 0, code)
 
 
 def _block_sort(block: ViewBlock) -> tuple:

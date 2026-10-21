@@ -250,3 +250,12 @@ def test_published_blocks_show_the_current_catalog_name(client, db_session):
     assert renamed.status_code == 200, renamed.text
     body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
     assert [(b["subject_code"], b["subject_name"]) for b in body["blocks"]] == [("MRF 0100", "Anatomía Humana I (malla)")]
+
+
+def test_semester_groups_follow_shift_order(client, db_session):
+    _catalog(client, db_session)
+    for code in ("EXTRA", "N-1", "T-2", "M-10", "A", "M-2"):
+        _designation(db_session, group_code=code)
+    body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
+    assert body["semesters"] == [{"semester": 1, "groups": ["M-2", "M-10", "T-2", "N-1", "A", "EXTRA"]}]
+    assert [b["group_code"] for b in body["blocks"]] == ["M-2", "M-10", "T-2", "N-1", "A", "EXTRA"]
