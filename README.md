@@ -673,6 +673,15 @@ Las designaciones estan scoped por periodo academico (ej: `I/2026`, `II/2026`). 
 
 Importar designaciones no cambia el periodo activo. La activacion sigue siendo una accion separada en Configuracion.
 
+## Horarios por semestre y grupo (Gestion academica)
+
+- `GET /api/admin/academic-management/schedule-view?academic_period=II/2026[&source=current|draft][&draft_id=N][&date=AAAA-MM-DD][&semester=N][&group=M-1]` devuelve los bloques semanales y la lista de semestres con sus grupos.
+  - `current` (por defecto) es el horario que usa la planilla: designaciones de teoria vigentes en la fecha mas la ultima publicacion de practicas.
+  - `draft` muestra un borrador con el docente asignado en la fecha.
+  - Los semestres en ordinal (`PRIMERO`, `Septimo`) se devuelven como numero y los grupos normalizados (`M-01` = `M-1`).
+- `GET .../schedule-view/export` con los mismos filtros descarga un Excel: una hoja por semestre y grupo con la grilla semanal de 06:30 a 23:30 en franjas de 30 minutos, mas una hoja `Lista` con todos los bloques.
+- La vista previa de publicacion bloquea los borradores con teoria que cambiarian lo que pagan las designaciones: `theory_hours_mismatch` cuando la designacion reemplazada pagaria otras horas semanales y `theory_duplicates_designation` cuando una designacion vigente del mismo grupo y semestre se superpone con un bloque de teoria sin ser reemplazada (se pagaria dos veces).
+
 ## Tests
 
 ```bash
