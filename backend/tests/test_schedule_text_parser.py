@@ -202,3 +202,27 @@ class TestRemainingLegacyNotations:
         slots, errors = _strict("Aula 3 LUNES 08:00-09:30")
         assert [s["dia"] for s in slots] == ["lunes"]
         assert errors == ["Texto sin día en el horario: 'AULA 3'"]
+
+
+@pytest.mark.parametrize("raw,start,end", [
+    ("LUNES 08:00 PM-10:00 PM hrs", "20:00", "22:00"),
+    ("LUNES 06:30 pm - 08:00 pm horas", "18:30", "20:00"),
+    ("LUNES 06:30 pm - 08:00 pm HS.", "18:30", "20:00"),
+    ("LUNES 06:30-08:00 pm hrs.", "18:30", "20:00"),
+    ("LUNES 06:30 pm - 08:00 pm h", "18:30", "20:00"),
+    ("// LUNES 08:00-10:00", "08:00", "10:00"),
+])
+def test_trailing_unit_after_marker_and_leading_slashes(raw, start, end):
+    slots, errors = _strict(raw)
+    assert errors == []
+    assert [(s["hora_inicio"], s["hora_fin"]) for s in slots] == [(start, end)]
+
+
+def test_unit_glued_to_marker_is_still_rejected():
+    slots, errors = _strict("LUNES 06:30 pm - 08:00 pmh")
+    assert slots == []
+    assert len(errors) == 1
+
+
+def test_text_before_slash_is_still_reported():
+    assert _strict("X/ LUNES 08:00-10:00")[1] == ["Texto sin día en el horario: 'X'"]

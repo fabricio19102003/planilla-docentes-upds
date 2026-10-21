@@ -502,3 +502,34 @@ def test_excel_upload_rejects_impossible_blocks_and_writes_nothing(client, db_se
     ]
     assert excel_apply(client, content, result["digest"]).status_code == 400
     assert db_session.query(Designation).count() == 0
+
+
+def test_excel_upload_lists_every_rejected_block_and_warns_on_empty_schedule(client, db_session):
+    from io import BytesIO
+
+    import openpyxl
+
+    add_excel_teacher(db_session)
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["N°", "DOCENTE", "MATERIAS", "SEMESTRE", "GRUPO", "SAADS", "AULA", "HORARIO",
+                  "CARGA HORARIA", "TOTAL", "MES", "SEMANA", "REAL"])
+    sheet.append([1, "DOCENTE EXCEL SINTETICO", "MATERIA VALIDA", "PRIMERO", "M-01", None, None,
+                  "/Lunes: 08:00 - 09:30h", 40, None, 8, 2, None])
+    sheet.append([2, "DOCENTE EXCEL SINTETICO", "MATERIA INVALIDA", "PRIMERO", "M-02", None, None,
+                  "Jueves: 25:00-26:00\nViernes: X", 40, None, 8, 2, None])
+    sheet.append([3, "DOCENTE EXCEL SINTETICO", "MATERIA SIN HORARIO", "PRIMERO", "M-03", None, None,
+                  None, 40, None, 8, 2, None])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    content = buffer.getvalue()
+
+    result = excel_preview(client, content).json()
+    assert result["can_apply"] is False
+    assert result["errors"] == [
+        "Fila 3: horario inválido: El bloque 'JUEVES: 25:00-26:00' tiene una hora inválida",
+        "Fila 3: horario inválido: No se pudo leer el bloque 'VIERNES: X'",
+    ]
+    assert "Fila 4: 'DOCENTE EXCEL SINTETICO' no tiene horario; la fila se omite." in result["warnings"]
+    assert excel_apply(client, content, result["digest"]).status_code == 400
+    assert db_session.query(Designation).count() == 0
