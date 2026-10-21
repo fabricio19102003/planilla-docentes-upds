@@ -1237,3 +1237,116 @@ export interface PublicationPayrollSimulation {
   total_before: number
   total_after: number
 }
+
+export type ClashKind = 'teacher' | 'group' | 'classroom' | 'split_group'
+
+export interface ConflictBlockSummary {
+  key: string
+  semester: number | null
+  group_code: string
+  subject_name: string
+  activity_type: string
+  start_time: string
+  end_time: string
+  teacher_ci: string | null
+  teacher_name: string | null
+  classroom_code: string | null
+}
+
+export interface ScheduleClash {
+  kind: ClashKind
+  severity: 'conflict' | 'warning'
+  weekday: string
+  start_time: string
+  end_time: string
+  overlap_minutes: number
+  teacher_ci: string | null
+  group_code: string | null
+  semester: number | null
+  classroom_code: string | null
+  keys: string[]
+  blocks: ConflictBlockSummary[]
+}
+
+export interface TeacherWeeklyLoad {
+  teacher_ci: string
+  teacher_name: string | null
+  weekly_minutes: number
+  weekly_hours: number
+  blocks: number
+  over_threshold: boolean
+}
+
+export interface FreeSlot {
+  weekday: string
+  start_time: string
+  end_time: string
+  minutes: number
+  semester?: number | null
+  group_code?: string
+  classroom_code?: string
+}
+
+export interface ScheduleConflictsSummary {
+  conflicts: number
+  warnings: number
+  unassigned: number
+  overloaded_teachers: number
+  blocks: number
+  blocks_without_room: number
+}
+
+export interface ScheduleConflictsReport {
+  academic_period: string
+  source: 'current' | 'draft'
+  reference_date: string
+  draft_id: number | null
+  tolerance_minutes: number
+  day_window: { start_time: string; end_time: string; min_free_minutes: number }
+  load_threshold: number
+  summary: ScheduleConflictsSummary
+  clashes: ScheduleClash[]
+  unassigned: ConflictBlockSummary[]
+  teacher_loads: TeacherWeeklyLoad[]
+  free_slots: { groups: FreeSlot[]; rooms: FreeSlot[] }
+}
+
+export interface ClassroomCatalogPlan {
+  create: { code: string; name: string; building: string; floor: number; room: string; capacity: number }[]
+  update: { code: string; changes: Record<string, [unknown, unknown]> }[]
+  unchanged: number
+  conflicts: { code: string; room: string; catalog_code: string }[]
+}
+
+export interface DesignationLoadBlocker {
+  code: string
+  designation_id: number | null
+  teacher_ci: string | null
+  subject: string | null
+  semester: string | null
+  group_code: string | null
+  message: string
+}
+
+export interface DesignationLoadPreview {
+  academic_period: string
+  effective_from: string
+  program_id: number
+  draft_name: string
+  digest: string
+  can_apply: boolean
+  counts: { designations: number; blocks: number; assignments: number }
+  create: { subjects: string[]; offerings: number; groups: string[]; classrooms: string[]; availability: number }
+  blockers: DesignationLoadBlocker[]
+  conflicts: { summary: ScheduleConflictsSummary; clashes: ScheduleClash[] }
+}
+
+export interface DesignationLoadResult {
+  draft_id: number
+  draft_name: string
+  blocks: number
+  assignments: number
+  created: DesignationLoadPreview['create']
+  designation_ids: number[]
+  conflicts: ScheduleConflictsSummary
+}

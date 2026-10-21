@@ -27,6 +27,8 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SchedulesSection } from '@/components/academic-management/SchedulesSection'
 import { TeacherChangeSection } from '@/components/academic-management/TeacherChangeSection'
+import { ScheduleConflictsSection } from '@/components/academic-management/ScheduleConflictsSection'
+import { DesignationLoadSection } from '@/components/academic-management/DesignationLoadSection'
 import {
   availabilityPayload,
   groupGroupsBySemester,
@@ -407,10 +409,12 @@ export function AcademicManagementPage() {
       <header className="flex items-center gap-3"><div className="rounded-xl bg-blue-50 p-3 text-blue-800"><School aria-hidden="true" /></div><div><h1 className="text-2xl font-bold text-slate-900">Gestión académica</h1><p className="text-sm text-slate-500">Horarios por semestre y grupo, malla curricular, catálogos y disponibilidad docente.</p></div></header>
       <Tabs defaultValue="schedules" className="flex flex-col gap-5">
         <TabsList className="h-auto flex-wrap justify-start">
-          <TabsTrigger value="schedules">Horarios</TabsTrigger><TabsTrigger value="teacher-change">Cambiar docente</TabsTrigger><TabsTrigger value="programs">Programas</TabsTrigger><TabsTrigger value="subjects">Asignaturas</TabsTrigger><TabsTrigger value="offerings">Ofertas</TabsTrigger><TabsTrigger value="groups">Grupos</TabsTrigger><TabsTrigger value="classrooms">Aulas</TabsTrigger><TabsTrigger value="availability">Disponibilidad docente</TabsTrigger>
+          <TabsTrigger value="schedules">Horarios</TabsTrigger><TabsTrigger value="teacher-change">Cambiar docente</TabsTrigger><TabsTrigger value="conflicts">Conflictos y huecos</TabsTrigger><TabsTrigger value="designation-load">Cargar designación</TabsTrigger><TabsTrigger value="programs">Programas</TabsTrigger><TabsTrigger value="subjects">Asignaturas</TabsTrigger><TabsTrigger value="offerings">Ofertas</TabsTrigger><TabsTrigger value="groups">Grupos</TabsTrigger><TabsTrigger value="classrooms">Aulas</TabsTrigger><TabsTrigger value="availability">Disponibilidad docente</TabsTrigger>
         </TabsList>
         <TabsContent value="schedules"><SchedulesSection /></TabsContent>
         <TabsContent value="teacher-change"><TeacherChangeSection /></TabsContent>
+        <TabsContent value="conflicts"><ScheduleConflictsSection /></TabsContent>
+        <TabsContent value="designation-load"><DesignationLoadSection /></TabsContent>
         <TabsContent value="programs"><CatalogSection<AcademicProgram> resource="programs" title="Programas" description="Carreras o programas académicos reutilizables." query={programs} fields={commonFields} emptyForm={{ code: '', name: '' }} toForm={(item) => ({ code: item.code, name: item.name })} toPayload={(form) => form} summary={(item) => `${item.code} — ${item.name}`} /></TabsContent>
         <TabsContent value="subjects" className="flex flex-col gap-4">
           <CatalogPeriodField value={catalogPeriod} onChange={setCatalogPeriod} />
