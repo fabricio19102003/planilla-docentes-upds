@@ -19,6 +19,7 @@ const seededSettings = {
   company_nit: '456850023',
   hourly_rate: 70,
   practice_hourly_rate: 50,
+  academic_hour_minutes: 45,
   docente_can_edit_profile: false,
   docente_can_edit_photo: false,
   whatsapp_billing_delivery: {
@@ -72,4 +73,14 @@ test('maps WhatsApp intent and renders an accessible non-optimistic switch', () 
   assert.match(page, /aria-checked=/)
   assert.match(page, /whatsapp_billing_delivery\.effective_enabled/)
   assert.match(page, /whatsapp_billing_delivery\.blocking_reasons/)
+})
+
+test('edits the academic hour length and only sends it when it changes', () => {
+  const form = toSettingsFormState(seededSettings)
+  assert.equal(form.academic_hour_minutes, '45')
+  assert.deepEqual(buildSettingsPayload(form, seededSettings), {})
+  assert.deepEqual(buildSettingsPayload({ ...form, academic_hour_minutes: '40' }, seededSettings), { academic_hour_minutes: 40 })
+  assert.deepEqual(buildSettingsPayload({ ...form, academic_hour_minutes: '3' }, seededSettings), {})
+  assert.match(page, /academic_hour_minutes/)
+  assert.match(page, /Duración de la hora académica/)
 })

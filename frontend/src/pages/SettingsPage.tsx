@@ -114,6 +114,12 @@ export function SettingsPage() {
       }
     }
 
+    const hourLength = Number(form.academic_hour_minutes.trim())
+    if (!Number.isInteger(hourLength) || hourLength < 5 || hourLength > 120) {
+      setValidationError('La duración de la hora académica debe ser un número entero entre 5 y 120 minutos.')
+      return
+    }
+
     if (!form.active_academic_period.trim()) {
       setValidationError('El período académico no puede estar vacío.')
       return
@@ -267,6 +273,25 @@ export function SettingsPage() {
                 />
                 <p className="text-xs text-gray-500">
                   Monto por hora académica para docentes asistenciales (prácticas internas).
+                </p>
+              </div>
+
+              {/* Academic hour length */}
+              <div className="space-y-1.5">
+                <Label htmlFor="academic_hour_minutes">Duración de la hora académica (minutos)</Label>
+                <Input
+                  id="academic_hour_minutes"
+                  type="number"
+                  min={5}
+                  max={120}
+                  step={1}
+                  placeholder="45"
+                  value={form.academic_hour_minutes}
+                  onChange={(e) => setForm({ ...form, academic_hour_minutes: e.target.value })}
+                  disabled={updateMutation.isPending}
+                />
+                <p className="text-xs text-gray-500">
+                  Se usa para precargar las horas académicas de cada bloque nuevo (duración ÷ este valor). Las horas de cada bloque se pueden corregir a mano; los bloques existentes no cambian.
                 </p>
               </div>
 
