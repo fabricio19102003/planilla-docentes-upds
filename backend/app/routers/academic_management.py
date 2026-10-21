@@ -8,6 +8,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -860,6 +861,16 @@ def apply_designation_change(
         raise HTTPException(409, detail={
             "message": "El cambio de docente no se puede aplicar.",
             "blockers": [item.model_dump(mode="json") for item in exc.preview.blockers],
+        }) from exc
+    except IntegrityError as exc:
+        # Lost a race against another apply on the same designation (unique key).
+        db.rollback()
+        raise HTTPException(409, detail={
+            "message": "El cambio de docente no se puede aplicar.",
+            "blockers": [{
+                "code": "concurrent_change", "designation_id": None, "dates": [],
+                "message": "Otro cambio modificó estas designaciones al mismo tiempo. Generá una nueva vista previa.",
+            }],
         }) from exc
     except Exception:
         db.rollback()
