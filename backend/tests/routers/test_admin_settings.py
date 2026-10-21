@@ -109,3 +109,18 @@ def test_admin_can_disable_whatsapp_when_provider_is_unavailable(client, db_sess
     status = response.json()["whatsapp_billing_delivery"]
     assert status["requested_enabled"] is False
     assert status["effective_enabled"] is False
+
+
+def test_academic_hour_minutes_defaults_to_45_and_can_be_updated(client, db_session):
+    assert client.get("/api/admin/settings").json()["academic_hour_minutes"] == 45
+    response = client.put("/api/admin/settings", json={"academic_hour_minutes": 40})
+    assert response.status_code == 200, response.text
+    assert response.json()["academic_hour_minutes"] == 40
+    assert app_settings_service.get_academic_hour_minutes(db_session) == 40
+
+
+def test_academic_hour_minutes_rejects_values_outside_5_to_120(client, db_session):
+    for value in (4, 121):
+        response = client.put("/api/admin/settings", json={"academic_hour_minutes": value})
+        assert response.status_code == 422
+    assert app_settings_service.get_academic_hour_minutes(db_session) == 45

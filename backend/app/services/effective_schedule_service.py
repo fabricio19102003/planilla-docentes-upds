@@ -8,6 +8,7 @@ from typing import Literal
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.academic_management import (
+    block_paid_hours,
     AcademicSchedulePublication,
     AcademicSchedulePublishedAssignment,
     AcademicSchedulePublishedBlock,
@@ -156,7 +157,7 @@ def effective_schedule_slots(
                 weekday=_canonical_weekday(block.weekday),
                 start_time=block.start_time,
                 end_time=block.end_time,
-                academic_hours=max(1, duration // 45),
+                academic_hours=block_paid_hours(block.start_time, block.end_time, block.academic_hours),
                 published_block_id=block.id,
                 published_assignment_id=assignment.id,
                 publication_id=publication.id,

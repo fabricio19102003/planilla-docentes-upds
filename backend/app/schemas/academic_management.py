@@ -226,6 +226,7 @@ class ScheduleBlockCreate(BaseModel):
     weekday: ScheduleWeekday
     start_time: time
     end_time: time
+    academic_hours: int | None = Field(default=None, ge=1, le=12)
     _validate_naive_times = field_validator("start_time", "end_time")(_naive_time)
 
     @model_validator(mode="after")
@@ -241,6 +242,7 @@ class ScheduleBlockUpdate(ScheduleBlockCreate):
 
 class ScheduleBlockResponse(ScheduleBlockCreate):
     id: int
+    paid_hours: int
     draft_id: int
     created_at: datetime
     updated_at: datetime
@@ -378,6 +380,8 @@ class PublishedScheduleBlockResponse(BaseModel):
     weekday: ScheduleWeekday
     start_time: time
     end_time: time
+    academic_hours: int | None
+    paid_hours: int
     notes: str | None
     assignments: list[PublishedScheduleAssignmentResponse]
     model_config = ConfigDict(from_attributes=True)

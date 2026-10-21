@@ -33,6 +33,7 @@ KEY_DOCENTE_CAN_EDIT_PROFILE = "DOCENTE_CAN_EDIT_PROFILE"
 KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
 KEY_BILLING_WHATSAPP_DELIVERY_ENABLED = "BILLING_WHATSAPP_DELIVERY_ENABLED"
+KEY_ACADEMIC_HOUR_MINUTES = "ACADEMIC_HOUR_MINUTES"
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -46,6 +47,7 @@ _DEFAULTS: dict[str, str] = {
     KEY_DOCENTE_CAN_EDIT_PHOTO: "false",
     KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
     KEY_BILLING_WHATSAPP_DELIVERY_ENABLED: "false",
+    KEY_ACADEMIC_HOUR_MINUTES: "45",
 }
 
 # ── Generic accessors ──────────────────────────────────────────────────────
@@ -129,6 +131,19 @@ def get_practice_hourly_rate(db: Session) -> float:
     except (TypeError, ValueError):
         logger.warning("Invalid PRACTICE_HOURLY_RATE value in DB: %r — falling back to default", raw)
         return float(_DEFAULTS[KEY_PRACTICE_HOURLY_RATE])
+
+
+def get_academic_hour_minutes(db: Session) -> int:
+    """Length of one academic hour in minutes, used to prefill block hours (5..120)."""
+    raw = get_setting(db, KEY_ACADEMIC_HOUR_MINUTES, _DEFAULTS[KEY_ACADEMIC_HOUR_MINUTES])
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 0
+    if not 5 <= value <= 120:
+        logger.warning("Invalid ACADEMIC_HOUR_MINUTES value in DB: %r — falling back to default", raw)
+        return int(_DEFAULTS[KEY_ACADEMIC_HOUR_MINUTES])
+    return value
 
 
 def _parse_bool(raw: str, default: bool = False) -> bool:

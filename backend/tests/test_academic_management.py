@@ -282,10 +282,10 @@ def test_schedule_blocks_validate_grid_scope_capacity_hours_and_overlap(client):
         **base, "start_time": "08:30", "end_time": "09:30",
     }).status_code == 409
     assert client.post(f"{BASE}/schedule-drafts/{draft['id']}/blocks", json={
-        **base, "weekday": "tuesday", "start_time": "07:15", "end_time": "08:15",
+        **base, "weekday": "tuesday", "start_time": "07:12", "end_time": "08:15",
     }).status_code == 422
     assert client.post(f"{BASE}/schedule-drafts/{draft['id']}/blocks", json={
-        **base, "weekday": "tuesday", "start_time": "21:30", "end_time": "22:30",
+        **base, "weekday": "tuesday", "start_time": "23:00", "end_time": "23:45",
     }).status_code == 422
     assert client.post(f"{BASE}/schedule-drafts/{draft['id']}/blocks", json={
         **base, "weekday": "tuesday", "start_time": "07:00", "end_time": "07:30",

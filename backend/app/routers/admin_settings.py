@@ -40,6 +40,7 @@ class SettingsResponse(BaseModel):
     company_nit: str
     hourly_rate: float
     practice_hourly_rate: float
+    academic_hour_minutes: int
     docente_can_edit_profile: bool
     docente_can_edit_photo: bool
     medicine_schedule_assistant_enabled: bool
@@ -54,6 +55,7 @@ class SettingsUpdateRequest(BaseModel):
     company_nit: Optional[str] = Field(default=None, min_length=1, max_length=50)
     hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
     practice_hourly_rate: Optional[float] = Field(default=None, gt=0, le=10000)
+    academic_hour_minutes: Optional[int] = Field(default=None, ge=5, le=120)
     docente_can_edit_profile: Optional[bool] = None
     docente_can_edit_photo: Optional[bool] = None
     medicine_schedule_assistant_enabled: Optional[bool] = None
@@ -76,6 +78,7 @@ def _current_settings(db: Session) -> SettingsResponse:
         company_nit=app_settings_service.get_company_nit(db),
         hourly_rate=app_settings_service.get_hourly_rate(db),
         practice_hourly_rate=app_settings_service.get_practice_hourly_rate(db),
+        academic_hour_minutes=app_settings_service.get_academic_hour_minutes(db),
         docente_can_edit_profile=app_settings_service.get_docente_can_edit_profile(db),
         docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
         medicine_schedule_assistant_enabled=app_settings_service.get_medicine_schedule_assistant_enabled(db),
@@ -152,6 +155,14 @@ def update_settings(
                 str(payload.practice_hourly_rate),
             )
             changes["practice_hourly_rate"] = payload.practice_hourly_rate
+
+        if payload.academic_hour_minutes is not None:
+            app_settings_service.update_setting(
+                db,
+                app_settings_service.KEY_ACADEMIC_HOUR_MINUTES,
+                str(payload.academic_hour_minutes),
+            )
+            changes["academic_hour_minutes"] = payload.academic_hour_minutes
 
         if payload.docente_can_edit_profile is not None:
             app_settings_service.set_docente_can_edit_profile(db, payload.docente_can_edit_profile)

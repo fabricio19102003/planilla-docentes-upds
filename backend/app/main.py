@@ -311,6 +311,7 @@ async def lifespan(app: FastAPI):
                 ("DOCENTE_CAN_EDIT_PHOTO", "false", "Permite a docentes subir o eliminar su propia foto de perfil"),
                 ("MEDICINE_SCHEDULE_ASSISTANT_ENABLED", "false", "Habilita el asistente de horarios de Medicina"),
                 ("BILLING_WHATSAPP_DELIVERY_ENABLED", "false", "Permite solicitar envíos de facturación por WhatsApp oficial"),
+                ("ACADEMIC_HOUR_MINUTES", "45", "Minutos de una hora académica para precargar las horas de cada bloque"),
             ]
             added = 0
             for key, value, desc in defaults_spec:

@@ -9,6 +9,7 @@ export interface SettingsFormState {
   company_nit: string
   hourly_rate: string
   practice_hourly_rate: string
+  academic_hour_minutes: string
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
   whatsapp_billing_requested_enabled: boolean
@@ -21,6 +22,7 @@ export function toSettingsFormState(settings: AppSettings): SettingsFormState {
     company_nit: settings.company_nit,
     hourly_rate: String(settings.hourly_rate),
     practice_hourly_rate: String(settings.practice_hourly_rate),
+    academic_hour_minutes: String(settings.academic_hour_minutes),
     docente_can_edit_profile: settings.docente_can_edit_profile,
     docente_can_edit_photo: settings.docente_can_edit_photo,
     whatsapp_billing_requested_enabled: settings.whatsapp_billing_delivery.requested_enabled,
@@ -64,6 +66,11 @@ export function buildSettingsPayload(
       payload.practice_hourly_rate = practiceRate
     }
   }
+  const hourLength = Number(form.academic_hour_minutes.trim())
+  if (Number.isInteger(hourLength) && hourLength >= 5 && hourLength <= 120 && hourLength !== server.academic_hour_minutes) {
+    payload.academic_hour_minutes = hourLength
+  }
+
 
   if (form.docente_can_edit_profile !== server.docente_can_edit_profile) {
     payload.docente_can_edit_profile = form.docente_can_edit_profile

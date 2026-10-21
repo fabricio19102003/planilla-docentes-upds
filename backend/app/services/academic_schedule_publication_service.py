@@ -34,8 +34,8 @@ from app.utils.subject_names import same_subject
 
 
 OPERATIONAL_WARNINGS = [
-    "Las asignaciones teóricas publicadas alimentan la asistencia regular y conservan su procedencia inmutable.",
-    "Los bloques de práctica, planillas, contratos y facturación continúan usando únicamente las designaciones heredadas.",
+    "Desde la fecha efectiva, los bloques publicados (teoría y práctica) reemplazan en la planilla y en la asistencia regular a las designaciones de la misma materia, grupo y semestre.",
+    "Cada bloque paga sus horas académicas por clase dictada: teoría a la tarifa de teoría y práctica a la tarifa de prácticas. Los contratos y la facturación siguen usando las designaciones.",
 ]
 
 
@@ -108,6 +108,7 @@ def _canonical_block(block: AcademicScheduleBlock, effective_from: date) -> dict
         "weekday": block.weekday,
         "start_time": block.start_time.isoformat(),
         "end_time": block.end_time.isoformat(),
+        **({"academic_hours": block.academic_hours} if block.academic_hours is not None else {}),
         "notes": None,
         "assignments": [
             {
@@ -317,6 +318,7 @@ def _publication_block_dict(block: AcademicSchedulePublishedBlock) -> dict[str, 
         "weekday": block.weekday,
         "start_time": block.start_time.isoformat(),
         "end_time": block.end_time.isoformat(),
+        **({"academic_hours": block.academic_hours} if block.academic_hours is not None else {}),
         "notes": block.notes,
         "assignments": [
             {
@@ -420,7 +422,7 @@ def _theory_payroll_blockers(
         key = schedule_scope_key(
             block.offering.subject.name, block.group.code, block.group.semester, "theory"
         )
-        scopes[key] = scopes.get(key, 0) + max(1, _block_minutes(block.start_time, block.end_time) // 45)
+        scopes[key] = scopes.get(key, 0) + block.paid_hours
     designations = [
         item for item in db.query(Designation).filter(
             Designation.academic_period == draft.academic_period
@@ -588,6 +590,7 @@ def publish(
                 weekday=block.weekday,
                 start_time=block.start_time,
                 end_time=block.end_time,
+                academic_hours=block.academic_hours,
                 notes=None,
             )
             db.add(snapshot)
@@ -671,6 +674,7 @@ def clone_publication(
                 weekday=source.weekday,
                 start_time=source.start_time,
                 end_time=source.end_time,
+                academic_hours=source.academic_hours,
             )
             db.add(block)
             db.flush()

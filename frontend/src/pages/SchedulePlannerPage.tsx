@@ -28,7 +28,9 @@ import type {
   ScheduleWeekday,
   SubjectOffering,
 } from '@/api/types'
+import { useAppSettings } from '@/api/hooks/useAppSettings'
 import { DesignationBootstrapDialog } from '@/components/academic-management/DesignationBootstrapDialog'
+import { TeacherCombobox } from '@/components/academic-management/TeacherCombobox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -38,13 +40,18 @@ import {
   addMinutes,
   assignmentForReferenceDate,
   assignmentPayload,
+  BLOCK_DURATION_PRESETS,
+  blockTimeError,
+  cellForStart,
+  blockDurationMinutes,
+  defaultAcademicHours,
   EMPTY_SCHEDULE_BLOCK,
+  legacyPaidHours,
   parseScheduleCellId,
   publicationDiffItems,
   replacementWarning,
   scheduleBlockPayload,
   scheduleCellId,
-  SCHEDULE_END_TIMES,
   SCHEDULE_TIMES,
   SCHEDULE_WEEKDAYS,
 } from '@/lib/schedulePlannerState'
@@ -133,7 +140,7 @@ function ScheduleCell({
       {blocks.map((block) => (
         <div key={block.id} className="rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-slate-800">
           <p className="font-semibold">{block.offering.subject.code} · {block.group.code}</p>
-          <p>{block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom.code}</p>
+          <p>{block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom.code} · {block.paid_hours} h</p>
           <p className="mt-1 font-medium text-sky-900">
             {currentAssignments[block.id]?.teacher_name ?? 'Sin docente asignado'}
           </p>
@@ -185,6 +192,15 @@ export function SchedulePlannerPage() {
   const [blockOpen, setBlockOpen] = useState(false)
   const [editingBlock, setEditingBlock] = useState<AcademicScheduleBlock | null>(null)
   const [blockForm, setBlockForm] = useState<ScheduleBlockForm>(EMPTY_SCHEDULE_BLOCK)
+  const appSettings = useAppSettings()
+  const academicHourMinutes = appSettings.data?.academic_hour_minutes ?? 45
+  const blockFormError = blockTimeError(blockForm.start_time, blockForm.end_time)
+  const keepsLegacyHours = Boolean(editingBlock && editingBlock.academic_hours === null)
+  const prefilledHours = blockFormError
+    ? null
+    : keepsLegacyHours
+      ? legacyPaidHours(blockForm.start_time, blockForm.end_time)
+      : defaultAcademicHours(blockForm.start_time, blockForm.end_time, academicHourMinutes)
   const [assignmentBlock, setAssignmentBlock] = useState<AcademicScheduleBlock | null>(null)
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -269,6 +285,7 @@ export function SchedulePlannerPage() {
       offering_id: String(block.offering_id), group_id: String(block.group_id),
       classroom_id: String(block.classroom_id), activity_type: block.activity_type,
       weekday: block.weekday, start_time: block.start_time.slice(0, 5), end_time: block.end_time.slice(0, 5),
+      academic_hours: block.academic_hours === null ? '' : String(block.academic_hours),
     })
     setError(null)
     setBlockOpen(true)
@@ -307,6 +324,10 @@ export function SchedulePlannerPage() {
   const submitBlock = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    if (blockFormError) {
+      setError(blockFormError)
+      return
+    }
     try {
       await saveBlock.mutateAsync({ id: editingBlock?.id, payload: scheduleBlockPayload(blockForm) })
       setBlockOpen(false)
@@ -393,7 +414,7 @@ export function SchedulePlannerPage() {
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-sky-700"><CalendarDays size={17} />Gestión académica</div>
             <h1 id="schedule-planner-title" className="text-2xl font-bold text-slate-950">Planificador de horarios</h1>
-            <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 07:00 y 22:00.</p>
+            <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 06:00 y 23:30, con clases de cualquier duración.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <DesignationBootstrapDialog
@@ -411,7 +432,7 @@ export function SchedulePlannerPage() {
         </header>
 
         <div role="note" className="rounded-md border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
-          La importación inicial incorpora teoría y práctica al borrador. No despliegue esta publicación sola en producción: la integración de asistencia regular permanece en modo de lectura, y planillas, contratos y facturación todavía usan el origen heredado.
+          Publicar un borrador cambia lo que se paga desde su fecha efectiva: sus bloques reemplazan a las designaciones de la misma materia, grupo y semestre en la planilla y la asistencia. Revise la vista previa antes de publicar; la teoría se bloquea si cambiaría lo que pagan las designaciones.
         </div>
 
         {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
@@ -485,7 +506,7 @@ export function SchedulePlannerPage() {
                     <tbody>
                       {SCHEDULE_TIMES.map((time) => <tr key={time}>
                         <th scope="row" className="border-t bg-slate-50 p-2 align-top font-medium text-slate-600">{time}</th>
-                        {SCHEDULE_WEEKDAYS.map((day) => <ScheduleCell key={day.value} weekday={day.value} time={time} disabled={!editable} blocks={blocks.data?.filter((block) => block.weekday === day.value && block.start_time.slice(0, 5) === time) ?? []} currentAssignments={currentAssignments} onAssign={openAssignment} onHistory={openHistory} onEdit={editBlock} onDelete={(block) => void removeBlock(block)} />)}
+                        {SCHEDULE_WEEKDAYS.map((day) => <ScheduleCell key={day.value} weekday={day.value} time={time} disabled={!editable} blocks={blocks.data?.filter((block) => block.weekday === day.value && cellForStart(block.start_time.slice(0, 5)) === time) ?? []} currentAssignments={currentAssignments} onAssign={openAssignment} onHistory={openHistory} onEdit={editBlock} onDelete={(block) => void removeBlock(block)} />)}
                       </tr>)}
                     </tbody>
                   </table>
@@ -510,15 +531,33 @@ export function SchedulePlannerPage() {
 
         <Dialog open={blockOpen} onOpenChange={setBlockOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-            <DialogHeader><DialogTitle>{editingBlock ? 'Editar bloque' : 'Agregar bloque'}</DialogTitle><DialogDescription>Los horarios usan intervalos de 30 minutos.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{editingBlock ? 'Editar bloque' : 'Agregar bloque'}</DialogTitle><DialogDescription>Cualquier horario entre 06:00 y 23:30 en pasos de 5 minutos (de 15 minutos a 6 horas).</DialogDescription></DialogHeader>
             <form onSubmit={submitBlock} className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2"><Label htmlFor="block-offering">Oferta académica</Label><select id="block-offering" required value={blockForm.offering_id} onChange={(event) => setBlockForm((value) => ({ ...value, offering_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedOfferings.map((item) => <option key={item.id} value={item.id}>{item.subject.code} · {item.subject.name}</option>)}</select></div>
               <div><Label htmlFor="block-group">Grupo</Label><select id="block-group" required value={blockForm.group_id} onChange={(event) => setBlockForm((value) => ({ ...value, group_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedGroups.map((item) => <option key={item.id} value={item.id}>{item.code} · Semestre {item.semester}</option>)}</select></div>
               <div><Label htmlFor="block-classroom">Aula</Label><select id="block-classroom" required value={blockForm.classroom_id} onChange={(event) => setBlockForm((value) => ({ ...value, classroom_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{activeClassrooms.map((item) => <option key={item.id} value={item.id}>{item.code} · Cap. {item.capacity ?? 'No aplica'}</option>)}</select></div>
               <div><Label htmlFor="block-activity">Actividad</Label><select id="block-activity" value={blockForm.activity_type} onChange={(event) => setBlockForm((value) => ({ ...value, activity_type: event.target.value as ScheduleActivityType }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="theory">Teoría</option><option value="practice">Práctica</option></select></div>
               <div><Label htmlFor="block-day">Día</Label><select id="block-day" value={blockForm.weekday} onChange={(event) => setBlockForm((value) => ({ ...value, weekday: event.target.value as ScheduleWeekday }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div>
-              <div><Label htmlFor="block-start">Inicio</Label><select id="block-start" value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_TIMES.map((time) => <option key={time}>{time}</option>)}</select></div>
-              <div><Label htmlFor="block-end">Fin</Label><select id="block-end" value={blockForm.end_time} onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_END_TIMES.map((time) => <option key={time}>{time}</option>)}</select></div>
+              <div><Label htmlFor="block-start">Inicio</Label><Input id="block-start" type="time" step={300} min="06:00" max="23:30" required value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1" /></div>
+              <div><Label htmlFor="block-end">Fin</Label><Input id="block-end" type="time" step={300} min="06:00" max="23:30" required value={blockForm.end_time} aria-invalid={Boolean(blockFormError)} aria-describedby="block-time-help" onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1" /></div>
+              <div className="sm:col-span-2 flex flex-wrap items-center gap-2" role="group" aria-label="Duración rápida">
+                <span className="text-sm text-slate-600">Duración:</span>
+                {BLOCK_DURATION_PRESETS.map((minutes) => (
+                  <Button key={minutes} type="button" size="sm" variant="outline" onClick={() => setBlockForm((value) => ({ ...value, end_time: addMinutes(value.start_time, minutes) }))}>{minutes} min</Button>
+                ))}
+              </div>
+              <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
+              <div className="sm:col-span-2"><Label htmlFor="block-hours">Horas académicas que se pagan</Label><Input id="block-hours" type="number" min={1} max={12} step={1} placeholder={prefilledHours ? String(prefilledHours) : ''} value={blockForm.academic_hours} onChange={(event) => setBlockForm((value) => ({ ...value, academic_hours: event.target.value }))} aria-describedby="block-hours-help" className="mt-1" />
+                <p id="block-hours-help" className="mt-1 text-xs text-slate-500">
+                  {blockForm.academic_hours.trim()
+                    ? `Se pagarán ${blockForm.academic_hours} hora(s) académica(s) por clase.`
+                    : prefilledHours && keepsLegacyHours
+                      ? `Vacío = mantiene lo que paga hoy: ${prefilledHours} hora(s) académica(s) (regla anterior, minutos ÷ 45). Escriba un valor para fijarlo.`
+                      : prefilledHours
+                      ? `Vacío = ${prefilledHours} hora(s) académica(s) (duración ÷ ${academicHourMinutes} min). Puede corregirlo.`
+                      : 'Se calculan a partir de la duración.'}
+                </p>
+              </div>
               {error && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
               <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setBlockOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveBlock.isPending}>{saveBlock.isPending ? 'Guardando…' : 'Guardar bloque'}</Button></div>
             </form>
@@ -566,44 +605,26 @@ export function SchedulePlannerPage() {
                 </p>
               )}
               <div>
-                <Label htmlFor="compatible-teacher-search">Buscar docente compatible</Label>
-                <Input
-                  id="compatible-teacher-search"
-                  maxLength={120}
-                  value={teacherSearch}
-                  placeholder="Nombre o CI"
-                  onChange={(event) => { setTeacherSearch(event.target.value); setTeacherPage(1) }}
+                <Label htmlFor="assignment-teacher">Docente compatible</Label>
+                <TeacherCombobox
+                  id="assignment-teacher"
+                  teachers={compatibleTeachers.data?.items ?? []}
+                  value={assignmentForm.teacher_ci}
+                  onChange={(ci) => setAssignmentForm((value) => ({ ...value, teacher_ci: ci }))}
+                  search={teacherSearch}
+                  onSearchChange={(value) => { setTeacherSearch(value); setTeacherPage(1) }}
+                  loading={compatibleTeachers.isLoading}
+                  emptyMessage="No existe un docente con disponibilidad completa y sin cruces para este bloque e intervalo."
+                  page={teacherPage}
+                  pageCount={compatiblePageCount}
+                  onPageChange={setTeacherPage}
+                  invalid={Boolean(error)}
+                  describedBy={error ? 'assignment-error' : 'assignment-teacher-help'}
                 />
+                <p id="assignment-teacher-help" className="mt-1 text-xs text-slate-500">Solo se listan docentes con disponibilidad completa y sin cruces en este bloque.</p>
               </div>
-              {compatibleTeachers.isLoading && <p role="status" className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">Buscando docentes con disponibilidad…</p>}
               {compatibleTeachers.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudieron consultar los docentes compatibles.</p>}
-              {!compatibleTeachers.isLoading && !compatibleTeachers.isError && compatibleTeachers.data?.items.length === 0 && (
-                <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  No existe un docente con disponibilidad completa y sin cruces para este bloque e intervalo.
-                </p>
-              )}
-              {compatibleTeachers.data && compatibleTeachers.data.items.length > 0 && (
-                <div>
-                  <Label htmlFor="assignment-teacher">Docente</Label>
-                  <select
-                    id="assignment-teacher"
-                    required
-                    value={assignmentForm.teacher_ci}
-                    aria-invalid={Boolean(error)}
-                    aria-describedby={error ? 'assignment-error' : undefined}
-                    onChange={(event) => setAssignmentForm((value) => ({ ...value, teacher_ci: event.target.value }))}
-                    className="mt-1 h-10 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
-                  >
-                    <option value="">Seleccione un docente</option>
-                    {compatibleTeachers.data.items.map((teacher) => <option key={teacher.ci} value={teacher.ci}>{teacher.full_name} · {teacher.ci}</option>)}
-                  </select>
-                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                    <Button type="button" size="sm" variant="outline" disabled={teacherPage <= 1} onClick={() => setTeacherPage((page) => page - 1)}>Anterior</Button>
-                    <span>Página {teacherPage} de {compatiblePageCount}</span>
-                    <Button type="button" size="sm" variant="outline" disabled={teacherPage >= compatiblePageCount} onClick={() => setTeacherPage((page) => page + 1)}>Siguiente</Button>
-                  </div>
-                </div>
-              )}
+              {compatibleTeachers.isLoading && <p role="status" className="sr-only">Buscando docentes con disponibilidad…</p>}
               {error && <p id="assignment-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setAssignmentOpen(false)}>Cancelar</Button>

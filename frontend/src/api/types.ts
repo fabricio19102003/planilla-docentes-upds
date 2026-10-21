@@ -381,6 +381,8 @@ export interface AcademicScheduleBlock {
   weekday: ScheduleWeekday
   start_time: string
   end_time: string
+  academic_hours: number | null
+  paid_hours: number
   created_at: string
   updated_at: string
   offering: SubjectOffering
@@ -1093,6 +1095,7 @@ export interface AppSettings {
   company_nit: string
   hourly_rate: number
   practice_hourly_rate: number
+  academic_hour_minutes: number
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
   whatsapp_billing_delivery: WhatsAppBillingDeliveryStatus
@@ -1140,6 +1143,7 @@ export interface AppSettingsUpdate {
   company_nit?: string
   hourly_rate?: number
   practice_hourly_rate?: number
+  academic_hour_minutes?: number
   docente_can_edit_profile?: boolean
   docente_can_edit_photo?: boolean
   whatsapp_billing_requested_enabled?: boolean
