@@ -1,6 +1,6 @@
 """Official Cobija classroom catalog (feature designation-module-v2, L15).
 
-Room numbers are unique across both buildings, so a designation's AULA number
+Names follow production (``Nuevo / Piso 3 / Aula 19``). Room numbers are unique across both buildings, so a designation's AULA number
 identifies one room. Sync creates missing rooms, corrects capacity, name and
 active state of rooms with the same code, and only reports rooms whose number
 exists under another code (they may be referenced by published schedules).
@@ -31,7 +31,7 @@ class CatalogRoom:
 
     @property
     def name(self) -> str:
-        return f"{self.building} / Piso {self.floor} / Aula {self.room}"
+        return f"{self.building.title()} / Piso {self.floor} / Aula {self.room}"
 
 
 CATALOG: tuple[CatalogRoom, ...] = (
