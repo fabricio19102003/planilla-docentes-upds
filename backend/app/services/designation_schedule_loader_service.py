@@ -49,6 +49,7 @@ DAY_ORDER = {day: index for index, day in enumerate(ENGLISH_DAY)}
 BLOCKER_MESSAGES = {
     "missing_classroom": "La fila de la designación no tiene un número de aula del catálogo (columna AULA).",
     "invalid_semester": "El semestre de la designación no es reconocible.",
+    "invalid_hours": "Las horas académicas de cada clase deben ser un número entero positivo.",
     "invalid_time": "El horario debe estar entre 06:00 y 23:30, en pasos de 5 minutos y durar de 15 minutos a 6 horas.",
     "invalid_weekday": "El día del horario no es de lunes a sábado.",
     "duplicate_assignment": "Otro docente ya dicta este mismo bloque en las mismas fechas.",
@@ -84,6 +85,19 @@ class PlannedBlock:
     effective_to: date | None
     assignments: list[tuple[str, date, date | None, int]] = field(default_factory=list)
 
+
+
+def _slot_hours(raw: object) -> tuple[int | None, bool]:
+    """Whole positive academic hours; empty or 0 means "not set" (legacy rule applies)."""
+    if raw is None or raw == "" or raw == 0:
+        return None, True
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        return None, False
+    if value <= 0 or not value.is_integer():
+        return None, False
+    return int(value), True
 
 def _cell_text(value: object) -> str:
     return " ".join(str(value or "").split())
@@ -201,7 +215,11 @@ def _plan(db: Session, *, academic_period: str, effective_from: date, workbook: 
                 block("invalid_time", item)
                 rows_blocked = True
                 break
-            hours = int(slot.get("horas_academicas") or 0) or None
+            hours, hours_ok = _slot_hours(slot.get("horas_academicas"))
+            if not hours_ok:
+                block("invalid_hours", item)
+                rows_blocked = True
+                break
             candidates.append((weekday, start, end, hours))
         if rows_blocked:
             continue
