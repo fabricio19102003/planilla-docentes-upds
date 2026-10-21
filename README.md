@@ -523,6 +523,10 @@ Desde la pagina de Planilla, el admin puede descargar una **Planilla de Salarios
 
 El formato UPDS oficial trae CI real (no TEMP), datos personales del docente, y el sistema parsea automaticamente el string de HORARIO a slots con dias, horas inicio/fin, duracion y horas academicas. Los formatos intermedio y legacy sin CI solo se aceptan cuando cada nombre coincide exactamente con un unico docente real ya existente; nunca crean identidades TEMP.
 
+El string de HORARIO acepta uno o varios bloques `DIA: inicio - fin`, separados por saltos de linea, `/` o espacios, de lunes a domingo; se ignora un `hrs` o un punto al final del bloque. Se aceptan horas de 24 h con un `am/pm` redundante (`13: 40 pm`), horas de 12 h (`06: 30 am`, `12: 00 pm` es mediodia), hora y minutos separados por espacio o punto (`08 10`, `18.15`), guion doble y `A` como separador. Se rechaza el bloque, con un mensaje que lo nombra, cuando no se puede leer, cuando una hora no existe (`24:00`, `08:70`), cuando el `am/pm` contradice la hora (`20: 50 am`), cuando termina antes de empezar o cuando dura mas de 6 horas (por ejemplo `08: 55 am- 11: 20 pm`). La vista previa lista cada bloque rechazado como `Fila N: horario inválido: ...` y la importacion completa queda bloqueada hasta corregirlo.
+
+Las fechas de contrato se importan desde `FECHA INICIO` y `FECHA FIN` (formato oficial) o desde `designation.contract_start_date` y `designation.contract_end_date` (sobre auditado), ambas en formato `AAAA-MM-DD`. Si una fila no trae una fecha, se conserva la que ya estaba guardada; para cerrar una designacion basta reenviarla con su nueva fecha de fin. La vista previa rechaza la fila si la fecha de fin resultante (nueva o guardada) queda antes de la fecha de inicio.
+
 La carga de designaciones siempre se realiza en dos pasos: primero **Generar vista previa**, que valida el archivo completo y muestra altas, actualizaciones, filas sin cambios y conflictos; luego **Confirmar e importar** usando el digest de esos mismos bytes y periodo. La aplicacion es atomica, no elimina filas ausentes y repetir exactamente un archivo produce operaciones sin cambios.
 
 ### CI Aliasing (Biometrico)

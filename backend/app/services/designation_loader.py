@@ -43,6 +43,7 @@ from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.services import app_settings_service
 from app.utils.helpers import calc_academic_hours, normalize_group_code
+from app.utils.schedule_text import parse_schedule_text
 
 logger = logging.getLogger(__name__)
 
@@ -621,207 +622,32 @@ class DesignationLoader:
         return "regular"
 
     @staticmethod
+    def parse_horario_with_errors(horario_raw: str | None) -> tuple[list[dict], list[str]]:
+        """Parse a UPDS HORARIO cell into ``(schedule_json slots, error messages)``.
+
+        Each unreadable or impossible block yields one Spanish error naming the block, so
+        importers can reject the row instead of silently dropping a class. See
+        ``app.utils.schedule_text`` for the accepted notations.
+        """
+        return parse_schedule_text(horario_raw)
+
+    @staticmethod
     def _parse_horario_string(horario_raw: str) -> list[dict]:
-        """Parse UPDS HORARIO string into schedule_json slots.
+        """Parse a UPDS HORARIO cell, keeping valid blocks and logging rejected ones.
 
         Input examples::
 
-            "LUNES 06:30 - 08:00\\n MARTES 06:30 - 08:55\\n VIERNES 06:30-08:00"
-            "MARTES 15:55-17:25\\n MIERCOLES 15:10-17:25\\n JUVES: 15:55-17:25"
+            "LUNES 06:30 - 08:00\\n MARTES 06:30 - 08:55"
+            "Martes: 13: 40 pm- 15: 10 pm   Jueves: 08 10 am- 09: 40 am"
 
         Output::
 
             [{"dia": "lunes", "hora_inicio": "06:30", "hora_fin": "08:00",
               "duracion_minutos": 90, "horas_academicas": 2}, ...]
-
-        Edge cases handled:
-        - Tight format: ``06:30-08:00`` (no spaces around dash)
-        - Spaced-one-side: ``06:30 -08:00`` or ``06:30- 08:00``
-        - Trailing colon after day: ``JUVES: 15:55``
-        - Extra colon in time: ``07:15: - 08:00`` (parsed with relaxed pattern)
-        - Day name typos: JUVES → JUEVES
-        - Dot separator: ``17:30-18.15`` (dot → colon)
-        - AM/PM suffix: parsed then converted to 24-hour
-        - Incomplete end time (``08:10 - 40``): skipped with warning
-        - "A" instead of "-": ``16:05 A 17:35`` — handled via secondary pattern
         """
-        if not horario_raw:
-            return []
-
-        # Known day name corrections (typos found in real data)
-        DAY_CORRECTIONS: dict[str, str] = {
-            "JUVES": "JUEVES",
-            "JEVES": "JUEVES",
-            "LUNE": "LUNES",
-            "MARTE": "MARTES",
-            "MIERCOLE": "MIERCOLES",
-            "VIERNE": "VIERNES",
-            "SABDO": "SABADO",
-        }
-
-        slots: list[dict] = []
-        lines = [line.strip() for line in horario_raw.split("\n") if line.strip()]
-
-        # Pre-pass: merge lines where day name and time range are split by \n
-        # e.g. ["Jueves", "20:50 - 23:00"] → ["Jueves 20:50 - 23:00"]
-        merged_lines = []
-        i = 0
-        while i < len(lines):
-            line_up = lines[i].upper().strip()
-            # Check if this line is ONLY a day name (no digits)
-            if re.match(r'^[A-ZÁÉÍÓÚÑ]+:?\s*$', line_up) and i + 1 < len(lines):
-                # Next line should have time range (has digits and dash)
-                next_line = lines[i + 1].strip()
-                if re.search(r'\d', next_line) and '-' in next_line:
-                    merged_lines.append(f"{lines[i].strip()} {next_line}")
-                    i += 2
-                    continue
-            merged_lines.append(lines[i])
-            i += 1
-        lines = merged_lines
-
-        for line in lines:
-            # Normalize: uppercase, collapse internal spaces slightly
-            line_up = line.upper().strip()
-
-            # Normalize spaces within time parts: "08: 55" → "08:55", "17: 30" → "17:30"
-            line_up = re.sub(r'(\d{1,2}):\s+(\d{2})', r'\1:\2', line_up)
-
-            # Replace dot-as-colon in time part only (e.g. "18.15" → "18:15")
-            # Only replace dots surrounded by digits (avoids G.E. group codes)
-            line_up = re.sub(r'(\d)\.(\d)', r'\1:\2', line_up)
-
-            # Remove trailing colon at end of line
-            line_up = line_up.rstrip(":")
-
-            # Pattern 1: DAY[: ] HH:MM[ ]-[ ]HH:MM [AM|PM]  (standard and tight)
-            # Handles: "LUNES 06:30 - 08:00", "JUVES: 15:55-17:25", "06:30 -08:00"
-            # Also handles single trailing AM/PM: "LUNES 03:00-05:00 PM"
-            match = re.match(
-                r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})(?:\s*[:\s])?\s*-\s*(\d{1,2}:\d{2})(?:\s*(AM|PM))?',
-                line_up,
-            )
-
-            # Pattern 2: DAY[: ] HH:MM AM|PM - HH:MM AM|PM  (12-hour format)
-            if not match:
-                match = re.match(
-                    r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}:\d{2})\s*(AM|PM)',
-                    line_up,
-                )
-                if match:
-                    day_raw = match.group(1)
-                    time_start_str = match.group(2)
-                    ampm_start = match.group(3)
-                    time_end_str = match.group(4)
-                    ampm_end = match.group(5)
-                    # Convert to 24-hour
-                    try:
-                        t_start_12 = datetime.strptime(f"{time_start_str} {ampm_start}", "%I:%M %p")
-                        t_end_12 = datetime.strptime(f"{time_end_str} {ampm_end}", "%I:%M %p")
-                        hora_inicio = t_start_12.strftime("%H:%M")
-                        hora_fin = t_end_12.strftime("%H:%M")
-                    except ValueError:
-                        logger.warning("_parse_horario_string: cannot parse 12h time in: %r", line)
-                        continue
-
-                    day_name = DAY_CORRECTIONS.get(day_raw, day_raw)
-                    day_lower = unicodedata.normalize("NFD", day_name.lower())
-                    day_lower = "".join(
-                        c for c in day_lower if unicodedata.category(c) != "Mn"
-                    )
-
-                    duracion_minutos = _calc_duration(hora_inicio, hora_fin)
-                    slots.append({
-                        "dia": day_lower,
-                        "hora_inicio": hora_inicio,
-                        "hora_fin": hora_fin,
-                        "duracion_minutos": duracion_minutos,
-                        "horas_academicas": calc_academic_hours(duracion_minutos),
-                    })
-                    continue
-
-            # Pattern 3: DAY[: ] HH:MM A HH:MM  ("A" as separator)
-            if not match:
-                match = re.match(
-                    r'([A-ZÁÉÍÓÚÑ]+)[:\s]+(\d{1,2}:\d{2})\s+A\s+(\d{1,2}:\d{2})',
-                    line_up,
-                )
-
-            if not match:
-                logger.warning("_parse_horario_string: could not parse line: %r", line)
-                continue
-
-            day_raw = match.group(1)
-            hora_inicio = match.group(2)
-            hora_fin = match.group(3)
-
-            # Validate both times are full HH:MM (reject "08:10 - 40")
-            if not re.match(r'^\d{1,2}:\d{2}$', hora_fin):
-                logger.warning(
-                    "_parse_horario_string: incomplete end time in: %r — skipping", line
-                )
-                continue
-
-            # Pad single-digit hours: "8:00" → "08:00"
-            if len(hora_inicio) == 4:
-                hora_inicio = "0" + hora_inicio
-            if len(hora_fin) == 4:
-                hora_fin = "0" + hora_fin
-
-            # Handle single trailing AM/PM from Pattern 1 group 4
-            # e.g. "LUNES 03:00-05:00 PM" → end time is PM, start inferred
-            # The trailing AM/PM applies to the END time only.
-            # Start time is converted only if it makes sense (start < end in 24h).
-            trailing_period: str | None = (
-                match.group(4)
-                if (match.lastindex is not None and match.lastindex >= 4)
-                else None
-            )
-            if trailing_period:
-                try:
-                    start_h, start_m = map(int, hora_inicio.split(":"))
-                    end_h, end_m = map(int, hora_fin.split(":"))
-
-                    # Apply to end time first
-                    if trailing_period == "PM" and end_h < 12:
-                        end_h += 12
-                    elif trailing_period == "AM" and end_h == 12:
-                        end_h = 0
-
-                    # Apply to start time only if it keeps start < end
-                    if trailing_period == "PM" and start_h < 12:
-                        converted_start = start_h + 12
-                        # Only convert if it keeps chronological order
-                        if converted_start < end_h or (converted_start == end_h and start_m < end_m):
-                            start_h = converted_start
-                    elif trailing_period == "AM" and start_h == 12:
-                        start_h = 0
-                    hora_inicio = f"{start_h:02d}:{start_m:02d}"
-                    hora_fin = f"{end_h:02d}:{end_m:02d}"
-                except (ValueError, AttributeError):
-                    logger.warning(
-                        "_parse_horario_string: cannot apply AM/PM conversion for: %r", line
-                    )
-
-            # Fix day typos
-            day_name = DAY_CORRECTIONS.get(day_raw, day_raw)
-
-            # Normalize: remove accents for internal storage
-            day_lower = unicodedata.normalize("NFD", day_name.lower())
-            day_lower = "".join(
-                c for c in day_lower if unicodedata.category(c) != "Mn"
-            )
-
-            duracion_minutos = _calc_duration(hora_inicio, hora_fin)
-
-            slots.append({
-                "dia": day_lower,
-                "hora_inicio": hora_inicio,
-                "hora_fin": hora_fin,
-                "duracion_minutos": duracion_minutos,
-                "horas_academicas": calc_academic_hours(duracion_minutos),
-            })
-
+        slots, errors = parse_schedule_text(horario_raw)
+        for error in errors:
+            logger.warning("_parse_horario_string: %s", error)
         return slots
 
     def load_from_excel(
