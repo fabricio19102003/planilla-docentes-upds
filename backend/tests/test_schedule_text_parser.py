@@ -183,3 +183,22 @@ class TestBoundaries:
         slots, errors = _strict("LUNES 24:00-01:00")
         assert slots == []
         assert errors[0].endswith("tiene una hora inválida")
+
+
+class TestRemainingLegacyNotations:
+    def test_lone_trailing_h_is_ignored(self):
+        assert _slots("LUNES 08:00 - 10:00 h\nMARTES 08:00-09:30h") == [
+            ("lunes", "08:00", "10:00", 3),
+            ("martes", "08:00", "09:30", 2),
+        ]
+
+    def test_leading_slash_is_ignored(self):
+        assert _strict("/ LUNES 08:00-09:30") == (
+            [{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:30", "duracion_minutos": 90, "horas_academicas": 2}],
+            [],
+        )
+
+    def test_other_leading_text_is_still_reported(self):
+        slots, errors = _strict("Aula 3 LUNES 08:00-09:30")
+        assert [s["dia"] for s in slots] == ["lunes"]
+        assert errors == ["Texto sin día en el horario: 'AULA 3'"]
