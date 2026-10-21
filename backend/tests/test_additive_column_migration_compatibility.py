@@ -393,3 +393,30 @@ def test_consent_lifecycle_migration_downgrade_refuses_destructive_history_remov
         command.downgrade(config, PREVIOUS_MIGRATION)
     assert sa.inspect(engine).has_table("whatsapp_consent_revisions")
     engine.dispose()
+
+
+BLOCK_HOURS_MIGRATION = "d7e9a1b3c5f7"
+BLOCK_HOURS_PREVIOUS = "c6e8f0a2b431"
+
+
+def test_block_hours_migration_adds_nullable_columns_to_draft_and_published_blocks(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "block-hours.sqlite3")
+    command.upgrade(config, BLOCK_HOURS_MIGRATION)
+    inspector = sa.inspect(engine)
+    for table in ("academic_schedule_blocks", "academic_schedule_published_blocks"):
+        column = {item["name"]: item for item in inspector.get_columns(table)}["academic_hours"]
+        assert isinstance(column["type"], sa.Integer)
+        assert column["nullable"] is True
+    engine.dispose()
+
+
+def test_block_hours_migration_rejects_an_incompatible_precreated_column(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "block-hours-bad.sqlite3")
+    command.upgrade(config, BLOCK_HOURS_PREVIOUS)
+    with engine.begin() as connection:
+        connection.execute(sa.text("ALTER TABLE academic_schedule_blocks ADD COLUMN academic_hours VARCHAR(5)"))
+    with pytest.raises(RuntimeError, match="Incompatible pre-existing academic_schedule_blocks.academic_hours"):
+        command.upgrade(config, BLOCK_HOURS_MIGRATION)
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == BLOCK_HOURS_PREVIOUS
+    engine.dispose()

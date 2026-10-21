@@ -21,6 +21,7 @@ from app.models.academic_management import (
     TeacherAvailability,
 )
 from app.models.teacher import Teacher
+from app.services import app_settings_service
 
 ModelT = TypeVar("ModelT")
 
@@ -355,6 +356,20 @@ def list_schedule_blocks(db: Session, draft_id: int) -> list[AcademicScheduleBlo
     ).order_by(AcademicScheduleBlock.weekday, AcademicScheduleBlock.start_time).all()
 
 
+BLOCK_DAY_START = 6 * 60
+BLOCK_DAY_END = 23 * 60 + 30
+BLOCK_STEP_MINUTES = 5
+BLOCK_MIN_MINUTES = 15
+BLOCK_MAX_MINUTES = 6 * 60
+
+
+def default_academic_hours(db: Session, start: time, end: time) -> int:
+    """Duration divided by the configured academic-hour length, rounded half up, at least 1."""
+    minutes = _minutes(end) - _minutes(start)
+    length = app_settings_service.get_academic_hour_minutes(db)
+    return max(1, (2 * minutes + length) // (2 * length))
+
+
 def _validate_schedule_block(
     db: Session,
     draft: AcademicScheduleDraft,
@@ -367,10 +382,13 @@ def _validate_schedule_block(
     start = values["start_time"]
     end = values["end_time"]
     start_minutes, end_minutes = _minutes(start), _minutes(end)
-    if start_minutes < 7 * 60 or end_minutes > 22 * 60:
-        raise HTTPException(422, detail="El bloque debe estar entre las 07:00 y las 22:00.")
-    if start.second or start.microsecond or end.second or end.microsecond or start_minutes % 30 or end_minutes % 30:
-        raise HTTPException(422, detail="Las horas deben alinearse en intervalos de 30 minutos.")
+    if start_minutes < BLOCK_DAY_START or end_minutes > BLOCK_DAY_END:
+        raise HTTPException(422, detail="El bloque debe estar entre las 06:00 y las 23:30.")
+    if (start.second or start.microsecond or end.second or end.microsecond
+            or start_minutes % BLOCK_STEP_MINUTES or end_minutes % BLOCK_STEP_MINUTES):
+        raise HTTPException(422, detail="Las horas deben usar intervalos de 5 minutos.")
+    if not BLOCK_MIN_MINUTES <= end_minutes - start_minutes <= BLOCK_MAX_MINUTES:
+        raise HTTPException(422, detail="El bloque debe durar entre 15 minutos y 6 horas.")
 
     offering = db.get(SubjectOffering, values["offering_id"])
     group = db.get(AcademicGroup, values["group_id"])
@@ -448,6 +466,9 @@ def save_schedule_block(
                 detail="Quite explícitamente las asignaciones antes de modificar un bloque con historial docente.",
             )
     _validate_schedule_block(db, draft, values, block_id)
+    values = dict(values)
+    if values.get("academic_hours") is None:
+        values["academic_hours"] = default_academic_hours(db, values["start_time"], values["end_time"])
     if block is None:
         block = AcademicScheduleBlock(draft_id=draft.id, **values)
         db.add(block)

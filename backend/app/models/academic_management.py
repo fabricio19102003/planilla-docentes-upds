@@ -23,6 +23,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+def block_paid_hours(start: time, end: time, academic_hours: Optional[int]) -> int:
+    """Stored academic hours, or max(1, minutes // 45) for blocks saved before they existed."""
+    if academic_hours is not None:
+        return academic_hours
+    minutes = end.hour * 60 + end.minute - start.hour * 60 - start.minute
+    return max(1, minutes // 45)
+
+
 class TimestampedCatalog:
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), server_default=func.now(), nullable=False
@@ -225,6 +233,12 @@ class AcademicScheduleBlock(TimestampedCatalog, Base):
     weekday: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    academic_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    @property
+    def paid_hours(self) -> int:
+        """Academic hours payroll pays per occurrence: stored hours, else the legacy floor rule."""
+        return block_paid_hours(self.start_time, self.end_time, self.academic_hours)
 
     draft: Mapped[AcademicScheduleDraft] = relationship(back_populates="blocks")
     offering: Mapped[SubjectOffering] = relationship()
@@ -350,6 +364,12 @@ class AcademicSchedulePublishedBlock(Base):
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    academic_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    @property
+    def paid_hours(self) -> int:
+        """Academic hours payroll pays per occurrence: stored hours, else the legacy floor rule."""
+        return block_paid_hours(self.start_time, self.end_time, self.academic_hours)
 
     publication: Mapped[AcademicSchedulePublication] = relationship(back_populates="blocks")
     assignments: Mapped[list["AcademicSchedulePublishedAssignment"]] = relationship(
