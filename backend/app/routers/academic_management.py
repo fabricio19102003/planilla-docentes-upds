@@ -84,6 +84,13 @@ from app.services.designation_bootstrap_resolution import (
     build_designation_bootstrap_resolution_context,
 )
 from app.services.activity_logger import log_activity
+from app.schemas.designation_change import (
+    DesignationChangePreview,
+    DesignationChangeRequest,
+    DesignationChangeResult,
+)
+from app.services import designation_change_service
+from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
 from app.utils.auth import require_admin
 
 router = APIRouter(
@@ -798,3 +805,50 @@ def export_schedule_view(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/designation-changes/preview", response_model=DesignationChangePreview)
+def preview_designation_change(payload: DesignationChangeRequest, db: Session = Depends(get_db)):
+    try:
+        return designation_change_service.preview_change(db, payload)
+    except DesignationChangeNotFound as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+
+
+@router.post("/designation-changes/apply", response_model=DesignationChangeResult, status_code=201)
+def apply_designation_change(
+    payload: DesignationChangeRequest,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = designation_change_service.apply_change(db, payload)
+    # Both refusals happen before any write (the preview runs inside a discarded savepoint).
+    except DesignationChangeNotFound as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    except DesignationChangeBlocked as exc:
+        raise HTTPException(409, detail={
+            "message": "El cambio de docente no se puede aplicar.",
+            "blockers": [item.model_dump(mode="json") for item in exc.preview.blockers],
+        }) from exc
+    except Exception:
+        db.rollback()
+        raise
+    log_activity(
+        db,
+        action="teacher_change_designation",
+        category="academic_management",
+        description=f"Cambio de docente desde {payload.effective_from.isoformat()} hacia {payload.incoming_teacher_ci}",
+        user=user,
+        details={
+            "effective_from": payload.effective_from.isoformat(),
+            "scope": payload.scope,
+            "incoming_teacher_ci": payload.incoming_teacher_ci,
+            "ended_designation_ids": result.ended_designation_ids,
+            "created_designation_ids": result.created_designation_ids,
+        },
+        request=request,
+    )
+    db.commit()
+    return result
