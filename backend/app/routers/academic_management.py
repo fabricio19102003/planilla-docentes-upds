@@ -93,7 +93,7 @@ from app.schemas.designation_change import (
     PublicationPayrollSimulationRequest,
     TeacherDesignationSummary,
 )
-from app.services import designation_change_service, payroll_simulation_service
+from app.services import classroom_catalog_service, designation_change_service, payroll_simulation_service
 from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
 from app.utils.auth import require_admin
 
@@ -443,6 +443,35 @@ def update_classroom(entity_id: int, payload: ClassroomUpdate, request: Request,
 @router.post("/classrooms/{entity_id}/deactivate", response_model=ClassroomResponse)
 def deactivate_classroom(entity_id: int, request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     return service.deactivate_entity(db, service.get_or_404(db, Classroom, entity_id), _audit(db, request, user, "deactivate", "classroom"))
+
+
+@router.post("/classroom-catalog/preview")
+def preview_classroom_catalog(db: Session = Depends(get_db)):
+    return classroom_catalog_service.preview_catalog(db)
+
+
+@router.post("/classroom-catalog/apply")
+def apply_classroom_catalog(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        plan = classroom_catalog_service.apply_catalog(db)
+    except Exception:
+        db.rollback()
+        raise
+    log_activity(
+        db,
+        action="classroom_catalog_sync",
+        category="academic_management",
+        description=f"Catálogo de aulas: {len(plan['create'])} nuevas, {len(plan['update'])} corregidas",
+        user=user,
+        details={
+            "created": len(plan["create"]),
+            "updated": [item["code"] for item in plan["update"]],
+            "conflicts": [item["code"] for item in plan["conflicts"]],
+        },
+        request=request,
+    )
+    db.commit()
+    return plan
 
 
 @router.get("/availability", response_model=list[AvailabilityResponse])
