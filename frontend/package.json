@@ -18,6 +18,7 @@
     "test:schedule-assignments": "node --experimental-strip-types --test scripts/check-schedule-assignments.mjs",
     "test:schedule-publication": "node --experimental-strip-types --test scripts/check-schedule-publication.mjs",
     "test:teacher-change": "node --experimental-strip-types --test scripts/check-teacher-change.mjs",
+    "test:schedule-conflicts": "node --experimental-strip-types --test scripts/check-schedule-conflicts.mjs",
     "test:designation-bootstrap": "node --experimental-strip-types --test scripts/check-designation-bootstrap.mjs",
     "test:contract-ledger": "node scripts/check-contract-ledger.mjs",
     "test:admin-request-resolution": "node --experimental-strip-types --test scripts/check-admin-request-resolution.mjs",

@@ -198,6 +198,16 @@ def _draft_blocks(db: Session, draft_id: int, academic_period: str, reference: d
     return blocks
 
 
+def schedule_blocks(
+    db: Session, *, academic_period: str, source: Source, reference: date, draft_id: int | None = None,
+) -> list[ViewBlock]:
+    if source == "draft":
+        if draft_id is None:
+            raise HTTPException(422, detail="Seleccione el borrador que desea consultar.")
+        return _draft_blocks(db, draft_id, academic_period, reference)
+    return _current_blocks(db, academic_period, reference)
+
+
 def schedule_view(
     db: Session,
     *,
@@ -208,12 +218,9 @@ def schedule_view(
     semester: int | None = None,
     group: str | None = None,
 ) -> dict:
-    if source == "draft":
-        if draft_id is None:
-            raise HTTPException(422, detail="Seleccione el borrador que desea consultar.")
-        blocks = _draft_blocks(db, draft_id, academic_period, reference)
-    else:
-        blocks = _current_blocks(db, academic_period, reference)
+    blocks = schedule_blocks(
+        db, academic_period=academic_period, source=source, reference=reference, draft_id=draft_id,
+    )
 
     groups: dict[int | None, set[str]] = {}
     for block in blocks:

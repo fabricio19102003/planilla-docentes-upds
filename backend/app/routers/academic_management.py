@@ -69,6 +69,8 @@ from app.schemas.academic_management import (
 from app.services import academic_management_service as service
 from app.services import academic_schedule_publication_service as publication_service
 from app.services.academic_schedule_export import export_filename, schedule_workbook
+from app.services.academic_schedule_conflicts_service import schedule_conflicts
+from app.services import designation_schedule_loader_service as loader_service
 from app.services.academic_schedule_view_service import normalized_group, schedule_view
 from app.services.designation_bootstrap_preview import (
     WorkbookValidationError,
@@ -93,7 +95,7 @@ from app.schemas.designation_change import (
     PublicationPayrollSimulationRequest,
     TeacherDesignationSummary,
 )
-from app.services import designation_change_service, payroll_simulation_service
+from app.services import classroom_catalog_service, designation_change_service, payroll_simulation_service
 from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
 from app.utils.auth import require_admin
 
@@ -443,6 +445,35 @@ def update_classroom(entity_id: int, payload: ClassroomUpdate, request: Request,
 @router.post("/classrooms/{entity_id}/deactivate", response_model=ClassroomResponse)
 def deactivate_classroom(entity_id: int, request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     return service.deactivate_entity(db, service.get_or_404(db, Classroom, entity_id), _audit(db, request, user, "deactivate", "classroom"))
+
+
+@router.post("/classroom-catalog/preview")
+def preview_classroom_catalog(db: Session = Depends(get_db)):
+    return classroom_catalog_service.preview_catalog(db)
+
+
+@router.post("/classroom-catalog/apply")
+def apply_classroom_catalog(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        plan = classroom_catalog_service.apply_catalog(db)
+    except Exception:
+        db.rollback()
+        raise
+    log_activity(
+        db,
+        action="classroom_catalog_sync",
+        category="academic_management",
+        description=f"Catálogo de aulas: {len(plan['create'])} nuevas, {len(plan['update'])} corregidas",
+        user=user,
+        details={
+            "created": len(plan["create"]),
+            "updated": [item["code"] for item in plan["update"]],
+            "conflicts": [item["code"] for item in plan["conflicts"]],
+        },
+        request=request,
+    )
+    db.commit()
+    return plan
 
 
 @router.get("/availability", response_model=list[AvailabilityResponse])
@@ -823,6 +854,98 @@ def export_schedule_view(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/schedule-conflicts")
+def get_schedule_conflicts(
+    academic_period: str = Query(min_length=1, max_length=30),
+    source: Literal["current", "draft"] = Query(default="current"),
+    draft_id: int | None = Query(default=None, gt=0),
+    reference: date | None = Query(default=None, alias="date"),
+    load_threshold: float = Query(default=40, gt=0, le=80),
+    db: Session = Depends(get_db),
+):
+    return schedule_conflicts(
+        db, academic_period=academic_period, source=source, reference=reference or date.today(),
+        draft_id=draft_id, load_threshold=load_threshold,
+    )
+
+
+async def _read_designation_workbook(workbook: UploadFile) -> bytes:
+    _validate_bootstrap_upload(workbook)
+    content = await workbook.read(MAX_BOOTSTRAP_WORKBOOK_BYTES + 1)
+    if not content:
+        raise HTTPException(400, detail="El Excel de designación está vacío.")
+    if len(content) > MAX_BOOTSTRAP_WORKBOOK_BYTES:
+        raise HTTPException(413, detail="El Excel supera el límite de 20 MiB.")
+    try:
+        preflight_xlsx(content)
+    except WorkbookValidationError as exc:
+        raise HTTPException(400, detail="El archivo no es un Excel válido.") from exc
+    return content
+
+
+@router.post("/designation-load/preview")
+async def preview_designation_load(
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_from: date = Form(),
+    program_id: int | None = Form(default=None, gt=0),
+    workbook: UploadFile = File(),
+    db: Session = Depends(get_db),
+):
+    content = await _read_designation_workbook(workbook)
+    try:
+        return loader_service.preview_load(
+            db, academic_period=academic_period.strip(), effective_from=effective_from,
+            workbook=content, program_id=program_id,
+        )
+    except loader_service.LoaderInputError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
+@router.post("/designation-load/apply", status_code=201)
+async def apply_designation_load(
+    request: Request,
+    academic_period: str = Form(min_length=1, max_length=30),
+    effective_from: date = Form(),
+    digest: str = Form(min_length=64, max_length=64),
+    program_id: int | None = Form(default=None, gt=0),
+    workbook: UploadFile = File(),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = await _read_designation_workbook(workbook)
+    try:
+        result = loader_service.apply_load(
+            db, academic_period=academic_period.strip(), effective_from=effective_from,
+            workbook=content, digest=digest, program_id=program_id,
+        )
+    # Both refusals happen while planning, before any write.
+    except loader_service.LoaderInputError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    except loader_service.LoaderBlocked as exc:
+        message = ("La designación cambió desde la vista previa. Generá una nueva vista previa."
+                   if exc.code == "stale_preview" else "La designación no se puede cargar.")
+        raise HTTPException(409, detail={
+            "code": exc.code, "message": message, "blockers": exc.preview["blockers"],
+        }) from exc
+    except Exception:
+        db.rollback()
+        raise
+    log_activity(
+        db,
+        action="designation_schedule_load",
+        category="academic_management",
+        description=f"Designación {academic_period} cargada al borrador {result['draft_name']}",
+        user=user,
+        details={
+            "draft_id": result["draft_id"], "effective_from": effective_from.isoformat(),
+            "designations": result["designation_ids"], "created": result["created"],
+        },
+        request=request,
+    )
+    db.commit()
+    return result
 
 
 @router.get("/designation-changes/designations", response_model=list[TeacherDesignationSummary])

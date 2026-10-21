@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { DragDropProvider, DragOverlay, useDraggable, useDroppable } from '@dnd-kit/react'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/react'
 import { Archive, CalendarDays, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
@@ -175,7 +176,9 @@ export function SchedulePlannerPage() {
   const drafts = useScheduleDrafts()
   const saveDraft = useSaveScheduleDraft()
   const archiveDraft = useArchiveScheduleDraft()
-  const [selectedDraftId, setSelectedDraftId] = useState<number | null>(null)
+  const [searchParams] = useSearchParams()
+  // ?draft=<id> opens a draft directly (link from "Cargar designación").
+  const [selectedDraftId, setSelectedDraftId] = useState<number | null>(() => Number(searchParams.get('draft')) || null)
   const effectiveDraftId = selectedDraftId ?? drafts.data?.[0]?.id ?? null
   const selectedDraft = drafts.data?.find((draft) => draft.id === effectiveDraftId) ?? null
   const blocks = useScheduleBlocks(effectiveDraftId)
