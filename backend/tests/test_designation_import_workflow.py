@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 
+import pytest
+
 from app.models.activity_log import ActivityLog
 from app.models.app_setting import AppSetting
 from app.models.designation import Designation
@@ -332,3 +334,90 @@ def test_import_does_not_activate_selected_period(client, db_session):
     assert apply(client, payload, preview_payload["digest"], period="II/2026").status_code == 201
     persisted_setting = db_session.query(AppSetting).filter_by(key="ACTIVE_ACADEMIC_PERIOD").one()
     assert persisted_setting.value == "I/2026"
+
+
+def with_contract_dates(payload: dict, start: str | None, end: str | None) -> dict:
+    designation = payload["rows"][0]["designation"]
+    if start is not None:
+        designation["contract_start_date"] = start
+    if end is not None:
+        designation["contract_end_date"] = end
+    return payload
+
+
+def test_audit_envelope_imports_contract_dates(client, db_session):
+    payload = with_contract_dates(synthetic_envelope(), "2026-09-21", "2026-12-18")
+    result = preview(client, payload).json()
+    assert result["can_apply"] is True
+    assert result["errors"] == []
+    assert apply(client, payload, result["digest"]).status_code == 201
+    stored = db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one()
+    assert stored.contract_start_date.isoformat() == "2026-09-21"
+    assert stored.contract_end_date.isoformat() == "2026-12-18"
+
+
+def test_reimport_without_contract_dates_keeps_existing_dates(client, db_session):
+    dated = with_contract_dates(synthetic_envelope(), "2026-08-10", "2026-10-28")
+    first = preview(client, dated).json()
+    assert apply(client, dated, first["digest"]).status_code == 201
+
+    undated = synthetic_envelope()
+    second = preview(client, undated).json()
+    assert second["can_apply"] is True
+    assert second["designations"]["noops"] == 1
+    assert second["designations"]["updates"] == 0
+    assert apply(client, undated, second["digest"]).status_code == 201
+    stored = db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one()
+    assert stored.contract_start_date.isoformat() == "2026-08-10"
+    assert stored.contract_end_date.isoformat() == "2026-10-28"
+
+
+def test_reimport_with_new_end_date_updates_only_that_date(client, db_session):
+    dated = with_contract_dates(synthetic_envelope(), "2026-08-10", "2026-12-18")
+    first = preview(client, dated).json()
+    assert apply(client, dated, first["digest"]).status_code == 201
+
+    closed = with_contract_dates(synthetic_envelope(), None, "2026-09-20")
+    second = preview(client, closed).json()
+    assert second["designations"]["updates"] == 1
+    assert apply(client, closed, second["digest"]).status_code == 201
+    stored = db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one()
+    assert stored.contract_start_date.isoformat() == "2026-08-10"
+    assert stored.contract_end_date.isoformat() == "2026-09-20"
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2026-12-18", "2026-08-10", "Fila 1: la fecha de fin del contrato no puede ser anterior a la de inicio."),
+        ("21/09/2026", None, "Fila 1: 'designation.contract_start_date' debe usar el formato AAAA-MM-DD."),
+    ],
+)
+def test_audit_envelope_rejects_invalid_contract_dates_without_writes(client, db_session, start, end, expected):
+    payload = with_contract_dates(synthetic_envelope(), start, end)
+    result = preview(client, payload).json()
+    assert result["can_apply"] is False
+    assert expected in result["errors"]
+    assert apply(client, payload, result["digest"]).status_code == 400
+    assert db_session.query(Designation).count() == 0
+    assert db_session.query(Teacher).filter_by(ci="9000001").count() == 0
+
+
+def test_official_rows_with_rejected_schedule_blocks_are_listed_and_nothing_is_written(client, db_session):
+    official = synthetic_official()
+    second = dict(official[0], CI="9000101", **{"NOMBRE COMPLETO": "OTRO DOCENTE OFICIAL"})
+    second["HORARIO"] = "MARTES 10:00-11:30\nJUEVES: 08: 55 am- 11: 20 pm"
+    third = dict(official[0], CI="9000102", **{"NOMBRE COMPLETO": "TERCER DOCENTE OFICIAL"})
+    third["HORARIO"] = "VIERNES: 19: 10n pm- 19: 55 pm"
+    payload = [official[0], second, third]
+
+    result = preview(client, payload).json()
+    assert result["can_apply"] is False
+    assert result["errors"] == [
+        "Fila 2: horario inválido: El bloque 'JUEVES: 08: 55 AM- 11: 20 PM' dura más de 6 horas",
+        "Fila 3: horario inválido: No se pudo leer el bloque 'VIERNES: 19: 10N PM- 19: 55 PM'",
+        "Fila 3: el horario debe contener al menos un bloque.",
+    ]
+    assert apply(client, payload, result["digest"]).status_code == 400
+    assert db_session.query(Designation).count() == 0
+    assert db_session.query(Teacher).filter(Teacher.ci.in_(["9000100", "9000101", "9000102"])).count() == 0

@@ -209,6 +209,17 @@ def _validate_ci(
     return ci
 
 
+CONTRACT_DATE_FIELDS = ("contract_start_date", "contract_end_date")
+
+
+def _incoming_value(existing: Designation, row: CanonicalDesignationRow, field_name: str) -> Any:
+    """Value an import writes; a missing contract date keeps the stored one."""
+    value = getattr(row, field_name)
+    if value is None and field_name in CONTRACT_DATE_FIELDS:
+        return getattr(existing, field_name)
+    return value
+
+
 def _optional_date(value: Any, field_name: str, row_number: int, errors: list[str]) -> date | None:
     raw = _optional_text(value, field_name, row_number, errors)
     if not raw:
@@ -389,7 +400,7 @@ class DesignationImportService:
                 existing_designations[row.business_key] = item
             else:
                 for field_name in MUTABLE_DESIGNATION_FIELDS:
-                    setattr(item, field_name, getattr(row, field_name))
+                    setattr(item, field_name, _incoming_value(item, row, field_name))
         db.flush()
 
         users_by_ci = {user.ci: user for user in db.query(User).all()}
@@ -614,6 +625,16 @@ class DesignationImportService:
                 errors.append(f"Fila {index}: weekly_hours no coincide con la suma del horario.")
             if calculated is not None and calculated != slot_hours:
                 errors.append(f"Fila {index}: weekly_hours_calculated no coincide con la suma del horario.")
+            contract_start = _optional_date(
+                designation.get("contract_start_date"), "designation.contract_start_date", index, errors
+            )
+            contract_end = _optional_date(
+                designation.get("contract_end_date"), "designation.contract_end_date", index, errors
+            )
+            if contract_start and contract_end and contract_end < contract_start:
+                errors.append(
+                    f"Fila {index}: la fecha de fin del contrato no puede ser anterior a la de inicio."
+                )
             rows.append(
                 CanonicalDesignationRow(
                     teacher_ci=ci,
@@ -640,6 +661,8 @@ class DesignationImportService:
                         errors,
                     ),
                     designation_type=designation_type,
+                    contract_start_date=contract_start,
+                    contract_end_date=contract_end,
                 )
             )
         return rows
@@ -653,9 +676,9 @@ class DesignationImportService:
             name = _required_text(entry.get("NOMBRE COMPLETO"), "NOMBRE COMPLETO", index, errors).upper()
             subject = _required_text(entry.get("MATERIAS"), "MATERIAS", index, errors)
             schedule_raw = _required_text(entry.get("HORARIO"), "HORARIO", index, errors)
-            schedule = _canonical_schedule(
-                self.legacy_loader._parse_horario_string(schedule_raw), index, errors
-            )
+            parsed_schedule, schedule_errors = self.legacy_loader.parse_horario_with_errors(schedule_raw)
+            errors.extend(f"Fila {index}: horario inválido: {error}" for error in schedule_errors)
+            schedule = _canonical_schedule(parsed_schedule, index, errors)
             contract_start = _optional_date(entry.get("FECHA INICIO"), "FECHA INICIO", index, errors)
             contract_end = _optional_date(entry.get("FECHA FIN"), "FECHA FIN", index, errors)
             if contract_start and contract_end and contract_end < contract_start:
@@ -866,7 +889,10 @@ class DesignationImportService:
             existing = existing_designations.get(row.business_key)
             if existing is None:
                 plan.designations.creates += 1
-            elif any(getattr(existing, field_name) != getattr(row, field_name) for field_name in MUTABLE_DESIGNATION_FIELDS):
+            elif any(
+                getattr(existing, field_name) != _incoming_value(existing, row, field_name)
+                for field_name in MUTABLE_DESIGNATION_FIELDS
+            ):
                 plan.designations.updates += 1
             else:
                 plan.designations.noops += 1
