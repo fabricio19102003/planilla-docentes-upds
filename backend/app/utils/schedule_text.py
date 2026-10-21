@@ -1,6 +1,6 @@
 """Parse free-text UPDS schedule cells into academic schedule slots.
 
-A cell lists one or more ``DAY: start - end`` segments, separated by newlines or plain
+A cell lists one or more ``DAY: start - end`` segments, separated by newlines, slashes or plain
 spaces. Real workbooks mix 12-hour and 24-hour notation (``13: 40 pm``), drop the colon
 between hour and minutes (``08 10 am``) and contain typos. Every segment either becomes a
 slot or produces one error message naming the segment, so callers can reject the row
@@ -22,10 +22,12 @@ _DAY_NAMES = {
     "JUEVES": "jueves", "JUVES": "jueves", "JEVES": "jueves",
     "VIERNES": "viernes", "VIERNE": "viernes",
     "SABADO": "sabado", "SABDO": "sabado",
+    "DOMINGO": "domingo",
 }
 _DAY_RE = re.compile(r"\b(" + "|".join(sorted(_DAY_NAMES, key=len, reverse=True)) + r")\b\s*:?")
 _CLOCK = r"(\d{1,2})\s*[:.\s]\s*(\d{2})\s*:?\s*(AM|PM)?"
 _RANGE_RE = re.compile(rf"^{_CLOCK}\s*(?:-+|\bA\b)\s*{_CLOCK}$")
+_TRAILING_UNIT_RE = re.compile(r"\s*\b(?:HRS?|HS|HORAS)\b\.?$")
 
 
 def _fold(text: str) -> str:
@@ -33,10 +35,12 @@ def _fold(text: str) -> str:
     return "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
 
 
+def _valid_clock(hour: int, minute: int) -> bool:
+    return hour <= 23 and minute <= 59
+
+
 def _to_minutes(hour: int, minute: int, marker: str | None) -> int | None:
     """Return minutes since midnight, or None when the AM/PM marker contradicts the hour."""
-    if minute > 59 or hour > 23:
-        return None
     if marker is None or hour > 12:
         # 24-hour value; a PM marker on 13..23 is redundant, an AM marker is contradictory.
         if marker == "AM" and hour > 12:
@@ -74,7 +78,8 @@ def parse_schedule_text(raw: str | None) -> tuple[list[dict], list[str]]:
 
     for index, day in enumerate(days):
         end = days[index + 1].start() if index + 1 < len(days) else len(folded)
-        segment = " ".join(folded[day.end():end].split()).strip(" ;,")
+        segment = " ".join(folded[day.end():end].split()).strip(" ;,/")
+        segment = _TRAILING_UNIT_RE.sub("", segment).rstrip(" .;,/")
         label = f"{day.group(1)}: {segment}"
         match = _RANGE_RE.match(segment)
         if not match:
@@ -82,6 +87,9 @@ def parse_schedule_text(raw: str | None) -> tuple[list[dict], list[str]]:
             continue
         h1, m1, mark1, h2, m2, mark2 = match.groups()
         h1, m1, h2, m2 = int(h1), int(m1), int(h2), int(m2)
+        if not (_valid_clock(h1, m1) and _valid_clock(h2, m2)):
+            errors.append(f"El bloque {label!r} tiene una hora inválida")
+            continue
         if mark1 is None and mark2 is not None and h1 <= 12 and h2 <= 12:
             # "03:00-05:00 PM": the trailing marker also applies to the start when that
             # keeps the block in chronological order.

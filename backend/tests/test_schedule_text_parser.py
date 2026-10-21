@@ -132,3 +132,28 @@ class TestRejectedSchedules:
         slots, errors = _strict("06:30 - 08:00")
         assert slots == []
         assert errors == ["No se encontró ningún día en el horario: '06:30 - 08:00'"]
+
+
+class TestLegacyNotationsKept:
+    def test_trailing_hrs_and_period_are_ignored(self):
+        assert _slots("LUNES 08:00 - 10:00 hrs\nMARTES 08:00-10:00.") == [
+            ("lunes", "08:00", "10:00", 3),
+            ("martes", "08:00", "10:00", 3),
+        ]
+
+    def test_slash_between_blocks(self):
+        assert _slots("LUNES 08:00-09:30 / MIERCOLES 08:00-09:30") == [
+            ("lunes", "08:00", "09:30", 2),
+            ("miercoles", "08:00", "09:30", 2),
+        ]
+
+    def test_sunday_is_a_valid_day(self):
+        assert _slots("DOMINGO 08:00-09:30") == [("domingo", "08:00", "09:30", 2)]
+
+    @pytest.mark.parametrize("raw", ["LUNES 22:00-24:00", "LUNES 08:70-09:30"])
+    def test_impossible_clock_time_reports_invalid_time(self, raw):
+        slots, errors = _strict(raw)
+        assert slots == []
+        assert len(errors) == 1
+        assert "hora inválida" in errors[0]
+        assert "AM/PM" not in errors[0]
