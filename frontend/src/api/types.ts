@@ -1148,3 +1148,92 @@ export interface AppSettingsUpdate {
   docente_can_edit_photo?: boolean
   whatsapp_billing_requested_enabled?: boolean
 }
+
+// ─── Teacher change ("Cambiar docente") and payroll simulation ──────────────
+
+export interface TeacherDesignationSummary {
+  id: number
+  teacher_ci: string
+  subject: string
+  semester: string
+  group_code: string
+  designation_type: string
+  monthly_hours: number | null
+  weekly_hours: number | null
+  schedule_raw: string | null
+  contract_start_date: string | null
+  contract_end_date: string | null
+}
+
+export type DesignationChangeRequest =
+  | { academic_period: string; effective_from: string; incoming_teacher_ci: string; scope: 'designation'; designation_id: number }
+  | { academic_period: string; effective_from: string; incoming_teacher_ci: string; scope: 'teacher'; outgoing_teacher_ci: string }
+
+export interface DesignationChangeItem {
+  designation_id: number
+  subject: string
+  semester: string
+  group_code: string
+  designation_type: string
+  outgoing_teacher_ci: string
+  incoming_teacher_ci: string
+  outgoing_until: string
+  incoming_from: string
+  incoming_until: string | null
+}
+
+export interface DesignationChangeBlocker {
+  code: string
+  message: string
+  designation_id: number | null
+  dates: string[]
+}
+
+export interface DesignationChangeRegeneration {
+  planilla: 'regular' | 'practice'
+  month: number
+  year: number
+  status: string
+}
+
+export interface DesignationChangeTeacherImpact {
+  teacher_ci: string
+  teacher_name: string
+  activity: 'theory' | 'practice'
+  hours_before: number
+  hours_after: number
+  amount_before: number
+  amount_after: number
+}
+
+export interface DesignationChangeImpact {
+  month: number
+  year: number
+  teachers: DesignationChangeTeacherImpact[]
+}
+
+export interface DesignationChangePreview {
+  can_apply: boolean
+  items: DesignationChangeItem[]
+  blockers: DesignationChangeBlocker[]
+  warnings: string[]
+  regenerate: DesignationChangeRegeneration[]
+  impact: DesignationChangeImpact
+}
+
+export interface DesignationChangeResult {
+  ended_designation_ids: number[]
+  created_designation_ids: number[]
+  regenerate: DesignationChangeRegeneration[]
+  impact: DesignationChangeImpact
+}
+
+export interface PublicationPayrollSimulation {
+  draft_id: number
+  effective_from: string
+  month: number
+  year: number
+  teachers: DesignationChangeTeacherImpact[]
+  total_before: number
+  total_after: number
+}
