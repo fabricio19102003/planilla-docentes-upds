@@ -30,6 +30,7 @@ from app.services import academic_management_service as academic
 from app.services.effective_schedule_service import canonical_weekday, legacy_activity, schedule_scope_key
 from app.utils.academic_semester import semester_number
 from app.utils.helpers import normalize_group_code
+from app.utils.subject_names import same_subject
 
 
 OPERATIONAL_WARNINGS = [
@@ -404,9 +405,12 @@ def _theory_payroll_blockers(
 ) -> list[dict[str, Any]]:
     """Refuse theory publications that would change or duplicate what designations pay.
 
-    A published theory scope suppresses the legacy designation with the same normalized
-    (subject, group, semester) key. If the published weekly hours differ, pay changes; if a
-    designation overlaps a theory block without that exact key, it keeps being paid too.
+    A published theory scope suppresses every legacy designation with the same normalized
+    (subject, group, semester) key; their combined weekly hours must equal the published ones.
+    A designation of the same group and semester (or an unrecognized semester) that is not
+    suppressed keeps being paid, so it must not be the same subject spelled differently nor
+    overlap a theory block. Designations count while they are active on or after
+    ``effective_from``.
     """
     theory = [block for block in draft.blocks if block.activity_type == "theory"]
     if not theory:
@@ -422,24 +426,21 @@ def _theory_payroll_blockers(
             Designation.academic_period == draft.academic_period
         ).all()
         if legacy_activity(item) == "theory"
-        and not (item.contract_start_date and effective_from < item.contract_start_date)
-        and not (item.contract_end_date and effective_from > item.contract_end_date)
+        and not (item.contract_end_date and item.contract_end_date < effective_from)
     ]
-    mismatched: set[tuple[str, ...]] = set()
-    duplicated = 0
-    for block in theory:
-        for item in designations:
+    replaced: dict[tuple[str, ...], int] = {}
+    duplicated: set[int] = set()
+    for item in designations:
+        key = schedule_scope_key(item.subject, item.group_code, item.semester, "theory")
+        if key in scopes:
+            paid = sum(int(slot.get("horas_academicas", 0)) for slot in item.schedule_json or [])
+            replaced[key] = replaced.get(key, 0) + paid
+            continue
+        item_semester = semester_number(item.semester)
+        for block in theory:
             if _group_key(item.group_code) != _group_key(block.group.code):
                 continue
-            if semester_number(item.semester) != semester_number(block.group.semester):
-                continue
-            # Same rule effective_schedule_slots uses to suppress a legacy designation.
-            key = schedule_scope_key(item.subject, item.group_code, item.semester, "theory")
-            exact = key in scopes
-            if exact:
-                paid = sum(int(slot.get("horas_academicas", 0)) for slot in item.schedule_json or [])
-                if paid != scopes[key]:
-                    mismatched.add(key)
+            if item_semester is not None and item_semester != semester_number(block.group.semester):
                 continue
             overlaps = any(
                 canonical_weekday(slot.get("dia")) == canonical_weekday(block.weekday)
@@ -447,9 +448,10 @@ def _theory_payroll_blockers(
                 and block.start_time.strftime("%H:%M") < str(slot.get("hora_fin", ""))
                 for slot in item.schedule_json or []
             )
-            if overlaps:
-                duplicated += 1
+            if overlaps or same_subject(item.subject, block.offering.subject.name):
+                duplicated.add(item.id)
                 break
+    mismatched = [key for key, paid in replaced.items() if paid != scopes[key]]
     blockers: list[dict[str, Any]] = []
     if mismatched:
         blockers.append({
@@ -459,8 +461,8 @@ def _theory_payroll_blockers(
         })
     if duplicated:
         blockers.append({
-            "category": "theory_duplicates_designation", "count": duplicated,
-            "message": f"{duplicated} bloque(s) de teoría coinciden con una designación vigente que se seguiría "
+            "category": "theory_duplicates_designation", "count": len(duplicated),
+            "message": f"{len(duplicated)} bloque(s) de teoría coinciden con una designación vigente que se seguiría "
                        "pagando. Unifique materia, grupo y semestre antes de publicar.",
         })
     return blockers

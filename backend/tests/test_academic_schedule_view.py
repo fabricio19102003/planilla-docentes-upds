@@ -259,3 +259,31 @@ def test_semester_groups_follow_shift_order(client, db_session):
     body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
     assert body["semesters"] == [{"semester": 1, "groups": ["M-2", "M-10", "T-2", "N-1", "A", "EXTRA"]}]
     assert [b["group_code"] for b in body["blocks"]] == ["M-2", "M-10", "T-2", "N-1", "A", "EXTRA"]
+
+
+def test_export_handles_unknown_semesters_and_unsafe_group_codes(client, db_session):
+    _catalog(client, db_session)
+    _designation(db_session, semester="INTERNADO")
+    _designation(db_session, group_code="M-1/2", schedule_json=[
+        {"dia": "martes", "hora_inicio": "07:00", "hora_fin": "08:30", "horas_academicas": 2}])
+    response = client.get(f"{VIEW}/export", params={"academic_period": "I/2027", "date": "2027-03-01"})
+    assert response.status_code == 200, response.text[:300]
+    names = openpyxl.load_workbook(BytesIO(response.content)).sheetnames
+    assert names == ["S1 M-1-2", "Sin semestre M-1", "Lista"]
+
+
+def test_export_filename_only_keeps_safe_characters(client, db_session):
+    _catalog(client, db_session)
+    _designation(db_session)
+    response = client.get(f"{VIEW}/export", params={
+        "academic_period": 'I/2027"x', "date": "2027-03-01", "group": "M-1",
+    })
+    assert response.headers["content-disposition"] == 'attachment; filename="horarios_I-2027_x_M-1.xlsx"'
+
+
+def test_draft_from_another_period_is_rejected(client, db_session):
+    program, _subject, offering, group, room = _catalog(client, db_session)
+    draft, _block = _practice_draft(client, program, offering, group, room)
+    response = client.get(VIEW, params={"academic_period": "II/2027", "source": "draft", "draft_id": draft["id"]})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "El borrador seleccionado pertenece a otro período académico."

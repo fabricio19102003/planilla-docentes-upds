@@ -26,6 +26,7 @@ from app.services import academic_management_service as academic
 from app.services.effective_schedule_service import canonical_weekday, effective_schedule_slots
 from app.utils.academic_semester import semester_number
 from app.utils.helpers import normalize_group_code
+from app.utils.subject_names import token_match as _token_match, tokens as _tokens
 
 Source = Literal["current", "draft"]
 WEEKDAYS = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
@@ -77,24 +78,6 @@ def _block_sort(block: ViewBlock) -> tuple:
         block.semester is None, block.semester or 0, _group_sort(block.group_code),
         weekday, block.start_time, block.subject_name,
     )
-
-
-_STOPWORDS = {"de", "la", "el", "en", "y", "e", "del", "los", "las"}
-_NUMERALS = {"i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
-
-
-def _tokens(value: object) -> list[str]:
-    return [token for token in re.split(r"[^a-z0-9]+", _fold(value)) if token and token not in _STOPWORDS]
-
-
-def _token_match(designation: list[str], catalog: list[str]) -> bool:
-    """Every designation word is a prefix of a catalog word; roman numerals must match exactly."""
-    if not designation:
-        return False
-    if [t for t in designation if t in _NUMERALS] != [t for t in catalog if t in _NUMERALS]:
-        return False
-    return all(any(word.startswith(token) for word in catalog if word not in _NUMERALS)
-               for token in designation if token not in _NUMERALS)
 
 
 class SubjectResolver:
@@ -177,9 +160,12 @@ def _current_blocks(db: Session, academic_period: str, reference: date) -> list[
     return blocks
 
 
-def _draft_blocks(db: Session, draft_id: int, reference: date) -> list[ViewBlock]:
-    if db.get(AcademicScheduleDraft, draft_id) is None:
+def _draft_blocks(db: Session, draft_id: int, academic_period: str, reference: date) -> list[ViewBlock]:
+    draft = db.get(AcademicScheduleDraft, draft_id)
+    if draft is None:
         raise HTTPException(404, detail="No se encontró el borrador de horario solicitado.")
+    if draft.academic_period != academic_period:
+        raise HTTPException(422, detail="El borrador seleccionado pertenece a otro período académico.")
     rows = academic._schedule_block_query(db).filter_by(draft_id=draft_id).all()
     current = {}
     for block in rows:
@@ -225,7 +211,7 @@ def schedule_view(
     if source == "draft":
         if draft_id is None:
             raise HTTPException(422, detail="Seleccione el borrador que desea consultar.")
-        blocks = _draft_blocks(db, draft_id, reference)
+        blocks = _draft_blocks(db, draft_id, academic_period, reference)
     else:
         blocks = _current_blocks(db, academic_period, reference)
 

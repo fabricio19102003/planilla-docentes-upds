@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from io import BytesIO
 import hashlib
+import re
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -53,21 +54,37 @@ def _text(block: dict) -> str:
     return "\n".join(lines)
 
 
-def _sheet_title(semester: int | None, group: str) -> str:
-    return f"S{semester if semester is not None else '?'} {group}"[:31]
+_INVALID_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
+
+
+def _sheet_title(semester: int | None, group: str, used: set[str]) -> str:
+    """Excel-safe, unique sheet title (no []:*?/\\, at most 31 characters)."""
+    prefix = f"S{semester}" if semester is not None else "Sin semestre"
+    base = _INVALID_SHEET_CHARS.sub("-", f"{prefix} {group}")[:31]
+    title, counter = base, 2
+    while title in used:
+        suffix = f" ({counter})"
+        title, counter = base[:31 - len(suffix)] + suffix, counter + 1
+    used.add(title)
+    return title
+
+
+def _safe_segment(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9.-]+", "_", value.replace("/", "-")).strip("_")
 
 
 def export_filename(academic_period: str, semester: int | None, group: str | None) -> str:
-    parts = [f"horarios_{academic_period.replace('/', '-')}"]
+    parts = [f"horarios_{_safe_segment(academic_period)}"]
     if semester is not None:
         parts.append(f"sem{semester}")
     if group:
-        parts.append(group)
-    return "_".join(parts) + ".xlsx"
+        parts.append(_safe_segment(group))
+    return "_".join(part for part in parts if part) + ".xlsx"
 
 
-def _grid_sheet(workbook: Workbook, view: dict, semester: int | None, group: str, blocks: list[dict]) -> None:
-    sheet = workbook.create_sheet(_sheet_title(semester, group))
+def _grid_sheet(workbook: Workbook, view: dict, semester: int | None, group: str, blocks: list[dict],
+                used: set[str]) -> None:
+    sheet = workbook.create_sheet(_sheet_title(semester, group, used))
     reference = view["reference_date"]
     reference = reference.isoformat() if isinstance(reference, date) else str(reference)
     sheet["A1"] = (f"Horarios {view['academic_period']} — Semestre {semester if semester is not None else 'sin definir'}"
@@ -125,8 +142,9 @@ def schedule_workbook(view: dict) -> bytes:
     groups: dict[tuple, list[dict]] = {}
     for block in view["blocks"]:
         groups.setdefault((block["semester"], block["group_code"]), []).append(block)
+    used: set[str] = {"Lista"}
     for (semester, group), blocks in groups.items():
-        _grid_sheet(workbook, view, semester, group, blocks)
+        _grid_sheet(workbook, view, semester, group, blocks, used)
     listing = workbook.create_sheet("Lista")
     listing.append(["Semestre", "Grupo", "Día", "Inicio", "Fin", "Materia", "Actividad", "Docente", "Aula"])
     for cell in listing[1]:
