@@ -421,3 +421,21 @@ def test_official_rows_with_rejected_schedule_blocks_are_listed_and_nothing_is_w
     assert apply(client, payload, result["digest"]).status_code == 400
     assert db_session.query(Designation).count() == 0
     assert db_session.query(Teacher).filter(Teacher.ci.in_(["9000100", "9000101", "9000102"])).count() == 0
+
+
+def test_reimport_with_start_after_stored_end_is_rejected(client, db_session):
+    first = with_contract_dates(synthetic_envelope(), "2026-08-10", "2026-09-17")
+    assert apply(client, first, preview(client, first).json()["digest"]).status_code == 201
+
+    later = with_contract_dates(synthetic_envelope(), "2026-10-06", None)
+    result = preview(client, later).json()
+    assert result["can_apply"] is False
+    assert (
+        "Fila 1: la fecha de fin del contrato (2026-09-17) quedaría anterior a la de inicio (2026-10-06)."
+        in result["errors"]
+    )
+    assert apply(client, later, result["digest"]).status_code == 400
+    db_session.expire_all()
+    stored = db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one()
+    assert stored.contract_start_date.isoformat() == "2026-08-10"
+    assert stored.contract_end_date.isoformat() == "2026-09-17"

@@ -821,6 +821,7 @@ class DesignationImportService:
                 teachers_by_name.setdefault(normalize_name(item.full_name), []).append(item)
 
         resolved_rows: list[CanonicalDesignationRow] = []
+        resolved_numbers: list[int] = []
         for index, row in enumerate(rows, start=1):
             if row.teacher_ci is None:
                 matches = teachers_by_name.get(normalize_name(row.teacher_name), [])
@@ -831,6 +832,7 @@ class DesignationImportService:
                     continue
                 row = replace(row, teacher_ci=matches[0].ci)
             resolved_rows.append(row)
+            resolved_numbers.append(index)
         plan.rows = resolved_rows
 
         errors_before_teacher_merge = len(plan.errors)
@@ -885,8 +887,16 @@ class DesignationImportService:
             ): item
             for item in db.query(Designation).filter(Designation.academic_period == academic_period)
         }
-        for row in resolved_rows:
+        for number, row in zip(resolved_numbers, resolved_rows):
             existing = existing_designations.get(row.business_key)
+            if existing is not None:
+                start = _incoming_value(existing, row, "contract_start_date")
+                end = _incoming_value(existing, row, "contract_end_date")
+                if start and end and end < start:
+                    plan.errors.append(
+                        f"Fila {number}: la fecha de fin del contrato ({end.isoformat()}) "
+                        f"quedaría anterior a la de inicio ({start.isoformat()})."
+                    )
             if existing is None:
                 plan.designations.creates += 1
             elif any(

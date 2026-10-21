@@ -157,3 +157,29 @@ class TestLegacyNotationsKept:
         assert len(errors) == 1
         assert "hora inválida" in errors[0]
         assert "AM/PM" not in errors[0]
+
+
+class TestBoundaries:
+    def test_mixed_suffixes_and_slash(self):
+        assert _strict("LUNES 08:00-10:00 hs / MIERCOLES 08:00-10:00 hrs.") == (
+            [
+                {"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "10:00", "duracion_minutos": 120, "horas_academicas": 3},
+                {"dia": "miercoles", "hora_inicio": "08:00", "hora_fin": "10:00", "duracion_minutos": 120, "horas_academicas": 3},
+            ],
+            [],
+        )
+
+    def test_exactly_six_hours_is_accepted(self):
+        slots, errors = _strict("LUNES 08:00 - 14:00")
+        assert errors == []
+        assert slots[0]["duracion_minutos"] == 360
+
+    def test_zero_length_block_is_rejected(self):
+        slots, errors = _strict("LUNES 08:00 - 08:00")
+        assert slots == []
+        assert "termina antes de empezar" in errors[0]
+
+    def test_midnight_hour_24_is_invalid(self):
+        slots, errors = _strict("LUNES 24:00-01:00")
+        assert slots == []
+        assert errors[0].endswith("tiene una hora inválida")
