@@ -22,6 +22,7 @@ from app.services.designation_import_service import (
 )
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
+from app.utils.schedule_text import parse_schedule_text
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +40,19 @@ def _load_normalizer_module():
     return module
 
 
-def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
+def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str], list[str]]:
+    """Convert an uploaded designation workbook to the intermediate JSON format.
+
+    Schedules go through the shared ``schedule_text`` parser. Rejected blocks are
+    returned as errors (one per block, with the Excel row) so the import is blocked
+    instead of silently dropping a class.
+    """
     module = _load_normalizer_module()
     rows = module.leer_excel(str(excel_path))
 
     designaciones: list[dict] = []
     warnings: list[str] = []
-    skipped_no_schedule = 0
-    skipped_no_time = 0
-    parse_errors = 0
+    errors: list[str] = []
 
     for row in rows:
         horario = row["horario_raw"]
@@ -55,27 +60,20 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
         fila = row["fila"]
 
         if not horario or horario in ("None", ""):
-            skipped_no_schedule += 1
+            warnings.append(f"Fila {fila}: '{docente}' no tiene horario; la fila se omite.")
             continue
 
-        entries, row_warnings = module.parse_horario(horario, fila, docente)
-        warnings.extend(item["mensaje"] for item in row_warnings)
-
-        if not entries:
-            if row_warnings:
-                skipped_no_time += 1
-            else:
-                parse_errors += 1
-                warnings.append(f"Fila {fila}: no se pudo interpretar el horario de '{docente}'")
+        entries, schedule_errors = parse_schedule_text(horario)
+        errors.extend(f"Fila {fila}: horario inválido: {error}" for error in schedule_errors)
+        if schedule_errors:
             continue
 
-        # Transform entries from old internal format to new horario_detalle format
         horario_detalle = [
             {
                 "dia": entry["dia"].capitalize(),  # "lunes" → "Lunes"
                 "hora_inicio": entry["hora_inicio"],
                 "hora_fin": entry["hora_fin"],
-                "horas_academicas": entry.get("horas_academicas"),
+                "horas_academicas": entry["horas_academicas"],
             }
             for entry in entries
         ]
@@ -100,10 +98,10 @@ def _normalize_designations_excel(excel_path: Path) -> tuple[Path, list[str]]:
     with json_path.open("w", encoding="utf-8") as handle:
         json.dump(output, handle, ensure_ascii=False, indent=2)
 
-    return json_path, warnings
+    return json_path, warnings, errors
 
 
-async def _designation_json_bytes(file: UploadFile) -> tuple[bytes, list[str], bytes]:
+async def _designation_json_bytes(file: UploadFile) -> tuple[bytes, list[str], bytes, list[str]]:
     """Read a bounded upload and normalize Excel inside an auto-cleaned directory."""
     filename = Path(file.filename or "upload.bin").name
     extension = Path(filename).suffix.lower()
@@ -119,13 +117,13 @@ async def _designation_json_bytes(file: UploadFile) -> tuple[bytes, list[str], b
     if len(content) > MAX_DESIGNATION_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="El archivo supera el límite de 10 MB.")
     if extension == ".json":
-        return content, [], content
+        return content, [], content, []
 
     with tempfile.TemporaryDirectory(prefix="sipad-designations-") as temp_dir:
         excel_path = Path(temp_dir) / filename
         excel_path.write_bytes(content)
-        normalized_path, warnings = _normalize_designations_excel(excel_path)
-        return normalized_path.read_bytes(), warnings, content
+        normalized_path, warnings, errors = _normalize_designations_excel(excel_path)
+        return normalized_path.read_bytes(), warnings, content, errors
 
 
 def _preview_response(plan: DesignationImportPlan) -> DesignationImportPreviewResponse:
@@ -151,7 +149,7 @@ async def preview_designations(
     db: Session = Depends(get_db),
 ) -> DesignationImportPreviewResponse:
     try:
-        json_bytes, parser_warnings, upload_bytes = await _designation_json_bytes(file)
+        json_bytes, parser_warnings, upload_bytes, parser_errors = await _designation_json_bytes(file)
         plan = DesignationImportService().preview(
             db,
             json_bytes,
@@ -159,6 +157,7 @@ async def preview_designations(
             digest_bytes=upload_bytes,
         )
         plan.warnings.extend(parser_warnings)
+        plan.errors[:0] = parser_errors
         return _preview_response(plan)
     finally:
         await file.close()
@@ -178,7 +177,9 @@ async def upload_designations(
     db: Session = Depends(get_db),
 ) -> DesignationImportApplyResponse:
     try:
-        json_bytes, parser_warnings, upload_bytes = await _designation_json_bytes(file)
+        json_bytes, parser_warnings, upload_bytes, parser_errors = await _designation_json_bytes(file)
+        if parser_errors:
+            raise DesignationImportError(parser_errors)
         plan = DesignationImportService().apply(
             db,
             json_bytes,
