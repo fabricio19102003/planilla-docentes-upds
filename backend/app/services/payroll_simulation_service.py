@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Iterable
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.teacher import Teacher
@@ -75,6 +76,8 @@ def teacher_impacts(
 def simulate_publication(db: Session, draft_id: int, effective_from: date, month: int, year: int) -> dict:
     """Bs per teacher for a month if the draft were published from ``effective_from``."""
     draft = publication_service._draft_graph(db, draft_id, lock=False)
+    if draft.status != "draft":
+        raise HTTPException(409, detail="Solo se puede simular un borrador editable.")
     start, end = month_bounds(year, month)
     before = hours_by_teacher(db, draft.academic_period, start, end)
     savepoint = db.begin_nested()

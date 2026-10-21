@@ -76,3 +76,14 @@ def test_simulation_validates_input(client, db_session):
     _program, _subject, _offering, _group, _room, draft, _block, _teacher = _seed(client, db_session)
     assert _simulate(client, 999999).status_code == 404
     assert _simulate(client, draft["id"], month=13).status_code == 422
+
+
+def test_simulation_rejects_a_draft_that_is_not_editable(client, db_session):
+    _rates(db_session)
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    db_session.get(AcademicScheduleDraft, draft["id"]).status = "published"
+    db_session.flush()
+    response = _simulate(client, draft["id"])
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Solo se puede simular un borrador editable."
