@@ -90,6 +90,7 @@ from app.schemas.designation_change import (
     DesignationChangeResult,
     PublicationPayrollSimulation,
     PublicationPayrollSimulationRequest,
+    TeacherDesignationSummary,
 )
 from app.services import designation_change_service, payroll_simulation_service
 from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
@@ -821,6 +822,18 @@ def export_schedule_view(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/designation-changes/designations", response_model=list[TeacherDesignationSummary])
+def list_designations_for_change(
+    academic_period: str = Query(min_length=1, max_length=20),
+    teacher_ci: str = Query(min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+):
+    return [
+        TeacherDesignationSummary.model_validate(item, from_attributes=True)
+        for item in designation_change_service.list_teacher_designations(db, academic_period, teacher_ci)
+    ]
 
 
 @router.post("/designation-changes/preview", response_model=DesignationChangePreview)

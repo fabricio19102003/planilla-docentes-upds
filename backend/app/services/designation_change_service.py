@@ -316,3 +316,12 @@ def apply_change(db: Session, request: DesignationChangeRequest) -> DesignationC
         regenerate=preview.regenerate,
         impact=preview.impact,
     )
+
+
+def list_teacher_designations(db: Session, academic_period: str, teacher_ci: str) -> list[Designation]:
+    return (
+        db.query(Designation)
+        .filter(Designation.academic_period == academic_period, Designation.teacher_ci == teacher_ci)
+        .order_by(Designation.subject, Designation.group_code, Designation.id)
+        .all()
+    )

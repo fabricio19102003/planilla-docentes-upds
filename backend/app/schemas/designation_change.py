@@ -98,3 +98,17 @@ class PublicationPayrollSimulation(BaseModel):
     teachers: list[DesignationChangeTeacherImpact]
     total_before: float
     total_after: float
+
+
+class TeacherDesignationSummary(BaseModel):
+    id: int
+    teacher_ci: str
+    subject: str
+    semester: str
+    group_code: str
+    designation_type: str
+    monthly_hours: int | None
+    weekly_hours: int | None
+    schedule_raw: str | None
+    contract_start_date: date | None
+    contract_end_date: date | None

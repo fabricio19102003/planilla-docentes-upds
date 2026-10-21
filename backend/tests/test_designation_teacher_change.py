@@ -248,3 +248,20 @@ def test_scope_requires_matching_identifier(client, seeded):
     assert response.status_code == 422
     response = client.post(f"{URL}/preview", json=_body(scope="teacher"))
     assert response.status_code == 422
+
+
+def test_lists_teacher_designations_for_the_wizard(client, seeded):
+    active = _designation(seeded, subject="Anatomia")
+    ended = _designation(seeded, subject="Ended", end=date(2026, 4, 30))
+    _designation(seeded, "CHG-T3", subject="Other")
+    response = client.get(f"{URL}/designations", params={"academic_period": PERIOD, "teacher_ci": "CHG-T1"})
+    assert response.status_code == 200, response.text
+    assert response.json() == [
+        {"id": active.id, "teacher_ci": "CHG-T1", "subject": "Anatomia", "semester": "1", "group_code": "M-1",
+         "designation_type": "regular", "monthly_hours": 8, "weekly_hours": 2, "schedule_raw": "LUNES 08:00-09:30",
+         "contract_start_date": None, "contract_end_date": None},
+        {"id": ended.id, "teacher_ci": "CHG-T1", "subject": "Ended", "semester": "1", "group_code": "M-1",
+         "designation_type": "regular", "monthly_hours": 8, "weekly_hours": 2, "schedule_raw": "LUNES 08:00-09:30",
+         "contract_start_date": None, "contract_end_date": "2026-04-30"},
+    ]
+    assert client.get(f"{URL}/designations", params={"academic_period": PERIOD}).status_code == 422
