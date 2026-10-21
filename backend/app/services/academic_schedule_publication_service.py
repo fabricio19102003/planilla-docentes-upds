@@ -34,8 +34,8 @@ from app.utils.subject_names import same_subject
 
 
 OPERATIONAL_WARNINGS = [
-    "Las asignaciones teóricas publicadas alimentan la asistencia regular y conservan su procedencia inmutable.",
-    "Los bloques de práctica, planillas, contratos y facturación continúan usando únicamente las designaciones heredadas.",
+    "Desde la fecha efectiva, los bloques publicados (teoría y práctica) reemplazan en la planilla y en la asistencia regular a las designaciones de la misma materia, grupo y semestre.",
+    "Cada bloque paga sus horas académicas por clase dictada: teoría a la tarifa de teoría y práctica a la tarifa de prácticas. Los contratos y la facturación siguen usando las designaciones.",
 ]
 
 

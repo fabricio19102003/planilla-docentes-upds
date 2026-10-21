@@ -55,7 +55,7 @@ test('renders accessible blocker, error, focus, history, clone, and warning stat
   assert.match(page, /Historial de publicaciones/)
   assert.match(page, /Clonar como borrador editable/)
   assert.match(page, /Publicado e inmutable/)
-  assert.match(page, /No despliegue esta publicación sola en producción/)
+  assert.match(page, /Publicar un borrador cambia lo que se paga desde su fecha efectiva/)
   assert.match(page, /role="alert"/)
   assert.match(page, /role="status"/)
   assert.match(page, /aria-describedby=/)

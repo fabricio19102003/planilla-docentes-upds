@@ -513,8 +513,10 @@ def test_publication_preview_discloses_operational_boundary(client, db_session):
     _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
     _assign(client, draft["id"], block["id"])
     preview = _preview(client, draft["id"])
-    assert any("asistencia regular" in warning for warning in preview["warnings"])
-    assert any("práctica" in warning for warning in preview["warnings"])
+    assert preview["warnings"] == [
+        "Desde la fecha efectiva, los bloques publicados (teoría y práctica) reemplazan en la planilla y en la asistencia regular a las designaciones de la misma materia, grupo y semestre.",
+        "Cada bloque paga sus horas académicas por clase dictada: teoría a la tarifa de teoría y práctica a la tarifa de prácticas. Los contratos y la facturación siguen usando las designaciones.",
+    ]
 
 
 def _legacy_theory(db_session, *, weekly_hours: int, schedule: list[dict], start=date(2027, 1, 1)):

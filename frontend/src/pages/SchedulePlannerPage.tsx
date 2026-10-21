@@ -407,7 +407,7 @@ export function SchedulePlannerPage() {
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-sky-700"><CalendarDays size={17} />Gestión académica</div>
             <h1 id="schedule-planner-title" className="text-2xl font-bold text-slate-950">Planificador de horarios</h1>
-            <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 07:00 y 22:00.</p>
+            <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 06:00 y 23:30, con clases de cualquier duración.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <DesignationBootstrapDialog
@@ -425,7 +425,7 @@ export function SchedulePlannerPage() {
         </header>
 
         <div role="note" className="rounded-md border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
-          La importación inicial incorpora teoría y práctica al borrador. No despliegue esta publicación sola en producción: la integración de asistencia regular permanece en modo de lectura, y planillas, contratos y facturación todavía usan el origen heredado.
+          Publicar un borrador cambia lo que se paga desde su fecha efectiva: sus bloques reemplazan a las designaciones de la misma materia, grupo y semestre en la planilla y la asistencia. Revise la vista previa antes de publicar; la teoría se bloquea si cambiaría lo que pagan las designaciones.
         </div>
 
         {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
