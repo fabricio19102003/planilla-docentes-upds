@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -22,6 +22,7 @@ from app.models.academic_management import (
 )
 from app.models.user import User
 from app.schemas.academic_management import (
+    ScheduleViewResponse,
     AvailabilityCreate,
     AvailabilityCompatibilityQuery,
     AvailabilityResponse,
@@ -66,6 +67,8 @@ from app.schemas.academic_management import (
 )
 from app.services import academic_management_service as service
 from app.services import academic_schedule_publication_service as publication_service
+from app.services.academic_schedule_export import export_filename, schedule_workbook
+from app.services.academic_schedule_view_service import normalized_group, schedule_view
 from app.services.designation_bootstrap_preview import (
     WorkbookValidationError,
     build_designation_bootstrap_preview,
@@ -747,4 +750,51 @@ def clone_schedule_publication(
         publication_id,
         payload.name,
         _audit(db, request, user, "clone", "academic_schedule_draft"),
+    )
+
+
+def _schedule_view_query(
+    db: Session,
+    academic_period: str,
+    source: Literal["current", "draft"],
+    draft_id: int | None,
+    reference: date | None,
+    semester: int | None,
+    group: str | None,
+) -> dict:
+    return schedule_view(
+        db, academic_period=academic_period, source=source, reference=reference or date.today(),
+        draft_id=draft_id, semester=semester, group=group,
+    )
+
+
+@router.get("/schedule-view", response_model=ScheduleViewResponse)
+def get_schedule_view(
+    academic_period: str = Query(min_length=1, max_length=30),
+    source: Literal["current", "draft"] = Query(default="current"),
+    draft_id: int | None = Query(default=None, gt=0),
+    reference: date | None = Query(default=None, alias="date"),
+    semester: int | None = Query(default=None, gt=0, le=20),
+    group: str | None = Query(default=None, min_length=1, max_length=30),
+    db: Session = Depends(get_db),
+):
+    return _schedule_view_query(db, academic_period, source, draft_id, reference, semester, group)
+
+
+@router.get("/schedule-view/export")
+def export_schedule_view(
+    academic_period: str = Query(min_length=1, max_length=30),
+    source: Literal["current", "draft"] = Query(default="current"),
+    draft_id: int | None = Query(default=None, gt=0),
+    reference: date | None = Query(default=None, alias="date"),
+    semester: int | None = Query(default=None, gt=0, le=20),
+    group: str | None = Query(default=None, min_length=1, max_length=30),
+    db: Session = Depends(get_db),
+):
+    view = _schedule_view_query(db, academic_period, source, draft_id, reference, semester, group)
+    filename = export_filename(academic_period, semester, normalized_group(group) if group else None)
+    return Response(
+        content=schedule_workbook(view),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

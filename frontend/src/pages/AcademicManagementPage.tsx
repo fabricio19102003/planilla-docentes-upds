@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { Pencil, Plus, Power, School } from 'lucide-react'
 
 import {
@@ -25,8 +25,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SchedulesSection } from '@/components/academic-management/SchedulesSection'
 import {
   availabilityPayload,
+  groupGroupsBySemester,
+  groupSubjectsBySemester,
+  matchesCatalogSearch,
   normalizeClassroomResources,
   optionalPositiveInteger,
   TEACHER_SEARCH_PAGE_SIZE,
@@ -65,6 +69,9 @@ function CatalogSection<T extends AcademicCatalogBase>({
   toForm,
   toPayload,
   summary,
+  columns,
+  sections,
+  searchable = false,
 }: {
   resource: Exclude<AcademicResource, 'availability'>
   title: string
@@ -81,8 +88,18 @@ function CatalogSection<T extends AcademicCatalogBase>({
   toForm: (item: T) => FormState
   toPayload: (form: FormState) => Record<string, unknown>
   summary: (item: T) => string
+  /** Optional multi-column layout: header labels and the matching cells of each row. */
+  columns?: { headers: string[]; cells: (item: T) => ReactNode[] }
+  /** Optional grouping of the (filtered) rows into titled sections, e.g. by semester. */
+  sections?: (items: T[]) => Array<{ key: string; title: string; items: T[] }>
+  searchable?: boolean
 }) {
-  const items = query.data
+  const [search, setSearch] = useState('')
+  const items = query.data?.filter((item) => !searchable || matchesCatalogSearch({
+    code: String((item as { code?: string }).code ?? ''), name: summary(item),
+  }, search))
+  const grouped = items && sections ? sections(items) : [{ key: 'all', title: '', items: items ?? [] }]
+  const headers = columns?.headers ?? ['Detalle']
   const save = useSaveAcademicResource(resource)
   const deactivate = useDeactivateAcademicResource(resource)
   const [editing, setEditing] = useState<T | null>(null)
@@ -139,28 +156,44 @@ function CatalogSection<T extends AcademicCatalogBase>({
           <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>Reintentar</Button>
         </div>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr><th className="px-4 py-3">Detalle</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr>
-          </thead>
-          <tbody>
-            {items?.map((item) => (
-              <tr key={item.id} className="border-t">
-                <td className="px-4 py-3 font-medium text-slate-800">{summary(item)}</td>
-                <td className="px-4 py-3"><StatusBadge active={item.active} /></td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => beginEdit(item)}><Pencil aria-hidden="true" />Editar</Button>
-                    {item.active && <Button variant="outline" size="sm" onClick={() => void handleDeactivate(item)}><Power aria-hidden="true" />Desactivar</Button>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!query.isLoading && !query.isError && !items?.length && <tr><td colSpan={3} className="px-4 py-10 text-center text-slate-500">No hay registros.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      {searchable && (
+        <div className="flex max-w-sm flex-col gap-1.5">
+          <Label htmlFor={`${resource}-search`}>Buscar</Label>
+          <Input id={`${resource}-search`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Código o nombre" />
+        </div>
+      )}
+      {!query.isLoading && !query.isError && !grouped.length && (
+        <p className="rounded-xl border bg-white px-4 py-10 text-center text-slate-500">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</p>
+      )}
+      {grouped.map((section) => (
+        <div key={section.key} className="flex flex-col gap-2">
+          {section.title && <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">{section.title} <span className="font-normal normal-case text-slate-400">· {section.items.length}</span></h3>}
+          <div className="overflow-x-auto rounded-xl border bg-white">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>{headers.map((header) => <th key={header} className="px-4 py-3">{header}</th>)}<th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr>
+              </thead>
+              <tbody>
+                {section.items.map((item) => (
+                  <tr key={`${section.key}-${item.id}`} className="border-t">
+                    {(columns ? columns.cells(item) : [summary(item)]).map((cell, index) => (
+                      <td key={headers[index] ?? index} className={`px-4 py-3 ${index === 0 ? 'font-medium text-slate-800' : 'text-slate-700'}`}>{cell}</td>
+                    ))}
+                    <td className="px-4 py-3"><StatusBadge active={item.active} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => beginEdit(item)}><Pencil aria-hidden="true" />Editar</Button>
+                        {item.active && <Button variant="outline" size="sm" onClick={() => void handleDeactivate(item)}><Power aria-hidden="true" />Desactivar</Button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!query.isLoading && !query.isError && !section.items.length && <tr><td colSpan={headers.length + 2} className="px-4 py-10 text-center text-slate-500">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
@@ -336,6 +369,15 @@ function AvailabilitySection() {
   )
 }
 
+function CatalogPeriodField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="flex max-w-xs flex-col gap-1.5">
+      <Label htmlFor="catalog-period">Período de la oferta</Label>
+      <Input id="catalog-period" value={value} onChange={(event) => onChange(event.target.value.trim())} placeholder="II/2026" />
+    </div>
+  )
+}
+
 export function AcademicManagementPage() {
   const programs = useAcademicCollection('programs')
   const subjects = useAcademicCollection('subjects')
@@ -344,18 +386,39 @@ export function AcademicManagementPage() {
   const classrooms = useAcademicCollection('classrooms')
   const programOptions = programs.data?.filter((item) => item.active).map((item) => ({ value: String(item.id), label: `${item.code} — ${item.name}` })) ?? []
   const subjectOptions = subjects.data?.filter((item) => item.active).map((item) => ({ value: String(item.id), label: `${item.code} — ${item.name}` })) ?? []
+  const [catalogPeriod, setCatalogPeriod] = useState('II/2026')
+  const periodOfferings = (offerings.data ?? []).filter((item) => item.academic_period === catalogPeriod)
+  const offeringOf = (subjectId: number) => periodOfferings.find((item) => item.subject_id === subjectId)
+  const semesterTitle = (semester: number | null) => (semester === null ? 'Sin oferta en el período' : `${semester}.º semestre`)
+  const subjectSections = (items: AcademicSubject[]) => groupSubjectsBySemester(items, periodOfferings, catalogPeriod).map((section) => ({
+    key: String(section.semester), title: semesterTitle(section.semester), items: section.rows.map((row) => row.subject),
+  }))
+  const groupSections = (items: AcademicGroup[]) => {
+    const inPeriod = groupGroupsBySemester(items, catalogPeriod).map((section) => ({
+      key: String(section.semester), title: semesterTitle(section.semester), items: section.rows,
+    }))
+    const others = items.filter((item) => item.academic_period !== catalogPeriod)
+    return others.length ? [...inPeriod, { key: 'others', title: 'Otros períodos', items: others }] : inPeriod
+  }
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex items-center gap-3"><div className="rounded-xl bg-blue-50 p-3 text-blue-800"><School aria-hidden="true" /></div><div><h1 className="text-2xl font-bold text-slate-900">Gestión académica</h1><p className="text-sm text-slate-500">Catálogos formales y disponibilidad docente para planificación.</p></div></header>
-      <Tabs defaultValue="programs" className="flex flex-col gap-5">
+      <header className="flex items-center gap-3"><div className="rounded-xl bg-blue-50 p-3 text-blue-800"><School aria-hidden="true" /></div><div><h1 className="text-2xl font-bold text-slate-900">Gestión académica</h1><p className="text-sm text-slate-500">Horarios por semestre y grupo, malla curricular, catálogos y disponibilidad docente.</p></div></header>
+      <Tabs defaultValue="schedules" className="flex flex-col gap-5">
         <TabsList className="h-auto flex-wrap justify-start">
-          <TabsTrigger value="programs">Programas</TabsTrigger><TabsTrigger value="subjects">Asignaturas</TabsTrigger><TabsTrigger value="offerings">Ofertas</TabsTrigger><TabsTrigger value="groups">Grupos</TabsTrigger><TabsTrigger value="classrooms">Aulas</TabsTrigger><TabsTrigger value="availability">Disponibilidad docente</TabsTrigger>
+          <TabsTrigger value="schedules">Horarios</TabsTrigger><TabsTrigger value="programs">Programas</TabsTrigger><TabsTrigger value="subjects">Asignaturas</TabsTrigger><TabsTrigger value="offerings">Ofertas</TabsTrigger><TabsTrigger value="groups">Grupos</TabsTrigger><TabsTrigger value="classrooms">Aulas</TabsTrigger><TabsTrigger value="availability">Disponibilidad docente</TabsTrigger>
         </TabsList>
+        <TabsContent value="schedules"><SchedulesSection /></TabsContent>
         <TabsContent value="programs"><CatalogSection<AcademicProgram> resource="programs" title="Programas" description="Carreras o programas académicos reutilizables." query={programs} fields={commonFields} emptyForm={{ code: '', name: '' }} toForm={(item) => ({ code: item.code, name: item.name })} toPayload={(form) => form} summary={(item) => `${item.code} — ${item.name}`} /></TabsContent>
-        <TabsContent value="subjects"><CatalogSection<AcademicSubject> resource="subjects" title="Asignaturas" description="Materias globales independientes de cada carrera." query={subjects} fields={[...commonFields, { name: 'description', label: 'Descripción' }]} emptyForm={{ code: '', name: '', description: '' }} toForm={(item) => ({ code: item.code, name: item.name, description: item.description ?? '' })} toPayload={(form) => ({ ...form, description: form.description || null })} summary={(item) => `${item.code} — ${item.name}`} /></TabsContent>
+        <TabsContent value="subjects" className="flex flex-col gap-4">
+          <CatalogPeriodField value={catalogPeriod} onChange={setCatalogPeriod} />
+          <CatalogSection<AcademicSubject> resource="subjects" title="Asignaturas" description="Malla curricular: materias agrupadas por el semestre de su oferta en el período." query={subjects} fields={[...commonFields, { name: 'description', label: 'Descripción' }]} emptyForm={{ code: '', name: '', description: '' }} toForm={(item) => ({ code: item.code, name: item.name, description: item.description ?? '' })} toPayload={(form) => ({ ...form, description: form.description || null })} summary={(item) => `${item.code} — ${item.name}`} searchable sections={subjectSections} columns={{ headers: ['Código', 'Nombre', 'HT', 'HP'], cells: (item) => [item.code, item.name, offeringOf(item.id)?.theory_hours ?? '—', offeringOf(item.id)?.practice_hours ?? '—'] }} />
+        </TabsContent>
         <TabsContent value="offerings"><CatalogSection<SubjectOffering> resource="offerings" title="Ofertas académicas" description="Carga teórica y práctica por programa, período y semestre." query={offerings} fields={[{ name: 'subject_id', label: 'Asignatura', type: 'select', required: true, options: subjectOptions }, { name: 'program_id', label: 'Programa', type: 'select', required: true, options: programOptions }, { name: 'academic_period', label: 'Período académico', required: true, placeholder: 'II/2026' }, { name: 'semester', label: 'Semestre', type: 'number', min: 1, required: true }, { name: 'theory_hours', label: 'Horas de teoría', type: 'number', min: 0, required: true }, { name: 'practice_hours', label: 'Horas de práctica', type: 'number', min: 0, required: true }]} emptyForm={{ subject_id: '', program_id: '', academic_period: '', semester: '1', theory_hours: '0', practice_hours: '0' }} toForm={(item) => ({ subject_id: String(item.subject_id), program_id: String(item.program_id), academic_period: item.academic_period, semester: String(item.semester), theory_hours: String(item.theory_hours), practice_hours: String(item.practice_hours) })} toPayload={(form) => ({ ...form, subject_id: Number(form.subject_id), program_id: Number(form.program_id), semester: Number(form.semester), theory_hours: Number(form.theory_hours), practice_hours: Number(form.practice_hours) })} summary={(item) => `${item.subject.code} · ${item.program.code} · ${item.academic_period} · Sem. ${item.semester} · T${item.theory_hours}/P${item.practice_hours}`} /></TabsContent>
-        <TabsContent value="groups"><CatalogSection<AcademicGroup> resource="groups" title="Grupos" description="Cohortes reutilizables dentro de un período." query={groups} fields={[{ name: 'program_id', label: 'Programa', type: 'select', required: true, options: programOptions }, { name: 'academic_period', label: 'Período académico', required: true }, { name: 'semester', label: 'Semestre', type: 'number', min: 1, required: true }, { name: 'shift', label: 'Turno', required: true }, { name: 'code', label: 'Código', required: true }, { name: 'expected_size', label: 'Cantidad esperada', type: 'number', min: 1 }]} emptyForm={{ program_id: '', academic_period: '', semester: '1', shift: '', code: '', expected_size: '' }} toForm={(item) => ({ program_id: String(item.program_id), academic_period: item.academic_period, semester: String(item.semester), shift: item.shift, code: item.code, expected_size: item.expected_size ? String(item.expected_size) : '' })} toPayload={(form) => ({ ...form, program_id: Number(form.program_id), semester: Number(form.semester), expected_size: optionalPositiveInteger(form.expected_size) })} summary={(item) => `${item.program.code} · ${item.code} · ${item.academic_period} · Sem. ${item.semester} · ${item.shift}`} /></TabsContent>
+        <TabsContent value="groups" className="flex flex-col gap-4">
+          <CatalogPeriodField value={catalogPeriod} onChange={setCatalogPeriod} />
+          <CatalogSection<AcademicGroup> resource="groups" title="Grupos" description="Cada semestre se conforma por sus grupos; consulte su horario en la pestaña Horarios." query={groups} fields={[{ name: 'program_id', label: 'Programa', type: 'select', required: true, options: programOptions }, { name: 'academic_period', label: 'Período académico', required: true }, { name: 'semester', label: 'Semestre', type: 'number', min: 1, required: true }, { name: 'shift', label: 'Turno', required: true }, { name: 'code', label: 'Código', required: true }, { name: 'expected_size', label: 'Cantidad esperada', type: 'number', min: 1 }]} emptyForm={{ program_id: '', academic_period: '', semester: '1', shift: '', code: '', expected_size: '' }} toForm={(item) => ({ program_id: String(item.program_id), academic_period: item.academic_period, semester: String(item.semester), shift: item.shift, code: item.code, expected_size: item.expected_size ? String(item.expected_size) : '' })} toPayload={(form) => ({ ...form, program_id: Number(form.program_id), semester: Number(form.semester), expected_size: optionalPositiveInteger(form.expected_size) })} summary={(item) => `${item.program.code} · ${item.code} · ${item.academic_period} · Sem. ${item.semester} · ${item.shift}`} searchable sections={groupSections} columns={{ headers: ['Código', 'Semestre', 'Turno', 'Tamaño esperado', 'Período'], cells: (item) => [item.code, `${item.semester}.º`, item.shift, item.expected_size ?? '—', item.academic_period] }} />
+        </TabsContent>
         <TabsContent value="classrooms"><CatalogSection<Classroom> resource="classrooms" title="Aulas" description="Ambientes, capacidad y equipamiento disponible." query={classrooms} fields={[...commonFields, { name: 'campus', label: 'Campus', required: true }, { name: 'capacity', label: 'Capacidad', type: 'number', min: 1, required: (form) => form.classroom_type === 'classroom' || form.classroom_type === 'laboratory' }, { name: 'classroom_type', label: 'Tipo', type: 'select', required: true, options: [{ value: 'classroom', label: 'Aula' }, { value: 'laboratory', label: 'Laboratorio' }, { value: 'virtual', label: 'Virtual' }, { value: 'other', label: 'Otro' }] }, { name: 'resources', label: 'Recursos (separados por comas)', placeholder: 'proyector, pizarra' }]} emptyForm={{ code: '', name: '', campus: '', capacity: '', classroom_type: 'classroom', resources: '' }} toForm={(item) => ({ code: item.code, name: item.name, campus: item.campus, capacity: item.capacity === null ? '' : String(item.capacity), classroom_type: item.classroom_type, resources: item.resources.join(', ') })} toPayload={(form) => ({ ...form, capacity: form.capacity ? Number(form.capacity) : null, resources: normalizeClassroomResources(form.resources) })} summary={(item) => `${item.code} — ${item.name} · ${item.campus} · Cap. ${item.capacity ?? 'No aplica'} · ${item.resources.join(', ') || 'Sin recursos'}`} /></TabsContent>
         <TabsContent value="availability"><AvailabilitySection /></TabsContent>
       </Tabs>

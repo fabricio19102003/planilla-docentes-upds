@@ -515,3 +515,128 @@ def test_publication_preview_discloses_operational_boundary(client, db_session):
     preview = _preview(client, draft["id"])
     assert any("asistencia regular" in warning for warning in preview["warnings"])
     assert any("práctica" in warning for warning in preview["warnings"])
+
+
+def _legacy_theory(db_session, *, weekly_hours: int, schedule: list[dict], start=date(2027, 1, 1)):
+    designation = Designation(
+        teacher_ci="PUB-T1", subject="Publication Subject", semester="1", group_code="A",
+        academic_period="I/2027", designation_type="regular", schedule_json=schedule,
+        weekly_hours=weekly_hours, contract_start_date=start, contract_end_date=date(2027, 6, 30),
+    )
+    db_session.add(designation)
+    db_session.commit()
+    return designation
+
+
+def test_preview_blocks_theory_that_changes_designation_paid_hours(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    # The designation pays 2 academic hours on Monday; the 08:00-09:00 block pays 1.
+    _legacy_theory(db_session, weekly_hours=2, schedule=[
+        {"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:30", "horas_academicas": 2},
+    ])
+    preview = _preview(client, draft["id"])
+    assert preview["can_publish"] is False
+    assert {"category": "theory_hours_mismatch", "count": 1,
+            "message": "1 grupo(s) de teoría cambiarían sus horas pagadas respecto de la designación vigente. "
+                       "Corrija los bloques antes de publicar."} in preview["blockers"]
+    rejected = _publish(client, draft["id"], preview)
+    assert rejected.status_code == 409
+    assert any(item["category"] == "theory_hours_mismatch" for item in rejected.json()["detail"]["blockers"])
+
+
+def test_preview_allows_theory_with_the_same_paid_hours_as_the_designation(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _legacy_theory(db_session, weekly_hours=1, schedule=[
+        {"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:00", "horas_academicas": 1},
+    ])
+    preview = _preview(client, draft["id"])
+    assert all(item["category"] != "theory_hours_mismatch" for item in preview["blockers"])
+
+
+def test_preview_blocks_theory_that_would_pay_a_designation_twice(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    # Same group and time, but the designation spells semester and subject differently,
+    # so the publication would not suppress it and both would be paid.
+    db_session.add(Designation(
+        teacher_ci="PUB-T1", subject="PUBLICATION SUBJECT (LEGACY NAME)", semester="PRIMERO", group_code="A",
+        academic_period="I/2027", designation_type="regular", weekly_hours=1,
+        schedule_json=[{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:00", "horas_academicas": 1}],
+        contract_start_date=date(2027, 1, 1), contract_end_date=date(2027, 6, 30),
+    ))
+    db_session.commit()
+    preview = _preview(client, draft["id"])
+    assert preview["can_publish"] is False
+    assert {"category": "theory_duplicates_designation", "count": 1,
+            "message": "1 bloque(s) de teoría coinciden con una designación vigente que se seguiría pagando. "
+                       "Unifique materia, grupo y semestre antes de publicar."} in preview["blockers"]
+
+
+def _theory(db_session, **overrides):
+    values = dict(
+        teacher_ci="PUB-T1", subject="Publication Subject", semester="1", group_code="A",
+        academic_period="I/2027", designation_type="regular", weekly_hours=1,
+        schedule_json=[{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:00", "horas_academicas": 1}],
+        contract_start_date=date(2027, 1, 1), contract_end_date=date(2027, 6, 30),
+    )
+    values.update(overrides)
+    db_session.add(Designation(**values))
+    db_session.commit()
+
+
+def _guard(preview):
+    return {item["category"] for item in preview["blockers"]} & {
+        "theory_hours_mismatch", "theory_duplicates_designation",
+    }
+
+
+def test_preview_sums_every_designation_replaced_by_the_same_scope(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    db_session.add(Teacher(ci="PUB-T2", full_name="Second Teacher"))
+    db_session.flush()
+    _theory(db_session)
+    _theory(db_session, teacher_ci="PUB-T2",
+            schedule_json=[{"dia": "martes", "hora_inicio": "08:00", "hora_fin": "09:00", "horas_academicas": 1}])
+    # Both designations (2 h) are replaced by one 1 h block.
+    assert _guard(_preview(client, draft["id"])) == {"theory_hours_mismatch"}
+
+
+def test_preview_blocks_the_same_subject_at_another_time_with_ordinal_semester(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _theory(db_session, semester="PRIMERO",
+            schedule_json=[{"dia": "lunes", "hora_inicio": "10:00", "hora_fin": "11:00", "horas_academicas": 1}])
+    assert _guard(_preview(client, draft["id"])) == {"theory_duplicates_designation"}
+
+
+def test_preview_blocks_designations_with_an_unrecognized_semester_of_the_group(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _theory(db_session, semester="1ro")
+    assert _guard(_preview(client, draft["id"])) == {"theory_duplicates_designation"}
+
+
+def test_preview_counts_designations_that_start_after_the_effective_date(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _theory(db_session, contract_start_date=date(2027, 2, 15), weekly_hours=2,
+            schedule_json=[{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:30", "horas_academicas": 2}])
+    assert _guard(_preview(client, draft["id"])) == {"theory_hours_mismatch"}
+
+
+def test_preview_allows_publishing_one_subject_while_other_subjects_stay_in_designations(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _theory(db_session, subject="OTRA MATERIA DEL GRUPO", semester="PRIMERO",
+            schedule_json=[{"dia": "martes", "hora_inicio": "10:00", "hora_fin": "11:00", "horas_academicas": 1}])
+    assert _guard(_preview(client, draft["id"])) == set()
+
+
+def test_preview_ignores_designations_that_ended_before_the_effective_date(client, db_session):
+    _program, _subject, _offering, _group, _room, draft, block, _teacher = _seed(client, db_session)
+    _assign(client, draft["id"], block["id"])
+    _theory(db_session, semester="PRIMERO", contract_end_date=date(2027, 1, 31))
+    assert _guard(_preview(client, draft["id"])) == set()

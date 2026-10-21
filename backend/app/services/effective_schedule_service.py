@@ -73,6 +73,11 @@ def _scope_key(subject: object, group: object, semester: object, activity: objec
     return tuple(_normalize(item) for item in (subject, group, semester, activity))
 
 
+def canonical_weekday(value: object) -> str:
+    """Expose the Spanish, accent-free weekday name used by effective schedule readers."""
+    return _canonical_weekday(value)
+
+
 def legacy_activity(designation: Designation) -> str:
     """Expose the canonical activity classification used by effective schedule readers."""
     return _legacy_activity(designation)

@@ -539,3 +539,34 @@ class BootstrapSubjectAliasSelection(BaseModel):
 class DesignationBootstrapAliasSelections(BaseModel):
     teacher_selections: list[BootstrapTeacherAliasSelection] = Field(max_length=500)
     subject_selections: list[BootstrapSubjectAliasSelection] = Field(max_length=500)
+
+
+class ScheduleViewBlock(BaseModel):
+    key: str
+    semester: int | None
+    group_code: str
+    subject_code: str | None
+    subject_name: str
+    activity_type: str
+    weekday: str
+    start_time: str
+    end_time: str
+    teacher_ci: str
+    teacher_name: str | None
+    classroom_code: str | None
+    classroom_name: str | None
+    source_type: Literal["legacy", "published", "draft"]
+
+
+class ScheduleViewSemester(BaseModel):
+    semester: int | None
+    groups: list[str]
+
+
+class ScheduleViewResponse(BaseModel):
+    academic_period: str
+    source: Literal["current", "draft"]
+    reference_date: date
+    draft_id: int | None
+    semesters: list[ScheduleViewSemester]
+    blocks: list[ScheduleViewBlock]
