@@ -15,18 +15,11 @@ import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getTodayInBolivia } from '@/lib/boliviaDates'
 import { TEACHER_SEARCH_PAGE_SIZE } from '@/lib/academicManagementState'
-import { activeDesignations, changeRequestBody, formatBs, impactRows, impactTotals, outgoingUntil } from '@/lib/teacherChangeState'
+import { activeDesignations, apiErrorText, changeRequestBody, formatBs, impactRows, impactTotals, outgoingUntil } from '@/lib/teacherChangeState'
 
 const selectClass = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
 const ALL = 'all'
 const PLANILLA_LABEL = { regular: 'teoría', practice: 'práctica' } as const
-
-const errorText = (error: unknown, fallback: string) => {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  if (typeof detail === 'string') return detail
-  if (detail && typeof detail === 'object' && 'message' in detail) return String((detail as { message: unknown }).message)
-  return fallback
-}
 
 function useTeacherPicker() {
   const [search, setSearch] = useState('')
@@ -260,8 +253,8 @@ export function TeacherChangeSection() {
           </Button>
         </div>
 
-        {preview.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorText(preview.error, 'No se pudo calcular la vista previa.')}</p>}
-        {apply.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorText(apply.error, 'No se pudo aplicar el cambio.')}</p>}
+        {preview.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{apiErrorText(preview.error, 'No se pudo calcular la vista previa.')}</p>}
+        {apply.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{apiErrorText(apply.error, 'No se pudo aplicar el cambio.')}</p>}
         {previewIsCurrent && preview.data && <PreviewResult preview={preview.data} />}
         {applied && (
           <Alert role="status">

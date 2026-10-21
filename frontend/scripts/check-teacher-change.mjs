@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   activeDesignations,
+  apiErrorText,
   changeRequestBody,
   formatBs,
   impactRows,
@@ -72,4 +73,16 @@ test('wires the wizard, hooks, simulator and tab', () => {
   for (const name of ['DesignationChangePreview', 'DesignationChangeResult', 'PublicationPayrollSimulation', 'TeacherDesignationSummary']) {
     assert.match(types, new RegExp(`interface ${name}`))
   }
+})
+
+test('error text shows the server reason and every blocker', () => {
+  const error = (detail) => ({ response: { data: { detail } } })
+  assert.equal(apiErrorText(error('Solo se puede simular un borrador editable.'), 'x'), 'Solo se puede simular un borrador editable.')
+  assert.equal(
+    apiErrorText(error({ message: 'El cambio de docente no se puede aplicar.', blockers: [{ message: 'A.' }, { message: 'B.' }] }), 'x'),
+    'El cambio de docente no se puede aplicar. A. B.',
+  )
+  assert.equal(apiErrorText(new Error('network'), 'No se pudo.'), 'No se pudo.')
+  const planner = read('src/pages/SchedulePlannerPage.tsx')
+  assert.match(planner, /apiErrorText\(simulatePayroll\.error/)
 })

@@ -53,3 +53,15 @@ export function formatBs(value: number) {
   const [whole, cents] = Math.abs(value).toFixed(2).split('.')
   return `${sign}Bs ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${cents}`
 }
+
+/** Server reason for a failed request: a plain detail, or a message followed by every blocker. */
+export function apiErrorText(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    const { message, blockers } = detail as { message: unknown; blockers?: { message?: unknown }[] }
+    const reasons = Array.isArray(blockers) ? blockers.map((item) => String(item?.message ?? '')).filter(Boolean) : []
+    return [String(message), ...reasons].join(' ')
+  }
+  return fallback
+}

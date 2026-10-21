@@ -23,6 +23,7 @@ import {
 } from '@/api/hooks/useSchedulePlanner'
 import { useSimulatePublicationPayroll } from '@/api/hooks/useTeacherChange'
 import { ImpactTable } from '@/components/academic-management/TeacherChangeSection'
+import { apiErrorText } from '@/lib/teacherChangeState'
 import type {
   AcademicScheduleAssignment,
   AcademicScheduleBlock,
@@ -764,7 +765,7 @@ export function SchedulePlannerPage() {
                   </Button>
                 </div>
                 <p className="text-sm text-slate-600">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
-                {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">No se pudo simular la planilla.</p>}
+                {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
                 {simulatePayroll.data && simulatePayroll.data.effective_from === publicationEffectiveFrom && (
                   <>
                     <p className="text-sm text-slate-600">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
