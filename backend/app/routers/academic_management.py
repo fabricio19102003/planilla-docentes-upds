@@ -69,6 +69,7 @@ from app.schemas.academic_management import (
 from app.services import academic_management_service as service
 from app.services import academic_schedule_publication_service as publication_service
 from app.services.academic_schedule_export import export_filename, schedule_workbook
+from app.services.academic_schedule_conflicts_service import schedule_conflicts
 from app.services.academic_schedule_view_service import normalized_group, schedule_view
 from app.services.designation_bootstrap_preview import (
     WorkbookValidationError,
@@ -851,6 +852,21 @@ def export_schedule_view(
         content=schedule_workbook(view),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/schedule-conflicts")
+def get_schedule_conflicts(
+    academic_period: str = Query(min_length=1, max_length=30),
+    source: Literal["current", "draft"] = Query(default="current"),
+    draft_id: int | None = Query(default=None, gt=0),
+    reference: date | None = Query(default=None, alias="date"),
+    load_threshold: float = Query(default=40, gt=0, le=80),
+    db: Session = Depends(get_db),
+):
+    return schedule_conflicts(
+        db, academic_period=academic_period, source=source, reference=reference or date.today(),
+        draft_id=draft_id, load_threshold=load_threshold,
     )
 
 
