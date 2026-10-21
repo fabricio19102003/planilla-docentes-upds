@@ -8,6 +8,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -84,6 +85,16 @@ from app.services.designation_bootstrap_resolution import (
     build_designation_bootstrap_resolution_context,
 )
 from app.services.activity_logger import log_activity
+from app.schemas.designation_change import (
+    DesignationChangePreview,
+    DesignationChangeRequest,
+    DesignationChangeResult,
+    PublicationPayrollSimulation,
+    PublicationPayrollSimulationRequest,
+    TeacherDesignationSummary,
+)
+from app.services import designation_change_service, payroll_simulation_service
+from app.services.designation_change_service import DesignationChangeBlocked, DesignationChangeNotFound
 from app.utils.auth import require_admin
 
 router = APIRouter(
@@ -695,6 +706,20 @@ def preview_schedule_publication(
 
 
 @router.post(
+    "/schedule-drafts/{draft_id}/payroll-simulation",
+    response_model=PublicationPayrollSimulation,
+)
+def simulate_schedule_publication_payroll(
+    draft_id: int,
+    payload: PublicationPayrollSimulationRequest,
+    db: Session = Depends(get_db),
+):
+    return payroll_simulation_service.simulate_publication(
+        db, draft_id, payload.effective_from, payload.month, payload.year,
+    )
+
+
+@router.post(
     "/schedule-drafts/{draft_id}/publish",
     response_model=SchedulePublicationResponse,
     status_code=201,
@@ -798,3 +823,72 @@ def export_schedule_view(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/designation-changes/designations", response_model=list[TeacherDesignationSummary])
+def list_designations_for_change(
+    academic_period: str = Query(min_length=1, max_length=20),
+    teacher_ci: str = Query(min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+):
+    return [
+        TeacherDesignationSummary.model_validate(item, from_attributes=True)
+        for item in designation_change_service.list_teacher_designations(db, academic_period, teacher_ci)
+    ]
+
+
+@router.post("/designation-changes/preview", response_model=DesignationChangePreview)
+def preview_designation_change(payload: DesignationChangeRequest, db: Session = Depends(get_db)):
+    try:
+        return designation_change_service.preview_change(db, payload)
+    except DesignationChangeNotFound as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+
+
+@router.post("/designation-changes/apply", response_model=DesignationChangeResult, status_code=201)
+def apply_designation_change(
+    payload: DesignationChangeRequest,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = designation_change_service.apply_change(db, payload)
+    # Both refusals happen before any write (the preview runs inside a discarded savepoint).
+    except DesignationChangeNotFound as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    except DesignationChangeBlocked as exc:
+        raise HTTPException(409, detail={
+            "message": "El cambio de docente no se puede aplicar.",
+            "blockers": [item.model_dump(mode="json") for item in exc.preview.blockers],
+        }) from exc
+    except IntegrityError as exc:
+        # Lost a race against another apply on the same designation (unique key).
+        db.rollback()
+        raise HTTPException(409, detail={
+            "message": "El cambio de docente no se puede aplicar.",
+            "blockers": [{
+                "code": "concurrent_change", "designation_id": None, "dates": [],
+                "message": "Otro cambio modificó estas designaciones al mismo tiempo. Generá una nueva vista previa.",
+            }],
+        }) from exc
+    except Exception:
+        db.rollback()
+        raise
+    log_activity(
+        db,
+        action="teacher_change_designation",
+        category="academic_management",
+        description=f"Cambio de docente desde {payload.effective_from.isoformat()} hacia {payload.incoming_teacher_ci}",
+        user=user,
+        details={
+            "effective_from": payload.effective_from.isoformat(),
+            "scope": payload.scope,
+            "incoming_teacher_ci": payload.incoming_teacher_ci,
+            "ended_designation_ids": result.ended_designation_ids,
+            "created_designation_ids": result.created_designation_ids,
+        },
+        request=request,
+    )
+    db.commit()
+    return result

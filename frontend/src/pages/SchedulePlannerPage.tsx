@@ -21,6 +21,9 @@ import {
   useSchedulePublications,
   useScheduleWorkload,
 } from '@/api/hooks/useSchedulePlanner'
+import { useSimulatePublicationPayroll } from '@/api/hooks/useTeacherChange'
+import { ImpactTable } from '@/components/academic-management/TeacherChangeSection'
+import { apiErrorText } from '@/lib/teacherChangeState'
 import type {
   AcademicScheduleAssignment,
   AcademicScheduleBlock,
@@ -184,6 +187,7 @@ export function SchedulePlannerPage() {
   const workload = useScheduleWorkload(effectiveDraftId, referenceDate)
   const publications = useSchedulePublications()
   const previewPublication = usePreviewSchedulePublication(effectiveDraftId)
+  const simulatePayroll = useSimulatePublicationPayroll(effectiveDraftId)
   const publishDraft = usePublishScheduleDraft(effectiveDraftId)
   const clonePublication = useCloneSchedulePublication()
   const [draftOpen, setDraftOpen] = useState(false)
@@ -745,6 +749,30 @@ export function SchedulePlannerPage() {
                   </div>
                 </section>
               )}
+              <section aria-labelledby="payroll-simulation-title" className="flex flex-col gap-2 rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="payroll-simulation-title" className="font-semibold text-slate-950">Simulador de planilla</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={simulatePayroll.isPending || !publicationEffectiveFrom}
+                    onClick={() => {
+                      const [year, month] = publicationEffectiveFrom.split('-').map(Number)
+                      simulatePayroll.mutate({ effective_from: publicationEffectiveFrom, month, year })
+                    }}
+                  >
+                    {simulatePayroll.isPending ? 'Simulando…' : 'Simular planilla'}
+                  </Button>
+                </div>
+                <p className="text-sm text-slate-600">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
+                {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
+                {simulatePayroll.data && simulatePayroll.data.effective_from === publicationEffectiveFrom && (
+                  <>
+                    <p className="text-sm text-slate-600">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
+                    <ImpactTable teachers={simulatePayroll.data.teachers} caption="Simulación de planilla por docente" />
+                  </>
+                )}
+              </section>
               {error && <p id="publication-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setPublicationOpen(false)}>Cancelar</Button>
