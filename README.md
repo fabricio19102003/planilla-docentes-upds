@@ -523,6 +523,8 @@ Desde la pagina de Planilla, el admin puede descargar una **Planilla de Salarios
 
 El formato UPDS oficial trae CI real (no TEMP), datos personales del docente, y el sistema parsea automaticamente el string de HORARIO a slots con dias, horas inicio/fin, duracion y horas academicas. Los formatos intermedio y legacy sin CI solo se aceptan cuando cada nombre coincide exactamente con un unico docente real ya existente; nunca crean identidades TEMP.
 
+El string de HORARIO acepta uno o varios bloques `DIA: inicio - fin`, separados por saltos de linea o por espacios. Se aceptan horas de 24 h con un `am/pm` redundante (`13: 40 pm`), horas de 12 h (`06: 30 am`, `12: 00 pm` es mediodia), hora y minutos separados por espacio o punto (`08 10`, `18.15`), guion doble y `A` como separador. Se rechaza el bloque, con un mensaje que lo nombra, cuando no se puede leer, cuando el `am/pm` contradice la hora (`20: 50 am`), cuando termina antes de empezar o cuando dura mas de 6 horas (por ejemplo `08: 55 am- 11: 20 pm`).
+
 La carga de designaciones siempre se realiza en dos pasos: primero **Generar vista previa**, que valida el archivo completo y muestra altas, actualizaciones, filas sin cambios y conflictos; luego **Confirmar e importar** usando el digest de esos mismos bytes y periodo. La aplicacion es atomica, no elimina filas ausentes y repetir exactamente un archivo produce operaciones sin cambios.
 
 ### CI Aliasing (Biometrico)
