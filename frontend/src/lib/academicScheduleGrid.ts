@@ -62,11 +62,24 @@ export function minutesOf(value: string): number {
   return hours * 60 + minutes
 }
 
-const span = GRID_END_MINUTES - GRID_START_MINUTES
-const clamp = (value: number) => Math.min(GRID_END_MINUTES, Math.max(GRID_START_MINUTES, value))
+export interface GridRange { start: number; end: number }
+
+const FULL_RANGE: GridRange = { start: GRID_START_MINUTES, end: GRID_END_MINUTES }
+
+/** Smallest half-hour-aligned window inside 06:30–23:05 that contains every block. */
+export function visibleRange(blocks: ScheduleViewBlock[]): GridRange {
+  if (!blocks.length) return FULL_RANGE
+  const first = Math.min(...blocks.map((block) => minutesOf(block.start_time)))
+  const last = Math.max(...blocks.map((block) => minutesOf(block.end_time)))
+  const start = Math.max(GRID_START_MINUTES, GRID_START_MINUTES + Math.floor((first - GRID_START_MINUTES) / 30) * 30)
+  const end = Math.min(GRID_END_MINUTES, GRID_START_MINUTES + Math.ceil((last - GRID_START_MINUTES) / 30) * 30)
+  return { start, end: Math.max(end, start + 30) }
+}
 
 /** Position one day's blocks; overlapping blocks share the width in side-by-side columns. */
-export function layoutDay(blocks: ScheduleViewBlock[]): DayLayoutItem[] {
+export function layoutDay(blocks: ScheduleViewBlock[], range: GridRange = FULL_RANGE): DayLayoutItem[] {
+  const span = range.end - range.start
+  const clamp = (value: number) => Math.min(range.end, Math.max(range.start, value))
   const sorted = [...blocks].sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time)
     || minutesOf(b.end_time) - minutesOf(a.end_time))
   const result: DayLayoutItem[] = []
@@ -89,7 +102,7 @@ export function layoutDay(blocks: ScheduleViewBlock[]): DayLayoutItem[] {
     } else {
       columnEnds[column] = end
     }
-    const top = ((clamp(start) - GRID_START_MINUTES) / span) * 100
+    const top = ((clamp(start) - range.start) / span) * 100
     const height = ((clamp(end) - clamp(start)) / span) * 100
     const item = { block, top, height, column, columns: 1 }
     cluster.push(item)
@@ -157,15 +170,18 @@ export function exportFilename(contentDisposition: string | undefined | null): s
   return match?.[1] ?? 'horarios.xlsx'
 }
 
-const groupOrder = (code: string) => {
-  const match = /^([A-Z]+)-(\d+)$/.exec(code)
-  return match ? [match[1], Number(match[2])] as const : [code, 0] as const
-}
+const SHIFT_ORDER: Record<string, number> = { M: 0, T: 1, N: 2 }
 
+/** Morning, afternoon and night groups by number (M-2 before M-10), then other codes alphabetically. */
 export function compareGroupCodes(a: string, b: string): number {
-  const [prefixA, numberA] = groupOrder(a)
-  const [prefixB, numberB] = groupOrder(b)
-  return prefixA.localeCompare(prefixB) || numberA - numberB || a.localeCompare(b)
+  const parse = (code: string) => {
+    const match = /^([A-Z]+)-(\d+)$/.exec(code)
+    const shift = match ? SHIFT_ORDER[match[1]] : undefined
+    return shift === undefined ? [3, 0, code] as const : [shift, Number(match![2]), code] as const
+  }
+  const [shiftA, numberA, codeA] = parse(a)
+  const [shiftB, numberB, codeB] = parse(b)
+  return shiftA - shiftB || numberA - numberB || codeA.localeCompare(codeB)
 }
 
 export interface GroupSchedule {

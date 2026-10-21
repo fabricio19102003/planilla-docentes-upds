@@ -93,7 +93,7 @@ export function SchedulesSection() {
           <Label htmlFor="schedule-semester">Semestre</Label>
           <select id="schedule-semester" className={selectClass} value={semester ?? ''} disabled={!semesters.length} onChange={(event) => { setSemester(event.target.value ? Number(event.target.value) : null); setGroup('') }}>
             <option value="">Todos los semestres</option>
-            {semesters.filter((item) => item.semester !== null).map((item) => <option key={item.semester} value={item.semester ?? ''}>{semesterLabel(item.semester)} ({item.groups.length} grupos)</option>)}
+            {semesters.filter((item) => item.semester !== null).map((item) => <option key={item.semester} value={item.semester ?? ''}>{semesterLabel(item.semester)} · {item.groups.length}</option>)}
           </select>
         </div>
         <div className="flex flex-col gap-1.5">

@@ -1,19 +1,13 @@
 import {
   activityLabel,
   GRID_DAYS,
-  GRID_END_MINUTES,
-  GRID_START_MINUTES,
   layoutDay,
   subjectColor,
+  visibleRange,
 } from '@/lib/academicScheduleGrid'
 import type { ScheduleViewBlock } from '@/lib/academicScheduleGrid'
 
-const PIXELS_PER_MINUTE = 1.15
-const HEIGHT = (GRID_END_MINUTES - GRID_START_MINUTES) * PIXELS_PER_MINUTE
-const LABELS = Array.from(
-  { length: Math.floor((GRID_END_MINUTES - GRID_START_MINUTES) / 30) + 1 },
-  (_, index) => GRID_START_MINUTES + index * 30,
-).filter((minutes) => minutes <= GRID_END_MINUTES)
+const PIXELS_PER_MINUTE = 1.3
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
 function blockTitle(block: ScheduleViewBlock) {
@@ -26,6 +20,9 @@ function blockTitle(block: ScheduleViewBlock) {
 }
 
 export function WeeklyScheduleGrid({ blocks, label }: { blocks: ScheduleViewBlock[]; label: string }) {
+  const range = visibleRange(blocks)
+  const height = (range.end - range.start) * PIXELS_PER_MINUTE
+  const labels = Array.from({ length: Math.floor((range.end - range.start) / 30) + 1 }, (_, index) => range.start + index * 30)
   return (
     <div className="overflow-x-auto rounded-xl border bg-white" role="region" aria-label={label}>
       <div className="grid min-w-[900px]" style={{ gridTemplateColumns: '64px repeat(6, minmax(130px, 1fr))' }}>
@@ -33,18 +30,18 @@ export function WeeklyScheduleGrid({ blocks, label }: { blocks: ScheduleViewBloc
         {GRID_DAYS.map(([, name]) => (
           <div key={name} className="border-b border-l bg-slate-50 px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">{name}</div>
         ))}
-        <div className="relative border-r" style={{ height: HEIGHT }} aria-hidden="true">
-          {LABELS.map((minutes) => (
-            <span key={minutes} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-slate-400" style={{ top: (minutes - GRID_START_MINUTES) * PIXELS_PER_MINUTE }}>{clock(minutes)}</span>
+        <div className="relative border-r" style={{ height }} aria-hidden="true">
+          {labels.map((minutes) => (
+            <span key={minutes} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-slate-400" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }}>{clock(minutes)}</span>
           ))}
         </div>
         {GRID_DAYS.map(([weekday, name]) => (
-          <div key={weekday} className="relative border-l" style={{ height: HEIGHT }}>
-            {LABELS.map((minutes) => (
-              <div key={minutes} aria-hidden="true" className="absolute inset-x-0 border-t border-slate-100" style={{ top: (minutes - GRID_START_MINUTES) * PIXELS_PER_MINUTE }} />
+          <div key={weekday} className="relative border-l" style={{ height }}>
+            {labels.map((minutes) => (
+              <div key={minutes} aria-hidden="true" className="absolute inset-x-0 border-t border-slate-100" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }} />
             ))}
             <ul aria-label={`Clases del ${name.toLowerCase()}`}>
-              {layoutDay(blocks.filter((block) => block.weekday === weekday)).map((item) => {
+              {layoutDay(blocks.filter((block) => block.weekday === weekday), range).map((item) => {
                 const color = subjectColor(item.block.subject_name)
                 const practice = item.block.activity_type === 'practice'
                 const width = 100 / item.columns

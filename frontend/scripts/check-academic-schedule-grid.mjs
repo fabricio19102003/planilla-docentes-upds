@@ -133,3 +133,18 @@ test('the page exposes the Horarios tab, Excel download and per-semester catalog
   assert.match(page, /groupSubjectsBySemester/)
   assert.match(page, /groupGroupsBySemester/)
 })
+
+test('the visible range adapts to the group blocks in half-hour steps', async () => {
+  const { visibleRange } = await import('../src/lib/academicScheduleGrid.ts')
+  assert.deepEqual(visibleRange([block({ start_time: '17:30', end_time: '19:00' }), block({ start_time: '20:50', end_time: '23:05' })]),
+    { start: 17 * 60 + 30, end: 23 * 60 + 5 })
+  assert.deepEqual(visibleRange([block({ start_time: '09:50', end_time: '12:05' })]), { start: 9 * 60 + 30, end: 12 * 60 + 30 })
+  assert.deepEqual(visibleRange([]), { start: GRID_START_MINUTES, end: GRID_END_MINUTES })
+  const [item] = layoutDay([block({ start_time: '17:30', end_time: '19:00' })], { start: 17 * 60 + 30, end: 19 * 60 })
+  assert.deepEqual([item.top, item.height], [0, 100])
+})
+
+test('groups follow shift order morning, afternoon, night, then others', async () => {
+  const { compareGroupCodes } = await import('../src/lib/academicScheduleGrid.ts')
+  assert.deepEqual(['EXTRA', 'N-1', 'T-2', 'M-10', 'A', 'M-2'].sort(compareGroupCodes), ['M-2', 'M-10', 'T-2', 'N-1', 'A', 'EXTRA'])
+})
