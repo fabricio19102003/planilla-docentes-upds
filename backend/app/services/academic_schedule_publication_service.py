@@ -27,6 +27,9 @@ from app.models.planilla import PlanillaOutput
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.practice_planilla import PracticePlanillaOutput
 from app.services import academic_management_service as academic
+from app.services.effective_schedule_service import canonical_weekday, legacy_activity, schedule_scope_key
+from app.utils.academic_semester import semester_number
+from app.utils.helpers import normalize_group_code
 
 
 OPERATIONAL_WARNINGS = [
@@ -388,6 +391,81 @@ def _diff(
     }
 
 
+def _block_minutes(start, end) -> int:
+    return end.hour * 60 + end.minute - start.hour * 60 - start.minute
+
+
+def _group_key(value: object) -> str:
+    return normalize_group_code(str(value or "")).strip().upper()
+
+
+def _theory_payroll_blockers(
+    db: Session, draft: AcademicScheduleDraft, effective_from: date
+) -> list[dict[str, Any]]:
+    """Refuse theory publications that would change or duplicate what designations pay.
+
+    A published theory scope suppresses the legacy designation with the same normalized
+    (subject, group, semester) key. If the published weekly hours differ, pay changes; if a
+    designation overlaps a theory block without that exact key, it keeps being paid too.
+    """
+    theory = [block for block in draft.blocks if block.activity_type == "theory"]
+    if not theory:
+        return []
+    scopes: dict[tuple[str, ...], int] = {}
+    for block in theory:
+        key = schedule_scope_key(
+            block.offering.subject.name, block.group.code, block.group.semester, "theory"
+        )
+        scopes[key] = scopes.get(key, 0) + max(1, _block_minutes(block.start_time, block.end_time) // 45)
+    designations = [
+        item for item in db.query(Designation).filter(
+            Designation.academic_period == draft.academic_period
+        ).all()
+        if legacy_activity(item) == "theory"
+        and not (item.contract_start_date and effective_from < item.contract_start_date)
+        and not (item.contract_end_date and effective_from > item.contract_end_date)
+    ]
+    mismatched: set[tuple[str, ...]] = set()
+    duplicated = 0
+    for block in theory:
+        for item in designations:
+            if _group_key(item.group_code) != _group_key(block.group.code):
+                continue
+            if semester_number(item.semester) != semester_number(block.group.semester):
+                continue
+            # Same rule effective_schedule_slots uses to suppress a legacy designation.
+            key = schedule_scope_key(item.subject, item.group_code, item.semester, "theory")
+            exact = key in scopes
+            if exact:
+                paid = sum(int(slot.get("horas_academicas", 0)) for slot in item.schedule_json or [])
+                if paid != scopes[key]:
+                    mismatched.add(key)
+                continue
+            overlaps = any(
+                canonical_weekday(slot.get("dia")) == canonical_weekday(block.weekday)
+                and str(slot.get("hora_inicio", "")) < block.end_time.strftime("%H:%M")
+                and block.start_time.strftime("%H:%M") < str(slot.get("hora_fin", ""))
+                for slot in item.schedule_json or []
+            )
+            if overlaps:
+                duplicated += 1
+                break
+    blockers: list[dict[str, Any]] = []
+    if mismatched:
+        blockers.append({
+            "category": "theory_hours_mismatch", "count": len(mismatched),
+            "message": f"{len(mismatched)} grupo(s) de teoría cambiarían sus horas pagadas respecto de la "
+                       "designación vigente. Corrija los bloques antes de publicar.",
+        })
+    if duplicated:
+        blockers.append({
+            "category": "theory_duplicates_designation", "count": duplicated,
+            "message": f"{duplicated} bloque(s) de teoría coinciden con una designación vigente que se seguiría "
+                       "pagando. Unifique materia, grupo y semestre antes de publicar.",
+        })
+    return blockers
+
+
 def preview_publication(
     db: Session, draft_id: int, effective_from: date, lock: bool = False
 ) -> dict[str, Any]:
@@ -440,6 +518,7 @@ def preview_publication(
         "message": coverage_messages.get(key, key),
     } for key, count in sorted(validation_counts.items()))
     blockers.extend(_retroactive_blockers(db, draft, effective_from))
+    blockers.extend(_theory_payroll_blockers(db, draft, effective_from))
     content = _canonical_content(draft, effective_from, sequence)
     assignment_count = sum(len(block["assignments"]) for block in content["blocks"])
     return {
