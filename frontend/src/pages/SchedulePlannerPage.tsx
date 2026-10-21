@@ -43,8 +43,10 @@ import {
   BLOCK_DURATION_PRESETS,
   blockTimeError,
   cellForStart,
+  blockDurationMinutes,
   defaultAcademicHours,
   EMPTY_SCHEDULE_BLOCK,
+  legacyPaidHours,
   parseScheduleCellId,
   publicationDiffItems,
   replacementWarning,
@@ -193,7 +195,12 @@ export function SchedulePlannerPage() {
   const appSettings = useAppSettings()
   const academicHourMinutes = appSettings.data?.academic_hour_minutes ?? 45
   const blockFormError = blockTimeError(blockForm.start_time, blockForm.end_time)
-  const prefilledHours = blockFormError ? null : defaultAcademicHours(blockForm.start_time, blockForm.end_time, academicHourMinutes)
+  const keepsLegacyHours = Boolean(editingBlock && editingBlock.academic_hours === null)
+  const prefilledHours = blockFormError
+    ? null
+    : keepsLegacyHours
+      ? legacyPaidHours(blockForm.start_time, blockForm.end_time)
+      : defaultAcademicHours(blockForm.start_time, blockForm.end_time, academicHourMinutes)
   const [assignmentBlock, setAssignmentBlock] = useState<AcademicScheduleBlock | null>(null)
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -539,12 +546,14 @@ export function SchedulePlannerPage() {
                   <Button key={minutes} type="button" size="sm" variant="outline" onClick={() => setBlockForm((value) => ({ ...value, end_time: addMinutes(value.start_time, minutes) }))}>{minutes} min</Button>
                 ))}
               </div>
-              <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockForm.start_time}–${blockForm.end_time}.`}</p>
+              <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
               <div className="sm:col-span-2"><Label htmlFor="block-hours">Horas académicas que se pagan</Label><Input id="block-hours" type="number" min={1} max={12} step={1} placeholder={prefilledHours ? String(prefilledHours) : ''} value={blockForm.academic_hours} onChange={(event) => setBlockForm((value) => ({ ...value, academic_hours: event.target.value }))} aria-describedby="block-hours-help" className="mt-1" />
                 <p id="block-hours-help" className="mt-1 text-xs text-slate-500">
                   {blockForm.academic_hours.trim()
                     ? `Se pagarán ${blockForm.academic_hours} hora(s) académica(s) por clase.`
-                    : prefilledHours
+                    : prefilledHours && keepsLegacyHours
+                      ? `Vacío = mantiene lo que paga hoy: ${prefilledHours} hora(s) académica(s) (regla anterior, minutos ÷ 45). Escriba un valor para fijarlo.`
+                      : prefilledHours
                       ? `Vacío = ${prefilledHours} hora(s) académica(s) (duración ÷ ${academicHourMinutes} min). Puede corregirlo.`
                       : 'Se calculan a partir de la duración.'}
                 </p>

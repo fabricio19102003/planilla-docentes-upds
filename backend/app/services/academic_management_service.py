@@ -468,7 +468,12 @@ def save_schedule_block(
     _validate_schedule_block(db, draft, values, block_id)
     values = dict(values)
     if values.get("academic_hours") is None:
-        values["academic_hours"] = default_academic_hours(db, values["start_time"], values["end_time"])
+        if block is None:
+            values["academic_hours"] = default_academic_hours(db, values["start_time"], values["end_time"])
+        else:
+            # An edit that does not send hours keeps what the block pays today, including
+            # NULL (blocks cloned from publications made before hours were stored).
+            values["academic_hours"] = block.academic_hours
     if block is None:
         block = AcademicScheduleBlock(draft_id=draft.id, **values)
         db.add(block)

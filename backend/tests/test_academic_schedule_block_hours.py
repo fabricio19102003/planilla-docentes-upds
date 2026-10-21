@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from datetime import date, time
 
+import pytest
+
 from app.models.academic_management import AcademicScheduleBlock, AcademicSchedulePublishedBlock
 from app.models.app_setting import AppSetting
 from app.models.teacher import Teacher
+from app.services import academic_schedule_publication_service as pub
 from app.services.effective_schedule_service import effective_schedule_slots
 from app.services.planilla_generator import PlanillaGenerator
 from tests.test_academic_management import BASE, _schedule_fixture
@@ -132,3 +135,46 @@ def test_draft_blocks_without_stored_hours_report_the_previous_rule(client, db_s
     assert listed[0]["academic_hours"] is None
     assert listed[0]["paid_hours"] == 1  # max(1, 70 // 45)
     assert stored.start_time == time(8, 0)
+
+
+def _put_same(client, draft, offering, group, classroom, block_id, **extra):
+    return client.put(f"{BASE}/schedule-drafts/{draft['id']}/blocks/{block_id}", json={
+        "offering_id": offering["id"], "group_id": group["id"], "classroom_id": classroom["id"],
+        "activity_type": "theory", "weekday": "monday", "start_time": "08:00", "end_time": "10:00", **extra})
+
+
+def test_editing_a_block_without_stored_hours_keeps_its_pay(client, db_session):
+    _program, offering, group, classroom, draft = _schedule_fixture(client, theory_hours=10)
+    block = _block(client, draft, offering, group, classroom, start_time="08:00", end_time="10:00").json()
+    stored = db_session.get(AcademicScheduleBlock, block["id"])
+    stored.academic_hours = None  # e.g. cloned from a publication made before hours existed
+    db_session.commit()
+    edited = _put_same(client, draft, offering, group, classroom, block["id"])
+    assert edited.status_code == 200, edited.text
+    assert (edited.json()["academic_hours"], edited.json()["paid_hours"]) == (None, 2)
+
+
+def test_editing_a_block_without_hours_keeps_manually_set_hours(client):
+    _program, offering, group, classroom, draft = _schedule_fixture(client, theory_hours=10)
+    block = _block(client, draft, offering, group, classroom, start_time="08:00", end_time="10:00",
+                   academic_hours=5).json()
+    edited = _put_same(client, draft, offering, group, classroom, block["id"])
+    assert edited.json()["academic_hours"] == 5
+
+
+@pytest.mark.parametrize("start,end,code", [
+    ("06:00", "06:15", 201), ("23:15", "23:30", 201), ("07:00", "13:00", 201),
+    ("07:00", "13:05", 422), ("06:00", "06:10", 422), ("05:55", "06:30", 422),
+    ("23:20", "23:35", 422), ("07:12", "08:00", 422),
+])
+def test_block_rule_boundaries(client, start, end, code):
+    _program, offering, group, classroom, draft = _schedule_fixture(client, theory_hours=10)
+    assert _block(client, draft, offering, group, classroom, start_time=start, end_time=end).status_code == code
+
+
+def test_publication_digest_omits_hours_for_blocks_without_them(client, db_session):
+    _publish_one(client, db_session, hours=2)
+    published = db_session.query(AcademicSchedulePublishedBlock).one()
+    assert pub._publication_block_dict(published)["academic_hours"] == 2
+    published.academic_hours = None
+    assert "academic_hours" not in pub._publication_block_dict(published)

@@ -45,6 +45,15 @@ export function blockTimeError(start: string, end: string) {
   return ''
 }
 
+export function blockDurationMinutes(start: string, end: string) {
+  return minutesOf(end) - minutesOf(start)
+}
+
+/** What a block without stored hours pays: max(1, minutes ÷ 45 rounded down). */
+export function legacyPaidHours(start: string, end: string) {
+  return Math.max(1, Math.floor(blockDurationMinutes(start, end) / 45))
+}
+
 /** Duration ÷ academic-hour length, rounded half up, at least 1 (same rule as the backend). */
 export function defaultAcademicHours(start: string, end: string, hourLength: number) {
   const minutes = minutesOf(end) - minutesOf(start)

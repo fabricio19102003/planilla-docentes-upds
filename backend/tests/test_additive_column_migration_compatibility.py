@@ -420,3 +420,16 @@ def test_block_hours_migration_rejects_an_incompatible_precreated_column(tmp_pat
     with engine.connect() as connection:
         assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == BLOCK_HOURS_PREVIOUS
     engine.dispose()
+
+
+def test_block_hours_migration_adopts_compatible_column_and_refuses_downgrade(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "block-hours-adopt.sqlite3")
+    command.upgrade(config, BLOCK_HOURS_PREVIOUS)
+    with engine.begin() as connection:
+        connection.execute(sa.text("ALTER TABLE academic_schedule_blocks ADD COLUMN academic_hours INTEGER"))
+    command.upgrade(config, BLOCK_HOURS_MIGRATION)
+    with pytest.raises(RuntimeError, match="Restore an explicitly approved backup"):
+        command.downgrade(config, BLOCK_HOURS_PREVIOUS)
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == BLOCK_HOURS_MIGRATION
+    engine.dispose()

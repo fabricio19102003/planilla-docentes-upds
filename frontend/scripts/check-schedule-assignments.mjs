@@ -63,6 +63,8 @@ test('the teacher picker is a searchable shadcn combobox', () => {
   assert.match(combobox, /role="combobox"/)
   assert.match(combobox, /shouldFilter=\{false\}/)
   assert.match(combobox, /CommandEmpty/)
+  assert.match(combobox, /aria-label="Buscar docente"/)
+  assert.match(combobox, /w-\(--radix-popover-trigger-width\)/)
   assert.match(page, /<TeacherCombobox/)
   assert.doesNotMatch(page, /id="assignment-teacher"\s*\n\s*required/)
 })

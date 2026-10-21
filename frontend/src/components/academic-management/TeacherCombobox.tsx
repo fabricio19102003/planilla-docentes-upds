@@ -62,9 +62,9 @@ export function TeacherCombobox({
           <ChevronsUpDown className="opacity-50" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-80 p-0" align="start">
+      <PopoverContent className="w-(--radix-popover-trigger-width) min-w-80 p-0" align="start">
         <Command shouldFilter={false}>
-          <CommandInput placeholder="Buscar por nombre o CI…" value={search} onValueChange={onSearchChange} maxLength={120} />
+          <CommandInput aria-label="Buscar docente" placeholder="Buscar por nombre o CI…" value={search} onValueChange={onSearchChange} maxLength={120} />
           <CommandList>
             {loading && <p role="status" className="p-3 text-sm text-slate-600">Buscando docentes…</p>}
             {!loading && <CommandEmpty>{emptyMessage}</CommandEmpty>}

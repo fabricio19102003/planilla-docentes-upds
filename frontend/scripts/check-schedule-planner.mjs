@@ -9,6 +9,8 @@ import {
   BLOCK_DURATION_PRESETS,
   cellForStart,
   defaultAcademicHours,
+  blockDurationMinutes,
+  legacyPaidHours,
   parseScheduleCellId,
   scheduleBlockPayload,
   scheduleCellId,
@@ -104,4 +106,12 @@ test('the block form offers free times, duration presets and editable academic h
   assert.match(page, /Horas académicas/)
   assert.match(page, /cellForStart/)
   assert.match(page, /paid_hours/)
+})
+
+test('blocks without stored hours keep the previous rule when edited', () => {
+  assert.equal(legacyPaidHours('08:00', '10:00'), 2)
+  assert.equal(legacyPaidHours('08:00', '08:30'), 1)
+  assert.equal(blockDurationMinutes('08:05', '09:35'), 90)
+  assert.match(page, /legacyPaidHours/)
+  assert.match(page, /mantiene lo que paga hoy/)
 })
