@@ -439,3 +439,97 @@ def test_reimport_with_start_after_stored_end_is_rejected(client, db_session):
     stored = db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one()
     assert stored.contract_start_date.isoformat() == "2026-08-10"
     assert stored.contract_end_date.isoformat() == "2026-09-17"
+
+
+def excel_upload_bytes(horario: str) -> bytes:
+    from io import BytesIO
+
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["N°", "DOCENTE", "MATERIAS", "SEMESTRE", "GRUPO", "SAADS", "AULA", "HORARIO",
+                  "CARGA HORARIA", "TOTAL", "MES", "SEMANA", "REAL"])
+    sheet.append([1, "DOCENTE EXCEL SINTETICO", "MATERIA EXCEL SINTETICA", "PRIMERO", "M-01", None, None,
+                  horario, 40, None, 12, 3, None])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def excel_preview(client, content: bytes):
+    return client.post(
+        "/api/uploads/designations/preview?academic_period=II/2026",
+        files={"file": ("designacion.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def excel_apply(client, content: bytes, digest: str):
+    return client.post(
+        f"/api/uploads/designations?academic_period=II/2026&confirmation_digest={digest}",
+        files={"file": ("designacion.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def add_excel_teacher(db_session) -> None:
+    db_session.add(Teacher(ci="9000200", full_name="DOCENTE EXCEL SINTETICO"))
+    db_session.commit()
+
+
+def test_excel_upload_reads_several_days_on_one_line(client, db_session):
+    add_excel_teacher(db_session)
+    content = excel_upload_bytes("Miercoles: 11: 20 am- 12: 00 pm      Jueves: 08 10 am- 10: 35 am")
+    result = excel_preview(client, content).json()
+    assert result["can_apply"] is True
+    assert result["errors"] == []
+    assert result["designations"]["creates"] == 1
+    assert excel_apply(client, content, result["digest"]).status_code == 201
+    stored = db_session.query(Designation).filter_by(subject="MATERIA EXCEL SINTETICA").one()
+    assert [(s["dia"], s["hora_inicio"], s["hora_fin"]) for s in stored.schedule_json] == [
+        ("miercoles", "11:20", "12:00"),
+        ("jueves", "08:10", "10:35"),
+    ]
+
+
+def test_excel_upload_rejects_impossible_blocks_and_writes_nothing(client, db_session):
+    add_excel_teacher(db_session)
+    content = excel_upload_bytes("Lunes: 06: 30 am- 08: 00 am\nJueves: 06: 30 am- 08: 00 pm")
+    result = excel_preview(client, content).json()
+    assert result["can_apply"] is False
+    assert result["errors"] == [
+        "Fila 2: horario inválido: El bloque 'JUEVES: 06: 30 AM- 08: 00 PM' dura más de 6 horas",
+        "El archivo no contiene designaciones.",
+    ]
+    assert excel_apply(client, content, result["digest"]).status_code == 400
+    assert db_session.query(Designation).count() == 0
+
+
+def test_excel_upload_lists_every_rejected_block_and_warns_on_empty_schedule(client, db_session):
+    from io import BytesIO
+
+    import openpyxl
+
+    add_excel_teacher(db_session)
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["N°", "DOCENTE", "MATERIAS", "SEMESTRE", "GRUPO", "SAADS", "AULA", "HORARIO",
+                  "CARGA HORARIA", "TOTAL", "MES", "SEMANA", "REAL"])
+    sheet.append([1, "DOCENTE EXCEL SINTETICO", "MATERIA VALIDA", "PRIMERO", "M-01", None, None,
+                  "/Lunes: 08:00 - 09:30h", 40, None, 8, 2, None])
+    sheet.append([2, "DOCENTE EXCEL SINTETICO", "MATERIA INVALIDA", "PRIMERO", "M-02", None, None,
+                  "Jueves: 25:00-26:00\nViernes: X", 40, None, 8, 2, None])
+    sheet.append([3, "DOCENTE EXCEL SINTETICO", "MATERIA SIN HORARIO", "PRIMERO", "M-03", None, None,
+                  None, 40, None, 8, 2, None])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    content = buffer.getvalue()
+
+    result = excel_preview(client, content).json()
+    assert result["can_apply"] is False
+    assert result["errors"] == [
+        "Fila 3: horario inválido: El bloque 'JUEVES: 25:00-26:00' tiene una hora inválida",
+        "Fila 3: horario inválido: No se pudo leer el bloque 'VIERNES: X'",
+    ]
+    assert "Fila 4: 'DOCENTE EXCEL SINTETICO' no tiene horario; la fila se omite." in result["warnings"]
+    assert excel_apply(client, content, result["digest"]).status_code == 400
+    assert db_session.query(Designation).count() == 0

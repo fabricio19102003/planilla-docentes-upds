@@ -27,7 +27,7 @@ _DAY_NAMES = {
 _DAY_RE = re.compile(r"\b(" + "|".join(sorted(_DAY_NAMES, key=len, reverse=True)) + r")\b\s*:?")
 _CLOCK = r"(\d{1,2})\s*[:.\s]\s*(\d{2})\s*:?\s*(AM|PM)?"
 _RANGE_RE = re.compile(rf"^{_CLOCK}\s*(?:-+|\bA\b)\s*{_CLOCK}$")
-_TRAILING_UNIT_RE = re.compile(r"\s*\b(?:HRS?|HS|HORAS)\b\.?$")
+_TRAILING_UNIT_RE = re.compile(r"(?:(?<=\d)\s*|(?<=AM)\s+|(?<=PM)\s+)(?:HORAS|HRS?|HS|H)\.?$")
 
 
 def _fold(text: str) -> str:
@@ -72,7 +72,7 @@ def parse_schedule_text(raw: str | None) -> tuple[list[dict], list[str]]:
 
     slots: list[dict] = []
     errors: list[str] = []
-    leading = folded[:days[0].start()].strip(" \t\n;,")
+    leading = folded[:days[0].start()].strip(" \t\n;,/")
     if leading:
         errors.append(f"Texto sin día en el horario: {leading!r}")
 
