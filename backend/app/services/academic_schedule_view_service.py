@@ -19,6 +19,7 @@ from app.models.academic_management import (
     AcademicScheduleDraft,
     AcademicSchedulePublishedBlock,
     AcademicSubject,
+    SubjectOffering,
 )
 from app.models.teacher import Teacher
 from app.services import academic_management_service as academic
@@ -72,12 +73,58 @@ def _block_sort(block: ViewBlock) -> tuple:
     )
 
 
-def _subject_codes(db: Session) -> dict[str, str | None]:
-    codes: dict[str, str | None] = {}
-    for subject in db.query(AcademicSubject).all():
-        key = _fold(subject.name)
-        codes[key] = None if key in codes else subject.code
-    return codes
+_STOPWORDS = {"de", "la", "el", "en", "y", "e", "del", "los", "las"}
+_NUMERALS = {"i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
+
+
+def _tokens(value: object) -> list[str]:
+    return [token for token in re.split(r"[^a-z0-9]+", _fold(value)) if token and token not in _STOPWORDS]
+
+
+def _token_match(designation: list[str], catalog: list[str]) -> bool:
+    """Every designation word is a prefix of a catalog word; roman numerals must match exactly."""
+    if not designation:
+        return False
+    if [t for t in designation if t in _NUMERALS] != [t for t in catalog if t in _NUMERALS]:
+        return False
+    return all(any(word.startswith(token) for word in catalog if word not in _NUMERALS)
+               for token in designation if token not in _NUMERALS)
+
+
+class SubjectResolver:
+    """Map schedule subject names to one catalog subject, preferring the block's semester."""
+
+    def __init__(self, db: Session, academic_period: str) -> None:
+        self.by_code = {subject.code: subject for subject in db.query(AcademicSubject).all()}
+        self.by_name: dict[str, AcademicSubject | None] = {}
+        for subject in self.by_code.values():
+            key = _fold(subject.name)
+            self.by_name[key] = None if key in self.by_name else subject
+        self.by_semester: dict[int, list[AcademicSubject]] = {}
+        offerings = db.query(SubjectOffering).filter(
+            SubjectOffering.academic_period == academic_period, SubjectOffering.active.is_(True)
+        ).all()
+        for offering in offerings:
+            bucket = self.by_semester.setdefault(offering.semester, [])
+            if offering.subject not in bucket:
+                bucket.append(offering.subject)
+
+    def by_subject_code(self, code: str | None) -> AcademicSubject | None:
+        return self.by_code.get(code) if code else None
+
+    def resolve(self, name: str, semester: int | None) -> AcademicSubject | None:
+        folded = _fold(name)
+        candidates = self.by_semester.get(semester, []) if semester is not None else []
+        exact = [subject for subject in candidates if _fold(subject.name) == folded]
+        if len(exact) == 1:
+            return exact[0]
+        if exact:
+            return None
+        if folded in self.by_name:
+            return self.by_name[folded]
+        wanted = _tokens(name)
+        fuzzy = [subject for subject in candidates if _token_match(wanted, _tokens(subject.name))]
+        return fuzzy[0] if len(fuzzy) == 1 else None
 
 
 def _teacher_names(db: Session, cis: set[str]) -> dict[str, str]:
@@ -95,19 +142,22 @@ def _current_blocks(db: Session, academic_period: str, reference: date) -> list[
             AcademicSchedulePublishedBlock.id.in_(published_ids)
         )
     } if published_ids else {}
-    codes = _subject_codes(db)
+    resolver = SubjectResolver(db, academic_period)
     names = _teacher_names(db, {slot.teacher_ci for slot in slots})
     blocks = []
     for slot in slots:
         start, end = slot.start_time.strftime("%H:%M"), slot.end_time.strftime("%H:%M")
         source = published.get(slot.published_block_id) if slot.published_block_id else None
         identity = slot.published_assignment_id if source else slot.designation_id
+        semester = semester_number(slot.semester)
+        subject = (resolver.by_subject_code(source.subject_code) if source
+                   else resolver.resolve(slot.subject, semester))
         blocks.append(ViewBlock(
             key=f"{slot.source_type}:{identity}:{slot.weekday}:{start}",
-            semester=semester_number(slot.semester),
+            semester=semester,
             group_code=normalized_group(slot.group_code),
-            subject_code=source.subject_code if source else codes.get(_fold(slot.subject)),
-            subject_name=slot.subject,
+            subject_code=subject.code if subject else (source.subject_code if source else None),
+            subject_name=subject.name if subject else slot.subject,
             activity_type=slot.activity_type,
             weekday=slot.weekday,
             start_time=start,

@@ -108,7 +108,7 @@ def test_current_schedule_merges_paid_theory_and_published_practice(client, db_s
          b["classroom_code"], b["classroom_name"], b["source_type"])
         for b in body["blocks"]
     ] == [
-        (1, "M-1", "MRF 0100", "ANATOMÍA HUMANA I", "theory", "lunes", "06:30", "08:55",
+        (1, "M-1", "MRF 0100", "Anatomía Humana I", "theory", "lunes", "06:30", "08:55",
          "V-THEORY", "DOCENTE TEORIA", None, None, "legacy"),
         (1, "M-1", "MRF 0100", "Anatomía Humana I", "practice", "martes", "10:00", "12:00",
          "V-PRACTICE", "Docente Practica", "LAB-1", "Laboratorio 1", "published"),
@@ -147,8 +147,12 @@ def test_unknown_semester_text_is_null(client, db_session):
 
 
 def test_ambiguous_subject_name_has_no_code(client, db_session):
-    _catalog(client, db_session)
-    _post(client, "/subjects", {"code": "MRF 9999", "name": "Anatomia humana i"})
+    program, _subject, _offering, _group, _room = _catalog(client, db_session)
+    twin = _post(client, "/subjects", {"code": "MRF 9999", "name": "Anatomia humana i"})
+    _post(client, "/offerings", {
+        "subject_id": twin["id"], "program_id": program["id"], "academic_period": "I/2027",
+        "semester": 1, "theory_hours": 10, "practice_hours": 0,
+    })
     _designation(db_session)
     body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
     assert body["blocks"][0]["subject_code"] is None
@@ -193,7 +197,7 @@ def test_export_has_one_grid_sheet_per_group_and_a_list(client, db_session):
     header = [grid.cell(row=3, column=column).value for column in range(1, 8)]
     assert header == ["Hora", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
     assert grid.cell(row=4, column=1).value == "06:30–07:00"
-    assert "ANATOMÍA HUMANA I" in grid.cell(row=4, column=2).value
+    assert "Anatomía Humana I" in grid.cell(row=4, column=2).value
     assert "DOCENTE TEORIA" in grid.cell(row=4, column=2).value
     # 06:30-08:55 covers five half-hour bands (06:30 .. 08:30).
     assert "B4:B8" in {str(item) for item in grid.merged_cells.ranges}
@@ -213,3 +217,36 @@ def test_export_filename_includes_filters(client, db_session):
     assert response.status_code == 200, response.text
     assert 'filename="horarios_I-2027_sem1_M-1.xlsx"' in response.headers["content-disposition"]
     assert openpyxl.load_workbook(BytesIO(response.content)).sheetnames == ["S1 M-1", "Lista"]
+
+
+def test_designation_names_resolve_to_the_curriculum_subject_of_their_semester(client, db_session):
+    program, _anatomy, _offering, _group, _room = _catalog(client, db_session)
+    for code, name in (("SCP 0300", "Promoción de la Salud en el Ciclo de Vida I"),
+                       ("SCP 0400", "Promoción de la Salud en el Ciclo de Vida II"),
+                       ("SCP 0700", "Antropología Médica e Interculturalidad")):
+        subject = _post(client, "/subjects", {"code": code, "name": name})
+        _post(client, "/offerings", {
+            "subject_id": subject["id"], "program_id": program["id"], "academic_period": "I/2027",
+            "semester": int(code[-3]), "theory_hours": 17, "practice_hours": 51,
+        })
+    _designation(db_session, subject="PROMOCIÓN DE LA SALUD I", semester="TERCERO", group_code="M-1")
+    _designation(db_session, subject="PROMOCIÓN DE LA SALUD II", semester="CUARTO", group_code="M-2")
+    _designation(db_session, subject="ANTROPOLOGÍA MÉDICA E INTERCULTURAL", semester="SEPTIMO", group_code="N-1")
+    # Same words in a semester where the subject is not offered: stays unresolved.
+    _designation(db_session, subject="PROMOCIÓN DE LA SALUD I", semester="QUINTO", group_code="M-3")
+    body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
+    resolved = {(b["semester"], b["subject_code"], b["subject_name"]) for b in body["blocks"]}
+    assert (3, "SCP 0300", "Promoción de la Salud en el Ciclo de Vida I") in resolved
+    assert (4, "SCP 0400", "Promoción de la Salud en el Ciclo de Vida II") in resolved
+    assert (7, "SCP 0700", "Antropología Médica e Interculturalidad") in resolved
+    assert (5, None, "PROMOCIÓN DE LA SALUD I") in resolved
+
+
+def test_published_blocks_show_the_current_catalog_name(client, db_session):
+    program, anatomy, offering, group, room = _catalog(client, db_session)
+    draft, _block = _practice_draft(client, program, offering, group, room)
+    _publish(client, draft["id"])
+    renamed = client.put(f"{BASE}/subjects/{anatomy['id']}", json={"code": "MRF 0100", "name": "Anatomía Humana I (malla)"})
+    assert renamed.status_code == 200, renamed.text
+    body = client.get(VIEW, params={"academic_period": "I/2027", "date": "2027-03-01"}).json()
+    assert [(b["subject_code"], b["subject_name"]) for b in body["blocks"]] == [("MRF 0100", "Anatomía Humana I (malla)")]
