@@ -162,6 +162,9 @@ function CatalogSection<T extends AcademicCatalogBase>({
           <Input id={`${resource}-search`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Código o nombre" />
         </div>
       )}
+      {!query.isLoading && !query.isError && !grouped.length && (
+        <p className="rounded-xl border bg-white px-4 py-10 text-center text-slate-500">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</p>
+      )}
       {grouped.map((section) => (
         <div key={section.key} className="flex flex-col gap-2">
           {section.title && <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">{section.title} <span className="font-normal normal-case text-slate-400">· {section.items.length}</span></h3>}

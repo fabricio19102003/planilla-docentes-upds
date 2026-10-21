@@ -80,7 +80,7 @@ export function groupSubjectsBySemester<S extends SubjectLike, O extends Offerin
     sections.set(semester, section)
   }
   for (const subject of subjects) {
-    const own = offerings.filter((item) => item.subject_id === subject.id && item.academic_period === period)
+    const own = offerings.filter((item) => item.subject_id === subject.id && item.academic_period === period && item.active)
     if (!own.length) add(null, subject, null)
     for (const offering of own) add(offering.semester, subject, offering)
   }
@@ -89,12 +89,16 @@ export function groupSubjectsBySemester<S extends SubjectLike, O extends Offerin
     || (a.semester ?? 0) - (b.semester ?? 0))
 }
 
+const SHIFT_ORDER: Record<string, number> = { M: 0, T: 1, N: 2 }
+
+/** Shift (M, T, N, then others) and number, accepting catalog codes like M-01. */
 const groupKey = (code: string) => {
   const match = /^([A-Za-z]+)-?0*(\d+)$/.exec(code.trim())
-  return match ? [match[1].toUpperCase(), Number(match[2])] as const : [code, 0] as const
+  const shift = match ? SHIFT_ORDER[match[1].toUpperCase()] : undefined
+  return shift === undefined ? [3, 0, code] as const : [shift, Number(match![2]), code] as const
 }
 
-/** Groups of the period by semester, ordered by shift letter and number (M-2 before M-10). */
+/** Groups of the period by semester, in shift order M, T, N, then others (M-2 before M-10). */
 export function groupGroupsBySemester<G extends { academic_period: string; semester: number; code: string }>(
   groups: G[], period: string,
 ): Array<{ semester: number; rows: G[] }> {
@@ -105,9 +109,9 @@ export function groupGroupsBySemester<G extends { academic_period: string; semes
   return [...sections.entries()].sort(([a], [b]) => a - b).map(([semester, rows]) => ({
     semester,
     rows: rows.sort((a, b) => {
-      const [prefixA, numberA] = groupKey(a.code)
-      const [prefixB, numberB] = groupKey(b.code)
-      return prefixA.localeCompare(prefixB) || numberA - numberB
+      const [shiftA, numberA, codeA] = groupKey(a.code)
+      const [shiftB, numberB, codeB] = groupKey(b.code)
+      return shiftA - shiftB || numberA - numberB || codeA.localeCompare(codeB)
     }),
   }))
 }

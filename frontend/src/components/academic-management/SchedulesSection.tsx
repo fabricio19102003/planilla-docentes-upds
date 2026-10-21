@@ -107,7 +107,7 @@ export function SchedulesSection() {
 
       {downloadError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{downloadError}</p>}
       {needsDraft && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Seleccione un borrador para ver sus bloques.</p>}
-      {view.isLoading && !needsDraft && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Cargando horario…</p>}
+      {view.isFetching && !needsDraft && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">{view.isLoading ? 'Cargando horario…' : 'Actualizando horario…'}</p>}
       {view.isError && (
         <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           <span>{errorText(view.error)}</span>

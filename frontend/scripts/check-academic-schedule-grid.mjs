@@ -148,3 +148,23 @@ test('groups follow shift order morning, afternoon, night, then others', async (
   const { compareGroupCodes } = await import('../src/lib/academicScheduleGrid.ts')
   assert.deepEqual(['EXTRA', 'N-1', 'T-2', 'M-10', 'A', 'M-2'].sort(compareGroupCodes), ['M-2', 'M-10', 'T-2', 'N-1', 'A', 'EXTRA'])
 })
+
+test('catalog groups follow shift order and inactive offerings do not decide the semester', () => {
+  const sections = groupGroupsBySemester([
+    { id: 1, academic_period: 'II/2026', semester: 1, code: 'N-01' },
+    { id: 2, academic_period: 'II/2026', semester: 1, code: 'T-01' },
+    { id: 3, academic_period: 'II/2026', semester: 1, code: 'EXTRA' },
+    { id: 4, academic_period: 'II/2026', semester: 1, code: 'M-01' },
+  ], 'II/2026')
+  assert.deepEqual(sections[0].rows.map((row) => row.code), ['M-01', 'T-01', 'N-01', 'EXTRA'])
+  const subjects = groupSubjectsBySemester([{ id: 1, code: 'A', name: 'A' }], [
+    { subject_id: 1, academic_period: 'II/2026', semester: 4, theory_hours: 1, practice_hours: 1, active: false },
+  ], 'II/2026')
+  assert.deepEqual(subjects.map((section) => section.semester), [null])
+})
+
+test('catalog tabs show an empty message when no section has rows', () => {
+  const pageText = readFileSync(resolve(root, 'src/pages/AcademicManagementPage.tsx'), 'utf8')
+  assert.match(pageText, /!grouped\.length/)
+  assert.match(schedules, /isFetching/)
+})
