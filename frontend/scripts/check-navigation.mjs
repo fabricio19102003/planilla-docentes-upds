@@ -63,6 +63,7 @@ test('admin sidebar keeps the monthly-closing order', () => {
         ['Gestión académica', '/academic-management'],
         ['Planificador de horarios', '/schedule-planner'],
         ['Solicitudes', '/requests'],
+        ['Mensajes', '/chat'],
       ],
     },
     {
@@ -92,6 +93,8 @@ test('every routed page resolves to its own non-fallback title', () => {
   const unique = new Map()
   for (const [path, title] of titles) {
     if (path === '/practice-planilla') continue
+    // The admin inbox and the docente conversation are both labelled "Mensajes".
+    if (path === '/portal/chat') continue
     assert.ok(!unique.has(title), `${path} reuses the title of ${unique.get(title)}: ${title}`)
     unique.set(title, path)
   }
@@ -114,6 +117,7 @@ test('portal titles do not fall back to the /portal title', () => {
   assert.equal(getTitleFromPath('/portal/requests'), 'Mis Solicitudes')
   assert.equal(getTitleFromPath('/portal/profile'), 'Mi Perfil')
   assert.equal(getTitleFromPath('/portal/notifications'), 'Notificaciones')
+  assert.equal(getTitleFromPath('/portal/chat'), 'Mensajes')
 })
 
 test('nested and unknown paths', () => {

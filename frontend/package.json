@@ -32,6 +32,7 @@
     "test:admin-clarity": "node --experimental-strip-types --test scripts/check-admin-clarity.mjs",
     "test:user-credentials": "node --experimental-strip-types --test scripts/check-user-credentials.mjs",
     "test:coss-foundation": "node --test scripts/check-coss-foundation.mjs",
+    "test:chat-ui": "node --experimental-strip-types --test scripts/check-chat-ui.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"
@@ -49,6 +50,7 @@
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "lucide-react": "^1.7.0",
+    "motion": "14.0.0",
     "next-themes": "^0.4.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
