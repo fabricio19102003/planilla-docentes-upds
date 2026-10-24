@@ -1,9 +1,19 @@
 import { useId, useState, useRef } from 'react'
 import { useMySchedule, downloadSchedulePDF } from '@/api/hooks/useAuth'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { cn } from '@/lib/utils'
 import {
+  AlertCircle,
   BookOpen,
+  CalendarX,
   Users,
   Clock,
   FileDown,
@@ -17,26 +27,39 @@ import type { PortalDesignationSchedule } from '@/api/types'
 
 const WEEKDAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
-const DAY_COLORS: Record<string, string> = {
-  Lunes: '#003366',
-  Martes: '#0066CC',
-  Miércoles: '#4DA8DA',
-  Jueves: '#16a34a',
-  Viernes: '#7c3aed',
-  Sábado: '#d97706',
+// html-to-image rasterises the schedule from an isolated SVG, where the page's CSS variables do not
+// resolve, so the PNG needs a literal opaque background. White keeps the token-colored cells readable.
+const EXPORT_BACKGROUND = '#ffffff'
+
+// Day dots and subject accents only use theme tokens, so they follow the theme and stay readable in the export.
+const DAY_DOT: Record<string, string> = {
+  Lunes: 'bg-primary',
+  Martes: 'bg-info',
+  Miércoles: 'bg-chart-2',
+  Jueves: 'bg-success',
+  Viernes: 'bg-chart-3',
+  Sábado: 'bg-warning',
 }
 
-const SUBJECT_PALETTE = [
-  '#003366',
-  '#0066CC',
-  '#4DA8DA',
-  '#16a34a',
-  '#7c3aed',
-  '#dc2626',
-  '#d97706',
-  '#0891b2',
-  '#be185d',
-  '#4338ca',
+interface SubjectStyle {
+  /** Solid dot. */
+  dot: string
+  /** Tinted pill: badge and legend. */
+  chip: string
+  /** Tinted header band. */
+  band: string
+  /** Weekly grid cell: tinted with a solid left accent. */
+  cell: string
+}
+
+const SUBJECT_STYLES: SubjectStyle[] = [
+  { dot: 'bg-primary', chip: 'border-primary/30 bg-primary/10 text-primary', band: 'bg-primary/8', cell: 'border-primary bg-primary/10' },
+  { dot: 'bg-success', chip: 'border-success/30 bg-success/10 text-success-foreground', band: 'bg-success/8', cell: 'border-success bg-success/10' },
+  { dot: 'bg-warning', chip: 'border-warning/30 bg-warning/10 text-warning-foreground', band: 'bg-warning/8', cell: 'border-warning bg-warning/10' },
+  { dot: 'bg-destructive', chip: 'border-destructive/30 bg-destructive/10 text-destructive-foreground', band: 'bg-destructive/8', cell: 'border-destructive bg-destructive/10' },
+  { dot: 'bg-info', chip: 'border-info/30 bg-info/10 text-info-foreground', band: 'bg-info/8', cell: 'border-info bg-info/10' },
+  { dot: 'bg-chart-2', chip: 'border-chart-2/30 bg-chart-2/10 text-foreground', band: 'bg-chart-2/8', cell: 'border-chart-2 bg-chart-2/10' },
+  { dot: 'bg-chart-3', chip: 'border-chart-3/30 bg-chart-3/10 text-chart-3', band: 'bg-chart-3/8', cell: 'border-chart-3 bg-chart-3/10' },
 ]
 
 type ViewMode = 'dia' | 'materia' | 'grilla'
@@ -53,8 +76,8 @@ function hashSubject(subject: string): number {
   return Math.abs(hash)
 }
 
-function getSubjectColor(subject: string): string {
-  return SUBJECT_PALETTE[hashSubject(subject) % SUBJECT_PALETTE.length]
+function getSubjectStyle(subject: string): SubjectStyle {
+  return SUBJECT_STYLES[hashSubject(subject) % SUBJECT_STYLES.length]
 }
 
 function normDay(dia: string): string {
@@ -133,26 +156,9 @@ function StatsBar({ allSlots }: { allSlots: FlatSlot[] }) {
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {[
-        { icon: Clock, label: 'Horas visibles/semana', value: visibleHours, color: '#003366' },
-        { icon: BookOpen, label: 'Materias visibles', value: uniqueSubjects, color: '#0066CC' },
-        { icon: Users, label: 'Grupos visibles', value: uniqueGroups, color: '#4DA8DA' },
-      ].map(({ icon: Icon, label, value, color }) => (
-        <div key={label} className="card-3d-static px-4 py-3 flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: `${color}18` }}
-          >
-            <Icon size={16} style={{ color }} />
-          </div>
-          <div>
-            <p className="text-lg font-bold leading-none" style={{ color }}>
-              {value}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{label}</p>
-          </div>
-        </div>
-      ))}
+      <StatCard icon={Clock} title="Horas visibles/semana" value={visibleHours} tone="primary" />
+      <StatCard icon={BookOpen} title="Materias visibles" value={uniqueSubjects} tone="info" />
+      <StatCard icon={Users} title="Grupos visibles" value={uniqueGroups} tone="success" />
     </div>
   )
 }
@@ -161,6 +167,14 @@ function StatsBar({ allSlots }: { allSlots: FlatSlot[] }) {
 
 function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
   const headingIdPrefix = useId()
+
+  if (allSlots.length === 0) {
+    return (
+      <Card>
+        <EmptyState icon={CalendarX} title="No hay clases con los filtros seleccionados" />
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -173,54 +187,46 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
         if (daySlots.length === 0) return null
 
         return (
-          <section
+          <Card
             key={day}
-            aria-labelledby={`${headingIdPrefix}-${dayNorm}`}
-            className="card-3d-static overflow-hidden"
+            render={<section aria-labelledby={`${headingIdPrefix}-${dayNorm}`} />}
+            className="overflow-hidden"
           >
-            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-              <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: DAY_COLORS[day] ?? '#003366' }}
-              />
-              <h4 id={`${headingIdPrefix}-${dayNorm}`} className="text-sm font-semibold text-gray-800 capitalize">{day}</h4>
-              <span className="text-xs text-gray-400 ml-auto">{daySlots.length} clase(s)</span>
+            <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2.5">
+              <div className={cn('size-2 shrink-0 rounded-full', DAY_DOT[day] ?? 'bg-primary')} />
+              <h3 id={`${headingIdPrefix}-${dayNorm}`} className="text-sm font-semibold capitalize text-foreground">{day}</h3>
+              <span className="ml-auto text-xs text-muted-foreground">{daySlots.length} clase(s)</span>
             </div>
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y">
               {daySlots.map((slot) => (
                 <div key={slot.key} className="flex flex-col items-start gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="text-center min-w-[72px] flex-shrink-0">
-                      <p className="text-sm font-bold" style={{ color: '#003366' }}>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="min-w-[72px] shrink-0 text-center">
+                      <p className="text-sm font-semibold tabular-nums text-foreground">
                         {slot.hora_inicio}
                       </p>
-                      <p className="text-xs text-gray-400">{slot.hora_fin}</p>
+                      <p className="text-xs tabular-nums text-muted-foreground">{slot.hora_fin}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{slot.subject}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-mono">
+                      <p className="truncate text-sm font-medium text-foreground">{slot.subject}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="font-mono">
                           {slot.group_code}
                         </Badge>
-                        <span className="text-xs text-gray-400">{slot.semester}</span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-muted-foreground">{slot.semester}</span>
+                        <span className="text-xs text-muted-foreground">
                           {slot.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {slot.source_kind === 'published' ? 'Publicado' : 'Legado'}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs text-gray-500 flex-shrink-0">{slot.horas_academicas}h</span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{slot.horas_academicas}h</span>
                 </div>
               ))}
             </div>
-          </section>
+          </Card>
         )
       })}
-      {allSlots.length === 0 && (
-        <div className="card-3d-static px-5 py-10 text-center">
-          <p className="text-sm text-gray-400">No hay clases con los filtros seleccionados</p>
-        </div>
-      )}
     </div>
   )
 }
@@ -235,68 +241,62 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
 
   if (filtered.length === 0) {
     return (
-      <div className="card-3d-static px-5 py-10 text-center">
-        <p className="text-sm text-gray-400">No hay materias con los filtros seleccionados</p>
-      </div>
+      <Card>
+        <EmptyState icon={CalendarX} title="No hay materias con los filtros seleccionados" />
+      </Card>
     )
   }
 
   return (
     <div className="space-y-4">
       {filtered.map((d) => {
-        const color = getSubjectColor(`${d.subject}|${d.activity_kind}`)
+        const style = getSubjectStyle(`${d.subject}|${d.activity_kind}`)
         const sorted = [...d.schedule].sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
 
         return (
-          <div key={d.source_key} className="card-3d-static overflow-hidden">
-            <div
-              className="px-4 py-3 flex items-center gap-3"
-              style={{ background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
-            >
-              <div
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ backgroundColor: color }}
-              />
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-gray-900 truncate">{d.subject}</h4>
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <Badge className="text-xs font-mono" style={{ backgroundColor: `${color}20`, color, borderColor: `${color}40` }}>
+          <Card key={d.source_key} className="overflow-hidden">
+            <div className={cn('flex items-center gap-3 px-4 py-3', style.band)}>
+              <div className={cn('size-3 shrink-0 rounded-full', style.dot)} />
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-semibold text-foreground">{d.subject}</h3>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={cn('font-mono', style.chip)}>
                     {d.group_code}
                   </Badge>
-                  <span className="text-xs text-gray-500">{d.semester}</span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-muted-foreground">{d.semester}</span>
+                  <span className="text-xs text-muted-foreground">
                     {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {d.source_kind === 'published' ? 'Publicado' : 'Legado'}
                   </span>
                   {d.weekly_hours != null && (
-                    <span className="text-xs text-gray-500 ml-auto">{d.weekly_hours}h/sem</span>
+                    <span className="ml-auto text-xs tabular-nums text-muted-foreground">{d.weekly_hours}h/sem</span>
                   )}
                 </div>
               </div>
             </div>
             {sorted.length > 0 ? (
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y">
                 {sorted.map((slot) => (
                   <div key={`${d.source_key}|${normDay(slot.dia)}|${slot.hora_inicio}|${slot.hora_fin}`} className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
                     <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: DAY_COLORS[
-                        WEEKDAYS.find((w) => normDay(w) === normDay(slot.dia)) ?? 'Lunes'
-                      ] ?? color }}
+                      className={cn(
+                        'size-1.5 shrink-0 rounded-full',
+                        DAY_DOT[WEEKDAYS.find((w) => normDay(w) === normDay(slot.dia)) ?? 'Lunes'] ?? style.dot,
+                      )}
                     />
-                    <span className="text-xs font-medium text-gray-600 capitalize min-w-[76px]">
+                    <span className="min-w-[76px] text-xs font-medium capitalize text-muted-foreground">
                       {slot.dia}
                     </span>
-                    <span className="text-xs text-gray-800 font-mono">
+                    <span className="font-mono text-xs tabular-nums text-foreground">
                       {slot.hora_inicio} – {slot.hora_fin}
                     </span>
-                    <span className="text-xs text-gray-400 ml-auto">{slot.horas_academicas}h</span>
+                    <span className="ml-auto text-xs tabular-nums text-muted-foreground">{slot.horas_academicas}h</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-400 px-4 py-3 italic">Sin horario registrado</p>
+              <p className="px-4 py-3 text-xs italic text-muted-foreground">Sin horario registrado</p>
             )}
-          </div>
+          </Card>
         )
       })}
     </div>
@@ -321,77 +321,72 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
 
   if (uniqueTimes.length === 0) {
     return (
-      <div className="card-3d-static px-5 py-10 text-center">
-        <p className="text-sm text-gray-400">No hay clases con los filtros seleccionados</p>
-      </div>
+      <Card>
+        <EmptyState icon={CalendarX} title="No hay clases con los filtros seleccionados" />
+      </Card>
     )
   }
 
   return (
-    <div className="card-3d-static max-w-full overflow-hidden">
+    <Card className="max-w-full overflow-hidden">
       <div className="max-w-full overflow-x-auto" role="region" aria-label="Grilla semanal desplazable">
-          <table className="min-w-[900px] w-full text-sm">
-            <caption className="sr-only">Horario semanal agrupado por día y hora de inicio</caption>
+        <table className="min-w-[900px] w-full text-sm">
+          <caption className="sr-only">Horario semanal agrupado por día y hora de inicio</caption>
           <thead>
-            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              <th className="px-3 py-3 text-left text-white font-semibold text-xs w-24">
+            <tr className="border-b bg-muted/50">
+              <th className="w-24 px-3 py-3 text-left text-xs font-medium text-muted-foreground">
                 Hora
               </th>
               {WEEKDAYS.map((day) => (
-                <th key={day} className="px-3 py-3 text-center text-white font-semibold text-xs capitalize">
+                <th key={day} className="px-3 py-3 text-center text-xs font-medium capitalize text-muted-foreground">
                   {day}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {uniqueTimes.map((time, rowIdx) => {
-              const bgRow = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+            {uniqueTimes.map((time) => (
+              <tr key={time} className="border-b last:border-0 even:bg-muted/20">
+                <td className="px-3 py-2 text-center">
+                  <p className="font-mono text-xs font-semibold tabular-nums text-foreground">{time}</p>
+                  <p className="text-[10px] text-muted-foreground">inicio</p>
+                </td>
+                {WEEKDAYS.map((day) => {
+                  const cellSlots = slotsByCell.get(`${normDay(day)}|${time}`) ?? []
 
-              return (
-                <tr key={time} className={`border-b border-gray-100 ${bgRow}`}>
-                  <td className="px-3 py-2 text-center">
-                    <p className="text-xs font-mono font-bold text-gray-700">{time}</p>
-                    <p className="text-[10px] text-gray-400">inicio</p>
-                  </td>
-                  {WEEKDAYS.map((day) => {
-                    const cellSlots = slotsByCell.get(`${normDay(day)}|${time}`) ?? []
+                  return (
+                    <td key={day} className="px-1 py-1 text-center align-top">
+                      <div className="space-y-1">
+                        {cellSlots.map((slot) => {
+                          const style = getSubjectStyle(`${slot.subject}|${slot.activity_kind}`)
 
-                    return (
-                      <td key={day} className="align-top px-1 py-1 text-center">
-                        <div className="space-y-1">
-                          {cellSlots.map((slot) => {
-                            const color = getSubjectColor(`${slot.subject}|${slot.activity_kind}`)
-
-                            return (
-                              <div
-                                key={slot.key}
-                                className="mx-auto max-w-[140px] rounded-lg p-2 text-left"
-                                style={{ backgroundColor: color, boxShadow: `0 1px 4px ${color}60` }}
-                              >
-                                <p className="text-xs font-semibold leading-tight text-white">{slot.subject}</p>
-                                <p className="mt-1 text-[11px] text-white/90">Grupo {slot.group_code}</p>
-                                <p className="text-[11px] text-white/80">{slot.semester}</p>
-                                <p className="text-[10px] text-white/75">
-                                  {slot.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {slot.source_kind === 'published' ? 'Publicado' : 'Legado'}
-                                </p>
-                                <p className="mt-1 text-[10px] font-mono text-white/75">
-                                  {slot.hora_inicio}-{slot.hora_fin} · {slot.horas_academicas}h
-                                </p>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
+                          return (
+                            <div
+                              key={slot.key}
+                              className={cn('mx-auto max-w-[140px] rounded-lg border-l-4 p-2 text-left', style.cell)}
+                            >
+                              <p className="text-xs font-semibold leading-tight text-foreground">{slot.subject}</p>
+                              <p className="mt-1 text-[11px] text-foreground/80">Grupo {slot.group_code}</p>
+                              <p className="text-[11px] text-muted-foreground">{slot.semester}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {slot.activity_kind === 'practice' ? 'Práctica' : 'Teoría'} · {slot.source_kind === 'published' ? 'Publicado' : 'Legado'}
+                              </p>
+                              <p className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                                {slot.hora_inicio}-{slot.hora_fin} · {slot.horas_academicas}h
+                              </p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
           </tbody>
-          </table>
+        </table>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -401,33 +396,47 @@ function SubjectLegend({ designations }: { designations: PortalDesignationSchedu
   if (designations.length === 0) return null
 
   return (
-    <div className="card-3d-static p-4">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+    <Card className="p-4">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Referencias
       </p>
       <div className="flex flex-wrap gap-2">
         {designations.map((d) => {
-          const color = getSubjectColor(`${d.subject}|${d.activity_kind}`)
+          const style = getSubjectStyle(`${d.subject}|${d.activity_kind}`)
           return (
             <div
               key={d.source_key}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              style={{ backgroundColor: `${color}18`, color, border: `1px solid ${color}30` }}
+              className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium', style.chip)}
             >
-              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+              <div className={cn('size-2 shrink-0 rounded-full', style.dot)} />
               {d.subject} ({d.group_code}) · {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
             </div>
           )
         })}
       </div>
-    </div>
+    </Card>
   )
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+function ScheduleSkeleton() {
+  return (
+    <div role="status" aria-busy="true" className="space-y-4">
+      <span className="sr-only">Cargando horario</span>
+      <Skeleton className="h-9 w-72 max-w-full rounded-lg" />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-20 rounded-2xl" />
+        ))}
+      </div>
+      <Skeleton className="h-64 w-full rounded-2xl" />
+    </div>
+  )
+}
+
 export function SchedulePage() {
-  const { data: schedule, isLoading, error } = useMySchedule()
+  const { data: schedule, isLoading, error, refetch, isFetching } = useMySchedule()
   const [viewMode, setViewMode] = useState<ViewMode>('dia')
   const [turnFilter, setTurnFilter] = useState<TurnFilter>('todos')
   const [isExportingPDF, setIsExportingPDF] = useState(false)
@@ -451,7 +460,7 @@ export function SchedulePage() {
     try {
       const dataUrl = await toPng(contentRef.current, {
         pixelRatio: 2,
-        backgroundColor: '#ffffff',
+        backgroundColor: EXPORT_BACKGROUND,
       })
       const link = document.createElement('a')
       link.download = `horario_${schedule?.teacher_name?.replace(/\s+/g, '_') ?? 'docente'}.png`
@@ -466,16 +475,27 @@ export function SchedulePage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
+      <div className="max-w-5xl">
+        <PageHeader title="Mi Horario Semanal" description="Tus clases por día, por materia y en grilla." />
+        <ScheduleSkeleton />
       </div>
     )
   }
 
   if (error || !schedule) {
     return (
-      <div role="alert" className="flex items-center justify-center py-24">
-        <p className="text-sm text-gray-400">No se pudo cargar el horario</p>
+      <div className="max-w-5xl">
+        <PageHeader title="Mi Horario Semanal" description="Tus clases por día, por materia y en grilla." />
+        <Alert variant="error">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>No se pudo cargar el horario</AlertTitle>
+          <AlertDescription>Revisá tu conexión e intentá de nuevo.</AlertDescription>
+          <AlertAction>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? 'Reintentando...' : 'Reintentar'}
+            </Button>
+          </AlertAction>
+        </Alert>
       </div>
     )
   }
@@ -492,63 +512,59 @@ export function SchedulePage() {
     { key: 'grilla', label: 'Grilla Semanal' },
   ]
 
-  const turnOptions: { key: TurnFilter; label: string }[] = [
-    { key: 'todos', label: 'Todos los turnos' },
-    { key: 'M', label: 'Mañana (M)' },
-    { key: 'T', label: 'Tarde (T)' },
-    { key: 'N', label: 'Noche (N)' },
+  const turnOptions: { value: TurnFilter; label: string }[] = [
+    { value: 'todos', label: 'Todos los turnos' },
+    { value: 'M', label: 'Mañana (M)' },
+    { value: 'T', label: 'Tarde (T)' },
+    { value: 'N', label: 'Noche (N)' },
   ]
 
   return (
     <div className="max-w-5xl space-y-4 sm:space-y-5">
-      {/* Page header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold sm:text-2xl" style={{ color: '#003366' }}>
-            Mi Horario Semanal
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">{schedule.teacher_name}</p>
-        </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportImage}
-            disabled={isExportingImg}
-            className="h-9 flex-1 gap-1.5 text-xs sm:h-8 sm:flex-none"
-          >
-            <ImageIcon size={13} />
-            {isExportingImg ? 'Exportando...' : 'Exportar Imagen'}
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleExportPDF}
-            disabled={isExportingPDF}
-            className="h-9 flex-1 gap-1.5 text-xs text-white sm:h-8 sm:flex-none"
-            style={{ backgroundColor: '#003366' }}
-          >
-            <FileDown size={13} />
-            {isExportingPDF ? 'Generando...' : 'Exportar PDF'}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Mi Horario Semanal"
+        description={schedule.teacher_name}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportImage}
+              disabled={isExportingImg}
+              className="h-9 flex-1 gap-1.5 text-xs sm:h-8 sm:flex-none"
+            >
+              <ImageIcon size={13} aria-hidden="true" />
+              {isExportingImg ? 'Exportando...' : 'Exportar Imagen'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleExportPDF}
+              disabled={isExportingPDF}
+              className="h-9 flex-1 gap-1.5 text-xs sm:h-8 sm:flex-none"
+            >
+              <FileDown size={13} aria-hidden="true" />
+              {isExportingPDF ? 'Generando...' : 'Exportar PDF'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters bar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center gap-3">
         {/* View mode tabs */}
-        <div className="flex max-w-full overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="flex max-w-full overflow-x-auto rounded-lg border bg-card shadow-xs/5">
           {viewModes.map(({ key, label }) => (
             <button
               key={key}
               type="button"
               onClick={() => setViewMode(key)}
               aria-pressed={viewMode === key}
-              className={`whitespace-nowrap px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0066CC] ${
+              className={cn(
+                'whitespace-nowrap px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 viewMode === key
-                  ? 'text-white'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-              }`}
-              style={viewMode === key ? { backgroundColor: '#003366' } : undefined}
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
             >
               {label}
             </button>
@@ -557,19 +573,23 @@ export function SchedulePage() {
 
         {/* Turn filter */}
         <div className="flex items-center gap-1.5">
-          <Filter size={13} className="text-gray-400" />
-          <select
-            aria-label="Filtrar horario por turno"
+          <Filter size={13} className="text-muted-foreground" aria-hidden="true" />
+          <Select
             value={turnFilter}
-            onChange={(e) => setTurnFilter(e.target.value as TurnFilter)}
-            className="text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#003366]/30 shadow-sm"
+            items={turnOptions}
+            onValueChange={(value) => setTurnFilter((value ?? 'todos') as TurnFilter)}
           >
-            {turnOptions.map(({ key, label }) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filtrar horario por turno" size="sm" className="min-w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              {turnOptions.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </div>
       </div>
 
@@ -580,7 +600,7 @@ export function SchedulePage() {
       <div ref={contentRef} id="schedule-content" className="space-y-4">
         {/* Header for export */}
         <div className="hidden print:block">
-          <p className="text-lg font-bold text-gray-900">{schedule.teacher_name} — Horario Semanal</p>
+          <p className="text-lg font-semibold text-foreground">{schedule.teacher_name} — Horario Semanal</p>
         </div>
 
         {viewMode === 'dia' && <ViewPorDia allSlots={allSlots} />}

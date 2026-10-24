@@ -11,11 +11,18 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import type { TeacherType } from '@/domain/teacherTypes'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TONE_CHIP } from '@/components/shared/tones'
+import { cn } from '@/lib/utils'
 import {
   User,
   Mail,
@@ -126,8 +133,8 @@ function SelectField({
   const normalizedOptions = value && !options.includes(value) ? [value, ...options] : options
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">{label}</Label>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Select
         value={value || SELECT_EMPTY}
         items={[
@@ -140,11 +147,10 @@ function SelectField({
           id={id}
           aria-invalid={invalid}
           aria-describedby={invalid ? errorId : undefined}
-          className="h-10 w-full rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
         >
           <SelectValue placeholder="Seleccionar" />
         </SelectTrigger>
-        <SelectPopup className="rounded-xl">
+        <SelectPopup>
           <SelectItem value={SELECT_EMPTY}>Sin especificar</SelectItem>
           {normalizedOptions.map((option) => (
             <SelectItem key={option} value={option}>
@@ -153,7 +159,7 @@ function SelectField({
           ))}
         </SelectPopup>
       </Select>
-    </div>
+    </Field>
   )
 }
 
@@ -161,22 +167,27 @@ function SelectField({
 
 function InfoRow({ icon: Icon, label, value }: { icon: typeof User; label: string; value: string | null }) {
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-      <div
-        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-        style={{ backgroundColor: 'rgba(0,51,102,0.08)' }}
-      >
-        <Icon size={15} style={{ color: '#003366' }} />
+    <div className="flex items-start gap-3 border-b py-2.5 last:border-0">
+      <div className={cn('mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg', TONE_CHIP.primary)}>
+        <Icon size={15} aria-hidden="true" />
       </div>
-      <div>
-        <p className="text-xs text-gray-400 font-medium">{label}</p>
-        <p className="text-sm text-gray-700 font-medium mt-0.5">{value || '—'}</p>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-0.5 break-words text-sm font-medium text-foreground">{value || '—'}</p>
       </div>
     </div>
   )
 }
 
 // ─── Password strength bar ────────────────────────────────────────────────────
+
+const STRENGTH_BAR = ['bg-destructive', 'bg-warning', 'bg-info', 'bg-success']
+const STRENGTH_TEXT = [
+  'text-destructive-foreground',
+  'text-warning-foreground',
+  'text-info-foreground',
+  'text-success-foreground',
+]
 
 function PasswordStrengthBar({ password }: { password: string }) {
   const checks = [
@@ -186,34 +197,24 @@ function PasswordStrengthBar({ password }: { password: string }) {
     /\d/.test(password),
   ]
   const strength = checks.filter(Boolean).length
-  const colors = ['bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500']
   const labels = ['Débil', 'Regular', 'Buena', 'Fuerte']
 
   if (!password) return null
 
   return (
-    <div className="space-y-1.5 mt-1">
+    <div className="mt-1 space-y-1.5">
       <div className="flex gap-1">
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
-              i < strength ? colors[strength - 1] : 'bg-gray-200'
-            }`}
+            className={cn(
+              'h-1.5 flex-1 rounded-full transition-colors duration-300',
+              i < strength ? STRENGTH_BAR[strength - 1] : 'bg-muted',
+            )}
           />
         ))}
       </div>
-      <p
-        className={`text-xs font-medium ${
-          strength <= 1
-            ? 'text-red-500'
-            : strength === 2
-              ? 'text-orange-500'
-              : strength === 3
-                ? 'text-yellow-600'
-                : 'text-green-600'
-        }`}
-      >
+      <p className={cn('text-xs font-medium', STRENGTH_TEXT[Math.max(strength, 1) - 1])}>
         {labels[strength - 1] ?? ''}
       </p>
     </div>
@@ -224,11 +225,11 @@ function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2">
       {passes ? (
-        <CheckCircle2 size={13} className="text-green-500 flex-shrink-0" />
+        <CheckCircle2 size={13} className="shrink-0 text-success" aria-hidden="true" />
       ) : (
-        <XCircle size={13} className="text-gray-300 flex-shrink-0" />
+        <XCircle size={13} className="shrink-0 text-muted-foreground/50" aria-hidden="true" />
       )}
-      <span className={`text-xs ${passes ? 'text-green-700' : 'text-gray-400'}`}>{label}</span>
+      <span className={cn('text-xs', passes ? 'text-success-foreground' : 'text-muted-foreground')}>{label}</span>
     </div>
   )
 }
@@ -274,70 +275,56 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
   }
 
   return (
-    <div className="card-3d-static overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-        <User size={16} style={{ color: '#003366' }} />
-        <h3 className="text-base font-semibold flex-1" style={{ color: '#003366' }}>
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 border-b px-5 py-4">
+        <User size={16} className="shrink-0 text-primary" aria-hidden="true" />
+        <h3 className="grow whitespace-nowrap text-base font-semibold text-foreground">
           Datos Personales
         </h3>
         {!editMode ? (
           canEdit ? (
-            <button
-              type="button"
-              onClick={() => setEditMode(true)}
-              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#003366] transition-colors px-2 py-1 rounded hover:bg-gray-100"
-            >
-              <Pencil size={12} />
+            <Button type="button" variant="ghost" size="sm" onClick={() => setEditMode(true)}>
+              <Pencil size={12} aria-hidden="true" />
               Editar
-            </button>
+            </Button>
           ) : (
-            <Badge className="border-amber-200 bg-amber-50 text-amber-700 shadow-none">Solo lectura</Badge>
+            <StatusBadge tone="warning">Solo lectura</StatusBadge>
           )
         ) : (
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded hover:bg-gray-100"
-            >
-              <X size={12} />
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button type="button" variant="ghost" size="sm" onClick={handleCancel}>
+              <X size={12} aria-hidden="true" />
               Cancelar
-            </button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={updateProfile.isPending}
-              className="h-7 text-xs gap-1 text-white"
-              style={{ backgroundColor: '#003366' }}
-            >
-              <Save size={12} />
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={updateProfile.isPending}>
+              <Save size={12} aria-hidden="true" />
               {updateProfile.isPending ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         )}
       </div>
 
-      <div className="p-5 space-y-1">
+      <div className="space-y-1 p-5">
         {!canEdit && (
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-            <ShieldCheck size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
-            <p className="text-sm text-amber-800">
+          <Alert variant="warning" className="mb-3">
+            <ShieldCheck aria-hidden="true" />
+            <AlertDescription className="text-warning-foreground">
               La edición de datos está deshabilitada por administración. Podés revisar tu información y solicitar cambios por los canales institucionales.
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
         {/* Success toast */}
         {saveSuccess && (
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 mb-3">
-            <CheckCircle size={14} className="text-green-600" />
-            <p className="text-green-700 text-sm font-medium">Perfil actualizado correctamente</p>
-          </div>
+          <Alert variant="success" role="status" className="mb-3">
+            <CheckCircle aria-hidden="true" />
+            <AlertDescription className="font-medium text-success-foreground">Perfil actualizado correctamente</AlertDescription>
+          </Alert>
         )}
         {saveError && (
-          <div id="profile-save-error" role="alert" className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-3">
-            <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-red-600 text-sm">{saveError}</p>
-          </div>
+          <Alert id="profile-save-error" variant="error" className="mb-3">
+            <AlertCircle aria-hidden="true" />
+            <AlertDescription className="text-destructive-foreground">{saveError}</AlertDescription>
+          </Alert>
         )}
 
         {/* Read-only identity fields */}
@@ -358,13 +345,13 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
             <InfoRow icon={CreditCard} label="N° de Cuenta" value={p.account_number} />
           </>
         ) : (
-          <div className="mt-3 rounded-2xl border border-[#003366]/10 bg-gradient-to-br from-[#F8FBFF] via-white to-[#EEF6FF] p-4 shadow-inner shadow-[#003366]/5">
+          <div className="mt-3 rounded-xl bg-muted/40 p-4">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#003366]">Actualizar perfil</p>
-                <p className="mt-1 text-xs text-gray-500">Mantené tus datos personales y bancarios listos para contratos y pagos.</p>
+                <p className="text-sm font-semibold text-foreground">Actualizar perfil</p>
+                <p className="mt-1 text-xs text-muted-foreground">Mantené tus datos personales y bancarios listos para contratos y pagos.</p>
               </div>
-              <Badge className="border-[#0066CC]/20 bg-[#0066CC]/10 text-[#003366] shadow-none">Editable</Badge>
+              <StatusBadge tone="primary">Editable</StatusBadge>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -397,9 +384,9 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
               />
             </div>
 
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-profession" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Profesión</Label>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="profile-profession">Profesión</FieldLabel>
                 <Input
                   id="profile-profession"
                   type="text"
@@ -408,12 +395,11 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                   placeholder="Ej: Médico Cirujano"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-specialty" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">Especialidad</Label>
+              <Field>
+                <FieldLabel htmlFor="profile-specialty">Especialidad</FieldLabel>
                 <Input
                   id="profile-specialty"
                   type="text"
@@ -422,17 +408,16 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                   placeholder="Ej: Cirugía General"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white/90 text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-white/70 bg-white/70 p-3 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-email" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
-                  <Mail size={11} className="inline mr-1" />
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="profile-email">
+                  <Mail size={11} aria-hidden="true" />
                   Email
-                </Label>
+                </FieldLabel>
                 <Input
                   id="profile-email"
                   type="email"
@@ -441,15 +426,14 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                   placeholder="tu@email.com"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-phone" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
-                  <Phone size={11} className="inline mr-1" />
+              <Field>
+                <FieldLabel htmlFor="profile-phone">
+                  <Phone size={11} aria-hidden="true" />
                   Teléfono
-                </Label>
+                </FieldLabel>
                 <Input
                   id="profile-phone"
                   type="text"
@@ -458,15 +442,14 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                   placeholder="Ej: 70012345"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-bank" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
-                  <CreditCard size={11} className="inline mr-1" />
+              <Field>
+                <FieldLabel htmlFor="profile-bank">
+                  <CreditCard size={11} aria-hidden="true" />
                   Banco
-                </Label>
+                </FieldLabel>
                 <Input
                   id="profile-bank"
                   type="text"
@@ -475,31 +458,30 @@ function PersonalDataCard({ p, canEdit }: { p: ProfileData; canEdit: boolean }) 
                   placeholder="Ej: Banco Unión"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-account-number" className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">
-                  <CreditCard size={11} className="inline mr-1" />
+              <Field>
+                <FieldLabel htmlFor="profile-account-number">
+                  <CreditCard size={11} aria-hidden="true" />
                   Número de Cuenta
-                </Label>
+                </FieldLabel>
                 <Input
                   id="profile-account-number"
                   type="text"
                   value={editForm.account_number}
                   onChange={(e) => setEditFormOverride((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="Ej: 1234567890"
+                  inputClassName="tabular-nums"
                   aria-invalid={Boolean(saveError)}
                   aria-describedby={saveError ? 'profile-save-error' : undefined}
-                  className="h-10 rounded-xl border-[#003366]/15 bg-white text-sm shadow-sm focus-visible:ring-[#0066CC]/20"
                 />
-              </div>
+              </Field>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -509,23 +491,20 @@ function ScheduleSummaryCard() {
   const { data: schedule } = useMySchedule()
 
   return (
-    <div className="card-3d overflow-hidden">
+    <Card className="overflow-hidden">
       <Link
         to="/portal/schedule"
-        className="flex items-center justify-between p-5 group"
+        className="group flex items-center justify-between rounded-[inherit] p-5 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #003366 0%, #0066CC 100%)' }}
-          >
-            <Calendar size={18} className="text-white" />
+          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', TONE_CHIP.primary)}>
+            <Calendar size={18} aria-hidden="true" />
           </div>
           <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+            <h3 className="text-base font-semibold text-foreground">
               Mi Horario Semanal
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {schedule
                 ? `${assignmentLabel(schedule.subject_count, schedule.group_count)} · ${schedule.total_weekly_hours}h/semana`
                 : 'Cargando...'}
@@ -534,10 +513,11 @@ function ScheduleSummaryCard() {
         </div>
         <ChevronRight
           size={18}
-          className="text-gray-400 group-hover:text-[#0066CC] transition-colors flex-shrink-0"
+          className="shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+          aria-hidden="true"
         />
       </Link>
-    </div>
+    </Card>
   )
 }
 
@@ -586,20 +566,20 @@ function ProfilePhotoCard({ profile, initials }: { profile: ProfileData; initial
   const busy = uploadPhoto.isPending || deletePhoto.isPending
 
   return (
-    <div className="card-3d-static overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-        <Camera size={16} style={{ color: '#003366' }} />
-        <h3 className="text-base font-semibold flex-1" style={{ color: '#003366' }}>
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b px-5 py-4">
+        <Camera size={16} className="shrink-0 text-primary" aria-hidden="true" />
+        <h3 className="flex-1 text-base font-semibold text-foreground">
           Foto de Perfil
         </h3>
-        <Badge className={canEditPhoto ? 'border-[#0066CC]/20 bg-[#0066CC]/10 text-[#003366] shadow-none' : 'border-amber-200 bg-amber-50 text-amber-700 shadow-none'}>
+        <StatusBadge tone={canEditPhoto ? 'primary' : 'warning'}>
           {canEditPhoto ? 'Editable' : 'Solo lectura'}
-        </Badge>
+        </StatusBadge>
       </div>
       <div className="p-5">
-        <div className="rounded-2xl border border-[#003366]/10 bg-[#F8FBFF] p-4">
+        <div className="rounded-xl bg-muted/40 p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="h-24 w-24 overflow-hidden rounded-2xl bg-[#003366] flex items-center justify-center text-3xl font-black text-white ring-4 ring-white shadow-sm">
+            <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary text-3xl font-semibold text-primary-foreground ring-4 ring-background">
               {showImage ? (
                 <img
                   src={avatarUrl ?? undefined}
@@ -612,14 +592,14 @@ function ProfilePhotoCard({ profile, initials }: { profile: ProfileData; initial
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[#003366]">Avatar institucional docente</p>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="text-sm font-semibold text-foreground">Avatar institucional docente</p>
+              <p className="mt-1 text-sm text-muted-foreground">
                 {canEditPhoto
                   ? 'Podés subir JPG, PNG o WEBP hasta 2 MB. Si no hay foto, el sistema usa tus iniciales.'
                   : 'La carga o eliminación de foto está deshabilitada por administración. Tu avatar seguirá usando la foto actual o iniciales.'}
               </p>
-              {message && <p className="mt-2 text-sm font-medium text-green-700">{message}</p>}
-              {error && <p className="mt-2 text-sm font-medium text-red-600">{error}</p>}
+              {message && <p className="mt-2 text-sm font-medium text-success-foreground">{message}</p>}
+              {error && <p className="mt-2 text-sm font-medium text-destructive-foreground">{error}</p>}
             </div>
           </div>
 
@@ -640,26 +620,25 @@ function ProfilePhotoCard({ profile, initials }: { profile: ProfileData; initial
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={!canEditPhoto || busy}
-              className="gap-2 text-white disabled:opacity-40"
-              style={{ backgroundColor: '#003366' }}
+              className="gap-2"
             >
-              <Upload size={14} />
+              <Upload size={14} aria-hidden="true" />
               {uploadPhoto.isPending ? 'Subiendo...' : avatarUrl ? 'Cambiar foto' : 'Subir foto'}
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant="destructive-outline"
               onClick={() => void handleDelete()}
               disabled={!canEditPhoto || busy || !avatarUrl}
-              className="gap-2 text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-40"
+              className="gap-2"
             >
-              <Trash2 size={14} />
+              <Trash2 size={14} aria-hidden="true" />
               Eliminar foto
             </Button>
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -711,26 +690,29 @@ function ChangePasswordCard() {
     }
   }
 
+  const eyeButtonClass =
+    'absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
   return (
-    <div className="card-3d-static overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-        <Lock size={16} style={{ color: '#003366' }} />
-        <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b px-5 py-4">
+        <Lock size={16} className="shrink-0 text-primary" aria-hidden="true" />
+        <h3 className="text-base font-semibold text-foreground">
           Cambiar Contraseña
         </h3>
       </div>
       <div className="p-5">
         {success ? (
-          <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-            <CheckCircle size={16} className="text-green-600" />
-            <p className="text-green-700 font-medium text-sm">¡Contraseña actualizada correctamente!</p>
-          </div>
+          <Alert variant="success" role="status">
+            <CheckCircle aria-hidden="true" />
+            <AlertDescription className="font-medium text-success-foreground">¡Contraseña actualizada correctamente!</AlertDescription>
+          </Alert>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 max-w-sm" autoComplete="off">
+          <form onSubmit={handleSubmit} className="max-w-sm space-y-4" autoComplete="off">
             {/* Current password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="profile-current-password" className="text-sm">Contraseña actual *</Label>
-              <div className="relative">
+            <Field>
+              <FieldLabel htmlFor="profile-current-password">Contraseña actual *</FieldLabel>
+              <div className="relative w-full">
                 <Input
                   id="profile-current-password"
                   type={showCurrent ? 'text' : 'password'}
@@ -740,23 +722,23 @@ function ChangePasswordCard() {
                   autoComplete="off"
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'profile-password-error' : undefined}
-                  className="pr-10"
+                  inputClassName="pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowCurrent((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  className={eyeButtonClass}
                   aria-label={showCurrent ? 'Ocultar contraseña actual' : 'Mostrar contraseña actual'}
                 >
-                  {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showCurrent ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
                 </button>
               </div>
-            </div>
+            </Field>
 
             {/* New password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="profile-new-password" className="text-sm">Nueva contraseña *</Label>
-              <div className="relative">
+            <Field>
+              <FieldLabel htmlFor="profile-new-password">Nueva contraseña *</FieldLabel>
+              <div className="relative w-full">
                 <Input
                   id="profile-new-password"
                   type={showNew ? 'text' : 'password'}
@@ -765,24 +747,24 @@ function ChangePasswordCard() {
                   placeholder="Mínimo 8 caracteres"
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'profile-password-error' : undefined}
-                  className="pr-10"
+                  inputClassName="pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNew((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  className={eyeButtonClass}
                   aria-label={showNew ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
                 >
-                  {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showNew ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
                 </button>
               </div>
               <PasswordStrengthBar password={form.newPwd} />
-            </div>
+            </Field>
 
             {/* Confirm */}
-            <div className="space-y-1.5">
-              <Label htmlFor="profile-confirm-password" className="text-sm">Confirmar nueva contraseña *</Label>
-              <div className="relative">
+            <Field>
+              <FieldLabel htmlFor="profile-confirm-password">Confirmar nueva contraseña *</FieldLabel>
+              <div className="relative w-full">
                 <Input
                   id="profile-confirm-password"
                   type={showConfirm ? 'text' : 'password'}
@@ -791,26 +773,26 @@ function ChangePasswordCard() {
                   placeholder="••••••••"
                   aria-invalid={Boolean((form.confirm && !passwordsMatch) || error)}
                   aria-describedby={form.confirm && !passwordsMatch ? 'profile-confirm-error' : error ? 'profile-password-error' : undefined}
-                  className={`pr-10 ${form.confirm && !passwordsMatch ? 'border-red-300' : ''}`}
+                  inputClassName="pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  className={eyeButtonClass}
                   aria-label={showConfirm ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
                 >
-                  {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showConfirm ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
                 </button>
               </div>
               {form.confirm && !passwordsMatch && (
-                <p id="profile-confirm-error" role="alert" className="text-red-500 text-xs">Las contraseñas no coinciden</p>
+                <p id="profile-confirm-error" role="alert" className="text-xs text-destructive-foreground">Las contraseñas no coinciden</p>
               )}
-            </div>
+            </Field>
 
             {/* Validation checklist */}
             {form.newPwd && (
-              <div className="rounded-lg bg-gray-50 p-3 space-y-1.5">
-                <p className="text-xs text-gray-400 font-medium mb-1">Requisitos:</p>
+              <div className="space-y-1.5 rounded-lg bg-muted/50 p-3">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Requisitos:</p>
                 <ValidationItem passes={checks.length} label="Mínimo 8 caracteres" />
                 <ValidationItem passes={checks.upper} label="Al menos una mayúscula" />
                 <ValidationItem passes={checks.lower} label="Al menos una minúscula" />
@@ -819,24 +801,19 @@ function ChangePasswordCard() {
             )}
 
             {error && (
-              <div id="profile-password-error" role="alert" className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-                <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
+              <Alert id="profile-password-error" variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription className="text-destructive-foreground">{error}</AlertDescription>
+              </Alert>
             )}
 
-            <Button
-              type="submit"
-              disabled={!canSubmit || changePwd.isPending}
-              className="text-white disabled:opacity-40"
-              style={{ backgroundColor: '#003366' }}
-            >
+            <Button type="submit" disabled={!canSubmit || changePwd.isPending}>
               {changePwd.isPending ? 'Guardando...' : 'Cambiar Contraseña'}
             </Button>
           </form>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -859,21 +836,28 @@ export function MyProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+      <div className="max-w-2xl">
+        <PageHeader title="Mi Perfil" description="Tus datos personales, tu foto y tu contraseña." />
+        <div role="status" aria-busy="true" className="space-y-4">
+          <span className="sr-only">Cargando perfil</span>
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <Skeleton className="h-72 w-full rounded-2xl" />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="max-w-2xl space-y-4 sm:space-y-6">
-      {/* Profile header */}
-      <div
-        className="rounded-xl p-4 text-white sm:p-6"
-        style={{ background: 'linear-gradient(135deg, #003366 0%, #0066CC 100%)' }}
-      >
+      <PageHeader
+        title="Mi Perfil"
+        description="Tus datos personales, tu foto y tu contraseña."
+      />
+
+      {/* Profile summary */}
+      <Card className="p-4 sm:p-6">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-5">
-          <div className="w-16 h-16 rounded-full bg-white/15 flex items-center justify-center text-2xl font-black flex-shrink-0 overflow-hidden ring-2 ring-white/20">
+          <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-2xl font-semibold text-primary ring-2 ring-border">
             {showHeroImage ? (
               <img
                 src={p?.avatar_url ?? undefined}
@@ -885,18 +869,18 @@ export function MyProfilePage() {
               initials
             )}
           </div>
-          <div>
-            <h2 className="text-xl font-bold">{p?.full_name ?? user?.full_name}</h2>
-            <p className="text-white/70 text-sm mt-0.5">CI: {p?.ci ?? user?.ci}</p>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <Badge className="bg-white/20 text-white border-white/30 text-xs">Docente</Badge>
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/75 ring-1 ring-white/15">
+          <div className="min-w-0">
+            <h3 className="break-words text-xl font-semibold tracking-tight text-foreground">{p?.full_name ?? user?.full_name}</h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">CI: <span className="tabular-nums">{p?.ci ?? user?.ci}</span></p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Docente</Badge>
+              <span className="text-xs text-muted-foreground">
                 {assignmentLabel(subjectCount, groupCount)}
               </span>
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Personal data — editable */}
       {p && <PersonalDataCard p={p} canEdit={p.docente_can_edit_profile} />}
