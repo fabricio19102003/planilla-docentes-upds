@@ -117,3 +117,78 @@ def test_grant_does_not_allow_changing_other_columns(tmp_path, monkeypatch):
             connection.execute(sa.text(
                 "UPDATE contract_documents SET teacher_ci = '222', teacher_name = 'Otro' WHERE id = 1"
             ))
+
+
+def test_contract_lines_reject_with_the_immutability_message(tmp_path, monkeypatch):
+    engine = _migrated_engine(tmp_path, monkeypatch)
+    with engine.begin() as connection:
+        _seed(connection)
+        connection.execute(sa.text(
+            "INSERT INTO designations (id, teacher_ci, subject, semester, group_code, schedule_json, created_at) "
+            "VALUES (900, '111', 'S', '1', 'A', '[]', CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO contract_lines (contract_id, line_number, activity_kind, rate_class, hourly_rate, hours, "
+            "hour_basis, subject_label, group_label, semester_label, schedule_label, effective_from, effective_to, "
+            "source_kind, source_id, designation_id, authority_effective_from, change_kind) VALUES (1, 1, 'theory', "
+            "'regular', 10, 4, 'weekly', 'S', 'A', '1', 'x', '2026-08-01', '2026-12-01', 'legacy', 900, 900, "
+            "'2026-08-01', 'full')"
+        ))
+    for statement in ("UPDATE contract_lines SET hours = 5", "DELETE FROM contract_lines"):
+        with pytest.raises(sa.exc.DBAPIError, match="issued contracts are immutable"):
+            with engine.begin() as connection:
+                connection.execute(sa.text(statement))
+
+
+def test_grant_from_an_earlier_transaction_does_not_apply(tmp_path, monkeypatch):
+    engine = _migrated_engine(tmp_path, monkeypatch)
+    if engine.dialect.name != "postgresql":
+        pytest.skip("txid grant is PostgreSQL-only")
+    with engine.begin() as connection:
+        _seed(connection)
+        connection.execute(sa.text("INSERT INTO teachers (ci, full_name, created_at) VALUES ('222', 'D', now())"))
+        connection.execute(sa.text(
+            "INSERT INTO contract_ci_corrections (old_ci, new_ci, contract_count, txid) "
+            "VALUES ('111', '222', 2, txid_current())"
+        ))
+    with pytest.raises(sa.exc.DBAPIError, match="issued contracts are immutable"):
+        with engine.begin() as connection:
+            connection.execute(sa.text("UPDATE contract_documents SET teacher_ci = '222' WHERE teacher_ci = '111'"))
+
+
+def test_grant_does_not_allow_rewriting_json_text(tmp_path, monkeypatch):
+    engine = _migrated_engine(tmp_path, monkeypatch)
+    if engine.dialect.name != "postgresql":
+        pytest.skip("jsonb normalization is PostgreSQL-only")
+    with engine.begin() as connection:
+        _seed(connection)
+    with pytest.raises(sa.exc.DBAPIError, match="issued contracts are immutable"):
+        with engine.begin() as connection:
+            connection.execute(sa.text("INSERT INTO teachers (ci, full_name, created_at) VALUES ('222', 'D', now())"))
+            connection.execute(sa.text(
+                "INSERT INTO contract_ci_corrections (old_ci, new_ci, contract_count, txid) "
+                "VALUES ('111', '222', 2, txid_current())"
+            ))
+            connection.execute(sa.text(
+                "UPDATE contract_documents SET teacher_ci = '222', "
+                "full_snapshot = CASE WHEN id = 1 THEN '{ }'::json ELSE full_snapshot END WHERE teacher_ci = '111'"
+            ))
+
+
+def test_correction_records_cannot_be_edited_or_deleted(tmp_path, monkeypatch):
+    engine = _migrated_engine(tmp_path, monkeypatch)
+    with engine.begin() as connection:
+        _seed(connection)
+    with Session(engine) as db:
+        TeacherIdentityService(db).change_ci("111", "222")
+        db.commit()
+
+    for statement in (
+        "UPDATE contract_ci_corrections SET new_ci = '999'",
+        "DELETE FROM contract_ci_corrections",
+    ):
+        with pytest.raises(sa.exc.DBAPIError, match="contract CI corrections are immutable"):
+            with engine.begin() as connection:
+                connection.execute(sa.text(statement))
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT count(*) FROM contract_ci_corrections")) == 1

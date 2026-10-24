@@ -5,7 +5,8 @@ Revises: b3d5f7a9c1e2
 
 Issued contracts stay immutable, with one narrow exception: an UPDATE that changes only
 teacher_ci, covered by a contract_ci_corrections grant for that (old, new) pair created in
-the same transaction. DELETE and every other change are still rejected.
+the same transaction. DELETE and every other change are still rejected, contract_lines stay
+fully immutable, and correction records themselves cannot be edited or deleted.
 """
 from typing import Sequence, Union
 
@@ -50,26 +51,43 @@ def upgrade() -> None:
         _create_table(bind)
 
     if bind.dialect.name == "postgresql":
+        # JSON columns are compared as text: jsonb equality would accept rewritten snapshots.
         op.execute(sa.text("""
             CREATE OR REPLACE FUNCTION reject_issued_contract_mutation() RETURNS trigger
             LANGUAGE plpgsql AS $$
             BEGIN
-                IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'contract_documents'
-                   AND NEW.teacher_ci IS DISTINCT FROM OLD.teacher_ci
-                   AND (to_jsonb(NEW) - 'teacher_ci') = (to_jsonb(OLD) - 'teacher_ci')
-                   AND EXISTS (
-                       SELECT 1 FROM contract_ci_corrections grant_row
-                       WHERE grant_row.old_ci = OLD.teacher_ci
-                         AND grant_row.new_ci = NEW.teacher_ci
-                         AND grant_row.txid = txid_current()
-                   )
-                THEN
-                    RETURN NEW;
+                IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'contract_documents' THEN
+                    IF NEW.teacher_ci IS DISTINCT FROM OLD.teacher_ci
+                       AND (to_jsonb(NEW) - 'teacher_ci' - 'teacher_snapshot' - 'period_snapshot' - 'full_snapshot')
+                           = (to_jsonb(OLD) - 'teacher_ci' - 'teacher_snapshot' - 'period_snapshot' - 'full_snapshot')
+                       AND NEW.teacher_snapshot::text IS NOT DISTINCT FROM OLD.teacher_snapshot::text
+                       AND NEW.period_snapshot::text IS NOT DISTINCT FROM OLD.period_snapshot::text
+                       AND NEW.full_snapshot::text IS NOT DISTINCT FROM OLD.full_snapshot::text
+                       AND EXISTS (
+                           SELECT 1 FROM contract_ci_corrections grant_row
+                           WHERE grant_row.old_ci = OLD.teacher_ci
+                             AND grant_row.new_ci = NEW.teacher_ci
+                             AND grant_row.txid = txid_current()
+                       )
+                    THEN
+                        RETURN NEW;
+                    END IF;
                 END IF;
                 RAISE EXCEPTION 'issued contracts are immutable';
             END;
             $$
         """))
+        op.execute(sa.text(
+            "CREATE OR REPLACE FUNCTION reject_contract_ci_correction_mutation() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'contract CI corrections are immutable'; END; $$"
+        ))
+        op.execute(sa.text(
+            "DO $$ BEGIN "
+            f"IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_{TABLE}_immutable') THEN "
+            f"CREATE TRIGGER trg_{TABLE}_immutable BEFORE UPDATE OR DELETE ON {TABLE} "
+            "FOR EACH ROW EXECUTE FUNCTION reject_contract_ci_correction_mutation(); "
+            "END IF; END $$"
+        ))
     elif bind.dialect.name == "sqlite":
         others = [
             column["name"]
@@ -86,6 +104,12 @@ def upgrade() -> None:
             "WHERE grant_row.old_ci = OLD.teacher_ci AND grant_row.new_ci = NEW.teacher_ci)) "
             "BEGIN SELECT RAISE(ABORT, 'issued contracts are immutable'); END"
         ))
+        for operation in ("UPDATE", "DELETE"):
+            op.execute(sa.text(
+                f"CREATE TRIGGER IF NOT EXISTS trg_{TABLE}_{operation.lower()}_immutable "
+                f"BEFORE {operation} ON {TABLE} BEGIN "
+                "SELECT RAISE(ABORT, 'contract CI corrections are immutable'); END"
+            ))
 
 
 def downgrade() -> None:
