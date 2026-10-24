@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMyRequests, useCreateRequest } from '@/api/hooks/useAuth'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogDescription,
@@ -12,6 +12,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
 import {
   Select,
   SelectItem,
@@ -19,9 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import type { Tone } from '@/components/shared/tones'
+import { cn } from '@/lib/utils'
 import { AlertCircle, PlusCircle, MessageSquare, Eye } from 'lucide-react'
 import type { DetailRequestInfo } from '@/api/types'
 import { ResolutionSnapshotPanel } from '@/components/requests/ResolutionSnapshotPanel'
@@ -43,22 +51,15 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    approved: 'bg-green-100 text-green-700 border-green-200',
-    rejected: 'bg-red-100 text-red-700 border-red-200',
-  }
-  const labels: Record<string, string> = {
-    pending: 'En espera',
-    approved: 'Aprobada',
-    rejected: 'Rechazada',
-  }
-  return (
-    <Badge className={map[status] ?? 'bg-gray-100 text-gray-600 border-gray-200'}>
-      {labels[status] ?? status}
-    </Badge>
-  )
+const REQUEST_STATUS: Record<string, { label: string; tone: Tone }> = {
+  pending: { label: 'En espera', tone: 'warning' },
+  approved: { label: 'Aprobada', tone: 'success' },
+  rejected: { label: 'Rechazada', tone: 'destructive' },
+}
+
+function RequestStatusBadge({ status }: { status: string }) {
+  const { label, tone } = REQUEST_STATUS[status] ?? { label: status, tone: 'neutral' as Tone }
+  return <StatusBadge tone={tone}>{label}</StatusBadge>
 }
 
 function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -106,8 +107,8 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogPanel className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="request-month">Mes *</Label>
+              <Field>
+                <FieldLabel htmlFor="request-month">Mes *</FieldLabel>
                 <Select
                   value={String(form.month)}
                   items={MONTH_NAMES}
@@ -128,9 +129,9 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
                     ))}
                   </SelectPopup>
                 </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="request-year">Año *</Label>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="request-year">Año *</FieldLabel>
                 <Input
                   id="request-year"
                   type="number"
@@ -141,11 +142,11 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'request-form-error' : undefined}
                 />
-              </div>
+              </Field>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="request-type">Tipo de Solicitud *</Label>
+            <Field>
+              <FieldLabel htmlFor="request-type">Tipo de Solicitud *</FieldLabel>
               <Select
                 value={form.request_type || null}
                 items={REQUEST_TYPE_LABELS}
@@ -166,10 +167,10 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
                   ))}
                 </SelectPopup>
               </Select>
-            </div>
+            </Field>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="request-message">Mensaje (opcional)</Label>
+            <Field>
+              <FieldLabel htmlFor="request-message">Mensaje (opcional)</FieldLabel>
               <Textarea
                 id="request-message"
                 value={form.message}
@@ -179,12 +180,13 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'request-form-error' : undefined}
               />
-            </div>
+            </Field>
 
             {error && (
-              <p id="request-form-error" role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-                {error}
-              </p>
+              <Alert id="request-form-error" variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription className="text-destructive-foreground">{error}</AlertDescription>
+              </Alert>
             )}
 
           </DialogPanel>
@@ -220,30 +222,30 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
         </DialogHeader>
         <DialogPanel className="space-y-4">
           {/* Request info */}
-          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+          <div className="space-y-1.5 rounded-lg bg-muted/50 p-3 text-sm">
             <p>
-              <span className="text-gray-500">Tipo:</span>{' '}
+              <span className="text-muted-foreground">Tipo:</span>{' '}
               <span className="font-medium">{REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}</span>
             </p>
             <p>
-              <span className="text-gray-500">Período:</span>{' '}
+              <span className="text-muted-foreground">Período:</span>{' '}
               <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
             </p>
             <p>
-              <span className="text-gray-500">Fecha de envío:</span>{' '}
-              <span className="font-medium">{new Date(request.created_at).toLocaleDateString('es-BO')}</span>
+              <span className="text-muted-foreground">Fecha de envío:</span>{' '}
+              <span className="font-medium tabular-nums">{new Date(request.created_at).toLocaleDateString('es-BO')}</span>
             </p>
             <p>
-              <span className="text-gray-500">Estado:</span>{' '}
-              <StatusBadge status={request.status} />
+              <span className="text-muted-foreground">Estado:</span>{' '}
+              <RequestStatusBadge status={request.status} />
             </p>
           </div>
 
           {/* My message */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Tu mensaje</p>
-            <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
-              {request.message || <span className="text-gray-400 italic">Sin mensaje</span>}
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tu mensaje</p>
+            <div className="rounded-lg border bg-card p-3 text-sm text-foreground">
+              {request.message || <span className="italic text-muted-foreground">Sin mensaje</span>}
             </div>
           </div>
 
@@ -251,28 +253,29 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
 
           {/* Admin response */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Observaciones del administrador</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Observaciones del administrador</p>
             {request.admin_response ? (
-              <div className={`border rounded-lg p-3 text-sm ${
-                request.status === 'approved'
-                  ? 'bg-green-50 border-green-200 text-green-800'
-                  : request.status === 'rejected'
-                  ? 'bg-red-50 border-red-200 text-red-800'
-                  : 'bg-gray-50 border-gray-200 text-gray-700'
-              }`}>
+              <div
+                className={cn(
+                  'rounded-lg border p-3 text-sm',
+                  request.status === 'approved' && 'border-success/32 bg-success/4 text-success-foreground',
+                  request.status === 'rejected' && 'border-destructive/32 bg-destructive/4 text-destructive-foreground',
+                  request.status !== 'approved' && request.status !== 'rejected' && 'bg-muted/50 text-foreground',
+                )}
+              >
                 {request.admin_response}
               </div>
             ) : request.status === 'pending' ? (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-700 italic">
+              <div className="rounded-lg border border-warning/32 bg-warning/4 p-3 text-sm italic text-warning-foreground">
                 Esperando respuesta del administrador...
               </div>
             ) : (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
+              <div className="rounded-lg border bg-muted/50 p-3 text-sm italic text-muted-foreground">
                 El administrador no dejó una respuesta escrita
               </div>
             )}
             {request.responded_at && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Respondido el {new Date(request.responded_at).toLocaleDateString('es-BO')}
               </p>
             )}
@@ -290,135 +293,135 @@ export function MyRequestsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
+      <div className="max-w-3xl">
+        <PageHeader title="Mis Solicitudes" description="Pedí detalles biométricos, resúmenes de horas o de horario." />
+        <div role="status" aria-busy="true" className="space-y-3">
+          <span className="sr-only">Cargando solicitudes</span>
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-xl" />
+          ))}
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md mx-auto mt-12">
-        <AlertCircle size={40} className="text-red-500 mx-auto mb-3" />
-        <p className="text-red-700 font-medium">No se pudieron cargar tus solicitudes</p>
-        <p className="text-red-600 text-sm mt-1">
-          {getRequestErrorMessage(error, 'Ocurrió un problema al consultar el servidor.')}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-4"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-        >
-          {isFetching ? 'Reintentando...' : 'Reintentar'}
-        </Button>
+      <div className="max-w-3xl">
+        <PageHeader title="Mis Solicitudes" description="Pedí detalles biométricos, resúmenes de horas o de horario." />
+        <Alert variant="error">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>No se pudieron cargar tus solicitudes</AlertTitle>
+          <AlertDescription>
+            {getRequestErrorMessage(error, 'Ocurrió un problema al consultar el servidor.')}
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {isFetching ? 'Reintentando...' : 'Reintentar'}
+            </Button>
+          </AlertAction>
+        </Alert>
       </div>
     )
   }
 
   return (
-    <div className="max-w-3xl space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
-            Mis Solicitudes
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {requests?.length ?? 0} solicitud{requests?.length !== 1 ? 'es' : ''} enviada{requests?.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <Button
-          onClick={() => setCreateOpen(true)}
-          className="w-full gap-2 text-white sm:w-auto"
-          style={{ backgroundColor: '#003366' }}
-        >
-          <PlusCircle size={16} />
-          Nueva Solicitud
-        </Button>
-      </div>
+    <div className="max-w-3xl">
+      <PageHeader
+        title="Mis Solicitudes"
+        description={`${requests?.length ?? 0} solicitud${requests?.length !== 1 ? 'es' : ''} enviada${requests?.length !== 1 ? 's' : ''}`}
+        actions={
+          <Button onClick={() => setCreateOpen(true)} className="w-full gap-2 sm:w-auto">
+            <PlusCircle size={16} aria-hidden="true" />
+            Nueva Solicitud
+          </Button>
+        }
+      />
 
       {/* Empty state */}
       {!requests?.length ? (
-        <div className="py-16 text-center">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ backgroundColor: 'rgba(0,51,102,0.08)' }}
-          >
-            <MessageSquare size={28} style={{ color: '#003366' }} />
-          </div>
-          <p className="text-gray-500 font-medium">No tenés solicitudes todavía</p>
-          <p className="text-gray-400 text-sm mt-1">
-            Podés pedir detalles biométricos, resúmenes de horas o detalle de horario.
-          </p>
-          <Button
-            onClick={() => setCreateOpen(true)}
-            className="mt-4 gap-2 text-white"
-            style={{ backgroundColor: '#003366' }}
-          >
-            <PlusCircle size={16} />
-            Crear tu primera solicitud
-          </Button>
-        </div>
-      ) : (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold" style={{ color: '#003366' }}>
-              Historial de Solicitudes
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="min-w-[680px] w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundColor: '#003366' }}>
-                    {['Período', 'Tipo', 'Estado', 'Fecha', 'Acciones'].map((h) => (
-                      <th
-                        key={h}
-                        className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((req, i) => (
-                    <tr
-                      key={req.id}
-                      className={`border-b last:border-0 hover:bg-blue-50 transition-colors ${
-                        i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                      }`}
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-800">
-                        {MONTH_NAMES[req.month]} {req.year}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={req.status} />
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
-                        {new Date(req.created_at).toLocaleDateString('es-BO')}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setViewTarget(req)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-blue-50 text-[#0066CC] hover:bg-blue-100 transition-colors"
-                        >
-                          <Eye size={12} />
-                          Ver detalle
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
+          <EmptyState
+            icon={MessageSquare}
+            title="No tenés solicitudes todavía"
+            description="Podés pedir detalles biométricos, resúmenes de horas o detalle de horario."
+            action={
+              <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                <PlusCircle size={16} aria-hidden="true" />
+                Crear tu primera solicitud
+              </Button>
+            }
+          />
         </Card>
+      ) : (
+        <>
+          {/* Cards below sm so the status never scrolls out of view; the table from sm up */}
+          <div data-testid="requests-mobile-list" className="space-y-3 sm:hidden">
+            {requests.map((req) => (
+              <Card key={req.id} render={<article />} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 font-medium text-foreground">
+                    {MONTH_NAMES[req.month]} {req.year}
+                  </p>
+                  <RequestStatusBadge status={req.status} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {new Date(req.created_at).toLocaleDateString('es-BO')}
+                  </span>
+                  <Button variant="outline" size="xs" onClick={() => setViewTarget(req)}>
+                    <Eye aria-hidden="true" />
+                    Ver detalle
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+          <TableCard title="Historial de Solicitudes" className="hidden sm:flex" tableClassName="min-w-[560px]">
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                {['Período', 'Tipo', 'Estado', 'Fecha', 'Acciones'].map((h) => (
+                  <TableHead key={h} className="h-10 px-4 text-xs font-medium uppercase tracking-wider">
+                    {h}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {requests.map((req) => (
+                <TableRow key={req.id}>
+                  <TableCell className="px-4 py-3 font-medium text-foreground">
+                    {MONTH_NAMES[req.month]} {req.year}
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-foreground">
+                    {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <RequestStatusBadge status={req.status} />
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-xs tabular-nums text-muted-foreground">
+                    {new Date(req.created_at).toLocaleDateString('es-BO')}
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <Button variant="outline" size="xs" onClick={() => setViewTarget(req)}>
+                      <Eye aria-hidden="true" />
+                      Ver detalle
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </TableCard>
+        </>
       )}
 
       <NewRequestDialog open={createOpen} onClose={() => setCreateOpen(false)} />

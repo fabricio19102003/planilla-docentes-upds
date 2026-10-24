@@ -1,11 +1,18 @@
 import { useRef, useState } from 'react'
-import { Upload } from 'lucide-react'
+import { FileText, Upload } from 'lucide-react'
+
+import { Progress, ProgressLabel, ProgressTrack, ProgressIndicator, ProgressValue } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
 
 interface FileUploaderProps {
   accept: string
   onFileSelect: (file: File) => void
   label: string
   description?: string
+  /** Upload progress from 0 to 100. When set, a coss Progress bar replaces the drop hint. */
+  progress?: number | null
+  /** Label of the progress bar. */
+  progressLabel?: string
 }
 
 function formatFileSize(bytes: number): string {
@@ -14,10 +21,18 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function FileUploader({ accept, onFileSelect, label, description }: FileUploaderProps) {
+export function FileUploader({
+  accept,
+  onFileSelect,
+  label,
+  description,
+  progress = null,
+  progressLabel = 'Subiendo archivo',
+}: FileUploaderProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const showProgress = progress !== null && progress !== undefined
 
   const handleFile = (file: File) => {
     setSelectedFile(file)
@@ -56,14 +71,14 @@ export function FileUploader({ accept, onFileSelect, label, description }: FileU
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={[
-        'border-2 border-dashed rounded-lg p-6 cursor-pointer transition-colors text-center',
+      className={cn(
+        'cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors',
         isDragging
-          ? 'bg-sky-50 border-[#4DA8DA]'
+          ? 'border-primary bg-primary/10'
           : selectedFile
-          ? 'bg-blue-50 border-[#0066CC]'
-          : 'border-[#4DA8DA] hover:bg-sky-50 hover:border-[#0066CC]',
-      ].join(' ')}
+            ? 'border-primary/40 bg-primary/5'
+            : 'border-input hover:border-primary/50 hover:bg-muted/50',
+      )}
     >
       <input
         ref={inputRef}
@@ -74,38 +89,45 @@ export function FileUploader({ accept, onFileSelect, label, description }: FileU
       />
 
       {selectedFile ? (
-        <div className="flex items-center justify-center gap-3">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'rgba(0,102,204,0.12)' }}
-          >
-            <Upload size={18} style={{ color: '#0066CC' }} />
+        <div className="space-y-3">
+          <div className="flex items-center justify-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <FileText className="size-[18px]" aria-hidden="true" />
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="max-w-[220px] truncate text-sm font-semibold text-foreground">
+                {selectedFile.name}
+              </p>
+              <p className="text-xs text-muted-foreground tabular-nums">{formatFileSize(selectedFile.size)}</p>
+            </div>
           </div>
-          <div className="text-left">
-            <p className="text-sm font-semibold text-gray-700 truncate max-w-[220px]">
-              {selectedFile.name}
-            </p>
-            <p className="text-xs text-gray-400">{formatFileSize(selectedFile.size)}</p>
-          </div>
+          {showProgress && (
+            <Progress value={progress} onClick={(e) => e.stopPropagation()} className="mx-auto max-w-xs">
+              <div className="flex items-center justify-between">
+                <ProgressLabel>{progressLabel}</ProgressLabel>
+                <ProgressValue />
+              </div>
+              <ProgressTrack>
+                <ProgressIndicator />
+              </ProgressTrack>
+            </Progress>
+          )}
         </div>
       ) : (
         <>
-          <div className="flex justify-center mb-3">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(77,168,218,0.15)' }}
-            >
-              <Upload size={22} style={{ color: '#4DA8DA' }} />
+          <div className="mb-3 flex justify-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Upload className="size-[22px]" aria-hidden="true" />
             </div>
           </div>
-          <p className="text-sm font-medium text-gray-700">{label}</p>
+          <p className="text-sm font-medium text-foreground">{label}</p>
           {description && (
-            <p className="text-xs text-gray-400 mt-1">{description}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
           )}
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="mt-2 text-xs text-muted-foreground">
             Arrastrá y soltá o hacé click para seleccionar
           </p>
-          <p className="text-xs text-gray-300 mt-1">Formatos: {accept}</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">Formatos: {accept}</p>
         </>
       )}
     </div>

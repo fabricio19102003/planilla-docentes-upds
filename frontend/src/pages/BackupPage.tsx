@@ -1,8 +1,17 @@
 import { useState } from 'react'
-import { Database, Download, Trash2, Loader2, HardDrive, Info } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Database, Download, Trash2, HardDrive, Info } from 'lucide-react'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardHeader, CardPanel, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { TableCard } from '@/components/shared/TableCard'
 import { useCreateBackup, useBackups, downloadBackup, useDeleteBackup } from '@/api/hooks/useBackup'
 import type { BackupEntry } from '@/api/hooks/useBackup'
+import { apiErrorMessage } from '@/lib/userCredentials'
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -23,9 +32,10 @@ function formatDate(iso: string): string {
 
 export function BackupPage() {
   const createBackup = useCreateBackup()
-  const { data: backups, isLoading: backupsLoading } = useBackups()
+  const { data: backups, isLoading: backupsLoading, error: backupsError, refetch } = useBackups()
   const deleteBackup = useDeleteBackup()
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<BackupEntry | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [lastCreated, setLastCreated] = useState<string | null>(null)
 
   const handleCreate = () => {
@@ -36,204 +46,183 @@ export function BackupPage() {
     })
   }
 
-  const handleDelete = (filename: string) => {
-    deleteBackup.mutate(filename, {
+  const handleDelete = (backup: BackupEntry) => {
+    setDeleteError(null)
+    deleteBackup.mutate(backup.filename, {
       onSuccess: () => {
-        if (confirmDelete === filename) setConfirmDelete(null)
-        if (lastCreated === filename) setLastCreated(null)
+        setConfirmDelete(null)
+        if (lastCreated === backup.filename) setLastCreated(null)
       },
+      onError: (err) => setDeleteError(apiErrorMessage(err, 'No se pudo eliminar el respaldo.')),
     })
   }
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
-      <div
-        className="card-3d-static overflow-hidden"
-        style={{ borderTop: '4px solid #003366' }}
-      >
-        <div
-          className="px-6 py-5"
-          style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-              <Database size={22} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-white">Respaldo de Base de Datos</h2>
-              <p className="text-sm text-blue-200 mt-0.5">Creá y gestioná respaldos del sistema</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Respaldo de Base de Datos"
+        description="Creá y gestioná respaldos del sistema"
+      />
 
       {/* Create Backup Card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Crear Nuevo Respaldo</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Generá un backup completo de la base de datos PostgreSQL
-          </p>
-        </div>
-        <div className="px-6 py-5 flex flex-col gap-4">
-          <Button
-            onClick={handleCreate}
-            disabled={createBackup.isPending}
-            className="w-fit gap-2"
-            style={{ backgroundColor: '#003366' }}
-          >
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="text-base">Crear Nuevo Respaldo</CardTitle>
+          <CardDescription>Generá un backup completo de la base de datos PostgreSQL</CardDescription>
+        </CardHeader>
+        <CardPanel className="flex flex-col gap-4">
+          <Button onClick={handleCreate} loading={createBackup.isPending} className="w-fit">
             {createBackup.isPending ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Creando respaldo...
-              </>
+              'Creando respaldo...'
             ) : (
               <>
-                <HardDrive size={16} />
+                <HardDrive aria-hidden="true" />
                 Crear Respaldo
               </>
             )}
           </Button>
 
           {createBackup.isError && (
-            <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700">
-              Error al crear el respaldo. Verificá que pg_dump esté disponible y que DATABASE_URL esté configurado.
-            </div>
+            <Alert variant="error">
+              <AlertCircle aria-hidden="true" />
+              <AlertDescription>
+                Error al crear el respaldo. Verificá que pg_dump esté disponible y que DATABASE_URL esté configurado.
+              </AlertDescription>
+            </Alert>
           )}
 
           {lastCreated && !createBackup.isError && (
-            <div className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 flex items-start gap-2">
-              <span>✅</span>
-              <span>
-                Respaldo creado exitosamente: <strong>{lastCreated}</strong>
-              </span>
-            </div>
+            <Alert variant="success">
+              <CheckCircle2 aria-hidden="true" />
+              <AlertDescription>
+                Respaldo creado exitosamente: <strong className="text-foreground">{lastCreated}</strong>
+              </AlertDescription>
+            </Alert>
           )}
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
-      {/* Info Card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Info size={16} className="text-blue-600" />
-          </div>
-          <p className="text-sm text-gray-600">
-            Los respaldos incluyen toda la información del sistema: docentes, designaciones, asistencia,
-            planillas, usuarios y configuración. Los archivos se almacenan en el servidor y pueden
-            descargarse en cualquier momento.
-          </p>
-        </div>
-      </div>
+      {/* Info */}
+      <Alert variant="info">
+        <Info aria-hidden="true" />
+        <AlertDescription>
+          Los respaldos incluyen toda la información del sistema: docentes, designaciones, asistencia,
+          planillas, usuarios y configuración. Los archivos se almacenan en el servidor y pueden
+          descargarse en cualquier momento.
+        </AlertDescription>
+      </Alert>
+
+      {backupsError && (
+        <Alert variant="error">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>No se pudieron cargar los respaldos</AlertTitle>
+          <AlertDescription>Revisá tu conexión e intentá nuevamente.</AlertDescription>
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Reintentar
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
 
       {/* Backups List */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-            <Database size={16} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Respaldos Disponibles</h3>
-            <p className="text-xs text-gray-500">
-              {backups ? `${backups.length} respaldo(s) guardado(s)` : 'Cargando...'}
-            </p>
-          </div>
-        </div>
-
-        {backupsLoading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 size={24} className="animate-spin text-[#003366]" />
-          </div>
-        ) : !backups || backups.length === 0 ? (
-          <div className="text-center py-10 text-gray-400 text-sm">
-            No hay respaldos disponibles. Creá el primero.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                  {['Archivo', 'Tamaño', 'Fecha de creación', 'Acciones'].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3 whitespace-nowrap"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {backups.map((backup: BackupEntry, i: number) => (
-                  <tr
-                    key={backup.filename}
-                    className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${
-                      i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Database size={14} className="text-[#0066CC] flex-shrink-0" />
-                        <span className="font-mono text-xs text-gray-700">{backup.filename}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                      {formatFileSize(backup.file_size)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                      {formatDate(backup.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => void downloadBackup(backup.filename)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[#0066CC] hover:bg-blue-50 border border-[#0066CC]/30 text-xs font-medium transition-colors"
-                          title="Descargar respaldo"
-                        >
-                          <Download size={12} />
-                          Descargar
-                        </button>
-
-                        {confirmDelete === backup.filename ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleDelete(backup.filename)}
-                              disabled={deleteBackup.isPending}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 text-xs font-medium transition-colors"
-                            >
-                              {deleteBackup.isPending ? (
-                                <Loader2 size={11} className="animate-spin" />
-                              ) : (
-                                'Confirmar'
-                              )}
-                            </button>
-                            <button
-                              onClick={() => setConfirmDelete(null)}
-                              className="px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs transition-colors"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDelete(backup.filename)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-red-500 hover:bg-red-50 border border-red-200 text-xs font-medium transition-colors"
-                            title="Eliminar respaldo"
-                          >
-                            <Trash2 size={12} />
-                            Eliminar
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+      <TableCard
+        title="Respaldos Disponibles"
+        description={backups ? `${backups.length} respaldo(s) guardado(s)` : 'Cargando...'}
+      >
+        <TableHeader>
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            <TableHead className="h-10 px-4 text-xs font-medium uppercase tracking-wider">Archivo</TableHead>
+            <TableHead className="h-10 px-4 text-right text-xs font-medium uppercase tracking-wider">Tamaño</TableHead>
+            <TableHead className="h-10 px-4 text-xs font-medium uppercase tracking-wider">Fecha de creación</TableHead>
+            <TableHead className="h-10 px-4 text-xs font-medium uppercase tracking-wider">Acciones</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {backupsLoading ? (
+            Array.from({ length: 3 }, (_, rowIndex) => (
+              <TableRow key={rowIndex}>
+                {Array.from({ length: 4 }, (_, cellIndex) => (
+                  <TableCell key={cellIndex} className="px-4 py-3">
+                    <Skeleton className="h-4 w-full max-w-32" />
+                  </TableCell>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              </TableRow>
+            ))
+          ) : !backups || backups.length === 0 ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={4} className="p-0 whitespace-normal">
+                <EmptyState icon={Database} title="No hay respaldos disponibles" description="Creá el primero." />
+              </TableCell>
+            </TableRow>
+          ) : (
+            backups.map((backup: BackupEntry) => (
+              <TableRow key={backup.filename}>
+                <TableCell className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Database size={14} className="shrink-0 text-primary" aria-hidden="true" />
+                    <span className="font-mono text-xs text-foreground">{backup.filename}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                  {formatFileSize(backup.file_size)}
+                </TableCell>
+                <TableCell className="px-4 py-3 tabular-nums text-muted-foreground">{formatDate(backup.created_at)}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => void downloadBackup(backup.filename)}
+                      title="Descargar respaldo"
+                    >
+                      <Download aria-hidden="true" />
+                      Descargar
+                    </Button>
+                    <Button
+                      variant="destructive-outline"
+                      size="xs"
+                      onClick={() => {
+                        setDeleteError(null)
+                        setConfirmDelete(backup)
+                      }}
+                      title="Eliminar respaldo"
+                    >
+                      <Trash2 aria-hidden="true" />
+                      Eliminar
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </TableCard>
+
+      <ConfirmAlertDialog
+        summary={
+          confirmDelete
+            ? {
+                title: 'Eliminar respaldo',
+                confirmLabel: 'Eliminar respaldo',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Archivo', value: confirmDelete.filename },
+                  { label: 'Tamaño', value: formatFileSize(confirmDelete.file_size) },
+                  { label: 'Creado', value: formatDate(confirmDelete.created_at) },
+                ],
+                consequence: 'El archivo se borra del servidor y no se puede recuperar.',
+              }
+            : null
+        }
+        pending={deleteBackup.isPending}
+        description={deleteError ?? undefined}
+        onConfirm={() => confirmDelete && handleDelete(confirmDelete)}
+        onCancel={() => {
+          setConfirmDelete(null)
+          setDeleteError(null)
+        }}
+      />
     </div>
   )
 }

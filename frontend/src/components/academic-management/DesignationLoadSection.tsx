@@ -30,9 +30,9 @@ function CatalogPlan({ plan }: { plan: ClassroomCatalogPlan }) {
       <p>
         {plan.create.length} aulas nuevas, {plan.update.length} corregidas, {plan.unchanged} sin cambios.
       </p>
-      {plan.create.length > 0 && <p className="text-slate-600">Nuevas: {plan.create.map((item) => item.code).join(', ')}.</p>}
+      {plan.create.length > 0 && <p className="text-muted-foreground">Nuevas: {plan.create.map((item) => item.code).join(', ')}.</p>}
       {plan.update.length > 0 && (
-        <ul className="list-disc pl-5 text-slate-600">
+        <ul className="list-disc pl-5 text-muted-foreground">
           {plan.update.map((item) => (
             <li key={item.code}>
               {item.code}: {Object.entries(item.changes).map(([field, [before, after]]) => `${FIELD_LABEL[field] ?? field} ${String(before)} → ${String(after)}`).join(', ')}
@@ -62,7 +62,7 @@ function ClassroomCatalogCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><DoorOpen aria-hidden="true" className="size-5 text-sky-700" />Catálogo de aulas</CardTitle>
+        <CardTitle className="flex items-center gap-2"><DoorOpen aria-hidden="true" className="size-5 text-info-foreground" />Catálogo de aulas</CardTitle>
         <CardDescription>
           Edificio antiguo: aulas 1 a 10, A y B. Edificio nuevo: aulas 11 a 29 (pisos 2 a 4). Revise los cambios antes de aplicarlos.
         </CardDescription>
@@ -77,9 +77,9 @@ function ClassroomCatalogCard() {
           </Button>
         </div>
         {(preview.isError || apply.isError) && (
-          <p role="alert" className="text-sm text-red-700">{apiErrorText(preview.error ?? apply.error, 'No se pudo revisar el catálogo de aulas.')}</p>
+          <p role="alert" className="text-sm text-destructive-foreground">{apiErrorText(preview.error ?? apply.error, 'No se pudo revisar el catálogo de aulas.')}</p>
         )}
-        {apply.isSuccess && <p className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle2 aria-hidden="true" className="size-4" />Catálogo aplicado.</p>}
+        {apply.isSuccess && <p className="flex items-center gap-2 text-sm text-success-foreground"><CheckCircle2 aria-hidden="true" className="size-4" />Catálogo aplicado.</p>}
         {plan && <CatalogPlan plan={plan} />}
       </CardContent>
     </Card>
@@ -128,17 +128,17 @@ function LoadPreview({ preview }: { preview: DesignationLoadPreview }) {
       <p>
         <span className="font-medium">{preview.draft_name}</span>: {counts.designations} designaciones, {counts.blocks} bloques y {counts.assignments} asignaciones docentes.
       </p>
-      <ul className="list-disc pl-5 text-slate-700">
+      <ul className="list-disc pl-5 text-foreground">
         <li>Materias nuevas: {create.subjects.length ? create.subjects.join(', ') : 'ninguna'}.</li>
         <li>Ofertas nuevas: {create.offerings}. Grupos nuevos: {create.groups.length ? create.groups.join(', ') : 'ninguno'}.</li>
         <li>Aulas del catálogo que se crean: {create.classrooms.length ? create.classrooms.join(', ') : 'ninguna'}.</li>
         <li>Disponibilidad docente que se agrega (06:30–23:05 en los días con clase): {create.availability}.</li>
       </ul>
       <section aria-labelledby="load-conflicts" className="flex flex-col gap-2">
-        <h3 id="load-conflicts" className="font-semibold text-slate-950">
+        <h3 id="load-conflicts" className="font-semibold text-foreground">
           Choques que tendrá el borrador: {preview.conflicts.summary.conflicts} (avisos: {preview.conflicts.summary.warnings})
         </h3>
-        <p className="text-slate-600">No impiden crear el borrador: corríjalos en el planificador o revíselos en Conflictos y huecos.</p>
+        <p className="text-muted-foreground">No impiden crear el borrador: corríjalos en el planificador o revíselos en Conflictos y huecos.</p>
         {preview.conflicts.clashes.length > 0 && (
           <ul className="flex flex-col gap-1">
             {preview.conflicts.clashes.slice(0, 20).map((clash) => (
@@ -146,7 +146,7 @@ function LoadPreview({ preview }: { preview: DesignationLoadPreview }) {
                 <span className="font-medium">{clashLabel(clash.kind)}</span> · {weekdayLabel(clash.weekday)} {clash.start_time}–{clash.end_time}: {clashDescription(clash)}
               </li>
             ))}
-            {preview.conflicts.clashes.length > 20 && <li className="text-slate-600">… y {preview.conflicts.clashes.length - 20} más.</li>}
+            {preview.conflicts.clashes.length > 20 && <li className="text-muted-foreground">… y {preview.conflicts.clashes.length - 20} más.</li>}
           </ul>
         )}
       </section>
@@ -186,10 +186,10 @@ export function DesignationLoadSection() {
   return (
     <section aria-labelledby="designation-load-heading" className="flex flex-col gap-5">
       <div>
-        <h2 id="designation-load-heading" className="flex items-center gap-2 text-xl font-semibold text-slate-900">
-          <FileSpreadsheet aria-hidden="true" className="size-5 text-sky-700" />Cargar designación al módulo
+        <h2 id="designation-load-heading" className="flex items-center gap-2 text-xl font-semibold text-foreground">
+          <FileSpreadsheet aria-hidden="true" className="size-5 text-info-foreground" />Cargar designación al módulo
         </h2>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted-foreground">
           Crea un borrador de horario con la teoría vigente (las designaciones) y el aula de cada clase según la columna AULA del Excel. El borrador no cambia pagos hasta publicarse.
         </p>
       </div>
@@ -217,8 +217,8 @@ export function DesignationLoadSection() {
             </div>
             <Button type="submit" disabled={!current || preview.isPending}>{preview.isPending ? 'Analizando…' : 'Vista previa'}</Button>
           </form>
-          {preview.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(preview.error, 'No se pudo analizar la designación.')}</p>}
-          {apply.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(apply.error, 'No se pudo crear el borrador.')}</p>}
+          {preview.isError && <p role="alert" className="text-sm text-destructive-foreground">{apiErrorText(preview.error, 'No se pudo analizar la designación.')}</p>}
+          {apply.isError && <p role="alert" className="text-sm text-destructive-foreground">{apiErrorText(apply.error, 'No se pudo crear el borrador.')}</p>}
           {preview.data && previewMatches && !result && (
             <>
               <LoadPreview preview={preview.data} />
@@ -233,7 +233,7 @@ export function DesignationLoadSection() {
               <AlertTitle>Borrador creado</AlertTitle>
               <AlertDescription>
                 {result.draft_name}: {result.blocks} bloques y {result.assignments} asignaciones. Choques a revisar: {result.conflicts.conflicts}.{' '}
-                <Link className="font-medium text-sky-700 underline" to={`/schedule-planner?draft=${result.draft_id}`}>Abrir en el planificador</Link>
+                <Link className="font-medium text-info-foreground underline" to={`/schedule-planner?draft=${result.draft_id}`}>Abrir en el planificador</Link>
               </AlertDescription>
             </Alert>
           )}

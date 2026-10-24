@@ -52,8 +52,8 @@ export function SchedulesSection() {
     <section aria-labelledby="schedules-heading" className="flex flex-col gap-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h2 id="schedules-heading" className="flex items-center gap-2 text-xl font-semibold text-slate-900"><CalendarDays aria-hidden="true" className="size-5 text-sky-700" />Horarios por semestre y grupo</h2>
-          <p className="text-sm text-slate-500">
+          <h2 id="schedules-heading" className="flex items-center gap-2 text-xl font-semibold text-foreground"><CalendarDays aria-hidden="true" className="size-5 text-info-foreground" />Horarios por semestre y grupo</h2>
+          <p className="text-sm text-muted-foreground">
             {source === 'current'
               ? 'Horario vigente: el mismo que usa la planilla (teoría desde las designaciones y prácticas desde la última publicación).'
               : 'Borrador: bloques en planificación; no afectan pagos hasta publicarse.'}
@@ -64,7 +64,7 @@ export function SchedulesSection() {
         </Button>
       </div>
 
-      <div className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-6">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="schedule-period">Período</Label>
           <Input id="schedule-period" value={period} onChange={(event) => { setPeriod(event.target.value.trim()); setSemester(null); setGroup('') }} placeholder="II/2026" />
@@ -105,32 +105,32 @@ export function SchedulesSection() {
         </div>
       </div>
 
-      {downloadError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{downloadError}</p>}
-      {needsDraft && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Seleccione un borrador para ver sus bloques.</p>}
-      {view.isFetching && !needsDraft && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">{view.isLoading ? 'Cargando horario…' : 'Actualizando horario…'}</p>}
+      {downloadError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{downloadError}</p>}
+      {needsDraft && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">Seleccione un borrador para ver sus bloques.</p>}
+      {view.isFetching && !needsDraft && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">{view.isLoading ? 'Cargando horario…' : 'Actualizando horario…'}</p>}
       {view.isError && (
-        <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">
           <span>{errorText(view.error)}</span>
           <Button type="button" size="sm" variant="outline" onClick={() => void view.refetch()}>Reintentar</Button>
         </div>
       )}
-      {view.data && !view.isError && !schedules.length && <p className="rounded-xl border bg-white px-4 py-10 text-center text-slate-500">No hay clases para este filtro.</p>}
+      {view.data && !view.isError && !schedules.length && <p className="rounded-xl border bg-card px-4 py-10 text-center text-muted-foreground">No hay clases para este filtro.</p>}
 
       {subjects.length > 0 && (
         <div className="flex flex-wrap gap-2" aria-label="Materias del horario">
           {subjects.map((subject) => {
-            const color = subjectColor(subject)
-            return <span key={subject} className="rounded-full border px-2.5 py-0.5 text-xs font-medium" style={{ background: color.background, borderColor: color.border, color: color.text }}>{subject}</span>
+            const { background: fill, border: edge, text: ink } = subjectColor(subject)
+            return <span key={subject} className="rounded-full border border-(--subject-border) bg-(--subject-bg) px-2.5 py-0.5 text-xs font-medium text-(--subject-text)" style={{ '--subject-bg': fill, '--subject-border': edge, '--subject-text': ink } as React.CSSProperties}>{subject}</span>
           })}
-          <span className="rounded-full border border-dashed border-slate-500 px-2.5 py-0.5 text-xs italic text-slate-600">Borde punteado = práctica</span>
+          <span className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs italic text-muted-foreground">Borde punteado = práctica</span>
         </div>
       )}
 
       {schedules.map((schedule) => (
         <article key={`${schedule.semester}-${schedule.group}`} className="flex flex-col gap-2">
-          <h3 className="text-base font-semibold text-slate-800">
+          <h3 className="text-base font-semibold text-foreground">
             {semesterLabel(schedule.semester)} · Grupo {schedule.group}
-            <span className="ml-2 text-sm font-normal text-slate-500">{schedule.blocks.length} bloques</span>
+            <span className="ml-2 text-sm font-normal text-muted-foreground">{schedule.blocks.length} bloques</span>
           </h3>
           <WeeklyScheduleGrid blocks={schedule.blocks} label={`Horario de ${semesterLabel(schedule.semester)}, grupo ${schedule.group}`} />
         </article>

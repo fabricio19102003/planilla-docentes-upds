@@ -8,23 +8,21 @@ import {
   IdCard,
   GraduationCap,
   CreditCard,
-  Loader2,
   Trash2,
+  AlertCircle,
 } from 'lucide-react'
 import { useTeachers, useCreateTeacher, useBulkDeleteTeachers } from '@/api/hooks/useTeachers'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { TableCard } from '@/components/shared/TableCard'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import {
   Select,
@@ -35,6 +33,7 @@ import {
 } from '@/components/ui/select'
 
 import type { Teacher } from '@/api/types'
+import { apiErrorMessage } from '@/lib/userCredentials'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import type { TeacherType } from '@/domain/teacherTypes'
 
@@ -113,7 +112,7 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
       <DialogPopup className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
               <UserPlus size={20} className="text-primary" />
             </div>
             <div className="flex flex-col gap-1">
@@ -128,59 +127,59 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
             {/* Section: Identificación */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <IdCard size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <IdCard size={14} className="text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Identificación
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">CI *</Label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>CI *</FieldLabel>
                   <Input
                     value={form.ci}
                     onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
                     placeholder="12345678"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Nombre Completo *</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Nombre Completo *</FieldLabel>
                   <Input
                     value={form.full_name}
                     onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
                     placeholder="Juan Pérez García"
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
             {/* Section: Datos Personales */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <IdCard size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <IdCard size={14} className="text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Datos Personales
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Email</Label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>Email</FieldLabel>
                   <Input
                     type="email"
                     value={form.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                     placeholder="docente@upds.edu.bo"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Teléfono</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Teléfono</FieldLabel>
                   <Input
                     value={form.phone}
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     placeholder="70012345"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Género</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Género</FieldLabel>
                   <Select
                     value={form.gender || null}
                     items={GENDER_ITEMS}
@@ -194,9 +193,9 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
                       <SelectItem value="F">Femenino</SelectItem>
                     </SelectPopup>
                   </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Tipo</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Tipo</FieldLabel>
                   <Select
                     value={form.external_permanent || null}
                     items={TEACHER_TYPE_OPTIONS}
@@ -211,21 +210,21 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
                       ))}
                     </SelectPopup>
                   </Select>
-                </div>
+                </Field>
               </div>
             </div>
 
             {/* Section: Datos Académicos */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <GraduationCap size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <GraduationCap size={14} className="text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Datos Académicos
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Nivel Académico</Label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>Nivel Académico</FieldLabel>
                   <Select
                     value={form.academic_level || null}
                     onValueChange={(v) => setForm((f) => ({ ...f, academic_level: v ?? '' }))}
@@ -241,74 +240,75 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
                       <SelectItem value="Técnico Superior">Técnico Superior</SelectItem>
                     </SelectPopup>
                   </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Profesión</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Profesión</FieldLabel>
                   <Input
                     value={form.profession}
                     onChange={(e) => setForm((f) => ({ ...f, profession: e.target.value }))}
                     placeholder="Ej: Ingeniero de Sistemas"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Especialidad</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Especialidad</FieldLabel>
                   <Input
                     value={form.specialty}
                     onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))}
                     placeholder="Ej: Desarrollo de Software"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Código SAP</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Código SAP</FieldLabel>
                   <Input
                     value={form.sap_code}
                     onChange={(e) => setForm((f) => ({ ...f, sap_code: e.target.value }))}
                     placeholder="Ej: SAP-001"
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
             {/* Section: Datos Bancarios */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <CreditCard size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <CreditCard size={14} className="text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Datos Bancarios
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Banco</Label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>Banco</FieldLabel>
                   <Input
                     value={form.bank}
                     onChange={(e) => setForm((f) => ({ ...f, bank: e.target.value }))}
                     placeholder="Ej: Banco Unión"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Número de Cuenta</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Número de Cuenta</FieldLabel>
                   <Input
                     value={form.account_number}
                     onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
                     placeholder="Ej: 1234567890"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Retención Factura</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>Retención Factura</FieldLabel>
                   <Input
                     value={form.invoice_retention}
                     onChange={(e) => setForm((f) => ({ ...f, invoice_retention: e.target.value }))}
                     placeholder="Ej: IT, IUE"
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                {error}
-              </p>
+              <Alert variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
 
           </DialogPanel>
@@ -317,18 +317,12 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
-            <Button
-              type="submit"
-              disabled={createTeacher.isPending}
-            >
+            <Button type="submit" loading={createTeacher.isPending}>
               {createTeacher.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Creando...
-                </>
+                'Creando...'
               ) : (
                 <>
-                  <UserPlus size={16} className="mr-2" />
+                  <UserPlus aria-hidden="true" />
                   Crear Docente
                 </>
               )}
@@ -341,6 +335,9 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+const TABLE_HEADERS = ['Nombre Completo', 'C.I.', 'Correo', 'Profesión', 'Tipo', 'Detalle']
+const SKELETON_ROWS = 6
+
 export function TeachersPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -349,10 +346,11 @@ export function TeachersPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedCIs, setSelectedCIs] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bulkDelete = useBulkDeleteTeachers()
 
-  const { data, isLoading } = useTeachers({
+  const { data, isLoading, error, refetch } = useTeachers({
     search: debouncedSearch || undefined,
     page,
     perPage: 15,
@@ -373,231 +371,195 @@ export function TeachersPage() {
     (data?.items?.length ?? 0) > 0 &&
     (data?.items ?? []).every((t) => selectedCIs.has(t.ci))
 
+  const selectedLabel = `${selectedCIs.size} docente${selectedCIs.size !== 1 ? 's' : ''}`
+
+  const confirmBulkDelete = async () => {
+    setDeleteError(null)
+    try {
+      await bulkDelete.mutateAsync([...selectedCIs])
+      setSelectedCIs(new Set())
+      setShowDeleteConfirm(false)
+    } catch (err) {
+      setDeleteError(apiErrorMessage(err, 'No se pudo eliminar a los docentes seleccionados.'))
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Search */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="py-4 px-5">
-          <div className="relative max-w-md">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por nombre o C.I."
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent transition-shadow bg-gray-50/50"
-            />
-          </div>
-        </div>
+      <PageHeader
+        title="Docentes"
+        description="Buscá, creá y administrá el padrón de docentes de la sede."
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus aria-hidden="true" />
+            Nuevo Docente
+          </Button>
+        }
+      />
+
+      {error && (
+        <Alert variant="error">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>No se pudo cargar el listado de docentes</AlertTitle>
+          <AlertDescription>Revisá tu conexión e intentá nuevamente.</AlertDescription>
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Reintentar
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
+
+      <div className="relative w-full sm:max-w-sm">
+        <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          aria-label="Buscar docentes"
+          placeholder="Buscar por nombre o C.I."
+          value={search}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          inputClassName="pl-9"
+        />
       </div>
 
-      {/* Table */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            Listado de Docentes
-          </h3>
-          <div className="flex items-center gap-3">
-            {data && (
-              <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full font-medium">
-                {data.total} docente{data.total !== 1 ? 's' : ''}
-              </span>
-            )}
-            <Button
-              onClick={() => setCreateOpen(true)}
-              className="gap-2 text-white"
-              style={{ backgroundColor: '#003366' }}
-            >
-              <Plus size={16} />
-              Nuevo Docente
-            </Button>
-          </div>
-        </div>
-
-        {/* Bulk actions bar */}
-        {selectedCIs.size > 0 && (
-          <div className="mx-5 mt-4 flex items-center justify-between px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
-            <span className="text-sm text-red-700 font-medium">
-              {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''} seleccionado{selectedCIs.size !== 1 ? 's' : ''}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedCIs(new Set())}
-                className="text-gray-600"
-              >
-                Deseleccionar
-              </Button>
-              <Button
-                size="sm"
-                className="bg-red-600 hover:bg-red-700 text-white gap-1"
-                onClick={() => setShowDeleteConfirm(true)}
-              >
-                <Trash2 size={14} />
-                Eliminar seleccionados
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="p-5">
-          {isLoading ? (
-            <LoadingPage />
-          ) : !data?.items.length ? (
-            <div className="py-16 text-center">
-              <Users size={40} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-400 font-medium">
-                {debouncedSearch
-                  ? `No se encontraron docentes para "${debouncedSearch}"`
-                  : 'No hay docentes registrados aún'}
+      <TableCard
+        title="Listado de Docentes"
+        description={data ? `${data.total} docente${data.total !== 1 ? 's' : ''}` : undefined}
+        footer={
+          totalPages > 1 ? (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground tabular-nums">
+                Página {page} de {totalPages}
               </p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                      <th className="px-3 py-2.5 w-10">
-                        <input
-                          type="checkbox"
-                          checked={allOnPageSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedCIs(new Set(data?.items?.map((t) => t.ci) ?? []))
-                            } else {
-                              setSelectedCIs(new Set())
-                            }
-                          }}
-                          className="rounded border-white/50 cursor-pointer"
-                        />
-                      </th>
-                      {['Nombre Completo', 'C.I.', 'Correo', 'Profesión', 'Tipo', 'Detalle'].map((h) => (
-                        <th
-                          key={h}
-                          className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.map((teacher: Teacher, i: number) => (
-                      <tr
-                        key={teacher.ci}
-                        className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${
-                          selectedCIs.has(teacher.ci)
-                            ? 'bg-red-50'
-                            : i % 2 === 1
-                              ? 'bg-gray-50'
-                              : 'bg-white'
-                        }`}
-                      >
-                        <td className="px-3 py-2.5 w-10">
-                          <input
-                            type="checkbox"
-                            checked={selectedCIs.has(teacher.ci)}
-                            onChange={(e) => {
-                              const next = new Set(selectedCIs)
-                              if (e.target.checked) next.add(teacher.ci)
-                              else next.delete(teacher.ci)
-                              setSelectedCIs(next)
-                            }}
-                            className="rounded cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 font-medium text-gray-800">{teacher.full_name}</td>
-                        <td className="px-3 py-2.5 text-gray-600">{teacher.ci}</td>
-                        <td className="px-3 py-2.5 text-gray-600">{teacher.email ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-gray-600">{teacher.profession ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-gray-600">
-                          {teacherTypeLabel(teacher.external_permanent)}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <button
-                            onClick={() => navigate(`/teachers/${teacher.ci}`)}
-                            className="text-[#0066CC] hover:underline text-sm font-medium"
-                          >
-                            Ver más →
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  Anterior
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                  Siguiente
+                </Button>
               </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-sm text-gray-500">
-                    Página {page} de {totalPages}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page <= 1}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                      Anterior
+            </div>
+          ) : undefined
+        }
+      >
+        <TableHeader>
+          {selectedCIs.size > 0 && (
+            <TableRow className="bg-destructive/4 hover:bg-destructive/4">
+              <TableCell colSpan={TABLE_HEADERS.length + 1} className="px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-destructive-foreground">
+                    {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''} seleccionado{selectedCIs.size !== 1 ? 's' : ''}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setSelectedCIs(new Set())}>
+                      Deseleccionar
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page >= totalPages}
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    >
-                      Siguiente
+                    <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
+                      <Trash2 aria-hidden="true" />
+                      Eliminar seleccionados
                     </Button>
                   </div>
                 </div>
-              )}
-            </>
+              </TableCell>
+            </TableRow>
           )}
-        </div>
-      </div>
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            <TableHead className="w-10 px-4">
+              <Checkbox
+                aria-label="Seleccionar todos los docentes de la página"
+                checked={allOnPageSelected}
+                onCheckedChange={(checked) => {
+                  setSelectedCIs(checked ? new Set(data?.items?.map((t) => t.ci) ?? []) : new Set())
+                }}
+              />
+            </TableHead>
+            {TABLE_HEADERS.map((h) => (
+              <TableHead key={h} className="h-10 px-4 text-xs font-medium uppercase tracking-wider">
+                {h}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            Array.from({ length: SKELETON_ROWS }, (_, rowIndex) => (
+              <TableRow key={rowIndex}>
+                {Array.from({ length: TABLE_HEADERS.length + 1 }, (_, cellIndex) => (
+                  <TableCell key={cellIndex} className="px-4 py-3">
+                    <Skeleton className="h-4 w-full max-w-32" />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          ) : !data?.items.length ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={TABLE_HEADERS.length + 1} className="p-0 whitespace-normal">
+                <EmptyState
+                  icon={Users}
+                  title={
+                    debouncedSearch
+                      ? `No se encontraron docentes para "${debouncedSearch}"`
+                      : 'No hay docentes registrados aún'
+                  }
+                  description={debouncedSearch ? 'Probá con otro nombre o C.I.' : 'Creá el primer docente con el botón Nuevo Docente.'}
+                />
+              </TableCell>
+            </TableRow>
+          ) : (
+            data.items.map((teacher: Teacher) => (
+              <TableRow key={teacher.ci} data-state={selectedCIs.has(teacher.ci) ? 'selected' : undefined}>
+                <TableCell className="w-10 px-4 py-3">
+                  <Checkbox
+                    aria-label={`Seleccionar a ${teacher.full_name}`}
+                    checked={selectedCIs.has(teacher.ci)}
+                    onCheckedChange={(checked) => {
+                      const next = new Set(selectedCIs)
+                      if (checked) next.add(teacher.ci)
+                      else next.delete(teacher.ci)
+                      setSelectedCIs(next)
+                    }}
+                  />
+                </TableCell>
+                <TableCell className="px-4 py-3 font-medium text-foreground">{teacher.full_name}</TableCell>
+                <TableCell className="px-4 py-3 text-muted-foreground tabular-nums">{teacher.ci}</TableCell>
+                <TableCell className="px-4 py-3 text-muted-foreground">{teacher.email ?? '—'}</TableCell>
+                <TableCell className="px-4 py-3 text-muted-foreground">{teacher.profession ?? '—'}</TableCell>
+                <TableCell className="px-4 py-3 text-muted-foreground">{teacherTypeLabel(teacher.external_permanent)}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <Button variant="link" size="sm" className="px-0 text-primary" onClick={() => navigate(`/teachers/${teacher.ci}`)}>
+                    Ver más →
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </TableCard>
 
       <CreateTeacherDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
-      {/* Bulk Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
-                <Trash2 size={20} className="text-destructive-foreground" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <AlertDialogTitle>
-                  Eliminar {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esta acción eliminará también sus designaciones, asistencia y cuentas de usuario
-                </AlertDialogDescription>
-              </div>
-            </div>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>
-              Cancelar
-            </AlertDialogClose>
-            <Button
-              variant="destructive"
-              disabled={bulkDelete.isPending}
-              onClick={async () => {
-                await bulkDelete.mutateAsync([...selectedCIs])
-                setSelectedCIs(new Set())
-                setShowDeleteConfirm(false)
-              }}
-            >
-              {bulkDelete.isPending ? 'Eliminando...' : 'Confirmar eliminación'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
+      <ConfirmAlertDialog
+        summary={
+          showDeleteConfirm
+            ? {
+                title: `Eliminar ${selectedLabel}`,
+                confirmLabel: 'Confirmar eliminación',
+                tone: 'destructive',
+                rows: [{ label: 'Docentes seleccionados', value: String(selectedCIs.size) }],
+                warning: 'Esta acción eliminará también sus designaciones, asistencia y cuentas de usuario.',
+                consequence: 'No se puede deshacer.',
+              }
+            : null
+        }
+        pending={bulkDelete.isPending}
+        description={deleteError ?? undefined}
+        onConfirm={() => void confirmBulkDelete()}
+        onCancel={() => {
+          setShowDeleteConfirm(false)
+          setDeleteError(null)
+        }}
+      />
     </div>
   )
 }

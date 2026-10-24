@@ -33,6 +33,11 @@
     "test:user-credentials": "node --experimental-strip-types --test scripts/check-user-credentials.mjs",
     "test:coss-foundation": "node --test scripts/check-coss-foundation.mjs",
     "test:chat-ui": "node --experimental-strip-types --test scripts/check-chat-ui.mjs",
+    "test:ui-shared": "node --test scripts/check-ui-shared.mjs",
+    "test:ui-cierre": "node --experimental-strip-types --test scripts/check-ui-cierre.mjs",
+    "test:ui-planilla": "node --experimental-strip-types --test scripts/check-ui-planilla.mjs",
+    "test:ui-academico": "node --experimental-strip-types --test scripts/check-ui-academico.mjs",
+    "test:ui-portal": "node --experimental-strip-types --test scripts/check-ui-portal.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { Pencil, Plus, Power, School } from 'lucide-react'
+import { AlertCircle, Pencil, Plus, Power } from 'lucide-react'
 
 import {
   useAcademicCollection,
@@ -19,8 +19,14 @@ import type {
   SubjectOffering,
   TeacherAvailability,
 } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -58,8 +64,8 @@ const errorMessage = (error: unknown) => {
   return 'No se pudo completar la operación. Revise los datos e intente nuevamente.'
 }
 
-function StatusBadge({ active }: { active: boolean }) {
-  return <Badge variant={active ? 'default' : 'secondary'}>{active ? 'Activo' : 'Inactivo'}</Badge>
+function ActiveBadge({ active }: { active: boolean }) {
+  return <StatusBadge tone={active ? 'success' : 'neutral'}>{active ? 'Activo' : 'Inactivo'}</StatusBadge>
 }
 
 function CatalogSection<T extends AcademicCatalogBase>({
@@ -146,18 +152,33 @@ function CatalogSection<T extends AcademicCatalogBase>({
     <section aria-labelledby={`${resource}-heading`} className="flex flex-col gap-4">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h2 id={`${resource}-heading`} className="text-xl font-semibold text-slate-900">{title}</h2>
-          <p className="text-sm text-slate-500">{description}</p>
+          <h3 id={`${resource}-heading`} className="text-xl font-semibold tracking-tight text-foreground">{title}</h3>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         <Button onClick={beginCreate}><Plus aria-hidden="true" />Agregar</Button>
       </div>
-      {error && !open && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {query.isLoading && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Cargando registros…</p>}
-      {query.isError && (
-        <div role="alert" className="flex flex-col items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          <span>{errorMessage(query.error)}</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>Reintentar</Button>
+      {error && !open && (
+        <Alert variant="error" role="alert">
+          <AlertCircle aria-hidden="true" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {query.isLoading && (
+        <div role="status" className="flex flex-col gap-2">
+          <span className="sr-only">Cargando registros…</span>
+          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-10 w-full rounded-lg" />
         </div>
+      )}
+      {query.isError && (
+        <Alert variant="error" role="alert">
+          <AlertCircle aria-hidden="true" />
+          <AlertDescription>{errorMessage(query.error)}</AlertDescription>
+          <AlertAction>
+            <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>Reintentar</Button>
+          </AlertAction>
+        </Alert>
       )}
       {searchable && (
         <div className="flex max-w-sm flex-col gap-1.5">
@@ -166,35 +187,37 @@ function CatalogSection<T extends AcademicCatalogBase>({
         </div>
       )}
       {!query.isLoading && !query.isError && !grouped.length && (
-        <p className="rounded-xl border bg-white px-4 py-10 text-center text-slate-500">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</p>
+        <Card className="px-4 py-10 text-center text-muted-foreground">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</Card>
       )}
       {grouped.map((section) => (
         <div key={section.key} className="flex flex-col gap-2">
-          {section.title && <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">{section.title} <span className="font-normal normal-case text-slate-400">· {section.items.length}</span></h3>}
-          <div className="overflow-x-auto rounded-xl border bg-white">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>{headers.map((header) => <th key={header} className="px-4 py-3">{header}</th>)}<th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr>
-              </thead>
-              <tbody>
-                {section.items.map((item) => (
-                  <tr key={`${section.key}-${item.id}`} className="border-t">
-                    {(columns ? columns.cells(item) : [summary(item)]).map((cell, index) => (
-                      <td key={headers[index] ?? index} className={`px-4 py-3 ${index === 0 ? 'font-medium text-slate-800' : 'text-slate-700'}`}>{cell}</td>
-                    ))}
-                    <td className="px-4 py-3"><StatusBadge active={item.active} /></td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => beginEdit(item)}><Pencil aria-hidden="true" />Editar</Button>
-                        {item.active && <Button variant="outline" size="sm" onClick={() => void handleDeactivate(item)}><Power aria-hidden="true" />Desactivar</Button>}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!query.isLoading && !query.isError && !section.items.length && <tr><td colSpan={headers.length + 2} className="px-4 py-10 text-center text-slate-500">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          {section.title && <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{section.title} <span className="font-normal normal-case text-muted-foreground/80">· {section.items.length}</span></h4>}
+          <TableCard tableClassName="min-w-[640px]">
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                {headers.map((header) => <TableHead key={header} className="h-10 px-4 text-xs font-medium uppercase tracking-wider">{header}</TableHead>)}
+                <TableHead className="h-10 px-4 text-xs font-medium uppercase tracking-wider">Estado</TableHead>
+                <TableHead className="h-10 px-4 text-right text-xs font-medium uppercase tracking-wider">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.items.map((item) => (
+                <TableRow key={`${section.key}-${item.id}`}>
+                  {(columns ? columns.cells(item) : [summary(item)]).map((cell, index) => (
+                    <TableCell key={headers[index] ?? index} className={`px-4 py-3 ${index === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>{cell}</TableCell>
+                  ))}
+                  <TableCell className="px-4 py-3"><ActiveBadge active={item.active} /></TableCell>
+                  <TableCell className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => beginEdit(item)}><Pencil aria-hidden="true" />Editar</Button>
+                      {item.active && <Button variant="outline" size="sm" onClick={() => void handleDeactivate(item)}><Power aria-hidden="true" />Desactivar</Button>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!query.isLoading && !query.isError && !section.items.length && <TableRow className="hover:bg-transparent"><TableCell colSpan={headers.length + 2} className="px-4 py-10 text-center text-muted-foreground">{search ? 'No hay resultados para esta búsqueda.' : 'No hay registros.'}</TableCell></TableRow>}
+            </TableBody>
+          </TableCard>
         </div>
       ))}
 
@@ -241,7 +264,7 @@ function CatalogSection<T extends AcademicCatalogBase>({
                   </div>
                 )
               })}
-              {error && <p id={errorId} role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+              {error && <Alert id={errorId} variant="error" role="alert"><AlertCircle aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
                 <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Guardando…' : 'Guardar'}</Button>
@@ -307,8 +330,8 @@ function AvailabilitySection() {
 
   return (
     <section aria-labelledby="availability-heading" className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-white p-5">
-        <div><h2 id="availability-heading" className="text-xl font-semibold">Disponibilidad docente</h2><p className="text-sm text-slate-500">Bloques semanales por período académico.</p></div>
+      <Card render={<form onSubmit={submit} />} className="flex flex-col gap-4 self-start p-5">
+        <div><h3 id="availability-heading" className="text-xl font-semibold tracking-tight text-foreground">Disponibilidad docente</h3><p className="text-sm text-muted-foreground">Bloques semanales por período académico.</p></div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="availability-period">Período académico *</Label>
           <Input id="availability-period" required value={academicPeriod} onChange={(event) => setAcademicPeriod(event.target.value)} placeholder="II/2026" />
@@ -316,10 +339,10 @@ function AvailabilitySection() {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="availability-teacher-search">Buscar docente</Label>
           <Input id="availability-teacher-search" type="search" value={teacherSearch} onChange={(event) => setTeacherSearch(event.target.value)} placeholder="Nombre o C.I." aria-describedby="availability-teacher-search-help" />
-          <p id="availability-teacher-search-help" className="text-xs text-slate-500">La búsqueda consulta resultados paginados y no descarga el padrón completo.</p>
-          {teachers.isFetching && <p role="status" className="text-sm text-slate-600">Buscando docentes…</p>}
-          {teachers.isError && <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700"><span>No se pudieron cargar los docentes.</span><Button type="button" size="sm" variant="outline" onClick={() => void teachers.refetch()}>Reintentar</Button></div>}
-          {!teachers.isFetching && !teachers.isError && teachers.data?.items.length === 0 && <p role="status" className="text-sm text-slate-600">No se encontraron docentes para esta búsqueda.</p>}
+          <p id="availability-teacher-search-help" className="text-xs text-muted-foreground">La búsqueda consulta resultados paginados y no descarga el padrón completo.</p>
+          {teachers.isFetching && <p role="status" className="text-sm text-muted-foreground">Buscando docentes…</p>}
+          {teachers.isError && <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-destructive/32 bg-destructive/4 p-2 text-sm text-destructive-foreground"><span>No se pudieron cargar los docentes.</span><Button type="button" size="sm" variant="outline" onClick={() => void teachers.refetch()}>Reintentar</Button></div>}
+          {!teachers.isFetching && !teachers.isError && teachers.data?.items.length === 0 && <p role="status" className="text-sm text-muted-foreground">No se encontraron docentes para esta búsqueda.</p>}
           <Label htmlFor="availability-teacher">Docente *</Label>
           <select
             id="availability-teacher"
@@ -340,7 +363,7 @@ function AvailabilitySection() {
           {!teachers.isError && (teachers.data?.total ?? 0) > TEACHER_SEARCH_PAGE_SIZE && (
             <div className="flex items-center justify-between gap-2" aria-label="Paginación de docentes">
               <Button type="button" size="sm" variant="outline" disabled={teacherPage <= 1 || teachers.isFetching} onClick={() => setTeacherPage((page) => page - 1)}>Anterior</Button>
-              <span className="text-xs text-slate-500">Página {teacherPage} de {teacherPages}</span>
+              <span className="text-xs text-muted-foreground">Página {teacherPage} de {teacherPages}</span>
               <Button type="button" size="sm" variant="outline" disabled={teacherPage >= teacherPages || teachers.isFetching} onClick={() => setTeacherPage((page) => page + 1)}>Siguiente</Button>
             </div>
           )}
@@ -355,21 +378,19 @@ function AvailabilitySection() {
           <div className="flex flex-col gap-1.5"><Label htmlFor="availability-start">Hora de inicio *</Label><Input id="availability-start" type="time" required value={form.start_time} aria-invalid={Boolean(error)} aria-describedby={error ? 'availability-error' : undefined} onChange={(event) => setForm((current) => ({ ...current, start_time: event.target.value }))} /></div>
           <div className="flex flex-col gap-1.5"><Label htmlFor="availability-end">Hora de fin *</Label><Input id="availability-end" type="time" required value={form.end_time} aria-invalid={Boolean(error)} aria-describedby={error ? 'availability-error' : undefined} onChange={(event) => setForm((current) => ({ ...current, end_time: event.target.value }))} /></div>
         </div>
-        {error && <p id="availability-error" role="alert" aria-live="polite" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        {error && <Alert id="availability-error" variant="error" role="alert" aria-live="polite"><AlertCircle aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert>}
         <div className="flex gap-2"><Button type="submit" disabled={!canSubmit || save.isPending}>{editing ? 'Actualizar bloque' : 'Agregar bloque'}</Button>{editing && <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancelar edición</Button>}</div>
-      </form>
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full min-w-[560px] text-sm">
-          <thead className="bg-slate-50 text-left"><tr><th className="px-4 py-3">Día</th><th className="px-4 py-3">Horario</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3 text-right">Acciones</th></tr></thead>
-          <tbody>
-            {availability.data?.map((item) => <tr key={item.id} className="border-t"><td className="px-4 py-3">{weekdays.find((day) => day.value === item.weekday)?.label}</td><td className="px-4 py-3">{item.start_time.slice(0, 5)}–{item.end_time.slice(0, 5)}</td><td className="px-4 py-3"><StatusBadge active={item.active} /></td><td className="px-4 py-3"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => edit(item)}><Pencil aria-hidden="true" />Editar</Button>{item.active && <Button size="sm" variant="outline" onClick={() => void deactivate.mutateAsync(item.id).catch((caught) => setError(errorMessage(caught)))}><Power aria-hidden="true" />Desactivar</Button>}</div></td></tr>)}
-            {!teacherCi || !academicPeriod ? <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">Seleccione período y docente para consultar sus bloques.</td></tr> : null}
-            {availability.isLoading && <tr><td colSpan={4} role="status" className="px-4 py-10 text-center text-slate-600">Cargando disponibilidad…</td></tr>}
-            {availability.isError && <tr><td colSpan={4} className="px-4 py-6"><div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-red-700"><span>No se pudo cargar la disponibilidad.</span><Button type="button" size="sm" variant="outline" onClick={() => void availability.refetch()}>Reintentar</Button></div></td></tr>}
-            {teacherCi && academicPeriod && !availability.isLoading && !availability.isError && !availability.data?.length && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">El docente no tiene bloques registrados en este período.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      </Card>
+      <TableCard tableClassName="min-w-[560px]" className="self-start">
+          <TableHeader><TableRow className="bg-muted/40 hover:bg-muted/40"><TableHead className="px-4">Día</TableHead><TableHead className="px-4">Horario</TableHead><TableHead className="px-4">Estado</TableHead><TableHead className="px-4 text-right">Acciones</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {availability.data?.map((item) => <TableRow key={item.id}><TableCell className="px-4 py-3">{weekdays.find((day) => day.value === item.weekday)?.label}</TableCell><TableCell className="px-4 py-3">{item.start_time.slice(0, 5)}–{item.end_time.slice(0, 5)}</TableCell><TableCell className="px-4 py-3"><ActiveBadge active={item.active} /></TableCell><TableCell className="px-4 py-3"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => edit(item)}><Pencil aria-hidden="true" />Editar</Button>{item.active && <Button size="sm" variant="outline" onClick={() => void deactivate.mutateAsync(item.id).catch((caught) => setError(errorMessage(caught)))}><Power aria-hidden="true" />Desactivar</Button>}</div></TableCell></TableRow>)}
+            {!teacherCi || !academicPeriod ? <TableRow><TableCell colSpan={4} className="px-4 py-10 text-center whitespace-normal text-muted-foreground">Seleccione período y docente para consultar sus bloques.</TableCell></TableRow> : null}
+            {availability.isLoading && <TableRow><TableCell colSpan={4} role="status" className="px-4 py-10 text-center text-muted-foreground">Cargando disponibilidad…</TableCell></TableRow>}
+            {availability.isError && <TableRow><TableCell colSpan={4} className="px-4 py-6"><div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-destructive/32 bg-destructive/4 p-3 text-destructive-foreground"><span>No se pudo cargar la disponibilidad.</span><Button type="button" size="sm" variant="outline" onClick={() => void availability.refetch()}>Reintentar</Button></div></TableCell></TableRow>}
+            {teacherCi && academicPeriod && !availability.isLoading && !availability.isError && !availability.data?.length && <TableRow><TableCell colSpan={4} className="px-4 py-10 text-center whitespace-normal text-muted-foreground">El docente no tiene bloques registrados en este período.</TableCell></TableRow>}
+          </TableBody>
+      </TableCard>
     </section>
   )
 }
@@ -408,7 +429,10 @@ export function AcademicManagementPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex items-center gap-3"><div className="rounded-xl bg-blue-50 p-3 text-blue-800"><School aria-hidden="true" /></div><div><h1 className="text-2xl font-bold text-slate-900">Gestión académica</h1><p className="text-sm text-slate-500">Horarios por semestre y grupo, malla curricular, catálogos y disponibilidad docente.</p></div></header>
+      <PageHeader
+        title="Gestión académica"
+        description="Horarios por semestre y grupo, malla curricular, catálogos y disponibilidad docente."
+      />
       <Tabs defaultValue="schedules" className="flex flex-col gap-5">
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="schedules">Horarios</TabsTrigger><TabsTrigger value="teacher-change">Cambiar docente</TabsTrigger><TabsTrigger value="conflicts">Conflictos y huecos</TabsTrigger><TabsTrigger value="designation-load">Cargar designación</TabsTrigger><TabsTrigger value="programs">Programas</TabsTrigger><TabsTrigger value="subjects">Asignaturas</TabsTrigger><TabsTrigger value="offerings">Ofertas</TabsTrigger><TabsTrigger value="groups">Grupos</TabsTrigger><TabsTrigger value="classrooms">Aulas</TabsTrigger><TabsTrigger value="availability">Disponibilidad docente</TabsTrigger>

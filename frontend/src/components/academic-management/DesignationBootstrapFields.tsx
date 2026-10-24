@@ -47,8 +47,8 @@ function FileField({
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
         className="h-11 py-2"
       />
-      <p id={descriptionId} className="text-xs leading-5 text-slate-600">{description}</p>
-      {error && <p id={errorId} role="alert" className="text-sm text-red-700">{error}</p>}
+      <p id={descriptionId} className="text-xs leading-5 text-muted-foreground">{description}</p>
+      {error && <p id={errorId} role="alert" className="text-sm text-destructive-foreground">{error}</p>}
     </div>
   )
 }
@@ -70,11 +70,11 @@ export function DesignationBootstrapFields({
 }) {
   return (
     <>
-      <section aria-labelledby="bootstrap-scope-title" className="rounded-lg border bg-slate-50 p-4">
-        <h3 id="bootstrap-scope-title" className="font-semibold text-slate-950">Alcance fijo de la importación</h3>
+      <section aria-labelledby="bootstrap-scope-title" className="rounded-lg border bg-muted/40 p-4">
+        <h3 id="bootstrap-scope-title" className="font-semibold text-foreground">Alcance fijo de la importación</h3>
         <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-          <div><dt className="text-slate-600">Período</dt><dd className="font-semibold text-slate-950">{DESIGNATION_BOOTSTRAP_PERIOD}</dd></div>
-          <div><dt className="text-slate-600">Vigente desde</dt><dd className="font-semibold text-slate-950">21 de agosto de 2026</dd></div>
+          <div><dt className="text-muted-foreground">Período</dt><dd className="font-semibold text-foreground">{DESIGNATION_BOOTSTRAP_PERIOD}</dd></div>
+          <div><dt className="text-muted-foreground">Vigente desde</dt><dd className="font-semibold text-foreground">21 de agosto de 2026</dd></div>
         </dl>
         <input type="hidden" value={DESIGNATION_BOOTSTRAP_EFFECTIVE_DATE} readOnly />
       </section>
@@ -89,14 +89,14 @@ export function DesignationBootstrapFields({
           aria-invalid={Boolean(fieldErrors.programIdentity)}
           aria-describedby={fieldErrors.programIdentity ? 'bootstrap-program-error' : 'bootstrap-program-description'}
           onChange={(event) => onProgramChange(event.target.value)}
-          className="h-11 w-full rounded-lg border border-input bg-white px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-red-600 md:text-sm"
+          className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive/32 md:text-sm"
         >
           <option value="">Seleccione un programa</option>
           {activePrograms.map((program) => <option key={program.id} value={program.code}>{program.code} · {program.name}</option>)}
         </select>
-        <p id="bootstrap-program-description" className="text-xs text-slate-600">El catálogo, los grupos y las ofertas deben estar preparados para II/2026.</p>
-        {fieldErrors.programIdentity && <p id="bootstrap-program-error" role="alert" className="text-sm text-red-700">{fieldErrors.programIdentity}</p>}
-        {!activePrograms.length && <p role="alert" className="text-sm text-red-700">No hay programas activos. Registre o active uno en Gestión académica antes de importar.</p>}
+        <p id="bootstrap-program-description" className="text-xs text-muted-foreground">El catálogo, los grupos y las ofertas deben estar preparados para II/2026.</p>
+        {fieldErrors.programIdentity && <p id="bootstrap-program-error" role="alert" className="text-sm text-destructive-foreground">{fieldErrors.programIdentity}</p>}
+        {!activePrograms.length && <p role="alert" className="text-sm text-destructive-foreground">No hay programas activos. Registre o active uno en Gestión académica antes de importar.</p>}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -122,8 +122,8 @@ export function DesignationBootstrapFields({
         />
       </div>
 
-      <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <summary className="cursor-pointer font-medium text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">Opciones avanzadas</summary>
+      <details className="rounded-lg border border-border bg-muted/40 p-3">
+        <summary className="cursor-pointer font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">Opciones avanzadas</summary>
         <div className="mt-3">
           <FileField
             id="bootstrap-alias-resolution"

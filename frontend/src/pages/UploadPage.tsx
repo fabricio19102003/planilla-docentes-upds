@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, AlertCircle, Loader2, Users } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { CheckCircle, AlertCircle, Info, Loader2, Users } from 'lucide-react'
 import { useImportTeacherProfiles, usePreviewDesignations, usePreviewTeacherProfiles, useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/api/hooks/useBiometric'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/api/client'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { BiometricUploadResult, DesignationImportPreview, DesignationUploadResponse, TeacherProfileImportPreview, TeacherProfileImportResult, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
@@ -18,6 +24,9 @@ const MONTH_NAMES: Record<number, string> = {
   5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
+
+const BIOMETRIC_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+const BIOMETRIC_MONTH_ITEMS = BIOMETRIC_MONTHS.map((m) => ({ value: String(m), label: MONTH_NAMES[m] }))
 
 const PROFILE_FIELD_LABELS: Record<string, string> = {
   email: 'Correo', phone: 'Teléfono', gender: 'Género', external_permanent: 'Tipo',
@@ -38,7 +47,7 @@ function getUploadErrorDetail(error: unknown): string {
 }
 
 const uploadHistoryColumns: Column<BiometricUpload>[] = [
-  { key: 'filename', header: 'Archivo' },
+  { key: 'filename', header: 'Archivo', className: 'font-medium' },
   {
     key: 'month',
     header: 'Período',
@@ -47,26 +56,52 @@ const uploadHistoryColumns: Column<BiometricUpload>[] = [
   {
     key: 'upload_date',
     header: 'Fecha de Subida',
+    className: 'tabular-nums',
     render: (item) => formatDate(item.upload_date),
   },
-  { key: 'total_records', header: 'Registros' },
-  { key: 'total_teachers', header: 'Docentes' },
+  { key: 'total_records', header: 'Registros', align: 'right' },
+  { key: 'total_teachers', header: 'Docentes', align: 'right' },
   {
     key: 'status',
     header: 'Estado',
     render: (item) => (
-      <Badge
-        className={
-          item.status === 'PROCESSED'
-            ? 'bg-green-100 text-green-700'
-            : 'bg-yellow-100 text-yellow-700'
-        }
-      >
+      <StatusBadge tone={item.status === 'PROCESSED' ? 'success' : 'warning'}>
         {item.status === 'PROCESSED' ? 'Procesado' : item.status}
-      </Badge>
+      </StatusBadge>
     ),
   },
 ]
+
+function UploadCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader className="border-b pb-4">
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
+  )
+}
+
+function UploadErrorAlert({ error }: { error: unknown }) {
+  return (
+    <Alert variant="error">
+      <AlertCircle />
+      <AlertTitle>Error al subir el archivo</AlertTitle>
+      <AlertDescription>{getUploadErrorDetail(error)}</AlertDescription>
+    </Alert>
+  )
+}
+
+function PendingLabel({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <Loader2 className="animate-spin" />
+      {children}
+    </>
+  )
+}
 
 export function UploadPage() {
   const currentYear = new Date().getFullYear()
@@ -77,11 +112,14 @@ export function UploadPage() {
   const [bioMonth, setBioMonth] = useState<number>(currentMonth)
   const [bioYear, setBioYear] = useState<number>(currentYear)
   const [bioResult, setBioResult] = useState<BiometricUploadResult | null>(null)
+  const [bioProgress, setBioProgress] = useState(0)
 
   // Designations state
   const [desFile, setDesFile] = useState<File | null>(null)
   const [desPreview, setDesPreview] = useState<DesignationImportPreview | null>(null)
   const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
+  const [desProgress, setDesProgress] = useState(0)
+  const [confirmDesApply, setConfirmDesApply] = useState(false)
   // The server value is only a suggested selection; importing never activates a period.
   const [academicPeriod, setAcademicPeriod] = useState('')
 
@@ -107,8 +145,9 @@ export function UploadPage() {
   const handleBioSubmit = () => {
     if (!bioFile) return
     setBioResult(null)
+    setBioProgress(0)
     uploadBiometric.mutate(
-      { file: bioFile, month: bioMonth, year: bioYear },
+      { file: bioFile, month: bioMonth, year: bioYear, onProgress: setBioProgress },
       {
         onSuccess: (data) => {
           setBioResult(data)
@@ -122,8 +161,9 @@ export function UploadPage() {
     if (!desFile || !academicPeriod.trim()) return
     setDesPreview(null)
     setDesResult(null)
+    setDesProgress(0)
     previewDesignations.mutate(
-      { file: desFile, academic_period: academicPeriod },
+      { file: desFile, academic_period: academicPeriod, onProgress: setDesProgress },
       {
         onSuccess: setDesPreview,
       },
@@ -132,9 +172,13 @@ export function UploadPage() {
 
   const handleDesApply = () => {
     if (!desFile || !desPreview?.can_apply) return
+    setDesProgress(0)
     uploadDesignations.mutate(
-      { file: desFile, academic_period: academicPeriod, confirmation_digest: desPreview.digest },
-      { onSuccess: (data) => { setDesResult(data); setDesPreview(null); setDesFile(null) } },
+      { file: desFile, academic_period: academicPeriod, confirmation_digest: desPreview.digest, onProgress: setDesProgress },
+      {
+        onSuccess: (data) => { setDesResult(data); setDesPreview(null); setDesFile(null) },
+        onSettled: () => setConfirmDesApply(false),
+      },
     )
   }
 
@@ -156,315 +200,293 @@ export function UploadPage() {
     )
   }
 
+  const desUploading = previewDesignations.isPending || uploadDesignations.isPending
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      <PageHeader
+        title="Carga de datos"
+        description="Subí el reporte biométrico, las designaciones y la lista de docentes del período."
+      />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
         {/* Biometric Upload */}
-        <div className="card-3d overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Reporte Biométrico</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Subí el archivo .xls exportado del sistema biométrico</p>
-          </div>
-          <div className="p-5 space-y-4">
-            <FileUploader
-              accept=".xls,.xlsx"
-              label="Seleccioná el reporte biométrico"
-              description="Archivo Excel exportado del reloj biométrico"
-              onFileSelect={(f) => setBioFile(f)}
-            />
+        <UploadCard title="Reporte Biométrico" description="Subí el archivo .xls exportado del sistema biométrico">
+          <FileUploader
+            accept=".xls,.xlsx"
+            label="Seleccioná el reporte biométrico"
+            description="Archivo Excel exportado del reloj biométrico"
+            onFileSelect={(f) => setBioFile(f)}
+            progress={uploadBiometric.isPending ? bioProgress : null}
+          />
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Mes</label>
-                <select
-                  value={bioMonth}
-                  onChange={(e) => setBioMonth(Number(e.target.value))}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                >
-                  {[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                    <option key={m} value={m}>{MONTH_NAMES[m]}</option>
+          <div className="grid grid-cols-2 gap-3">
+            <Field>
+              <FieldLabel>Mes</FieldLabel>
+              <Select
+                value={String(bioMonth)}
+                items={BIOMETRIC_MONTH_ITEMS}
+                onValueChange={(v) => setBioMonth(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {BIOMETRIC_MONTH_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
                   ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Año</label>
-                <input
-                  type="number"
-                  value={bioYear}
-                  onChange={(e) => setBioYear(Number(e.target.value))}
-                  min={2020}
-                  max={2030}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                />
-              </div>
-            </div>
-
-            <Button
-              onClick={handleBioSubmit}
-              disabled={!bioFile || uploadBiometric.isPending}
-              className="w-full h-10"
-              style={{ backgroundColor: '#003366' }}
-            >
-              {uploadBiometric.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Subiendo...
-                </>
-              ) : (
-                'Subir Reporte Biométrico'
-              )}
-            </Button>
-
-            {uploadBiometric.isError && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
-                  <p className="text-xs text-red-500 mt-0.5">
-                    {getUploadErrorDetail(uploadBiometric.error)}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {bioResult && (
-              <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-green-700">¡Archivo subido exitosamente!</p>
-                  <p className="text-xs text-green-600 mt-0.5">
-                    {bioResult.records_count} registros de {bioResult.teachers_found} docentes
-                  </p>
-                  {bioResult.warnings.length > 0 && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      {bioResult.warnings.length} advertencia(s)
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+                </SelectPopup>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel>Año</FieldLabel>
+              <Input
+                type="number"
+                value={bioYear}
+                onChange={(e) => setBioYear(Number(e.target.value))}
+                min={2020}
+                max={2030}
+                inputClassName="tabular-nums"
+              />
+            </Field>
           </div>
-        </div>
+
+          <Button
+            onClick={handleBioSubmit}
+            disabled={!bioFile || uploadBiometric.isPending}
+            size="lg"
+            className="w-full"
+          >
+            {uploadBiometric.isPending ? <PendingLabel>Subiendo...</PendingLabel> : 'Subir Reporte Biométrico'}
+          </Button>
+
+          {uploadBiometric.isError && <UploadErrorAlert error={uploadBiometric.error} />}
+
+          {bioResult && (
+            <Alert variant="success">
+              <CheckCircle />
+              <AlertTitle>¡Archivo subido exitosamente!</AlertTitle>
+              <AlertDescription>
+                <p>{bioResult.records_count} registros de {bioResult.teachers_found} docentes</p>
+                {bioResult.warnings.length > 0 && (
+                  <p className="text-warning-foreground">{bioResult.warnings.length} advertencia(s)</p>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+        </UploadCard>
 
         {/* Designations Upload */}
-        <div className="card-3d overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Designaciones Docentes</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Subí el archivo de designaciones docentes (JSON o Excel)</p>
-          </div>
-          <div className="p-5 space-y-4">
-            <FileUploader
-              accept=".json,.xlsx"
-              label="Seleccioná el archivo de designaciones"
-              description="Archivo JSON o Excel con las designaciones del semestre"
-              onFileSelect={(f) => { setDesFile(f); setDesPreview(null); setDesResult(null) }}
+        <UploadCard title="Designaciones Docentes" description="Subí el archivo de designaciones docentes (JSON o Excel)">
+          <FileUploader
+            accept=".json,.xlsx"
+            label="Seleccioná el archivo de designaciones"
+            description="Archivo JSON o Excel con las designaciones del semestre"
+            onFileSelect={(f) => { setDesFile(f); setDesPreview(null); setDesResult(null) }}
+            progress={desUploading ? desProgress : null}
+          />
+
+          <Field>
+            <FieldLabel>Período Académico</FieldLabel>
+            <Input
+              value={academicPeriod}
+              onChange={e => { setAcademicPeriod(e.target.value); setDesPreview(null); setDesResult(null) }}
+              placeholder="Ej: I/2026, II/2025"
             />
+            <FieldDescription>La importación usa este período, pero no lo activa automáticamente.</FieldDescription>
+          </Field>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium text-gray-700">Período Académico</Label>
-              <Input
-                value={academicPeriod}
-                onChange={e => { setAcademicPeriod(e.target.value); setDesPreview(null); setDesResult(null) }}
-                placeholder="Ej: I/2026, II/2025"
-                className="text-sm"
-              />
-              <p className="text-xs text-gray-400">La importación usa este período, pero no lo activa automáticamente.</p>
-            </div>
+          <Button
+            onClick={handleDesPreview}
+            disabled={!desFile || !academicPeriod.trim() || previewDesignations.isPending || uploadDesignations.isPending}
+            size="lg"
+            className="w-full"
+          >
+            {previewDesignations.isPending ? <PendingLabel>Validando...</PendingLabel> : 'Generar vista previa'}
+          </Button>
 
-            <Button
-              onClick={handleDesPreview}
-              disabled={!desFile || !academicPeriod.trim() || previewDesignations.isPending || uploadDesignations.isPending}
-              className="w-full h-10"
-              style={{ backgroundColor: '#003366' }}
-            >
-              {previewDesignations.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Validando...
-                </>
-              ) : (
-                'Generar vista previa'
-              )}
-            </Button>
+          {(previewDesignations.isError || uploadDesignations.isError) && (
+            <UploadErrorAlert error={previewDesignations.error ?? uploadDesignations.error} />
+          )}
 
-            {(previewDesignations.isError || uploadDesignations.isError) && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
-                  <p className="text-xs text-red-500 mt-0.5">
-                    {getUploadErrorDetail(previewDesignations.error ?? uploadDesignations.error)}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {desPreview && (
-              <div className={`space-y-3 rounded-lg border p-3 ${desPreview.can_apply ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'}`}>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Vista previa: {desPreview.total_rows} filas · {desPreview.academic_period}</p>
-                  <p className="text-xs text-gray-600 mt-1">Formato: {desPreview.parsed_format}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-1 text-xs text-gray-700">
+          {desPreview && (
+            <>
+              <Alert variant={desPreview.can_apply ? 'info' : 'error'}>
+                {desPreview.can_apply ? <Info /> : <AlertCircle />}
+                <AlertTitle>Vista previa: {desPreview.total_rows} filas · {desPreview.academic_period}</AlertTitle>
+                <AlertDescription className="gap-1 text-xs tabular-nums">
+                  <p>Formato: {desPreview.parsed_format}</p>
                   <p>Docentes: {desPreview.teachers.creates} nuevos · {desPreview.teachers.updates} actualizaciones · {desPreview.teachers.noops} sin cambios</p>
                   <p>Designaciones: {desPreview.designations.creates} nuevas · {desPreview.designations.updates} actualizaciones · {desPreview.designations.noops} sin cambios</p>
                   <p>Usuarios: {desPreview.users.creates} nuevos · {desPreview.users.updates} vinculaciones · {desPreview.users.noops} sin cambios</p>
-                </div>
-                {desPreview.warnings.map((warning, index) => <p key={`warning-${index}`} className="text-xs text-yellow-700">{warning}</p>)}
-                {desPreview.errors.map((error, index) => <p key={`error-${index}`} className="text-xs text-red-700">{error}</p>)}
-                <Button
-                  onClick={handleDesApply}
-                  disabled={!desPreview.can_apply || uploadDesignations.isPending}
-                  className="w-full h-10"
-                  style={{ backgroundColor: '#003366' }}
-                >
-                  {uploadDesignations.isPending ? <><Loader2 size={16} className="animate-spin mr-2" />Aplicando...</> : 'Confirmar e importar'}
-                </Button>
-              </div>
-            )}
+                  {desPreview.warnings.map((warning, index) => <p key={`warning-${index}`} className="text-warning-foreground">{warning}</p>)}
+                  {desPreview.errors.map((error, index) => <p key={`error-${index}`} className="text-destructive-foreground">{error}</p>)}
+                </AlertDescription>
+              </Alert>
+              <Button
+                onClick={() => setConfirmDesApply(true)}
+                disabled={!desPreview.can_apply || uploadDesignations.isPending}
+                size="lg"
+                className="w-full"
+              >
+                {uploadDesignations.isPending ? <PendingLabel>Aplicando...</PendingLabel> : 'Confirmar e importar'}
+              </Button>
+            </>
+          )}
 
-            {desResult && (
-              <div className="space-y-3">
-                <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                  <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-green-700">¡Designaciones cargadas!</p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      {desResult.total_rows} filas aplicadas · {desResult.designations.creates} nuevas · {desResult.designations.updates} actualizadas · {desResult.designations.noops} sin cambios
-                    </p>
-                    {desResult.warnings.length > 0 && (
-                      <p className="text-xs text-yellow-600 mt-1">
-                        {desResult.warnings.length} advertencia(s)
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {desResult.users.creates > 0 && (
-                  <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <Users size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-semibold text-blue-700">
-                        {desResult.users.creates} usuarios docentes creados automáticamente
-                      </p>
-                      <p className="text-xs text-blue-600 mt-0.5">
-                        Los docentes deberán solicitar el restablecimiento de su contraseña al administrador
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Teacher List Upload */}
-        <div className="card-3d overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Docentes</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Completá perfiles existentes con vista previa y confirmación</p>
-          </div>
-          <div className="p-5 space-y-4">
-            <FileUploader
-              accept=".json"
-              label="Seleccioná el sobre auditado de perfiles"
-              description="JSON audit_envelope; nunca sobrescribe valores existentes"
-              onFileSelect={(f) => { setTeacherFile(f); setTeacherPreview(null); setTeacherResult(null) }}
-            />
-
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium text-gray-700">Período Académico</Label>
-              <Input
-                value={teacherPeriod}
-                onChange={e => { setTeacherPeriod(e.target.value); setTeacherPreview(null); setTeacherResult(null) }}
-                placeholder="Ej: II/2026"
-              />
-              <p className="text-xs text-gray-400">Sólo completa campos vacíos. No activa períodos, elimina datos ni modifica accesos.</p>
-            </div>
-
-            <Button
-              onClick={handleTeacherPreview}
-              disabled={!teacherFile || !teacherPeriod.trim() || previewTeacherProfiles.isPending || importTeacherProfiles.isPending}
-              className="w-full h-10"
-              style={{ backgroundColor: '#003366' }}
-            >
-              {previewTeacherProfiles.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Validando...
-                </>
-              ) : (
-                'Generar vista previa'
-              )}
-            </Button>
-
-            {(previewTeacherProfiles.isError || importTeacherProfiles.isError) && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-red-600 font-medium">Error al subir el archivo</p>
-                  <p className="text-xs text-red-500 mt-0.5">
-                    {getUploadErrorDetail(previewTeacherProfiles.error ?? importTeacherProfiles.error)}
+          {desResult && (
+            <>
+              <Alert variant="success">
+                <CheckCircle />
+                <AlertTitle>¡Designaciones cargadas!</AlertTitle>
+                <AlertDescription>
+                  <p>
+                    {desResult.total_rows} filas aplicadas · {desResult.designations.creates} nuevas · {desResult.designations.updates} actualizadas · {desResult.designations.noops} sin cambios
                   </p>
-                </div>
-              </div>
-            )}
+                  {desResult.warnings.length > 0 && (
+                    <p className="text-warning-foreground">{desResult.warnings.length} advertencia(s)</p>
+                  )}
+                </AlertDescription>
+              </Alert>
+              {desResult.users.creates > 0 && (
+                <Alert variant="info">
+                  <Users />
+                  <AlertTitle>{desResult.users.creates} usuarios docentes creados automáticamente</AlertTitle>
+                  <AlertDescription>
+                    Los docentes deberán solicitar el restablecimiento de su contraseña al administrador
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
+          )}
+        </UploadCard>
 
-            {teacherPreview && (
-              <div className={`space-y-3 rounded-lg border p-3 ${teacherPreview.can_apply ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'}`}>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Vista previa: {teacherPreview.total_rows} perfiles · {teacherPreview.academic_period}</p>
-                  <p className="text-xs text-gray-600 mt-1">Formato: {teacherPreview.parsed_format} · Alcance: {teacherPreview.scope} · Política: completar vacíos</p>
-                  <p className="text-xs text-gray-600 mt-1">Identidades: {teacherPreview.identity.matched} coincidentes · {teacherPreview.identity.missing} ausentes · {teacherPreview.identity.conflicts} conflictos</p>
-                </div>
-                <div className="max-h-56 overflow-auto rounded border border-gray-200 bg-white">
-                  <table className="w-full text-xs">
-                    <thead><tr className="bg-gray-50"><th className="p-1.5 text-left">Campo</th><th>Crear*</th><th>Completar</th><th>Igual</th><th>Conflicto</th><th>Sin dato</th></tr></thead>
-                    <tbody>
-                      {Object.entries(teacherPreview.fields).map(([name, counts]) => (
-                        <tr key={name} className="border-t"><td className="p-1.5">{PROFILE_FIELD_LABELS[name] ?? name}</td><td className="text-center text-red-600">{counts.creates}</td><td className="text-center">{counts.fills}</td><td className="text-center">{counts.noops}</td><td className="text-center text-red-600">{counts.conflicts}</td><td className="text-center">{counts.missing}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="text-[11px] text-gray-500">* “Crear” indica un CI ausente y bloquea la importación; este flujo no crea docentes.</p>
-                {teacherPreview.warnings.map((warning, index) => <p key={`teacher-warning-${index}`} className="text-xs text-yellow-700">{warning}</p>)}
-                {teacherPreview.errors.map((error, index) => <p key={`teacher-error-${index}`} className="text-xs text-red-700">{error}</p>)}
-                <Button onClick={handleTeacherApply} disabled={!teacherPreview.can_apply || importTeacherProfiles.isPending} className="w-full h-10" style={{ backgroundColor: '#003366' }}>
-                  {importTeacherProfiles.isPending ? <><Loader2 size={16} className="animate-spin mr-2" />Aplicando...</> : 'Confirmar e importar'}
-                </Button>
-              </div>
-            )}
+        {/* Teacher List Upload */}
+        <UploadCard title="Lista de Docentes" description="Completá perfiles existentes con vista previa y confirmación">
+          <FileUploader
+            accept=".json"
+            label="Seleccioná el sobre auditado de perfiles"
+            description="JSON audit_envelope; nunca sobrescribe valores existentes"
+            onFileSelect={(f) => { setTeacherFile(f); setTeacherPreview(null); setTeacherResult(null) }}
+          />
 
-            {teacherResult && (
-              <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-green-700">¡Perfiles completados!</p>
-                  <p className="text-xs text-green-600 mt-0.5">{teacherResult.total_rows} filas confirmadas · {teacherResult.rows_with_fills} docentes con campos completados</p>
-                  <p className="text-xs text-green-600 mt-1">No se activó ningún período ni se modificaron contraseñas o accesos.</p>
-                  </div>
+          <Field>
+            <FieldLabel>Período Académico</FieldLabel>
+            <Input
+              value={teacherPeriod}
+              onChange={e => { setTeacherPeriod(e.target.value); setTeacherPreview(null); setTeacherResult(null) }}
+              placeholder="Ej: II/2026"
+            />
+            <FieldDescription>Sólo completa campos vacíos. No activa períodos, elimina datos ni modifica accesos.</FieldDescription>
+          </Field>
+
+          <Button
+            onClick={handleTeacherPreview}
+            disabled={!teacherFile || !teacherPeriod.trim() || previewTeacherProfiles.isPending || importTeacherProfiles.isPending}
+            size="lg"
+            className="w-full"
+          >
+            {previewTeacherProfiles.isPending ? <PendingLabel>Validando...</PendingLabel> : 'Generar vista previa'}
+          </Button>
+
+          {(previewTeacherProfiles.isError || importTeacherProfiles.isError) && (
+            <UploadErrorAlert error={previewTeacherProfiles.error ?? importTeacherProfiles.error} />
+          )}
+
+          {teacherPreview && (
+            <>
+              <Alert variant={teacherPreview.can_apply ? 'info' : 'error'}>
+                {teacherPreview.can_apply ? <Info /> : <AlertCircle />}
+                <AlertTitle>Vista previa: {teacherPreview.total_rows} perfiles · {teacherPreview.academic_period}</AlertTitle>
+                <AlertDescription className="gap-1 text-xs tabular-nums">
+                  <p>Formato: {teacherPreview.parsed_format} · Alcance: {teacherPreview.scope} · Política: completar vacíos</p>
+                  <p>Identidades: {teacherPreview.identity.matched} coincidentes · {teacherPreview.identity.missing} ausentes · {teacherPreview.identity.conflicts} conflictos</p>
+                  {teacherPreview.warnings.map((warning, index) => <p key={`teacher-warning-${index}`} className="text-warning-foreground">{warning}</p>)}
+                  {teacherPreview.errors.map((error, index) => <p key={`teacher-error-${index}`} className="text-destructive-foreground">{error}</p>)}
+                </AlertDescription>
+              </Alert>
+              <div className="max-h-56 overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Campo</TableHead>
+                      <TableHead className="text-right">Crear*</TableHead>
+                      <TableHead className="text-right">Completar</TableHead>
+                      <TableHead className="text-right">Igual</TableHead>
+                      <TableHead className="text-right">Conflicto</TableHead>
+                      <TableHead className="text-right">Sin dato</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(teacherPreview.fields).map(([name, counts]) => (
+                      <TableRow key={name}>
+                        <TableCell>{PROFILE_FIELD_LABELS[name] ?? name}</TableCell>
+                        <TableCell className="text-right tabular-nums text-destructive-foreground">{counts.creates}</TableCell>
+                        <TableCell className="text-right tabular-nums">{counts.fills}</TableCell>
+                        <TableCell className="text-right tabular-nums">{counts.noops}</TableCell>
+                        <TableCell className="text-right tabular-nums text-destructive-foreground">{counts.conflicts}</TableCell>
+                        <TableCell className="text-right tabular-nums">{counts.missing}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
-            )}
-          </div>
-        </div>
+              <p className="text-xs text-muted-foreground">* “Crear” indica un CI ausente y bloquea la importación; este flujo no crea docentes.</p>
+              <Button onClick={handleTeacherApply} disabled={!teacherPreview.can_apply || importTeacherProfiles.isPending} size="lg" className="w-full">
+                {importTeacherProfiles.isPending ? <PendingLabel>Aplicando...</PendingLabel> : 'Confirmar e importar'}
+              </Button>
+            </>
+          )}
+
+          {teacherResult && (
+            <Alert variant="success">
+              <CheckCircle />
+              <AlertTitle>¡Perfiles completados!</AlertTitle>
+              <AlertDescription>
+                <p>{teacherResult.total_rows} filas confirmadas · {teacherResult.rows_with_fills} docentes con campos completados</p>
+                <p>No se activó ningún período ni se modificaron contraseñas o accesos.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+        </UploadCard>
       </div>
 
       {/* Upload History */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Subidas</h3>
-        </div>
-        <div className="p-5">
-          {historyLoading ? (
-            <LoadingPage />
-          ) : (
-            <DataTable
-              columns={uploadHistoryColumns}
-              data={history ?? []}
-              emptyMessage="No hay subidas registradas aún"
-            />
-          )}
-        </div>
-      </div>
+      <section className="space-y-3">
+        <h3 className="text-base font-semibold text-foreground">Historial de Subidas</h3>
+        <DataTable
+          columns={uploadHistoryColumns}
+          data={history ?? []}
+          loading={historyLoading}
+          emptyMessage="No hay subidas registradas aún"
+        />
+      </section>
+
+      <ConfirmAlertDialog
+        summary={
+          confirmDesApply && desPreview && desFile
+            ? {
+                title: 'Importar designaciones',
+                confirmLabel: 'Importar designaciones',
+                rows: [
+                  { label: 'Archivo', value: desFile.name },
+                  { label: 'Período académico', value: desPreview.academic_period },
+                  { label: 'Filas', value: String(desPreview.total_rows) },
+                  { label: 'Docentes', value: `${desPreview.teachers.creates} nuevos · ${desPreview.teachers.updates} actualizaciones` },
+                  { label: 'Designaciones', value: `${desPreview.designations.creates} nuevas · ${desPreview.designations.updates} actualizaciones` },
+                  { label: 'Usuarios', value: `${desPreview.users.creates} nuevos · ${desPreview.users.updates} vinculaciones` },
+                ],
+                warning: desPreview.teachers.updates + desPreview.designations.updates + desPreview.users.updates > 0
+                  ? 'Las actualizaciones modifican docentes, designaciones y usuarios ya guardados.'
+                  : null,
+                consequence: 'Los datos se guardan en SIPAD y afectan la planilla del período. No se activa el período académico.',
+              }
+            : null
+        }
+        pending={uploadDesignations.isPending}
+        onConfirm={handleDesApply}
+        onCancel={() => setConfirmDesApply(false)}
+      />
     </div>
   )
 }

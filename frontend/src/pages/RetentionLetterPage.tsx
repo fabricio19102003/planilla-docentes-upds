@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useMyProfile, useMySchedule, downloadRetentionLetter } from '@/api/hooks/useAuth'
 import type { RetentionLetterPayload } from '@/api/hooks/useAuth'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectItem,
@@ -11,7 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { FileText, Download, Loader2 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { AlertCircle, CheckCircle2, FileText, Download, Info, Loader2 } from 'lucide-react'
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +46,8 @@ interface PreviewProps {
   form: RetentionLetterPayload
 }
 
+// The letter is a sheet of paper: it keeps its serif body, its A4-like width and its own spacing so it
+// reads and prints the same as the generated PDF. Only the colors come from theme tokens.
 function LetterPreview({ teacherName, teacherCi, materias, form }: PreviewProps) {
   const today = new Date()
   const dia = today.getDate()
@@ -51,37 +57,37 @@ function LetterPreview({ teacherName, teacherCi, materias, form }: PreviewProps)
   const materiasText = materias.length > 0 ? materias.join(', ') : '—'
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-        <FileText size={14} className="text-gray-400" />
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-3">
+        <FileText size={14} className="text-muted-foreground" aria-hidden="true" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Vista previa de la carta
         </span>
       </div>
 
       {/* A4-style letter area */}
-      <div className="p-8 font-serif text-[13px] leading-relaxed text-gray-900 max-w-[680px] mx-auto">
+      <div className="mx-auto max-w-[680px] p-8 font-serif text-[13px] leading-relaxed text-foreground">
         {/* Logo placeholder */}
-        <div className="flex justify-center mb-6">
-          <div className="w-10 h-10 rounded-full bg-[#003366]/10 flex items-center justify-center">
-            <span className="text-[#003366] font-black text-sm">S</span>
+        <div className="mb-6 flex justify-center">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+            <span className="text-sm font-semibold text-primary">S</span>
           </div>
         </div>
 
         {/* Date */}
-        <p className="text-right mb-10">
+        <p className="mb-10 text-right">
           Cobija, {dia} de {mesHoy} de {anioHoy}
         </p>
 
         {/* Addressee */}
         <p className="mb-1">Lic. Luis Michel Bravo Alencar</p>
-        <p className="font-bold mb-1">
+        <p className="mb-1 font-bold">
           RECTOR DE LA UNIVERSIDAD PRIVADA DOMINGO SAVIO – UNIPANDO S.R.L.
         </p>
-        <p className="font-bold mb-10">PRESENTE.-</p>
+        <p className="mb-10 font-bold">PRESENTE.-</p>
 
         {/* Reference */}
-        <p className="text-right font-bold underline mb-8">
+        <p className="mb-8 text-right font-bold underline">
           Ref.- SOLICITUD DE RETENCIÓN DE IMPUESTO RC-IVA 13%
         </p>
 
@@ -89,7 +95,7 @@ function LetterPreview({ teacherName, teacherCi, materias, form }: PreviewProps)
         <p className="mb-4">De mi consideración:</p>
 
         {/* Body */}
-        <p className="text-justify mb-6">
+        <p className="mb-6 text-justify">
           Por medio de la presente me dirijo a su autoridad con la finalidad de solicitarle
           la retención de impuesto de mis honorarios de acuerdo al contrato del Periodo{' '}
           <span className="font-semibold">{form.periodo || '[Período]'}</span> por concepto
@@ -111,7 +117,7 @@ function LetterPreview({ teacherName, teacherCi, materias, form }: PreviewProps)
         </div>
 
         {/* Farewell */}
-        <p className="text-justify mb-16">
+        <p className="mb-16 text-justify">
           Sin otro particular no dudando de su colaboración, aprovecho la oportunidad para saludar
           a Ud. con las consideraciones más distinguidas.
         </p>
@@ -120,13 +126,13 @@ function LetterPreview({ teacherName, teacherCi, materias, form }: PreviewProps)
 
         {/* Signature */}
         <div className="text-center">
-          <p className="border-t border-gray-400 inline-block px-8 mb-1 pt-1">
+          <p className="mb-1 inline-block border-t border-foreground/40 px-8 pt-1">
             {form.titulo || '[Título]'} {teacherName}
           </p>
-          <p className="text-gray-600">C.I. {teacherCi}</p>
+          <p className="text-muted-foreground">C.I. {teacherCi}</p>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -197,197 +203,213 @@ export function RetentionLetterPage() {
 
   const isLoading = loadingProfile || loadingSchedule
 
+  const header = (
+    <PageHeader
+      title="Carta de Retención RC-IVA"
+      description="Generá tu carta de solicitud de retención de impuesto"
+    />
+  )
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
+      <div className="max-w-4xl">
+        {header}
+        <div role="status" aria-busy="true" className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <span className="sr-only">Cargando datos de la carta</span>
+          <Skeleton className="h-96 rounded-2xl" />
+          <Skeleton className="h-96 rounded-2xl" />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="max-w-4xl space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="gradient-navy rounded-xl p-4 text-white animate-fade-in motion-reduce:animate-none sm:p-6">
-        <div className="flex items-start gap-3 sm:items-center sm:gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <FileText size={24} className="text-white" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold sm:text-xl">Carta de Retención RC-IVA</h2>
-            <p className="text-white/70 mt-0.5">
-              Generá tu carta de solicitud de retención de impuesto
-            </p>
-          </div>
-        </div>
-      </div>
+      {header}
 
       {noRetention && (
-        <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Vos emitís factura: no necesitás carta de retención.
-        </div>
+        <Alert variant="info" role="status">
+          <Info aria-hidden="true" />
+          <AlertDescription className="text-info-foreground">
+            Vos emitís factura: no necesitás carta de retención.
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Form card */}
-        <fieldset disabled={noRetention} className="card-3d-static min-w-0 space-y-5 p-4 disabled:opacity-60 sm:p-6">
-          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-            Datos de la carta
-          </h3>
+        <Card>
+          <fieldset disabled={noRetention} className="min-w-0 space-y-5 p-4 disabled:opacity-60 sm:p-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+              Datos de la carta
+            </h3>
 
-          {/* Auto-filled read-only data */}
-          <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-            <p>
-              <span className="text-gray-500">Nombre:</span>{' '}
-              <span className="font-medium">{profile?.full_name ?? '—'}</span>
-            </p>
-            <p>
-              <span className="text-gray-500">C.I.:</span>{' '}
-              <span className="font-medium">{profile?.ci ?? '—'}</span>
-            </p>
-            <p>
-              <span className="text-gray-500">Materias:</span>{' '}
-              <span className="font-medium">
-                {materias.length > 0 ? materias.join(', ') : '—'}
-              </span>
-            </p>
-          </div>
+            {/* Auto-filled read-only data */}
+            <div className="space-y-2 rounded-lg bg-muted/50 p-4 text-sm">
+              <p>
+                <span className="text-muted-foreground">Nombre:</span>{' '}
+                <span className="font-medium">{profile?.full_name ?? '—'}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">C.I.:</span>{' '}
+                <span className="font-medium tabular-nums">{profile?.ci ?? '—'}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Materias:</span>{' '}
+                <span className="font-medium">
+                  {materias.length > 0 ? materias.join(', ') : '—'}
+                </span>
+              </p>
+            </div>
 
-          {/* Form fields */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* Título */}
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="retention-title">Título profesional *</Label>
-              <Select
-                value={form.titulo || null}
-                items={TITULOS}
-                onValueChange={(v) => setForm((f) => ({ ...f, titulo: v ?? '' }))}
-              >
-                <SelectTrigger
-                  id="retention-title"
+            {/* Form fields */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Título */}
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor="retention-title">Título profesional *</FieldLabel>
+                <Select
+                  value={form.titulo || null}
+                  items={TITULOS}
+                  onValueChange={(v) => setForm((f) => ({ ...f, titulo: v ?? '' }))}
+                >
+                  <SelectTrigger
+                    id="retention-title"
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'retention-form-error' : undefined}
+                  >
+                    <SelectValue placeholder="Seleccionar..." />
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {TITULOS.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
+
+              {/* Matrícula */}
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor="retention-registration">Matrícula profesional *</FieldLabel>
+                <Input
+                  id="retention-registration"
+                  value={form.matricula}
+                  onChange={(e) => setForm((f) => ({ ...f, matricula: e.target.value }))}
+                  placeholder="Ej: MP-12345"
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'retention-form-error' : undefined}
+                />
+              </Field>
+
+              {/* Mes de cobro */}
+              <Field>
+                <FieldLabel htmlFor="retention-month">Mes de cobro *</FieldLabel>
+                <Select
+                  value={String(form.mes_cobro)}
+                  items={MONTH_NAMES}
+                  onValueChange={(v) => setForm((f) => ({ ...f, mes_cobro: v ? Number(v) : f.mes_cobro }))}
                 >
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectPopup>
-                  {TITULOS.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </div>
+                  <SelectTrigger
+                    id="retention-month"
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'retention-form-error' : undefined}
+                  >
+                    <SelectValue placeholder="Seleccionar mes..." />
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {Object.entries(MONTH_NAMES).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
 
-            {/* Matrícula */}
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="retention-registration">Matrícula profesional *</Label>
-              <Input
-                id="retention-registration"
-                value={form.matricula}
-                onChange={(e) => setForm((f) => ({ ...f, matricula: e.target.value }))}
-                placeholder="Ej: MP-12345"
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'retention-form-error' : undefined}
-              />
-            </div>
-
-            {/* Mes de cobro */}
-            <div className="space-y-1.5">
-              <Label htmlFor="retention-month">Mes de cobro *</Label>
-              <Select
-                value={String(form.mes_cobro)}
-                items={MONTH_NAMES}
-                onValueChange={(v) => setForm((f) => ({ ...f, mes_cobro: v ? Number(v) : f.mes_cobro }))}
-              >
-                <SelectTrigger
-                  id="retention-month"
+              {/* Año de cobro */}
+              <Field>
+                <FieldLabel htmlFor="retention-year">Año de cobro *</FieldLabel>
+                <Input
+                  id="retention-year"
+                  type="number"
+                  value={form.anio_cobro}
+                  onChange={(e) => setForm((f) => ({ ...f, anio_cobro: Number(e.target.value) }))}
+                  placeholder="2026"
+                  min={2020}
+                  max={2100}
+                  inputClassName="tabular-nums"
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'retention-form-error' : undefined}
-                >
-                  <SelectValue placeholder="Seleccionar mes..." />
-                </SelectTrigger>
-                <SelectPopup>
-                  {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>
-                      {v}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+                />
+              </Field>
+
+              {/* Período académico */}
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor="retention-period">Período académico *</FieldLabel>
+                <Input
+                  id="retention-period"
+                  value={form.periodo}
+                  onChange={(e) => setForm((f) => ({ ...f, periodo: e.target.value }))}
+                  placeholder="Ej: I/2026"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'retention-form-error' : undefined}
+                />
+              </Field>
             </div>
 
-            {/* Año de cobro */}
-            <div className="space-y-1.5">
-              <Label htmlFor="retention-year">Año de cobro *</Label>
-              <Input
-                id="retention-year"
-                type="number"
-                value={form.anio_cobro}
-                onChange={(e) => setForm((f) => ({ ...f, anio_cobro: Number(e.target.value) }))}
-                placeholder="2026"
-                min={2020}
-                max={2100}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'retention-form-error' : undefined}
-              />
-            </div>
-
-            {/* Período académico */}
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="retention-period">Período académico *</Label>
-              <Input
-                id="retention-period"
-                value={form.periodo}
-                onChange={(e) => setForm((f) => ({ ...f, periodo: e.target.value }))}
-                placeholder="Ej: I/2026"
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'retention-form-error' : undefined}
-              />
-            </div>
-          </div>
-
-          {/* Error / success messages */}
-          {error && (
-            <div id="retention-form-error" role="alert" className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          {success && (
-            <div role="status" aria-live="polite" className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
-              ✓ Carta generada y descargada exitosamente.
-            </div>
-          )}
-
-          {/* Generate button */}
-          <Button
-            type="button"
-            onClick={handleGenerate}
-            disabled={isGenerating || !isFormValid || noRetention}
-            className="w-full gap-2 text-white"
-            style={{ backgroundColor: '#003366' }}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
-                Generando...
-              </>
-            ) : (
-              <>
-                <Download size={16} />
-                Generar y Descargar PDF
-              </>
+            {/* Error / success messages */}
+            {error && (
+              <Alert id="retention-form-error" variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription className="text-destructive-foreground">{error}</AlertDescription>
+              </Alert>
             )}
-          </Button>
-        </fieldset>
+            {success && (
+              <Alert variant="success" role="status" aria-live="polite">
+                <CheckCircle2 aria-hidden="true" />
+                <AlertDescription className="text-success-foreground">
+                  ✓ Carta generada y descargada exitosamente.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Generate button */}
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={handleGenerate}
+                disabled={isGenerating || !isFormValid || noRetention}
+                aria-describedby={!isFormValid && !noRetention ? 'retention-generate-hint' : undefined}
+                className="w-full gap-2"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    Generando...
+                  </>
+                ) : (
+                  <>
+                    <Download size={16} aria-hidden="true" />
+                    Generar y Descargar PDF
+                  </>
+                )}
+              </Button>
+              {!isFormValid && !noRetention && (
+                <p id="retention-generate-hint" className="text-xs text-muted-foreground">
+                  Completá los campos marcados con * para generar la carta.
+                </p>
+              )}
+            </div>
+          </fieldset>
+        </Card>
 
         {/* Preview */}
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
             Vista previa
           </h3>
-          <div className="overflow-y-auto max-h-[640px] rounded-xl border border-gray-100 shadow-sm">
+          <div className="max-h-[640px] overflow-y-auto rounded-2xl">
             <LetterPreview
               teacherName={profile?.full_name ?? ''}
               teacherCi={profile?.ci ?? ''}

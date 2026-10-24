@@ -2,13 +2,25 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useChangePassword } from '@/api/hooks/useAuth'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Logo } from '@/components/layout/Logo'
 import { consumePostLoginReturnUrl } from '@/api/client'
+import { cn } from '@/lib/utils'
 import { AlertCircle, CheckCircle2, XCircle, Lock, Eye, EyeOff } from 'lucide-react'
 
 // ─── Password strength bar ────────────────────────────────────────────────────
+
+const STRENGTH_BAR = ['bg-destructive', 'bg-warning', 'bg-warning', 'bg-success']
+const STRENGTH_TEXT = [
+  'text-destructive-foreground',
+  'text-warning-foreground',
+  'text-warning-foreground',
+  'text-success-foreground',
+]
 
 function PasswordStrengthBar({ password }: { password: string }) {
   const checks = [
@@ -18,36 +30,24 @@ function PasswordStrengthBar({ password }: { password: string }) {
     /\d/.test(password),
   ]
   const strength = checks.filter(Boolean).length
-  const colors = ['bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500']
   const labels = ['Débil', 'Regular', 'Buena', 'Fuerte']
 
   if (!password) return null
 
   return (
-    <div className="space-y-1.5 mt-2">
+    <div className="mt-2 w-full space-y-1.5">
       <div className="flex gap-1">
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
-              i < strength ? colors[strength - 1] : 'bg-gray-200'
-            }`}
+            className={cn(
+              'h-1.5 flex-1 rounded-full transition-colors duration-300',
+              i < strength ? STRENGTH_BAR[strength - 1] : 'bg-muted',
+            )}
           />
         ))}
       </div>
-      <p
-        className={`text-xs font-medium ${
-          strength <= 1
-            ? 'text-red-400'
-            : strength === 2
-              ? 'text-orange-400'
-              : strength === 3
-                ? 'text-yellow-400'
-                : 'text-green-400'
-        }`}
-      >
-        {labels[strength - 1] ?? ''}
-      </p>
+      <p className={cn('text-xs font-medium', STRENGTH_TEXT[strength - 1])}>{labels[strength - 1] ?? ''}</p>
     </div>
   )
 }
@@ -58,29 +58,61 @@ function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2">
       {passes ? (
-        <CheckCircle2 size={13} className="text-green-400 flex-shrink-0" />
+        <CheckCircle2 size={13} className="shrink-0 text-success-foreground" aria-hidden="true" />
       ) : (
-        <XCircle size={13} className="text-white/30 flex-shrink-0" />
+        <XCircle size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
       )}
-      <span className={`text-xs ${passes ? 'text-green-300' : 'text-white/50'}`}>{label}</span>
+      <span className={cn('text-xs', passes ? 'text-success-foreground' : 'text-muted-foreground')}>{label}</span>
     </div>
   )
 }
 
-// ─── UPDSLogo (same as LoginPage) ─────────────────────────────────────────────
-
-function UPDSLogo() {
+function PasswordInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  invalid,
+  describedBy,
+  visible,
+  onToggle,
+  toggleLabel,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  disabled: boolean
+  invalid: boolean
+  describedBy?: string
+  visible: boolean
+  onToggle: () => void
+  toggleLabel: string
+}) {
   return (
-    <div className="flex flex-col items-center gap-2 mb-6">
-      <div className="font-black tracking-widest text-5xl leading-none select-none">
-        <span style={{ color: '#4DA8DA' }}>U</span>
-        <span style={{ color: '#0099FF' }}>P</span>
-        <span style={{ color: '#4DA8DA' }}>D</span>
-        <span style={{ color: '#FFFFFF' }}>S</span>
-      </div>
-      <p className="text-white/50 text-xs tracking-[0.3em] uppercase font-medium mt-1">
-        Universidad Privada Domingo Savio
-      </p>
+    <div className="relative w-full">
+      <Input
+        id={id}
+        type={visible ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        inputClassName="pr-10"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        onClick={onToggle}
+        className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
+        aria-label={toggleLabel}
+      >
+        {visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      </Button>
     </div>
   )
 }
@@ -143,189 +175,131 @@ export function ForceChangePasswordPage() {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{
-        background: 'linear-gradient(135deg, #001a33 0%, #003366 50%, #004080 100%)',
-      }}
-    >
-      {/* Decorative background circles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-        <div
-          className="absolute -top-32 -left-32 w-96 h-96 rounded-full opacity-10"
-          style={{ backgroundColor: '#4DA8DA' }}
-        />
-        <div
-          className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full opacity-10"
-          style={{ backgroundColor: '#0066CC' }}
-        />
-        <div
-          className="absolute top-1/2 left-1/4 w-64 h-64 rounded-full opacity-5"
-          style={{ backgroundColor: '#4DA8DA' }}
-        />
-      </div>
-
-      {/* Card */}
-      <div
-        className="relative w-full max-w-sm rounded-2xl shadow-2xl p-8"
-        style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255,255,255,0.1)',
-        }}
-      >
-        <UPDSLogo />
-
-        {/* Title */}
-        <div className="text-center mb-6">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Lock size={18} className="text-yellow-400" />
-            <h1 className="text-white text-lg font-semibold">Debés cambiar tu contraseña</h1>
+    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/40 p-4 sm:p-6">
+      <div className="w-full max-w-sm">
+        {/* Brand */}
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <div className="rounded-2xl bg-primary px-8 py-5 shadow-sm">
+            <Logo size="md" />
           </div>
-          <p className="text-white/50 text-sm leading-relaxed">
-            Tu cuenta tiene una contraseña temporal. Por seguridad, establecé una nueva contraseña
-            antes de continuar.
-          </p>
         </div>
 
-        {success ? (
-          <div aria-live="polite" className="flex flex-col items-center gap-3 py-6">
-            <div className="w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
-              <CheckCircle2 size={32} className="text-green-400" />
+        <Card className="p-6 sm:p-8">
+          {/* Title */}
+          <div className="mb-6 text-center">
+            <div className="mb-2 flex items-center justify-center gap-2">
+              <Lock size={18} className="text-warning" aria-hidden="true" />
+              <h1 className="text-lg font-semibold tracking-tight text-foreground">Debés cambiar tu contraseña</h1>
             </div>
-            <p className="text-green-300 font-semibold text-center">
-              ¡Contraseña actualizada correctamente!
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Tu cuenta tiene una contraseña temporal. Por seguridad, establecé una nueva contraseña
+              antes de continuar.
             </p>
-            <p className="text-white/40 text-sm text-center">Redirigiendo...</p>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Current password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="force-current-password" className="text-white/70 text-sm">Contraseña temporal actual *</Label>
-              <div className="relative">
-                <Input
+
+          {success ? (
+            <div aria-live="polite" className="flex flex-col items-center gap-3 py-6">
+              <div className="flex size-14 items-center justify-center rounded-full bg-success/10">
+                <CheckCircle2 size={32} className="text-success" aria-hidden="true" />
+              </div>
+              <p className="text-center font-semibold text-success-foreground">
+                ¡Contraseña actualizada correctamente!
+              </p>
+              <p className="text-center text-sm text-muted-foreground">Redirigiendo...</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Current password */}
+              <Field>
+                <FieldLabel htmlFor="force-current-password">Contraseña temporal actual *</FieldLabel>
+                <PasswordInput
                   id="force-current-password"
-                  type={showCurrent ? 'text' : 'password'}
                   value={form.current}
-                  onChange={(e) => setForm((f) => ({ ...f, current: e.target.value }))}
+                  onChange={(value) => setForm((f) => ({ ...f, current: value }))}
                   placeholder="Ingresá tu contraseña temporal"
                   disabled={changePwd.isPending}
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={error ? 'force-password-error' : undefined}
-                  className="h-10 bg-white/10 border-white/20 text-white placeholder:text-white/30 focus:border-[#4DA8DA] pr-10"
+                  invalid={Boolean(error)}
+                  describedBy={error ? 'force-password-error' : undefined}
+                  visible={showCurrent}
+                  onToggle={() => setShowCurrent((v) => !v)}
+                  toggleLabel={showCurrent ? 'Ocultar contraseña actual' : 'Mostrar contraseña actual'}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowCurrent((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-white/40 transition-colors hover:text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4DA8DA]"
-                  aria-label={showCurrent ? 'Ocultar contraseña actual' : 'Mostrar contraseña actual'}
-                >
-                  {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
+              </Field>
 
-            {/* New password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="force-new-password" className="text-white/70 text-sm">Nueva contraseña *</Label>
-              <div className="relative">
-                <Input
+              {/* New password */}
+              <Field>
+                <FieldLabel htmlFor="force-new-password">Nueva contraseña *</FieldLabel>
+                <PasswordInput
                   id="force-new-password"
-                  type={showNew ? 'text' : 'password'}
                   value={form.newPwd}
-                  onChange={(e) => setForm((f) => ({ ...f, newPwd: e.target.value }))}
+                  onChange={(value) => setForm((f) => ({ ...f, newPwd: value }))}
                   placeholder="Mínimo 8 caracteres"
                   disabled={changePwd.isPending}
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={error ? 'force-password-error' : undefined}
-                  className="h-10 bg-white/10 border-white/20 text-white placeholder:text-white/30 focus:border-[#4DA8DA] pr-10"
+                  invalid={Boolean(error)}
+                  describedBy={error ? 'force-password-error' : undefined}
+                  visible={showNew}
+                  onToggle={() => setShowNew((v) => !v)}
+                  toggleLabel={showNew ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowNew((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-white/40 transition-colors hover:text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4DA8DA]"
-                  aria-label={showNew ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
-                >
-                  {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              <PasswordStrengthBar password={form.newPwd} />
-            </div>
+                <PasswordStrengthBar password={form.newPwd} />
+              </Field>
 
-            {/* Confirm password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="force-confirm-password" className="text-white/70 text-sm">Confirmar nueva contraseña *</Label>
-              <div className="relative">
-                <Input
+              {/* Confirm password */}
+              <Field>
+                <FieldLabel htmlFor="force-confirm-password">Confirmar nueva contraseña *</FieldLabel>
+                <PasswordInput
                   id="force-confirm-password"
-                  type={showConfirm ? 'text' : 'password'}
                   value={form.confirm}
-                  onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
+                  onChange={(value) => setForm((f) => ({ ...f, confirm: value }))}
                   placeholder="Repetí la nueva contraseña"
                   disabled={changePwd.isPending}
-                  aria-invalid={Boolean((form.confirm && !passwordsMatch) || error)}
-                  aria-describedby={form.confirm && !passwordsMatch ? 'force-confirm-error' : error ? 'force-password-error' : undefined}
-                  className={`h-10 bg-white/10 border-white/20 text-white placeholder:text-white/30 focus:border-[#4DA8DA] pr-10 ${
-                    form.confirm && !passwordsMatch ? 'border-red-400/60' : ''
-                  }`}
+                  invalid={Boolean((form.confirm && !passwordsMatch) || error)}
+                  describedBy={form.confirm && !passwordsMatch ? 'force-confirm-error' : error ? 'force-password-error' : undefined}
+                  visible={showConfirm}
+                  onToggle={() => setShowConfirm((v) => !v)}
+                  toggleLabel={showConfirm ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-white/40 transition-colors hover:text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4DA8DA]"
-                  aria-label={showConfirm ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
-                >
-                  {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              {form.confirm && !passwordsMatch && (
-                <p id="force-confirm-error" role="alert" className="text-red-400 text-xs">Las contraseñas no coinciden</p>
-              )}
-            </div>
+                {form.confirm && !passwordsMatch && (
+                  <FieldError id="force-confirm-error" role="alert" match>
+                    Las contraseñas no coinciden
+                  </FieldError>
+                )}
+              </Field>
 
-            {/* Validation checklist */}
-            {form.newPwd && (
-              <div
-                className="rounded-lg p-3 space-y-1.5"
-                style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
-              >
-                <p className="text-white/40 text-xs font-medium mb-2">Requisitos:</p>
-                <ValidationItem passes={checks.length} label="Mínimo 8 caracteres" />
-                <ValidationItem passes={checks.upper} label="Al menos una mayúscula" />
-                <ValidationItem passes={checks.lower} label="Al menos una minúscula" />
-                <ValidationItem passes={checks.digit} label="Al menos un número" />
-                <ValidationItem passes={isDifferentPassword} label="Debe ser diferente de la contraseña actual" />
-              </div>
-            )}
-
-            {/* Error */}
-            {error && (
-              <div id="force-password-error" role="alert" className="flex items-start gap-2.5 bg-red-500/15 border border-red-500/30 rounded-lg px-3 py-2.5">
-                <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-red-300 text-sm leading-snug">{error}</p>
-              </div>
-            )}
-
-            {/* Submit */}
-            <Button
-              type="submit"
-              disabled={!canSubmit || changePwd.isPending}
-              className="w-full h-10 font-semibold text-white mt-2 disabled:opacity-40"
-              style={{ backgroundColor: '#0066CC' }}
-            >
-              {changePwd.isPending ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin motion-reduce:animate-none" />
-                  Guardando...
+              {/* Validation checklist */}
+              {form.newPwd && (
+                <div className="space-y-1.5 rounded-lg border bg-muted/40 p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">Requisitos:</p>
+                  <ValidationItem passes={checks.length} label="Mínimo 8 caracteres" />
+                  <ValidationItem passes={checks.upper} label="Al menos una mayúscula" />
+                  <ValidationItem passes={checks.lower} label="Al menos una minúscula" />
+                  <ValidationItem passes={checks.digit} label="Al menos un número" />
+                  <ValidationItem passes={isDifferentPassword} label="Debe ser diferente de la contraseña actual" />
                 </div>
-              ) : (
-                'Establecer nueva contraseña'
               )}
-            </Button>
-          </form>
-        )}
+
+              {/* Error */}
+              {error && (
+                <Alert id="force-password-error" variant="error">
+                  <AlertCircle aria-hidden="true" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Submit */}
+              <Button
+                type="submit"
+                size="lg"
+                disabled={!canSubmit}
+                loading={changePwd.isPending}
+                className="mt-2 w-full"
+              >
+                {changePwd.isPending ? 'Guardando...' : 'Establecer nueva contraseña'}
+              </Button>
+            </form>
+          )}
+        </Card>
       </div>
-    </div>
+    </main>
   )
 }

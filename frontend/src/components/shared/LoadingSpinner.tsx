@@ -1,3 +1,5 @@
+import { cn } from '@/lib/utils'
+
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg'
   className?: string
@@ -6,20 +8,19 @@ interface LoadingSpinnerProps {
 
 export function LoadingSpinner({ size = 'md', className = '', label = 'Cargando' }: LoadingSpinnerProps) {
   const sizeClasses = {
-    sm: 'w-5 h-5 border-2',
-    md: 'w-8 h-8 border-2',
-    lg: 'w-12 h-12 border-3',
+    sm: 'size-5 border-2',
+    md: 'size-8 border-2',
+    lg: 'size-12 border-[3px]',
   }
 
   return (
     <div
       role="status"
-      className={[
-        'rounded-full animate-spin border-gray-200 motion-reduce:animate-none',
+      className={cn(
+        'animate-spin rounded-full border-muted border-t-primary motion-reduce:animate-none',
         sizeClasses[size],
         className,
-      ].join(' ')}
-      style={{ borderTopColor: '#0066CC' }}
+      )}
     >
       <span className="sr-only">{label}</span>
     </div>
