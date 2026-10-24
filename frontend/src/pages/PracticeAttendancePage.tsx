@@ -1,6 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
 import {
-  ClipboardCheck,
   Loader2,
   Users,
   Calendar,
@@ -26,10 +25,23 @@ import {
   downloadPracticeAttendanceExcel,
 } from '@/api/hooks/usePracticeAttendance'
 import type { PracticeAttendanceEntry } from '@/api/hooks/usePracticeAttendance'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { TONE_CHIP, TONE_TEXT, type Tone } from '@/components/shared/tones'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -37,11 +49,15 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; rowBg: string }> = {
-  attended:  { label: 'ASISTIÓ',      bg: 'bg-green-100',  text: 'text-green-700',  rowBg: 'bg-green-50/40' },
-  absent:    { label: 'AUSENTE',      bg: 'bg-red-100',    text: 'text-red-700',    rowBg: 'bg-red-50/40' },
-  late:      { label: 'TARDANZA',     bg: 'bg-yellow-100', text: 'text-yellow-700', rowBg: 'bg-yellow-50/40' },
-  justified: { label: 'JUSTIFICADO', bg: 'bg-blue-100',   text: 'text-blue-700',   rowBg: 'bg-blue-50/40' },
+const MONTH_ITEMS = Object.entries(MONTH_NAMES).map(([value, label]) => ({ value, label }))
+
+const ALL_TEACHERS = 'all'
+
+const STATUS_CONFIG: Record<string, { label: string; tone: Tone; rowTint: string }> = {
+  attended:  { label: 'ASISTIÓ',     tone: 'success',     rowTint: '' },
+  absent:    { label: 'AUSENTE',     tone: 'destructive', rowTint: 'bg-destructive/4' },
+  late:      { label: 'TARDANZA',    tone: 'warning',     rowTint: 'bg-warning/4' },
+  justified: { label: 'JUSTIFICADO', tone: 'info',        rowTint: 'bg-info/4' },
 }
 
 function autoSetStatus(scheduledStart: string, actualStart: string): 'attended' | 'late' | null {
@@ -82,6 +98,121 @@ function formatFullDate(dateStr: string): string {
   return `${dayName} ${day} de ${monthName} de ${year}`
 }
 
+function StatusSelect({ entry, disabled, onChange }: {
+  entry: PracticeAttendanceEntry
+  disabled: boolean
+  onChange: (status: string) => void
+}) {
+  const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+  return (
+    <select
+      aria-label={`Estado de ${entry.teacher_name ?? entry.teacher_ci}`}
+      className={cn(
+        'h-7 cursor-pointer rounded-full border border-transparent px-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64',
+        TONE_CHIP[cfg.tone],
+      )}
+      value={entry.status}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+    >
+      {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
+        <option key={value} value={value}>{sc.label}</option>
+      ))}
+    </select>
+  )
+}
+
+function TimeField({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string) => void }) {
+  return (
+    <Input
+      type="time"
+      step="60"
+      size="sm"
+      aria-label={label}
+      className="mx-auto w-28"
+      inputClassName="text-center tabular-nums"
+      value={value?.slice(0, 5) ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  )
+}
+
+function ObservationCell({ entry, editing, value, onValueChange, onStart, onSave, onCancel }: {
+  entry: PracticeAttendanceEntry
+  editing: boolean
+  value: string
+  onValueChange: (value: string) => void
+  onStart: () => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          type="text"
+          size="sm"
+          aria-label="Observación"
+          className="w-36"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSave()}
+          autoFocus
+        />
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Guardar observación"
+          className="text-success-foreground"
+          onClick={onSave}
+        >
+          <CheckCircle />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Cancelar edición de observación"
+          className="text-muted-foreground"
+          onClick={onCancel}
+        >
+          <XCircle />
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      className="max-w-36 justify-start text-xs font-normal text-muted-foreground"
+      title={entry.observation ?? 'Click para agregar'}
+      onClick={onStart}
+    >
+      <span className="truncate">
+        {entry.observation || <span className="italic text-muted-foreground/60">sin obs.</span>}
+      </span>
+    </Button>
+  )
+}
+
+function PracticeAttendanceSkeleton() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Cargando asistencia de prácticas">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-80" />
+        <Skeleton className="h-4 w-96 max-w-full" />
+      </div>
+      <Skeleton className="h-28 rounded-2xl" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <Skeleton key={i} className="h-24 rounded-2xl" />
+        ))}
+      </div>
+      <Skeleton className="h-64 rounded-2xl" />
+    </div>
+  )
+}
+
 export function PracticeAttendancePage() {
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -97,6 +228,8 @@ export function PracticeAttendancePage() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [excelLoading, setExcelLoading] = useState(false)
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<PracticeAttendanceEntry | null>(null)
+  const [bulkTarget, setBulkTarget] = useState<'attended' | 'absent' | null>(null)
 
   const { data: entries, isLoading } = usePracticeAttendance(
     month, year,
@@ -216,6 +349,53 @@ export function PracticeAttendancePage() {
     }
   }
 
+  function handleStartChange(entry: PracticeAttendanceEntry, value: string) {
+    const newStart = value || null
+    updateMutation.mutate({ id: entry.id, actual_start: newStart })
+    if (newStart && entry.scheduled_start) {
+      const newStatus = autoSetStatus(entry.scheduled_start, newStart)
+      if (newStatus && newStatus !== entry.status) {
+        updateMutation.mutate({ id: entry.id, status: newStatus })
+      }
+    }
+  }
+
+  function handleEndChange(entry: PracticeAttendanceEntry, value: string) {
+    updateMutation.mutate({ id: entry.id, actual_end: value || null })
+  }
+
+  function startEditingObs(entry: PracticeAttendanceEntry) {
+    setEditingObs(entry.id)
+    setObsValue(entry.observation ?? '')
+  }
+
+  function cancelEditingObs() {
+    setEditingObs(null)
+    setObsValue('')
+  }
+
+  async function handleExportPdf() {
+    setPdfLoading(true)
+    try {
+      await downloadPracticeAttendancePdf({
+        month, year,
+        ...exportDateRange,
+        teacher_ci: teacherFilter || undefined,
+      })
+    } finally { setPdfLoading(false) }
+  }
+
+  async function handleExportExcel() {
+    setExcelLoading(true)
+    try {
+      await downloadPracticeAttendanceExcel({
+        month, year,
+        ...exportDateRange,
+        teacher_ci: teacherFilter || undefined,
+      })
+    } finally { setExcelLoading(false) }
+  }
+
   function navigateDate(direction: -1 | 1) {
     if (!selectedDate) return
     const d = new Date(selectedDate + 'T00:00:00')
@@ -223,433 +403,335 @@ export function PracticeAttendancePage() {
     setSelectedDate(d.toISOString().split('T')[0])
   }
 
-  if (isLoading) return <LoadingPage />
+  if (isLoading) return <PracticeAttendanceSkeleton />
+
+  const teacherItems = [
+    { value: ALL_TEACHERS, label: 'Todos' },
+    ...teachers.map((t) => ({ value: t.ci, label: t.name })),
+  ]
+  const yearItems = [currentYear - 1, currentYear, currentYear + 1].map((y) => ({ value: String(y), label: String(y) }))
+  const bulkChanges = bulkTarget ? dailyEntries.filter((e) => e.status !== bulkTarget).length : 0
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl gradient-stat-blue flex items-center justify-center shadow-lg">
-            <ClipboardCheck size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Asistencia Practicas Internas</h1>
-            <p className="text-gray-500 text-sm">Registro manual de asistencia de docentes asistenciales</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div className="flex flex-wrap items-end gap-4">
-          {/* Month */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mes</label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {Object.entries(MONTH_NAMES).map(([m, name]) => (
-                <option key={m} value={m}>{name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Year */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Anio</label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Start date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
-            <input
-              type="date"
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-
-          {/* End date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
-            <input
-              type="date"
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-
-          {/* Teacher filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Docente</label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={teacherFilter}
-              onChange={(e) => setTeacherFilter(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {teachers.map((t) => (
-                <option key={t.ci} value={t.ci}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Specific date filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <CalendarDays size={14} className="inline mr-1" />
-              Fecha Especifica
-            </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="date"
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-              />
-              {selectedDate && (
-                <button
-                  onClick={() => setSelectedDate('')}
-                  className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                  title="Limpiar fecha"
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Generate button */}
-          <div>
-            <Button
-              onClick={handleGenerate}
-              disabled={generateMutation.isPending}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {generateMutation.isPending ? (
-                <Loader2 size={16} className="animate-spin mr-2" />
-              ) : (
-                <Calendar size={16} className="mr-2" />
-              )}
+      <PageHeader
+        title="Asistencia Practicas Internas"
+        description="Registro manual de asistencia de docentes asistenciales"
+        actions={
+          <>
+            <Button onClick={handleGenerate} loading={generateMutation.isPending}>
+              <Calendar />
               Generar Asistencia
             </Button>
-          </div>
-
-          {/* Export buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                setPdfLoading(true)
-                try {
-                  await downloadPracticeAttendancePdf({
-                    month, year,
-                    ...exportDateRange,
-                    teacher_ci: teacherFilter || undefined,
-                  })
-                } finally { setPdfLoading(false) }
-              }}
-              disabled={pdfLoading}
-              className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
-            >
-              {pdfLoading ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+            <Button variant="outline" onClick={handleExportPdf} disabled={pdfLoading}>
+              {pdfLoading ? <Loader2 className="animate-spin" /> : <FileText />}
               Exportar PDF
-            </button>
-            <button
-              onClick={async () => {
-                setExcelLoading(true)
-                try {
-                  await downloadPracticeAttendanceExcel({
-                    month, year,
-                    ...exportDateRange,
-                    teacher_ci: teacherFilter || undefined,
-                  })
-                } finally { setExcelLoading(false) }
-              }}
-              disabled={excelLoading}
-              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
-            >
-              {excelLoading ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+            </Button>
+            <Button variant="outline" onClick={handleExportExcel} disabled={excelLoading}>
+              {excelLoading ? <Loader2 className="animate-spin" /> : <FileSpreadsheet />}
               Exportar Excel
-            </button>
-          </div>
-        </div>
+            </Button>
+          </>
+        }
+      />
 
-        {generateMutation.isSuccess && (
-          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-            Se crearon {generateMutation.data.created} entradas de asistencia para {MONTH_NAMES[month]} {year}.
+      {/* Controls */}
+      <Card>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+            <Field>
+              <FieldLabel>Mes</FieldLabel>
+              <Select value={String(month)} items={MONTH_ITEMS} onValueChange={(v) => setMonth(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {MONTH_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel>Anio</FieldLabel>
+              <Select value={String(year)} items={yearItems} onValueChange={(v) => setYear(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {yearItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel>Desde</FieldLabel>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </Field>
+
+            <Field>
+              <FieldLabel>Hasta</FieldLabel>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </Field>
+
+            <Field>
+              <FieldLabel>Docente</FieldLabel>
+              <Select
+                value={teacherFilter || ALL_TEACHERS}
+                items={teacherItems}
+                onValueChange={(v) => setTeacherFilter(!v || v === ALL_TEACHERS ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup className="max-h-64">
+                  {teacherItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+
+            <Field className="relative">
+              <FieldLabel>
+                <CalendarDays className="size-3.5" aria-hidden="true" />
+                Fecha Especifica
+              </FieldLabel>
+              <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+              {selectedDate && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Limpiar fecha"
+                  title="Limpiar fecha"
+                  className="absolute -top-1.5 right-0"
+                  onClick={() => setSelectedDate('')}
+                >
+                  <X />
+                </Button>
+              )}
+            </Field>
           </div>
-        )}
-        {generateMutation.isError && (
-          <div role="alert" aria-live="assertive" className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            Error: {(generateMutation.error as Error)?.message ?? 'No se pudo generar la asistencia'}
-          </div>
-        )}
-      </div>
+
+          {generateMutation.isSuccess && (
+            <Alert variant="success">
+              <CheckCircle />
+              <AlertDescription>
+                Se crearon {generateMutation.data.created} entradas de asistencia para {MONTH_NAMES[month]} {year}.
+              </AlertDescription>
+            </Alert>
+          )}
+          {generateMutation.isError && (
+            <Alert variant="error" aria-live="assertive">
+              <AlertTriangle />
+              <AlertDescription>
+                Error: {(generateMutation.error as Error)?.message ?? 'No se pudo generar la asistencia'}
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Summary cards */}
       {summaries && summaries.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Users} title="Docentes" value={summaries.length} color="#0066CC" />
-          <StatCard icon={Calendar} title="Clases Programadas" value={totals.scheduled} color="#003366" />
-          <StatCard icon={CheckCircle} title="Asistidas" value={totals.attended} subtitle={`${totals.rate}%`} color="#16a34a" />
-          <StatCard icon={XCircle} title="Ausentes" value={totals.absent} color="#dc2626" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 [&_p]:whitespace-normal">
+          <StatCard icon={Users} title="Docentes" value={summaries.length} tone="primary" />
+          <StatCard icon={Calendar} title="Clases Programadas" value={totals.scheduled} tone="info" />
+          <StatCard icon={CheckCircle} title="Asistidas" value={totals.attended} subtitle={`${totals.rate}%`} tone="success" />
+          <StatCard icon={XCircle} title="Ausentes" value={totals.absent} tone="destructive" />
         </div>
       )}
 
       {/* Per-teacher summary table */}
       {summaries && summaries.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-800">Resumen por Docente</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Docente</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Programadas</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Asistidas</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Ausentes</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Tardanzas</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Justificadas</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Hrs Prog.</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Hrs Asist.</th>
-                  <th className="text-center px-3 py-3 font-medium text-gray-600">Tasa</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {summaries.map((s) => (
-                  <tr key={s.teacher_ci} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-800">{s.teacher_name}</td>
-                    <td className="text-center px-3 py-3">{s.total_scheduled}</td>
-                    <td className="text-center px-3 py-3 text-green-600 font-medium">{s.total_attended}</td>
-                    <td className="text-center px-3 py-3 text-red-600 font-medium">{s.total_absent}</td>
-                    <td className="text-center px-3 py-3 text-yellow-600">{s.total_late}</td>
-                    <td className="text-center px-3 py-3 text-blue-600">{s.total_justified}</td>
-                    <td className="text-center px-3 py-3">{s.total_hours_scheduled}h</td>
-                    <td className="text-center px-3 py-3">{s.total_hours_attended}h</td>
-                    <td className="text-center px-3 py-3">
-                      <Badge className={s.attendance_rate >= 80 ? 'bg-green-100 text-green-700' : s.attendance_rate >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}>
-                        {s.attendance_rate}%
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TableCard title="Resumen por Docente">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Docente</TableHead>
+              <TableHead className="text-right">Programadas</TableHead>
+              <TableHead className="text-right">Asistidas</TableHead>
+              <TableHead className="text-right">Ausentes</TableHead>
+              <TableHead className="text-right">Tardanzas</TableHead>
+              <TableHead className="text-right">Justificadas</TableHead>
+              <TableHead className="text-right">Hrs Prog.</TableHead>
+              <TableHead className="text-right">Hrs Asist.</TableHead>
+              <TableHead className="text-right">Tasa</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {summaries.map((s) => (
+              <TableRow key={s.teacher_ci}>
+                <TableCell className="font-medium">{s.teacher_name}</TableCell>
+                <TableCell className="text-right tabular-nums">{s.total_scheduled}</TableCell>
+                <TableCell className={cn('text-right font-medium tabular-nums', TONE_TEXT.success)}>{s.total_attended}</TableCell>
+                <TableCell className={cn('text-right font-medium tabular-nums', TONE_TEXT.destructive)}>{s.total_absent}</TableCell>
+                <TableCell className={cn('text-right tabular-nums', TONE_TEXT.warning)}>{s.total_late}</TableCell>
+                <TableCell className={cn('text-right tabular-nums', TONE_TEXT.info)}>{s.total_justified}</TableCell>
+                <TableCell className="text-right tabular-nums">{s.total_hours_scheduled}h</TableCell>
+                <TableCell className="text-right tabular-nums">{s.total_hours_attended}h</TableCell>
+                <TableCell className="text-right">
+                  <StatusBadge
+                    className="tabular-nums"
+                    tone={s.attendance_rate >= 80 ? 'success' : s.attendance_rate >= 50 ? 'warning' : 'destructive'}
+                  >
+                    {s.attendance_rate}%
+                  </StatusBadge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </TableCard>
       )}
 
       {/* ===== DAILY VIEW (when a specific date is selected) ===== */}
       {selectedDate && (
         <>
           {/* Daily view header with navigation */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => navigateDate(-1)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <ChevronLeft size={16} />
+          <Card>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="outline" size="sm" onClick={() => navigateDate(-1)}>
+                  <ChevronLeft />
                   Dia anterior
-                </button>
-                <div className="text-center">
-                  <h2 className="text-lg font-semibold text-blue-800">
-                    <CalendarDays size={18} className="inline mr-2" />
+                </Button>
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+                    <CalendarDays className="size-[18px] text-primary" aria-hidden="true" />
                     Asistencia del {formatFullDate(selectedDate)}
-                  </h2>
-                  <p className="text-sm text-blue-600">
+                  </h3>
+                  <p className="text-sm text-muted-foreground tabular-nums">
                     {dailyEntries.length} clase{dailyEntries.length !== 1 ? 's' : ''} programada{dailyEntries.length !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <button
-                  onClick={() => navigateDate(1)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
+                <Button variant="outline" size="sm" onClick={() => navigateDate(1)}>
                   Dia siguiente
-                  <ChevronRight size={16} />
-                </button>
+                  <ChevronRight />
+                </Button>
               </div>
 
               {/* Bulk action buttons */}
               {dailyEntries.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleBulkStatus('attended')}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkTarget('attended')}
                     disabled={bulkLoading || updateMutation.isPending}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-100 text-green-700 border border-green-300 rounded-lg hover:bg-green-200 disabled:opacity-50 transition-colors"
                   >
-                    {bulkLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />}
+                    {bulkLoading ? <Loader2 className="animate-spin" /> : <CheckCheck />}
                     Todos Asistieron
-                  </button>
-                  <button
-                    onClick={() => handleBulkStatus('absent')}
+                  </Button>
+                  <Button
+                    variant="destructive-outline"
+                    size="sm"
+                    onClick={() => setBulkTarget('absent')}
                     disabled={bulkLoading || updateMutation.isPending}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-100 text-red-700 border border-red-300 rounded-lg hover:bg-red-200 disabled:opacity-50 transition-colors"
                   >
-                    {bulkLoading ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                    {bulkLoading ? <Loader2 className="animate-spin" /> : <X />}
                     Todos Ausentes
-                  </button>
+                  </Button>
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Daily flat table */}
           {dailyEntries.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-              <Calendar size={48} className="mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500 text-lg">No hay clases programadas para esta fecha</p>
-              <p className="text-gray-400 text-sm mt-1">Selecciona otra fecha o usa los botones de navegacion</p>
-            </div>
+            <Card>
+              <EmptyState
+                icon={Calendar}
+                title="No hay clases programadas para esta fecha"
+                description="Selecciona otra fecha o usa los botones de navegacion"
+              />
+            </Card>
           ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="text-left px-4 py-3 font-medium text-gray-600">Docente</th>
-                      <th className="text-left px-3 py-3 font-medium text-gray-600">Materia</th>
-                      <th className="text-left px-3 py-3 font-medium text-gray-600">Grupo</th>
-                      <th className="text-center px-3 py-3 font-medium text-gray-600">Origen</th>
-                      <th className="text-center px-3 py-3 font-medium text-gray-600">Horario</th>
-                      <th className="text-center px-3 py-3 font-medium text-gray-600">Estado</th>
-                      <th className="text-center px-3 py-3 font-medium text-gray-600">Hora Llegada</th>
-                      <th className="text-center px-3 py-3 font-medium text-gray-600">Hora Salida</th>
-                      <th className="text-left px-3 py-3 font-medium text-gray-600">Obs</th>
-                      <th className="px-2 py-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {dailyEntries.map((entry) => {
-                      const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
-                      return (
-                        <tr key={entry.id} className={`hover:bg-gray-50 ${cfg.rowBg}`}>
-                          <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">
-                            {entry.teacher_name ?? entry.teacher_ci}
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
-                            {entry.subject}
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-600">{entry.group_code}</td>
-                          <td className="text-center px-3 py-2.5">
-                            <Badge variant="outline">{entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}</Badge>
-                          </td>
-                          <td className="text-center px-3 py-2.5 text-gray-600 whitespace-nowrap">
-                            {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
-                          </td>
-                          <td className="text-center px-3 py-2.5">
-                            <select
-                              className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
-                              value={entry.status}
-                              onChange={(e) => handleStatusChange(entry, e.target.value)}
-                              disabled={updateMutation.isPending}
-                            >
-                              {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
-                                <option key={value} value={value}>{sc.label}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="text-center px-3 py-2.5">
-                            <input
-                              type="time"
-                              step="60"
-                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                              value={entry.actual_start?.slice(0, 5) ?? ''}
-                              onChange={(e) => {
-                                const newStart = e.target.value || null
-                                updateMutation.mutate({ id: entry.id, actual_start: newStart })
-                                if (newStart && entry.scheduled_start) {
-                                  const newStatus = autoSetStatus(entry.scheduled_start, newStart)
-                                  if (newStatus && newStatus !== entry.status) {
-                                    updateMutation.mutate({ id: entry.id, status: newStatus })
-                                  }
-                                }
-                              }}
-                            />
-                          </td>
-                          <td className="text-center px-3 py-2.5">
-                            <input
-                              type="time"
-                              step="60"
-                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                              value={entry.actual_end?.slice(0, 5) ?? ''}
-                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || null })}
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            {editingObs === entry.id ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  className="border border-gray-300 rounded px-2 py-1 text-xs w-32"
-                                  value={obsValue}
-                                  onChange={(e) => setObsValue(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && handleObsSave(entry.id)}
-                                  autoFocus
-                                />
-                                <button
-                                  aria-label="Guardar observación"
-                                  className="text-green-600 hover:text-green-800"
-                                  onClick={() => handleObsSave(entry.id)}
-                                >
-                                  <CheckCircle size={14} />
-                                </button>
-                                <button
-                                  aria-label="Cancelar edición de observación"
-                                  className="text-gray-400 hover:text-gray-600"
-                                  onClick={() => { setEditingObs(null); setObsValue('') }}
-                                >
-                                  <XCircle size={14} />
-                                </button>
-                              </div>
-                            ) : (
-                              <span
-                                className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 truncate max-w-[120px] inline-block"
-                                title={entry.observation ?? 'Click para agregar'}
-                                onClick={() => { setEditingObs(entry.id); setObsValue(entry.observation ?? '') }}
-                              >
-                                {entry.observation || <span className="italic text-gray-300">sin obs.</span>}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2.5">
-                            <button
-                              aria-label={`Eliminar asistencia de ${entry.teacher_name ?? entry.teacher_ci}`}
-                              className="text-gray-300 hover:text-red-500 transition-colors"
-                              title="Eliminar"
-                              onClick={() => {
-                                if (confirm('Eliminar este registro de asistencia?')) {
-                                  deleteMutation.mutate(entry.id)
-                                }
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <TableCard>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Docente</TableHead>
+                  <TableHead>Materia</TableHead>
+                  <TableHead>Grupo</TableHead>
+                  <TableHead className="text-center">Origen</TableHead>
+                  <TableHead className="text-center">Horario</TableHead>
+                  <TableHead className="text-center">Estado</TableHead>
+                  <TableHead className="text-center">Hora Llegada</TableHead>
+                  <TableHead className="text-center">Hora Salida</TableHead>
+                  <TableHead>Obs</TableHead>
+                  <TableHead className="w-px"><span className="sr-only">Acciones</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dailyEntries.map((entry) => {
+                  const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+                  return (
+                    <TableRow key={entry.id} className={cfg.rowTint}>
+                      <TableCell className="font-medium">
+                        {entry.teacher_name ?? entry.teacher_ci}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate" title={entry.subject ?? ''}>
+                        {entry.subject}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{entry.group_code}</TableCell>
+                      <TableCell className="text-center">
+                        <StatusBadge tone={entry.source_kind === 'published' ? 'primary' : 'neutral'}>
+                          {entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}
+                        </StatusBadge>
+                      </TableCell>
+                      <TableCell className="text-center tabular-nums text-muted-foreground">
+                        {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <StatusSelect
+                          entry={entry}
+                          disabled={updateMutation.isPending}
+                          onChange={(status) => handleStatusChange(entry, status)}
+                        />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <TimeField
+                          label={`Hora de llegada de ${entry.teacher_name ?? entry.teacher_ci}`}
+                          value={entry.actual_start}
+                          onChange={(value) => handleStartChange(entry, value)}
+                        />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <TimeField
+                          label={`Hora de salida de ${entry.teacher_name ?? entry.teacher_ci}`}
+                          value={entry.actual_end}
+                          onChange={(value) => handleEndChange(entry, value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <ObservationCell
+                          entry={entry}
+                          editing={editingObs === entry.id}
+                          value={obsValue}
+                          onValueChange={setObsValue}
+                          onStart={() => startEditingObs(entry)}
+                          onSave={() => handleObsSave(entry.id)}
+                          onCancel={cancelEditingObs}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Eliminar asistencia de ${entry.teacher_name ?? entry.teacher_ci}`}
+                          title="Eliminar"
+                          className="text-muted-foreground hover:text-destructive-foreground"
+                          onClick={() => setDeleteTarget(entry)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </TableCard>
           )}
         </>
       )}
@@ -658,169 +740,181 @@ export function PracticeAttendancePage() {
       {!selectedDate && (
         <>
           {grouped.length === 0 && !isLoading && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-              <AlertTriangle size={48} className="mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500 text-lg">No hay registros de asistencia para este periodo</p>
-              <p className="text-gray-400 text-sm mt-1">Usa el boton "Generar Asistencia" para crear los registros desde el horario</p>
-            </div>
+            <Card>
+              <EmptyState
+                icon={AlertTriangle}
+                title="No hay registros de asistencia para este periodo"
+                description='Usa el boton "Generar Asistencia" para crear los registros desde el horario'
+              />
+            </Card>
           )}
 
           {grouped.map((group) => (
-            <div key={group.name} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                <h3 className="text-base font-semibold text-gray-800">{group.name}</h3>
-                <p className="text-xs text-gray-500">{group.entries.length} registros</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50/50">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-600">Materia</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-600">Grupo</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Origen</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Horario Prog.</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Inicio</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hora Real Fin</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-600">Hrs</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-600">Observacion</th>
-                      <th className="px-2 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {group.entries.map((entry, idx, arr) => {
-                      const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
-                      const showDateHeader = idx === 0 || arr[idx - 1].date !== entry.date
-                      return (
-                        <Fragment key={entry.id}>
-                        {showDateHeader && (
-                          <tr className="bg-gray-100/80">
-                            <td colSpan={11} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                              {formatDate(entry.date)}
-                            </td>
-                          </tr>
-                        )}
-                        <tr className={`hover:bg-gray-100/60 ${cfg.rowBg}`}>
-                          <td className="px-4 py-2 whitespace-nowrap text-gray-700">{formatDate(entry.date)}</td>
-                          <td className="px-3 py-2 text-gray-700 max-w-[200px] truncate" title={entry.subject ?? ''}>
-                            {entry.subject}
-                          </td>
-                          <td className="px-3 py-2 text-gray-600">{entry.group_code}</td>
-                          <td className="text-center px-3 py-2">
-                            <Badge variant="outline">{entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}</Badge>
-                          </td>
-                          <td className="text-center px-3 py-2 text-gray-600 whitespace-nowrap">
-                            {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
-                          </td>
-                          <td className="text-center px-3 py-2">
-                            <select
-                              className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${cfg.bg} ${cfg.text}`}
-                              value={entry.status}
-                              onChange={(e) => handleStatusChange(entry, e.target.value)}
-                              disabled={updateMutation.isPending}
-                            >
-                              {Object.entries(STATUS_CONFIG).map(([value, sc]) => (
-                                <option key={value} value={value}>{sc.label}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="text-center px-3 py-2">
-                            <input
-                              type="time"
-                              step="60"
-                              placeholder="HH:MM"
-                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                              value={entry.actual_start?.slice(0, 5) ?? ''}
-                              onChange={(e) => {
-                                const newStart = e.target.value || null
-                                updateMutation.mutate({ id: entry.id, actual_start: newStart })
-                                if (newStart && entry.scheduled_start) {
-                                  const newStatus = autoSetStatus(entry.scheduled_start, newStart)
-                                  if (newStatus && newStatus !== entry.status) {
-                                    updateMutation.mutate({ id: entry.id, status: newStatus })
-                                  }
-                                }
-                              }}
-                            />
-                          </td>
-                          <td className="text-center px-3 py-2">
-                            <input
-                              type="time"
-                              step="60"
-                              placeholder="HH:MM"
-                              className="border border-gray-200 rounded px-2 py-1 text-sm min-w-[6rem] text-center"
-                              value={entry.actual_end?.slice(0, 5) ?? ''}
-                              onChange={(e) => updateMutation.mutate({ id: entry.id, actual_end: e.target.value || null })}
-                            />
-                          </td>
-                          <td className="text-center px-3 py-2 text-gray-600">{entry.academic_hours}h</td>
-                          <td className="px-3 py-2">
-                            {editingObs === entry.id ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  className="border border-gray-300 rounded px-2 py-1 text-xs w-32"
-                                  value={obsValue}
-                                  onChange={(e) => setObsValue(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && handleObsSave(entry.id)}
-                                  autoFocus
-                                />
-                                <button
-                                  className="text-green-600 hover:text-green-800"
-                                  onClick={() => handleObsSave(entry.id)}
-                                >
-                                  <CheckCircle size={14} />
-                                </button>
-                                <button
-                                  className="text-gray-400 hover:text-gray-600"
-                                  onClick={() => { setEditingObs(null); setObsValue('') }}
-                                >
-                                  <XCircle size={14} />
-                                </button>
-                              </div>
-                            ) : (
-                              <span
-                                className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 truncate max-w-[120px] inline-block"
-                                title={entry.observation ?? 'Click para agregar'}
-                                onClick={() => { setEditingObs(entry.id); setObsValue(entry.observation ?? '') }}
-                              >
-                                {entry.observation || <span className="italic text-gray-300">sin obs.</span>}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2">
-                            <button
-                              className="text-gray-300 hover:text-red-500 transition-colors"
-                              title="Eliminar"
-                              onClick={() => {
-                                if (confirm('Eliminar este registro de asistencia?')) {
-                                  deleteMutation.mutate(entry.id)
-                                }
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                        </Fragment>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <TableCard
+              key={group.name}
+              title={group.name}
+              description={`${group.entries.length} registros`}
+            >
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Materia</TableHead>
+                  <TableHead>Grupo</TableHead>
+                  <TableHead className="text-center">Origen</TableHead>
+                  <TableHead className="text-center">Horario Prog.</TableHead>
+                  <TableHead className="text-center">Estado</TableHead>
+                  <TableHead className="text-center">Hora Real Inicio</TableHead>
+                  <TableHead className="text-center">Hora Real Fin</TableHead>
+                  <TableHead className="text-right">Hrs</TableHead>
+                  <TableHead>Observacion</TableHead>
+                  <TableHead className="w-px"><span className="sr-only">Acciones</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {group.entries.map((entry, idx, arr) => {
+                  const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.absent
+                  const showDateHeader = idx === 0 || arr[idx - 1].date !== entry.date
+                  return (
+                    <Fragment key={entry.id}>
+                      {showDateHeader && (
+                        <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          <TableCell colSpan={11} className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {formatDate(entry.date)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow className={cfg.rowTint}>
+                        <TableCell className="tabular-nums">{formatDate(entry.date)}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={entry.subject ?? ''}>
+                          {entry.subject}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{entry.group_code}</TableCell>
+                        <TableCell className="text-center">
+                          <StatusBadge tone={entry.source_kind === 'published' ? 'primary' : 'neutral'}>
+                            {entry.source_kind === 'published' ? 'Publicado' : 'Heredado'}
+                          </StatusBadge>
+                        </TableCell>
+                        <TableCell className="text-center tabular-nums text-muted-foreground">
+                          {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <StatusSelect
+                            entry={entry}
+                            disabled={updateMutation.isPending}
+                            onChange={(status) => handleStatusChange(entry, status)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <TimeField
+                            label={`Hora real de inicio, ${formatDate(entry.date)} ${formatTime(entry.scheduled_start)}`}
+                            value={entry.actual_start}
+                            onChange={(value) => handleStartChange(entry, value)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <TimeField
+                            label={`Hora real de fin, ${formatDate(entry.date)} ${formatTime(entry.scheduled_start)}`}
+                            value={entry.actual_end}
+                            onChange={(value) => handleEndChange(entry, value)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{entry.academic_hours}h</TableCell>
+                        <TableCell>
+                          <ObservationCell
+                            entry={entry}
+                            editing={editingObs === entry.id}
+                            value={obsValue}
+                            onValueChange={setObsValue}
+                            onStart={() => startEditingObs(entry)}
+                            onSave={() => handleObsSave(entry.id)}
+                            onCancel={cancelEditingObs}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Eliminar asistencia de ${entry.teacher_name ?? entry.teacher_ci}, ${formatDate(entry.date)} ${formatTime(entry.scheduled_start)}`}
+                            title="Eliminar"
+                            className="text-muted-foreground hover:text-destructive-foreground"
+                            onClick={() => setDeleteTarget(entry)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  )
+                })}
+              </TableBody>
+            </TableCard>
           ))}
         </>
       )}
 
-      {/* Loading overlay for mutations */}
+      {/* Pending state for inline saves */}
       {(updateMutation.isPending || deleteMutation.isPending || bulkLoading) && (
-        <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm z-50">
-          <Loader2 size={14} className="animate-spin" />
+        <div
+          role="status"
+          className="fixed right-4 bottom-4 z-50 flex items-center gap-2 rounded-xl border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg"
+        >
+          <Spinner className="size-4" />
           Guardando...
         </div>
       )}
+
+      <ConfirmAlertDialog
+        summary={
+          deleteTarget
+            ? {
+                title: 'Eliminar registro de asistencia',
+                confirmLabel: 'Eliminar',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Docente', value: deleteTarget.teacher_name ?? deleteTarget.teacher_ci },
+                  { label: 'Fecha', value: formatDate(deleteTarget.date) },
+                  { label: 'Materia', value: deleteTarget.subject ?? '—' },
+                  { label: 'Horario', value: `${formatTime(deleteTarget.scheduled_start)} - ${formatTime(deleteTarget.scheduled_end)}` },
+                ],
+                consequence: 'El registro se elimina de forma permanente y deja de contar en la planilla de prácticas.',
+              }
+            : null
+        }
+        pending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          deleteMutation.mutate(deleteTarget.id, { onSettled: () => setDeleteTarget(null) })
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmAlertDialog
+        summary={
+          bulkTarget
+            ? {
+                title: bulkTarget === 'attended' ? 'Marcar todos como asistieron' : 'Marcar todos como ausentes',
+                confirmLabel: bulkTarget === 'attended' ? 'Todos Asistieron' : 'Todos Ausentes',
+                tone: bulkTarget === 'absent' ? 'destructive' : 'default',
+                rows: [
+                  { label: 'Fecha', value: formatFullDate(selectedDate) },
+                  { label: 'Clases del día', value: String(dailyEntries.length) },
+                  { label: 'Registros que cambian', value: String(bulkChanges) },
+                ],
+                consequence: 'Se reemplaza el estado guardado de cada clase del día. Los registros se actualizan uno por uno.',
+              }
+            : null
+        }
+        pending={bulkLoading}
+        onConfirm={async () => {
+          if (!bulkTarget) return
+          try {
+            await handleBulkStatus(bulkTarget)
+          } finally {
+            setBulkTarget(null)
+          }
+        }}
+        onCancel={() => setBulkTarget(null)}
+      />
     </div>
   )
 }
