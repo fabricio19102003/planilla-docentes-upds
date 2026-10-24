@@ -5,11 +5,13 @@ import {
   CHAT_MAX_BODY_LENGTH,
   CHAT_MAX_FILES,
   apiErrorMessage,
+  applyThreadPage,
   buildThreadItems,
   canSendMessage,
   formatFileSize,
   groupByDay,
   mergeMessages,
+  oldestMessageId,
   unreadDividerMessageId,
   validateAttachments,
 } from '../src/lib/chat.ts'
@@ -104,6 +106,52 @@ test('mergeMessages lets the incoming copy of a duplicate win', () => {
   const merged = mergeMessages([message(1)], [message(1, 'admin', '2026-10-24T14:00:00', { body: 'editado' })])
   assert.equal(merged.length, 1)
   assert.equal(merged[0].body, 'editado')
+})
+
+const conversation = { id: 1, teacher_ci: '7001', teacher_name: 'Ana', unread_count: 0, last_message_at: null }
+const thread = (ids, hasMore, extra = {}) => ({ conversation: { ...conversation, ...extra }, messages: ids.map((id) => message(id)), has_more: hasMore })
+const idsOf = (value) => value.messages.map((m) => m.id)
+
+test('oldestMessageId is the first loaded id, or 0 when nothing is loaded', () => {
+  assert.equal(oldestMessageId([message(5), message(6)]), 5)
+  assert.equal(oldestMessageId([]), 0)
+})
+
+test('applyThreadPage: the first load is taken as is and a missing has_more means false', () => {
+  assert.deepEqual(applyThreadPage(undefined, thread([6, 7], true), 'poll'), thread([6, 7], true))
+  const legacy = { conversation, messages: [message(1)] }
+  assert.equal(applyThreadPage(undefined, legacy, 'poll').has_more, false)
+})
+
+test('applyThreadPage: an older page is prepended in id order, deduped, and brings the new has_more', () => {
+  const current = thread([6, 7, 8], true)
+  const merged = applyThreadPage(current, thread([4, 5, 6], false), 'older')
+  assert.deepEqual(idsOf(merged), [4, 5, 6, 7, 8])
+  assert.equal(merged.has_more, false)
+  assert.deepEqual(idsOf(current), [6, 7, 8], 'the cached thread is not mutated')
+  assert.equal(applyThreadPage(current, thread([3, 4, 5], true), 'older').has_more, true)
+})
+
+test('applyThreadPage: an older page keeps the cached conversation (its unread counter is current)', () => {
+  const current = thread([6, 7], true, { unread_count: 3 })
+  const merged = applyThreadPage(current, thread([4, 5], true, { unread_count: 9 }), 'older')
+  assert.equal(merged.conversation.unread_count, 3)
+})
+
+test('applyThreadPage: a poll appends newer messages and never resets has_more', () => {
+  const current = thread([6, 7], true)
+  const polled = applyThreadPage(current, thread([8], false, { unread_count: 1 }), 'poll')
+  assert.deepEqual(idsOf(polled), [6, 7, 8])
+  assert.equal(polled.has_more, true, 'a poll reports no older messages and must not hide the control')
+  assert.equal(polled.conversation.unread_count, 1)
+  assert.equal(applyThreadPage(thread([1, 2], false), thread([3], true), 'poll').has_more, false)
+})
+
+test('applyThreadPage: an empty poll keeps every message and the flag', () => {
+  const current = thread([6, 7], true)
+  const polled = applyThreadPage(current, thread([], false), 'poll')
+  assert.deepEqual(idsOf(polled), [6, 7])
+  assert.equal(polled.has_more, true)
 })
 
 test('unread divider sits before the first of the unread incoming messages', () => {

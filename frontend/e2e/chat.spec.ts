@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import { FakeChatApi, PNG_BYTES } from './support/chat'
 
@@ -196,4 +197,155 @@ test('mobile: the list comes first, then the thread with a back button', async (
   await expect(inbox).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Escribir mensaje' })).toHaveCount(0)
   await expect(page).toHaveURL(/\/chat$/)
+})
+
+// ── Admin starts a chat (S2) and older messages (S3) ─────────────────────────
+
+const CONVERSATION_URL = '/api/chat/conversations/7/messages'
+
+const teacherDirectory = [
+  { ci: '12345678', full_name: 'Ana Docente' },
+  { ci: '99887766', full_name: 'Beto Sin Portal' },
+]
+
+/** Teacher search plus POST /chat/conversations, layered over FakeChatApi (later routes win). */
+async function installStartChat(page: Page) {
+  const searches: Array<string | null> = []
+  const started: unknown[] = []
+  await page.route((url) => url.pathname === '/api/teachers', (route) => {
+    const search = new URL(route.request().url()).searchParams.get('search')
+    searches.push(search)
+    const items = teacherDirectory.filter(
+      (teacher) => !search || teacher.full_name.toLowerCase().includes(search.toLowerCase()) || teacher.ci.includes(search),
+    )
+    return route.fulfill({ json: { items, total: items.length, page: 1, per_page: 20 } })
+  })
+  await page.route((url) => url.pathname === '/api/chat/conversations', (route) => {
+    const request = route.request()
+    if (request.method() !== 'POST') return route.fallback()
+    const payload = request.postDataJSON() as { teacher_ci: string }
+    started.push(payload)
+    if (payload.teacher_ci === '99887766') {
+      return route.fulfill({
+        status: 422,
+        json: { detail: 'Este docente no tiene una cuenta en el portal, por lo que no podría leer el mensaje' },
+      })
+    }
+    return route.fulfill({
+      json: { id: 7, teacher_ci: '12345678', teacher_name: 'Ana Docente', unread_count: 0, last_message_at: null },
+    })
+  })
+  return { searches, started }
+}
+
+test('admin starts a new chat with a teacher who has no conversation', async ({ page }) => {
+  const chat = new FakeChatApi()
+  await chat.install(page, 'admin')
+  const start = await installStartChat(page)
+  await page.goto('/chat')
+
+  const inbox = page.getByRole('region', { name: 'Conversaciones' })
+  await expect(inbox.getByText('Todavía no hay conversaciones')).toBeVisible()
+
+  await inbox.getByRole('button', { name: 'Nuevo mensaje' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Nuevo mensaje' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('combobox', { name: 'Docente', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Buscar docente' }).fill('Ana')
+  // The search is server-side: the typed term reaches the teachers endpoint.
+  await expect.poll(() => start.searches.at(-1)).toBe('Ana')
+  await page.getByRole('option', { name: /Ana Docente/ }).click()
+
+  await expect(page).toHaveURL(/\/chat\?c=7$/)
+  await expect(dialog).toHaveCount(0)
+  expect(start.started).toEqual([{ teacher_ci: '12345678' }])
+  await expect(page.getByRole('heading', { name: 'Ana Docente' })).toBeVisible()
+  await expect(page.getByText('Aún no hay mensajes')).toBeVisible()
+  // An empty conversation stays out of the inbox until the first message (on mobile the list is hidden, not gone).
+  await expect(page.locator('section[aria-label="Conversaciones"]').getByText('Todavía no hay conversaciones')).toBeAttached()
+
+  await page.getByRole('textbox', { name: 'Escribir mensaje' }).fill('Hola Ana, te escribimos de Administración')
+  await page.getByRole('button', { name: 'Enviar mensaje' }).click()
+  await expect(page.getByRole('log').getByText('Hola Ana, te escribimos de Administración')).toBeVisible()
+  expect(chat.sent.map((m) => m.path)).toEqual(['/chat/conversations/7/messages'])
+  await expect(page.locator('section[aria-label="Conversaciones"] button', { hasText: 'Ana Docente' })).toBeAttached()
+})
+
+test('starting a chat with a teacher without a portal account shows the backend reason and stays open', async ({ page }) => {
+  const chat = new FakeChatApi()
+  await chat.install(page, 'admin')
+  const start = await installStartChat(page)
+  await page.goto('/chat')
+
+  await page.getByRole('region', { name: 'Conversaciones' }).getByRole('button', { name: 'Nuevo mensaje' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Nuevo mensaje' })
+  await dialog.getByRole('combobox', { name: 'Docente', exact: true }).click()
+  await page.getByRole('option', { name: /Beto Sin Portal/ }).click()
+
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Este docente no tiene una cuenta en el portal, por lo que no podría leer el mensaje',
+  )
+  await expect(dialog).toBeVisible()
+  await expect(page).toHaveURL(/\/chat$/)
+  expect(start.started).toEqual([{ teacher_ci: '99887766' }])
+})
+
+test('"Cargar mensajes anteriores" prepends older messages without moving the viewport', async ({ page }) => {
+  const PAGE_SIZE = 20
+  const chat = new FakeChatApi()
+  for (let index = 1; index <= 30; index += 1) chat.push('admin', `Mensaje ${index}`, 60 - index)
+  await chat.install(page, 'admin')
+
+  const beforeCursors: Array<string | null> = []
+  await page.route((url) => url.pathname === CONVERSATION_URL, (route) => {
+    const params = new URL(route.request().url()).searchParams
+    if (route.request().method() !== 'GET' || params.get('after')) return route.fallback()
+    beforeCursors.push(params.get('before'))
+    const before = Number(params.get('before') ?? Number.MAX_SAFE_INTEGER)
+    const older = chat.messages.filter((m) => m.id < before)
+    return route.fulfill({
+      json: {
+        conversation: { id: 7, teacher_ci: '12345678', teacher_name: 'Ana Docente', unread_count: 0, last_message_at: null },
+        messages: older.slice(-PAGE_SIZE),
+        has_more: older.length > PAGE_SIZE,
+      },
+    })
+  })
+  await page.clock.install()
+  await page.goto('/chat?c=7')
+
+  const log = page.getByRole('log', { name: 'Mensajes de la conversación' })
+  const loadOlder = log.getByRole('button', { name: 'Cargar mensajes anteriores' })
+  await expect(log.getByText('Mensaje 30', { exact: true })).toBeVisible()
+  await expect(log.getByText('Mensaje 10', { exact: true })).toHaveCount(0)
+  await expect(loadOlder).toBeVisible()
+
+  // A poll must keep the control: it reports no older messages and must not reset has_more.
+  chat.push('admin', 'Mensaje 31', 0)
+  await page.clock.runFor(5_500)
+  await expect(log.getByText('Mensaje 31', { exact: true })).toBeAttached()
+  await expect(loadOlder).toBeVisible()
+
+  await log.evaluate((element) => { element.scrollTop = 0 })
+  const firstLoaded = log.getByText('Mensaje 11', { exact: true })
+  const topOf = () => firstLoaded.evaluate((element) => element.getBoundingClientRect().top)
+  const topBefore = await topOf()
+
+  await loadOlder.click()
+  await expect(log.getByText('Mensaje 1', { exact: true })).toBeAttached()
+  await expect(loadOlder).toHaveCount(0)
+  expect(beforeCursors.at(-1)).toBe('11')
+
+  // The first message that was on screen stayed where it was; the older ones are above it.
+  expect(Math.abs((await topOf()) - topBefore)).toBeLessThanOrEqual(2)
+  expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  const bodies = await log.getByText(/^Mensaje \d+$/).allTextContents()
+  expect(bodies).toEqual(Array.from({ length: 31 }, (_, index) => `Mensaje ${index + 1}`))
+
+  // Polling with `after` keeps working after the prepend and adds no duplicates.
+  chat.push('admin', 'Mensaje 32', 0)
+  await page.clock.runFor(5_500)
+  await expect(log.getByText('Mensaje 32', { exact: true })).toBeAttached()
+  await expect(log.getByText(/^Mensaje \d+$/)).toHaveCount(32)
 })

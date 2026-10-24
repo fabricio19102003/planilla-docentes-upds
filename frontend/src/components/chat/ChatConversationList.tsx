@@ -1,8 +1,9 @@
-import { MessageSquareOff, Search, TriangleAlert } from 'lucide-react'
+import { MessageSquareOff, Plus, Search, TriangleAlert } from 'lucide-react'
 
 import type { ChatConversationSummary } from '@/api/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorMessage, conversationTitle, formatListTimestamp, initialsOf } from '@/lib/chat'
@@ -16,6 +17,8 @@ export interface ChatConversationListProps {
   onSearchChange: (value: string) => void
   selectedId: number | null
   onSelect: (id: number) => void
+  /** Shows the "Nuevo mensaje" action (admin inbox). */
+  onNewMessage?: () => void
   className?: string
 }
 
@@ -33,6 +36,7 @@ export function ChatConversationList({
   onSearchChange,
   selectedId,
   onSelect,
+  onNewMessage,
   className,
 }: ChatConversationListProps) {
   const searching = search.trim().length > 0
@@ -40,7 +44,15 @@ export function ChatConversationList({
   return (
     <section aria-label="Conversaciones" className={cn('flex min-h-0 min-w-0 flex-col', className)}>
       <div className="shrink-0 space-y-2 border-b p-3">
-        <h3 className="text-sm font-semibold">Conversaciones</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Conversaciones</h3>
+          {onNewMessage && (
+            <Button type="button" size="sm" variant="outline" onClick={onNewMessage}>
+              <Plus aria-hidden="true" />
+              Nuevo mensaje
+            </Button>
+          )}
+        </div>
         <div className="relative">
           <Search className="pointer-events-none absolute start-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
@@ -76,7 +88,7 @@ export function ChatConversationList({
         ) : conversations && conversations.length === 0 ? (
           <div role="status" className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
             <MessageSquareOff className="size-6" aria-hidden="true" />
-            {searching ? 'Ninguna conversación coincide con la búsqueda.' : 'Todavía no hay conversaciones. Aparecerán cuando un docente escriba.'}
+            {searching ? 'Ninguna conversación coincide con la búsqueda.' : 'Todavía no hay conversaciones. Aparecerán cuando un docente escriba o cuando envíes un mensaje nuevo.'}
           </div>
         ) : (
           <ul className="m-0 list-none p-1">
