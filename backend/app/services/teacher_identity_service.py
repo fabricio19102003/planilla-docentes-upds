@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.models.biometric import BiometricRecord
 from app.models.contract import ContractDocument
+from app.models.contract_ci_correction import ContractCiCorrection
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
 from app.models.teacher_ci_alias import TeacherCiAlias
@@ -35,15 +36,16 @@ class TeacherIdentityService:
         "teacher_availability",
         "academic_schedule_assignments",
         "teacher_ci_aliases",
+        # Issued contracts are immutable; _grant_contract_correction lets this single
+        # teacher_ci UPDATE through the trigger and records it.
+        "contract_documents",
     )
-    # Issued contracts are immutable (database triggers reject UPDATE and DELETE), so a
-    # teacher who has any cannot move; change_ci rejects the change before writing.
-    guarded_tables = ("contract_documents",)
+    guarded_tables: tuple[str, ...] = ()
 
     def __init__(self, db: Session):
         self.db = db
 
-    def change_ci(self, old_ci: str, new_ci: str) -> Teacher:
+    def change_ci(self, old_ci: str, new_ci: str, corrected_by: int | None = None) -> Teacher:
         teacher = self.db.scalar(select(Teacher).where(Teacher.ci == old_ci).with_for_update())
         if teacher is None:
             raise LookupError("teacher not found")
@@ -56,11 +58,11 @@ class TeacherIdentityService:
             raise TeacherIdentityConflict(
                 f"El CI {new_ci} ya está en uso por el usuario {existing_user.full_name}"
             )
-        self._check_issued_contracts(old_ci)
         self._check_portal_logins(old_ci, new_ci)
         self._check_biometric_collisions(old_ci, new_ci)
 
         replacement = self._insert_replacement(teacher, new_ci)
+        self._grant_contract_correction(old_ci, new_ci, corrected_by)
         for table in self.child_tables:
             self._repoint_child(table, old_ci, new_ci)
         self._repoint_docente_login(old_ci, new_ci)
@@ -68,15 +70,19 @@ class TeacherIdentityService:
         self._delete_old_parent(teacher)
         return replacement
 
-    def _check_issued_contracts(self, old_ci: str) -> None:
+    def _grant_contract_correction(self, old_ci: str, new_ci: str, corrected_by: int | None) -> None:
         contracts = self.db.scalar(
             select(func.count()).select_from(ContractDocument).where(ContractDocument.teacher_ci == old_ci)
         )
-        if contracts:
-            raise TeacherIdentityConflict(
-                f"No se puede cambiar el CI: el docente tiene {contracts} contrato(s) emitido(s), "
-                "que son inmutables"
-            )
+        if not contracts:
+            return
+        txid = None
+        if self.db.get_bind().dialect.name == "postgresql":
+            txid = self.db.scalar(text("SELECT txid_current()"))
+        self.db.add(ContractCiCorrection(
+            old_ci=old_ci, new_ci=new_ci, contract_count=contracts, corrected_by=corrected_by, txid=txid,
+        ))
+        self.db.flush()
 
     def _check_portal_logins(self, old_ci: str, new_ci: str) -> None:
         """Reject renames the database cannot apply without a 500."""
