@@ -22,6 +22,7 @@ from app.models.academic_management import (
     SubjectOffering,
     TeacherAvailability,
 )
+from app.models.chat import ChatConversation
 from app.models.contract import ContractDocument
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -63,6 +64,7 @@ def _seed_all_ci_consumers(db_session):
     ])
     db_session.flush()
     _seed_schedule_assignment(db_session)
+    db_session.add(ChatConversation(teacher_ci=OLD_CI))
     db_session.add(ContractDocument(
         public_id="00000000-0000-0000-0000-0000000000c1", teacher_ci=OLD_CI, teacher_name="Original Teacher",
         teacher_snapshot={}, academic_period="I/2027", period_snapshot={}, document_kind="original",

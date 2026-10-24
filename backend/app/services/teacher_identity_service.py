@@ -36,6 +36,7 @@ class TeacherIdentityService:
         "teacher_availability",
         "academic_schedule_assignments",
         "teacher_ci_aliases",
+        "chat_conversations",
         # Issued contracts are immutable; _grant_contract_correction lets this single
         # teacher_ci UPDATE through the trigger and records it.
         "contract_documents",
