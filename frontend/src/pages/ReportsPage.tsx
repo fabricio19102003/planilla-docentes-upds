@@ -3,20 +3,31 @@ import { useState, useEffect } from 'react'
 import {
   FileText,
   Download,
-  Filter,
   Eye,
-  Loader2,
   BarChart3,
   Users,
-  Calendar,
   DollarSign,
   ClipboardCheck,
   CheckCircle,
-  Clock,
   History,
   X,
   AlertTriangle,
+  AlertCircle,
   ArrowLeftRight,
+  CalendarDays,
+  Clock,
+  Percent,
+  Hash,
+  UserCheck,
+  UserX,
+  Timer,
+  Receipt,
+  Scale,
+  Calculator,
+  BookOpen,
+  ListChecks,
+  FileSearch,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   useReportPreview,
@@ -27,8 +38,21 @@ import {
   type ReportInfo,
 } from '@/api/hooks/useReports'
 import { useTeachers } from '@/api/hooks/useTeachers'
-import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardDescription, CardPanel } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { TONE_CHIP, TONE_TEXT, type Tone } from '@/components/shared/tones'
+import { cn } from '@/lib/utils'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
@@ -36,16 +60,24 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
-const REPORT_TYPES = {
-  financial: { label: 'Financiero', icon: DollarSign, color: '#003366', bgClass: 'bg-blue-950/10 border-[#003366]' },
-  attendance: { label: 'Asistencia', icon: ClipboardCheck, color: '#0066CC', bgClass: 'bg-blue-600/10 border-[#0066CC]' },
-  comparative: { label: 'Comparativo', icon: BarChart3, color: '#4DA8DA', bgClass: 'bg-sky-400/10 border-[#4DA8DA]' },
-  roster: { label: 'Plantel Docente', icon: Users, color: '#16a34a', bgClass: 'bg-green-600/10 border-green-600' },
-  incidence: { label: 'Incidencias', icon: AlertTriangle, color: '#dc2626', bgClass: 'bg-red-600/10 border-red-600' },
-  reconciliation: { label: 'Conciliación', icon: ArrowLeftRight, color: '#7c3aed', bgClass: 'bg-purple-600/10 border-purple-600' },
-} as const
+const MONTH_ITEMS = Object.entries(MONTH_NAMES).map(([value, label]) => ({ value, label }))
 
-type ReportType = keyof typeof REPORT_TYPES
+const REPORT_TYPES: Record<string, { label: string; icon: LucideIcon; tone: Tone; hint: string }> = {
+  financial: { label: 'Financiero', icon: DollarSign, tone: 'primary', hint: 'Pagos por docente/designación' },
+  attendance: { label: 'Asistencia', icon: ClipboardCheck, tone: 'info', hint: 'Registros de asistencia detallados' },
+  comparative: { label: 'Comparativo', icon: BarChart3, tone: 'neutral', hint: 'Evolución mensual del año' },
+  roster: { label: 'Plantel Docente', icon: Users, tone: 'success', hint: 'Lista completa del plantel docente' },
+  incidence: { label: 'Incidencias', icon: AlertTriangle, tone: 'destructive', hint: 'Ausencias, tardanzas y sin biométrico' },
+  reconciliation: { label: 'Conciliación', icon: ArrowLeftRight, tone: 'warning', hint: 'Designación vs asistencia real' },
+}
+
+type ReportType = 'financial' | 'attendance' | 'comparative' | 'roster' | 'incidence' | 'reconciliation'
+const REPORT_TYPE_ENTRIES = Object.entries(REPORT_TYPES) as [ReportType, (typeof REPORT_TYPES)[string]][]
+
+/** Scrolls the preview tables vertically while the header stays visible; horizontal scroll comes from Table. */
+const PREVIEW_SCROLL = 'max-h-96 [&_[data-slot=table-container]]:min-h-0 [&_[data-slot=table-container]]:overflow-y-auto'
+const STICKY_HEAD = 'sticky top-0 z-10 bg-card'
+const NUM = 'text-right tabular-nums'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -58,19 +90,37 @@ function formatDate(dateStr: string): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function formatMoney(value: number): string {
+  return value.toLocaleString('es-BO', { minimumFractionDigits: 2 })
+}
+
 function ReportTypeBadge({ type }: { type: string }) {
-  const cfg = REPORT_TYPES[type as ReportType]
-  if (!cfg) return <Badge className="bg-gray-100 text-gray-600">{type}</Badge>
-  const Icon = cfg.icon
+  const cfg = REPORT_TYPES[type]
+  if (!cfg) return <StatusBadge>{type}</StatusBadge>
+  return <StatusBadge tone={cfg.tone}>{cfg.label}</StatusBadge>
+}
+
+interface HeadColumn {
+  label: string
+  numeric?: boolean
+}
+
+function PreviewHead({ columns }: { columns: HeadColumn[] }) {
   return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border"
-      style={{ color: cfg.color, borderColor: cfg.color, backgroundColor: `${cfg.color}15` }}
-    >
-      <Icon size={11} />
-      {cfg.label}
-    </span>
+    <TableHeader>
+      <TableRow className="hover:bg-transparent">
+        {columns.map(({ label, numeric }) => (
+          <TableHead key={label} className={cn(STICKY_HEAD, numeric && NUM)}>
+            {label}
+          </TableHead>
+        ))}
+      </TableRow>
+    </TableHeader>
   )
+}
+
+function StatGrid({ className, children }: { className: string; children: React.ReactNode }) {
+  return <div className={cn('grid gap-3', className)}>{children}</div>
 }
 
 // ── Financial Preview ────────────────────────────────────────────────────────
@@ -78,79 +128,52 @@ function ReportTypeBadge({ type }: { type: string }) {
 function FinancialPreview({ data }: { data: any }) {
   return (
     <div className="space-y-4">
-      {/* Summary stats — 8 cards: base 6 + Bruto + Ret. + Neto */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        {[
-          { label: 'Docentes', value: data.total_teachers },
-          { label: 'Designaciones', value: data.total_designations },
-          { label: 'Hrs Asignadas', value: `${data.total_base_hours}h` },
-          { label: 'Hrs Ausencia', value: `${data.total_absent_hours}h` },
-          { label: 'Hrs a Pagar', value: `${data.total_payable_hours}h` },
-          {
-            label: 'Total Bruto (Bs)',
-            value: (data.total_gross_payment ?? data.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 }),
-          },
-          {
-            label: 'Ret. 13% (Bs)',
-            value: (data.total_retention ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 }),
-          },
-          {
-            label: 'Total Neto (Bs)',
-            value: data.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 }),
-            highlight: true,
-          },
-        ].map(({ label, value, highlight }) => (
-          <div key={label} className={`rounded-lg p-3 text-center ${highlight ? 'bg-blue-50/50 ring-1 ring-[#003366]/30' : 'bg-blue-50/60'}`}>
-            <p className="text-lg font-bold" style={{ color: '#003366' }}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
+      <StatGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={Users} title="Docentes" value={data.total_teachers} />
+        <StatCard icon={BookOpen} title="Designaciones" value={data.total_designations} />
+        <StatCard icon={Clock} title="Hrs Asignadas" value={`${data.total_base_hours}h`} tone="info" />
+        <StatCard icon={UserX} title="Hrs Ausencia" value={`${data.total_absent_hours}h`} tone="warning" />
+        <StatCard icon={Timer} title="Hrs a Pagar" value={`${data.total_payable_hours}h`} tone="info" />
+        <StatCard icon={Receipt} title="Total Bruto (Bs)" value={formatMoney(data.total_gross_payment ?? data.total_payment)} />
+        <StatCard icon={Percent} title="Ret. 13% (Bs)" value={formatMoney(data.total_retention ?? 0)} tone="warning" />
+        <StatCard icon={Calculator} title="Total Neto (Bs)" value={formatMoney(data.total_payment)} tone="success" />
+      </StatGrid>
 
-      {/* Detail table — Bruto / Ret. 13% / Neto columns */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0">
-            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs Pagar', 'Bruto (Bs)', 'Ret. 13%', 'Neto (Bs)'].map(h => (
-                <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row: any, i: number) => (
-              <tr key={`${row.teacher_ci}-${row.subject}-${row.group_code}`}
-                  className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.teacher_name}</td>
-                <td className="px-3 py-2 text-gray-700 max-w-[160px] truncate">{row.subject}</td>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.group_code}</td>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.semester}</td>
-                <td className="px-3 py-2 text-gray-700 font-medium text-center">{row.base_monthly_hours}h</td>
-                <td className="px-3 py-2 text-center">
-                  {row.absent_hours > 0
-                    ? <span className="text-red-600 font-medium">-{row.absent_hours}h</span>
-                    : <span className="text-green-600">0h</span>}
-                </td>
-                <td className="px-3 py-2 text-gray-800 font-semibold text-center">{row.payable_hours}h</td>
-                {/* Bruto */}
-                <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
-                  {row.calculated_payment?.toFixed(2) ?? '—'}
-                </td>
-                {/* Retención 13% */}
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {(row.retention_amount ?? 0) > 0
-                    ? <span className="text-amber-600">-{row.retention_amount.toFixed(2)}</span>
-                    : <span className="text-gray-400">—</span>}
-                </td>
-                {/* Neto */}
-                <td className="px-3 py-2 font-bold text-right pr-4 whitespace-nowrap" style={{ color: '#003366' }}>
-                  {(row.final_payment ?? row.calculated_payment)?.toFixed(2) ?? '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableCard className={PREVIEW_SCROLL}>
+        <PreviewHead
+          columns={[
+            { label: 'Docente' }, { label: 'Materia' }, { label: 'Grupo' }, { label: 'Sem.' },
+            { label: 'Hrs Base', numeric: true }, { label: 'Ausencias', numeric: true }, { label: 'Hrs Pagar', numeric: true },
+            { label: 'Bruto (Bs)', numeric: true }, { label: 'Ret. 13%', numeric: true }, { label: 'Neto (Bs)', numeric: true },
+          ]}
+        />
+        <TableBody>
+          {data.rows.map((row: any) => (
+            <TableRow key={`${row.teacher_ci}-${row.subject}-${row.group_code}`}>
+              <TableCell className="max-w-[180px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+              <TableCell className="max-w-[160px] truncate">{row.subject}</TableCell>
+              <TableCell className="text-muted-foreground">{row.group_code}</TableCell>
+              <TableCell className="text-muted-foreground">{row.semester}</TableCell>
+              <TableCell className={NUM}>{row.base_monthly_hours}h</TableCell>
+              <TableCell className={NUM}>
+                {row.absent_hours > 0
+                  ? <span className={cn('font-medium', TONE_TEXT.destructive)}>-{row.absent_hours}h</span>
+                  : <span className="text-muted-foreground">0h</span>}
+              </TableCell>
+              <TableCell className={cn(NUM, 'font-semibold text-foreground')}>{row.payable_hours}h</TableCell>
+              <TableCell className={NUM}>{row.calculated_payment?.toFixed(2) ?? '—'}</TableCell>
+              <TableCell className={NUM}>
+                {(row.retention_amount ?? 0) > 0
+                  ? <span className={TONE_TEXT.warning}>-{row.retention_amount.toFixed(2)}</span>
+                  : <span className="text-muted-foreground">—</span>}
+              </TableCell>
+              <TableCell className={cn(NUM, 'font-semibold text-foreground')}>
+                {(row.final_payment ?? row.calculated_payment)?.toFixed(2) ?? '—'}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </TableCard>
     </div>
   )
 }
@@ -161,63 +184,53 @@ function AttendancePreview({ data }: { data: any }) {
   const STATUS_LABELS: Record<string, string> = {
     ATTENDED: 'Asistido', JUSTIFIED: 'Justificado', LATE: 'Tardanza', ABSENT: 'Ausente', NO_EXIT: 'Sin salida',
   }
-  const STATUS_COLORS: Record<string, string> = {
-    ATTENDED: 'bg-green-100 text-green-700',
-    JUSTIFIED: 'bg-blue-100 text-blue-700',
-    LATE: 'bg-yellow-100 text-yellow-700',
-    ABSENT: 'bg-red-100 text-red-700',
-    NO_EXIT: 'bg-blue-100 text-blue-700',
+  const STATUS_TONES: Record<string, Tone> = {
+    ATTENDED: 'success',
+    JUSTIFIED: 'info',
+    LATE: 'warning',
+    ABSENT: 'destructive',
+    NO_EXIT: 'info',
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[
-          { label: 'Total Registros', value: data.total_records, color: '#003366' },
-          { label: 'Asistidos', value: data.attended, color: '#16a34a' },
-          { label: 'Tardanzas', value: data.late, color: '#d97706' },
-          { label: 'Ausencias', value: data.absent, color: '#dc2626' },
-          { label: 'Tasa Asistencia', value: `${data.attendance_rate}%`, color: '#0066CC' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-blue-50/60 rounded-lg p-3 text-center">
-            <p className="text-xl font-bold" style={{ color }}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
+      <StatGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard icon={Hash} title="Total Registros" value={data.total_records} />
+        <StatCard icon={UserCheck} title="Asistidos" value={data.attended} tone="success" />
+        <StatCard icon={Timer} title="Tardanzas" value={data.late} tone="warning" />
+        <StatCard icon={UserX} title="Ausencias" value={data.absent} tone="destructive" />
+        <StatCard icon={Percent} title="Tasa Asistencia" value={`${data.attendance_rate}%`} tone="info" />
+      </StatGrid>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0">
-            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Fecha', 'Docente', 'Tipo', 'Estado', 'Entrada', 'Salida', 'Hrs Acad.'].map(h => (
-                <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.records_sample.map((rec: any, i: number) => (
-              <tr key={`${rec.record_kind}:${rec.source_key}:${rec.date}:${rec.scheduled_start}`} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                  {rec.date ? new Date(rec.date).toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit' }) : '—'}
-                </td>
-                <td className="px-3 py-2 text-gray-700 font-mono text-xs">{rec.teacher_ci}</td>
-                <td className="px-3 py-2 text-gray-600">{rec.record_kind === 'practice' ? 'Práctica' : 'Regular'}</td>
-                <td className="px-3 py-2">
-                  <Badge className={`text-xs ${STATUS_COLORS[rec.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                    {STATUS_LABELS[rec.status] ?? rec.status}
-                  </Badge>
-                </td>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{rec.check_in ?? '—'}</td>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{rec.check_out ?? '—'}</td>
-                <td className="px-3 py-2 text-center font-semibold text-gray-800">{rec.academic_hours ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableCard className={PREVIEW_SCROLL}>
+        <PreviewHead
+          columns={[
+            { label: 'Fecha' }, { label: 'Docente' }, { label: 'Tipo' }, { label: 'Estado' },
+            { label: 'Entrada' }, { label: 'Salida' }, { label: 'Hrs Acad.', numeric: true },
+          ]}
+        />
+        <TableBody>
+          {data.records_sample.map((rec: any) => (
+            <TableRow key={`${rec.record_kind}:${rec.source_key}:${rec.date}:${rec.scheduled_start}`}>
+              <TableCell className="tabular-nums text-muted-foreground">
+                {rec.date ? new Date(rec.date).toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit' }) : '—'}
+              </TableCell>
+              <TableCell className="font-mono text-xs">{rec.teacher_ci}</TableCell>
+              <TableCell className="text-muted-foreground">{rec.record_kind === 'practice' ? 'Práctica' : 'Regular'}</TableCell>
+              <TableCell>
+                <StatusBadge tone={STATUS_TONES[rec.status] ?? 'neutral'}>
+                  {STATUS_LABELS[rec.status] ?? rec.status}
+                </StatusBadge>
+              </TableCell>
+              <TableCell className="tabular-nums text-muted-foreground">{rec.check_in ?? '—'}</TableCell>
+              <TableCell className="tabular-nums text-muted-foreground">{rec.check_out ?? '—'}</TableCell>
+              <TableCell className={cn(NUM, 'font-semibold text-foreground')}>{rec.academic_hours ?? 0}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </TableCard>
       {data.total_records > 50 && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-center text-xs text-muted-foreground">
           Mostrando 50 de {data.total_records} registros — generá el PDF para ver todos
         </p>
       )}
@@ -230,55 +243,39 @@ function AttendancePreview({ data }: { data: any }) {
 function ComparativePreview({ data }: { data: any }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-50/60 rounded-lg p-3 text-center">
-          <p className="text-xl font-bold" style={{ color: '#003366' }}>{data.months.length}</p>
-          <p className="text-xs text-gray-500">Meses con datos</p>
-        </div>
-        <div className="bg-blue-50/60 rounded-lg p-3 text-center">
-          <p className="text-xl font-bold" style={{ color: '#003366' }}>
-            {data.grand_total.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-xs text-gray-500">Total Anual (Bs)</p>
-        </div>
-      </div>
+      <StatGrid className="grid-cols-1 sm:grid-cols-2">
+        <StatCard icon={CalendarDays} title="Meses con datos" value={data.months.length} />
+        <StatCard icon={Calculator} title="Total Anual (Bs)" value={formatMoney(data.grand_total)} tone="success" />
+      </StatGrid>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full text-sm">
-          <thead>
-            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Mes', 'Docentes', 'Hrs Asignadas', 'Hrs Ausencia', 'Hrs a Pagar', 'Total (Bs)'].map(h => (
-                <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.months.map((md: any, i: number) => (
-              <tr key={md.month} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="px-3 py-2.5 font-semibold text-gray-800">{md.month_name}</td>
-                <td className="px-3 py-2.5 text-gray-700 text-center">{md.teachers}</td>
-                <td className="px-3 py-2.5 text-gray-700 text-center">{md.base_hours}h</td>
-                <td className="px-3 py-2.5 text-center">
-                  {md.absent_hours > 0
-                    ? <span className="text-red-500 font-medium">{md.absent_hours}h</span>
-                    : <span className="text-green-600">0h</span>}
-                </td>
-                <td className="px-3 py-2.5 text-gray-800 font-medium text-center">{md.payable_hours}h</td>
-                <td className="px-3 py-2.5 font-bold text-right pr-4" style={{ color: '#003366' }}>
-                  {md.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                </td>
-              </tr>
-            ))}
-            {/* Total row */}
-            <tr className="border-t-2 border-gray-300" style={{ backgroundColor: '#003366' }}>
-              <td className="px-3 py-2.5 text-white font-bold" colSpan={5}>TOTAL ANUAL</td>
-              <td className="px-3 py-2.5 text-white font-bold text-right pr-4">
-                {data.grand_total.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <TableCard>
+        <PreviewHead
+          columns={[
+            { label: 'Mes' }, { label: 'Docentes', numeric: true }, { label: 'Hrs Asignadas', numeric: true },
+            { label: 'Hrs Ausencia', numeric: true }, { label: 'Hrs a Pagar', numeric: true }, { label: 'Total (Bs)', numeric: true },
+          ]}
+        />
+        <TableBody>
+          {data.months.map((md: any) => (
+            <TableRow key={md.month}>
+              <TableCell className="font-medium text-foreground">{md.month_name}</TableCell>
+              <TableCell className={NUM}>{md.teachers}</TableCell>
+              <TableCell className={NUM}>{md.base_hours}h</TableCell>
+              <TableCell className={NUM}>
+                {md.absent_hours > 0
+                  ? <span className={cn('font-medium', TONE_TEXT.destructive)}>{md.absent_hours}h</span>
+                  : <span className="text-muted-foreground">0h</span>}
+              </TableCell>
+              <TableCell className={NUM}>{md.payable_hours}h</TableCell>
+              <TableCell className={cn(NUM, 'font-semibold text-foreground')}>{formatMoney(md.total_payment)}</TableCell>
+            </TableRow>
+          ))}
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            <TableCell className="font-semibold text-foreground" colSpan={5}>TOTAL ANUAL</TableCell>
+            <TableCell className={cn(NUM, 'font-semibold text-foreground')}>{formatMoney(data.grand_total)}</TableCell>
+          </TableRow>
+        </TableBody>
+      </TableCard>
     </div>
   )
 }
@@ -288,54 +285,44 @@ function ComparativePreview({ data }: { data: any }) {
 function RosterPreview({ data }: { data: any }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Total Docentes', value: data.total_teachers, color: '#003366' },
-          { label: 'Con NIT', value: data.with_nit, color: '#0066CC' },
-          { label: 'Con Retención', value: data.with_retention, color: '#d97706' },
-          { label: 'Vista previa (máx. 50)', value: data.rows.length, color: '#16a34a' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-blue-50/60 rounded-lg p-3 text-center">
-            <p className="text-xl font-bold" style={{ color }}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
+      <StatGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={Users} title="Total Docentes" value={data.total_teachers} />
+        <StatCard icon={FileText} title="Con NIT" value={data.with_nit} tone="info" />
+        <StatCard icon={Percent} title="Con Retención" value={data.with_retention} tone="warning" />
+        <StatCard icon={ListChecks} title="Vista previa (máx. 50)" value={data.rows.length} tone="success" />
+      </StatGrid>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0">
-            <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-              {['Nº', 'Nombre Completo', 'C.I.', 'Teléfono', 'Email', 'NIT/Ret.', 'Materias'].map(h => (
-                <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row: any, i: number) => (
-              <tr key={row.ci} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
-                <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.full_name}</td>
-                <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.ci}</td>
-                <td className="px-3 py-2 text-gray-600">{row.phone ?? '—'}</td>
-                <td className="px-3 py-2 text-gray-600 max-w-[180px] truncate">{row.email ?? '—'}</td>
-                <td className="px-3 py-2 text-center">
-                  {row.invoice_retention?.toUpperCase() === 'RETENCION' ? (
-                    <span className="inline-block px-1.5 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-700">RET</span>
-                  ) : row.nit ? (
-                    <span className="text-xs text-gray-600">{row.nit}</span>
-                  ) : (
-                    <span className="text-gray-300">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center text-gray-700 font-medium">{row.designation_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableCard className={PREVIEW_SCROLL}>
+        <PreviewHead
+          columns={[
+            { label: 'Nº', numeric: true }, { label: 'Nombre Completo' }, { label: 'C.I.' }, { label: 'Teléfono' },
+            { label: 'Email' }, { label: 'NIT/Ret.' }, { label: 'Materias', numeric: true },
+          ]}
+        />
+        <TableBody>
+          {data.rows.map((row: any, i: number) => (
+            <TableRow key={row.ci}>
+              <TableCell className={cn(NUM, 'text-muted-foreground')}>{i + 1}</TableCell>
+              <TableCell className="max-w-[200px] truncate font-medium text-foreground">{row.full_name}</TableCell>
+              <TableCell className="font-mono text-xs">{row.ci}</TableCell>
+              <TableCell className="text-muted-foreground">{row.phone ?? '—'}</TableCell>
+              <TableCell className="max-w-[180px] truncate text-muted-foreground">{row.email ?? '—'}</TableCell>
+              <TableCell>
+                {row.invoice_retention?.toUpperCase() === 'RETENCION' ? (
+                  <StatusBadge tone="warning">RET</StatusBadge>
+                ) : row.nit ? (
+                  <span className="text-xs tabular-nums text-muted-foreground">{row.nit}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className={NUM}>{row.designation_count}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </TableCard>
       {data.total_teachers > 50 && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-center text-xs text-muted-foreground">
           Mostrando 50 de {data.total_teachers} docentes — generá el PDF para ver todos
         </p>
       )}
@@ -347,117 +334,92 @@ function RosterPreview({ data }: { data: any }) {
 
 function IncidencePreview({ data }: { data: any }) {
   return (
-    <div className="space-y-5">
-      {/* 4 stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Total Registros', value: data.total_records, color: '#003366' },
-          { label: 'Ausencias', value: data.total_absences, color: '#dc2626' },
-          { label: 'Tardanzas', value: data.total_lates, color: '#d97706' },
-          { label: 'Sin Biométrico', value: data.teachers_without_biometric, color: '#7c3aed' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-lg p-3 text-center" style={{ backgroundColor: `${color}0d`, border: `1px solid ${color}30` }}>
-            <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
+    <div className="space-y-6">
+      <StatGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={Hash} title="Total Registros" value={data.total_records} />
+        <StatCard icon={UserX} title="Ausencias" value={data.total_absences} tone="destructive" />
+        <StatCard icon={Timer} title="Tardanzas" value={data.total_lates} tone="warning" />
+        <StatCard icon={FileSearch} title="Sin Biométrico" value={data.teachers_without_biometric} tone="info" />
+      </StatGrid>
 
-      {/* Top absentees */}
-      <div>
-        <h4 className="text-sm font-semibold text-red-700 mb-2">Docentes con más ausencias</h4>
+      <section className="space-y-2">
+        <h4 className={cn('text-sm font-semibold', TONE_TEXT.destructive)}>Docentes con más ausencias</h4>
         {data.top_absentees?.length > 0 ? (
-          <div className="overflow-x-auto rounded-lg border border-red-100 max-h-60 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr className="bg-red-600">
-                  {['Nº', 'Docente', 'Ausencias', 'Total Clases', '% Ausencia'].map(h => (
-                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.top_absentees.map((row: any, i: number) => {
-                  const pct = row.total_slots > 0 ? (row.absences / row.total_slots * 100).toFixed(1) : '0'
-                  return (
-                    <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-red-50/70 transition-colors ${i % 2 === 1 ? 'bg-red-50/30' : 'bg-white'}`}>
-                      <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
-                      <td className="px-3 py-2 text-center font-bold text-red-600">{row.absences}</td>
-                      <td className="px-3 py-2 text-center text-gray-600">{row.total_slots}</td>
-                      <td className="px-3 py-2 text-center text-red-700 font-medium">{pct}%</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <TableCard className={cn(PREVIEW_SCROLL, 'max-h-60')}>
+            <PreviewHead
+              columns={[
+                { label: 'Nº', numeric: true }, { label: 'Docente' }, { label: 'Ausencias', numeric: true },
+                { label: 'Total Clases', numeric: true }, { label: '% Ausencia', numeric: true },
+              ]}
+            />
+            <TableBody>
+              {data.top_absentees.map((row: any, i: number) => {
+                const pct = row.total_slots > 0 ? (row.absences / row.total_slots * 100).toFixed(1) : '0'
+                return (
+                  <TableRow key={row.teacher_ci}>
+                    <TableCell className={cn(NUM, 'text-muted-foreground')}>{i + 1}</TableCell>
+                    <TableCell className="max-w-[200px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+                    <TableCell className={cn(NUM, 'font-semibold', TONE_TEXT.destructive)}>{row.absences}</TableCell>
+                    <TableCell className={NUM}>{row.total_slots}</TableCell>
+                    <TableCell className={cn(NUM, 'font-medium')}>{pct}%</TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </TableCard>
         ) : (
-          <p className="text-sm text-gray-400 italic">Sin ausencias registradas en el período.</p>
+          <p className="text-sm italic text-muted-foreground">Sin ausencias registradas en el período.</p>
         )}
-      </div>
+      </section>
 
-      {/* Top lates */}
-      <div>
-        <h4 className="text-sm font-semibold text-amber-700 mb-2">Docentes con más tardanzas</h4>
+      <section className="space-y-2">
+        <h4 className={cn('text-sm font-semibold', TONE_TEXT.warning)}>Docentes con más tardanzas</h4>
         {data.top_lates?.length > 0 ? (
-          <div className="overflow-x-auto rounded-lg border border-amber-100 max-h-60 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr className="bg-amber-500">
-                  {['Nº', 'Docente', 'Tardanzas', 'Min. Promedio'].map(h => (
-                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.top_lates.map((row: any, i: number) => {
-                  const avgMin = row.lates > 0 ? Math.floor(row.late_minutes_total / row.lates) : 0
-                  return (
-                    <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-amber-50/70 transition-colors ${i % 2 === 1 ? 'bg-amber-50/30' : 'bg-white'}`}>
-                      <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
-                      <td className="px-3 py-2 text-center font-bold text-amber-600">{row.lates}</td>
-                      <td className="px-3 py-2 text-center text-gray-600">{avgMin} min</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <TableCard className={cn(PREVIEW_SCROLL, 'max-h-60')}>
+            <PreviewHead
+              columns={[
+                { label: 'Nº', numeric: true }, { label: 'Docente' }, { label: 'Tardanzas', numeric: true },
+                { label: 'Min. Promedio', numeric: true },
+              ]}
+            />
+            <TableBody>
+              {data.top_lates.map((row: any, i: number) => {
+                const avgMin = row.lates > 0 ? Math.floor(row.late_minutes_total / row.lates) : 0
+                return (
+                  <TableRow key={row.teacher_ci}>
+                    <TableCell className={cn(NUM, 'text-muted-foreground')}>{i + 1}</TableCell>
+                    <TableCell className="max-w-[200px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+                    <TableCell className={cn(NUM, 'font-semibold', TONE_TEXT.warning)}>{row.lates}</TableCell>
+                    <TableCell className={NUM}>{avgMin} min</TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </TableCard>
         ) : (
-          <p className="text-sm text-gray-400 italic">Sin tardanzas registradas en el período.</p>
+          <p className="text-sm italic text-muted-foreground">Sin tardanzas registradas en el período.</p>
         )}
-      </div>
+      </section>
 
-      {/* Without biometric */}
-      <div>
-        <h4 className="text-sm font-semibold text-purple-700 mb-2">Docentes sin biométrico</h4>
+      <section className="space-y-2">
+        <h4 className={cn('text-sm font-semibold', TONE_TEXT.info)}>Docentes sin biométrico</h4>
         {data.without_biometric?.length > 0 ? (
-          <div className="overflow-x-auto rounded-lg border border-purple-100 max-h-60 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr style={{ backgroundColor: '#7c3aed' }}>
-                  {['Nº', 'Docente', 'CI'].map(h => (
-                    <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.without_biometric.map((row: any, i: number) => (
-                  <tr key={row.teacher_ci} className={`border-b last:border-0 hover:bg-purple-50/70 transition-colors ${i % 2 === 1 ? 'bg-purple-50/20' : 'bg-white'}`}>
-                    <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
-                    <td className="px-3 py-2 font-medium text-gray-800 max-w-[220px] truncate">{row.teacher_name}</td>
-                    <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.teacher_ci}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TableCard className={cn(PREVIEW_SCROLL, 'max-h-60')}>
+            <PreviewHead columns={[{ label: 'Nº', numeric: true }, { label: 'Docente' }, { label: 'CI' }]} />
+            <TableBody>
+              {data.without_biometric.map((row: any, i: number) => (
+                <TableRow key={row.teacher_ci}>
+                  <TableCell className={cn(NUM, 'text-muted-foreground')}>{i + 1}</TableCell>
+                  <TableCell className="max-w-[220px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+                  <TableCell className="font-mono text-xs">{row.teacher_ci}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </TableCard>
         ) : (
-          <p className="text-sm text-green-600 font-medium">Todos los docentes tienen registro biométrico.</p>
+          <p className={cn('text-sm font-medium', TONE_TEXT.success)}>Todos los docentes tienen registro biométrico.</p>
         )}
-      </div>
+      </section>
     </div>
   )
 }
@@ -465,69 +427,70 @@ function IncidencePreview({ data }: { data: any }) {
 // ── Reconciliation Preview ───────────────────────────────────────────────────
 
 function ReconciliationPreview({ data }: { data: any }) {
-  const SEVERITY_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
-    high: { bg: 'bg-red-50/40', text: 'text-red-600', badge: 'bg-red-100 text-red-700' },
-    medium: { bg: 'bg-amber-50/40', text: 'text-amber-600', badge: 'bg-amber-100 text-amber-700' },
+  const SEVERITY: Record<string, { row: string; tone: Tone; label: string }> = {
+    high: { row: 'bg-destructive/4', tone: 'destructive', label: 'Alta' },
+    medium: { row: 'bg-warning/4', tone: 'warning', label: 'Media' },
   }
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Total Docentes', value: data.total_teachers, color: '#7c3aed' },
-          { label: 'Discrepancias', value: data.total_discrepancies, color: '#003366' },
-          { label: 'Severidad Alta', value: data.high_severity, color: '#dc2626' },
-          { label: 'Severidad Media', value: data.medium_severity, color: '#d97706' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-lg p-3 text-center" style={{ backgroundColor: `${color}0d`, border: `1px solid ${color}30` }}>
-            <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
+      <StatGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={Users} title="Total Docentes" value={data.total_teachers} />
+        <StatCard icon={Scale} title="Discrepancias" value={data.total_discrepancies} tone="info" />
+        <StatCard icon={AlertTriangle} title="Severidad Alta" value={data.high_severity} tone="destructive" />
+        <StatCard icon={AlertCircle} title="Severidad Media" value={data.medium_severity} tone="warning" />
+      </StatGrid>
 
-      {/* Discrepancy table */}
       {data.discrepancies?.length > 0 ? (
-        <div className="overflow-x-auto rounded-lg border border-purple-100 max-h-80 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0">
-              <tr style={{ backgroundColor: '#7c3aed' }}>
-                {['Nº', 'Docente', 'Fuente', 'Tipo', 'Descripción', 'Hrs Esperadas', 'Hrs Reales', 'Severidad'].map(h => (
-                  <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.discrepancies.map((row: any, i: number) => {
-                const sev = SEVERITY_COLORS[row.severity] ?? SEVERITY_COLORS.medium
-                return (
-                  <tr key={`${row.teacher_ci ?? row.teacher_name}:${row.source}:${row.type}:${(row.source_keys ?? []).join(',')}`} className={`border-b last:border-0 hover:bg-purple-50/50 transition-colors ${sev.bg}`}>
-                    <td className="px-3 py-2 text-gray-400 text-center">{i + 1}</td>
-                    <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.teacher_name}</td>
-                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.source ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.type}</td>
-                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate">{row.description}</td>
-                    <td className="px-3 py-2 text-center text-gray-700">{row.expected_hours}h</td>
-                    <td className="px-3 py-2 text-center font-medium" style={{ color: row.actual_hours < row.expected_hours * 0.5 ? '#dc2626' : '#374151' }}>
-                      {row.actual_hours}h
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sev.badge}`}>
-                        {row.severity === 'high' ? 'Alta' : 'Media'}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <TableCard className={PREVIEW_SCROLL}>
+          <PreviewHead
+            columns={[
+              { label: 'Nº', numeric: true }, { label: 'Docente' }, { label: 'Fuente' }, { label: 'Tipo' },
+              { label: 'Descripción' }, { label: 'Hrs Esperadas', numeric: true }, { label: 'Hrs Reales', numeric: true },
+              { label: 'Severidad' },
+            ]}
+          />
+          <TableBody>
+            {data.discrepancies.map((row: any, i: number) => {
+              const sev = SEVERITY[row.severity] ?? SEVERITY.medium
+              return (
+                <TableRow key={`${row.teacher_ci ?? row.teacher_name}:${row.source}:${row.type}:${(row.source_keys ?? []).join(',')}`} className={sev.row}>
+                  <TableCell className={cn(NUM, 'text-muted-foreground')}>{i + 1}</TableCell>
+                  <TableCell className="max-w-[180px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.source ?? '—'}</TableCell>
+                  <TableCell>{row.type}</TableCell>
+                  <TableCell className="max-w-[220px] truncate text-muted-foreground">{row.description}</TableCell>
+                  <TableCell className={NUM}>{row.expected_hours}h</TableCell>
+                  <TableCell className={cn(NUM, 'font-medium', row.actual_hours < row.expected_hours * 0.5 ? TONE_TEXT.destructive : 'text-foreground')}>
+                    {row.actual_hours}h
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge tone={sev.tone}>{row.severity === 'high' ? 'Alta' : 'Media'}</StatusBadge>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </TableCard>
       ) : (
-        <div className="p-4 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 font-medium text-center">
-          ¡Sin discrepancias! Todos los docentes tienen registros de asistencia consistentes con sus designaciones.
-        </div>
+        <Alert variant="success">
+          <CheckCircle />
+          <AlertDescription>
+            ¡Sin discrepancias! Todos los docentes tienen registros de asistencia consistentes con sus designaciones.
+          </AlertDescription>
+        </Alert>
       )}
+    </div>
+  )
+}
+
+function PreviewSkeleton() {
+  return (
+    <div className="space-y-4" role="status" aria-label="Cargando vista previa">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((n) => <Skeleton key={n} className="h-20 rounded-2xl" />)}
+      </div>
+      <Skeleton className="h-48 w-full rounded-2xl" />
     </div>
   )
 }
@@ -594,7 +557,7 @@ export function ReportsPage() {
     }))
   }, [reportType, month, year, semester, groupCode, subject])
 
-  const { data: previewData, isLoading: previewLoading, isError: previewError } = useReportPreview(filters, previewEnabled)
+  const { data: previewData, isLoading: previewLoading, isError: previewError, isFetching: previewFetching, refetch: refetchPreview } = useReportPreview(filters, previewEnabled)
   const generateReport = useGenerateReport()
   const { data: history, isLoading: historyLoading } = useReportHistory()
 
@@ -620,336 +583,278 @@ export function ReportsPage() {
   const needsMonth = reportType !== 'comparative' && reportType !== 'roster'
   const isSimpleReport = reportType === 'incidence' || reportType === 'reconciliation'
 
+  const monthField = (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="report-month">Mes</Label>
+      <Select
+        value={String(month)}
+        items={MONTH_ITEMS}
+        onValueChange={(value) => { setMonth(Number(value)); setPreviewEnabled(false) }}
+      >
+        <SelectTrigger id="report-month"><SelectValue /></SelectTrigger>
+        <SelectPopup>
+          {MONTH_ITEMS.map(({ value, label }) => (
+            <SelectItem key={value} value={value}>{label}</SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+    </div>
+  )
+
+  const yearField = (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="report-year">Año</Label>
+      <Input
+        id="report-year"
+        type="number"
+        value={year}
+        onChange={(e) => { setYear(Number(e.target.value)); setPreviewEnabled(false) }}
+        min={2020}
+        max={2030}
+        inputClassName="tabular-nums"
+      />
+    </div>
+  )
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="gradient-navy rounded-xl p-6 text-white">
-        <div className="flex items-center gap-3">
-          <FileText size={28} className="text-white/90" />
-          <div>
-            <h2 className="text-2xl font-bold">Reportes</h2>
-            <p className="text-white/70 mt-0.5">Generá reportes PDF financieros, de asistencia y comparativos</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Reportes"
+        description="Generá reportes PDF financieros, de asistencia y comparativos"
+      />
 
       {/* Report Type Selector */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Tipo de Reporte</h3>
-          <p className="text-sm text-gray-500 mt-0.5">Seleccioná el tipo de análisis que necesitás</p>
-        </div>
-        <div className="px-6 py-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {(Object.entries(REPORT_TYPES) as [ReportType, typeof REPORT_TYPES[ReportType]][]).map(([type, cfg]) => {
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Tipo de Reporte</CardTitle>
+          <CardDescription>Seleccioná el tipo de análisis que necesitás</CardDescription>
+        </CardHeader>
+        <CardPanel>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {REPORT_TYPE_ENTRIES.map(([type, cfg]) => {
               const Icon = cfg.icon
               const isActive = reportType === type
               return (
                 <button
                   key={type}
+                  type="button"
+                  aria-pressed={isActive}
                   onClick={() => handleTypeChange(type)}
-                  className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-200 text-left ${
-                    isActive
-                      ? 'shadow-md'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
-                  }`}
-                  style={isActive ? { borderColor: cfg.color, backgroundColor: `${cfg.color}0d` } : undefined}
+                  className={cn(
+                    'flex items-start gap-3 rounded-xl border p-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    isActive ? 'border-primary bg-primary/5 shadow-xs' : 'border-border hover:bg-accent/50',
+                  )}
                 >
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: isActive ? cfg.color : '#f3f4f6' }}
-                  >
-                    <Icon size={20} style={{ color: isActive ? 'white' : cfg.color }} />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm" style={{ color: isActive ? cfg.color : '#374151' }}>
-                      {cfg.label}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {type === 'financial' && 'Pagos por docente/designación'}
-                      {type === 'attendance' && 'Registros de asistencia detallados'}
-                      {type === 'comparative' && 'Evolución mensual del año'}
-                      {type === 'roster' && 'Lista completa del plantel docente'}
-                      {type === 'incidence' && 'Ausencias, tardanzas y sin biométrico'}
-                      {type === 'reconciliation' && 'Designación vs asistencia real'}
-                    </p>
-                  </div>
+                  <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', isActive ? TONE_CHIP.primary : TONE_CHIP[cfg.tone])}>
+                    <Icon className="size-4" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">{cfg.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{cfg.hint}</span>
+                  </span>
                 </button>
               )
             })}
           </div>
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
       {/* Filters */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Filter size={16} style={{ color: '#0066CC' }} />
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Filtros</h3>
-        </div>
-        <div className="px-6 py-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filtros</CardTitle>
+        </CardHeader>
+        <CardPanel>
           {reportType === 'roster' ? (
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-muted-foreground">
               El reporte de Plantel Docente incluye todos los docentes registrados. No requiere filtros adicionales.
             </p>
           ) : isSimpleReport ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Month */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                <Calendar size={13} className="inline mr-1" />Mes
-              </label>
-              <select
-                value={month}
-                onChange={(e) => { setMonth(Number(e.target.value)); setPreviewEnabled(false) }}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              >
-                {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {monthField}
+              {yearField}
             </div>
-            {/* Year */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                <Calendar size={13} className="inline mr-1" />Año
-              </label>
-              <input
-                type="number"
-                value={year}
-                onChange={(e) => { setYear(Number(e.target.value)); setPreviewEnabled(false) }}
-                min={2020}
-                max={2030}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-          </div>
           ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {needsMonth && monthField}
+              {yearField}
 
-            {/* Month — not for comparative */}
-            {needsMonth && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  <Calendar size={13} className="inline mr-1" />Mes
-                </label>
-                <select
-                  value={month}
-                  onChange={(e) => { setMonth(Number(e.target.value)); setPreviewEnabled(false) }}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                >
-                  {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Year */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                <Calendar size={13} className="inline mr-1" />Año
-              </label>
-              <input
-                type="number"
-                value={year}
-                onChange={(e) => { setYear(Number(e.target.value)); setPreviewEnabled(false) }}
-                min={2020}
-                max={2030}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-              />
-            </div>
-
-            {/* Teacher — searchable */}
-            <div className="teacher-search-container relative">
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                <Users size={13} className="inline mr-1" />Docente (opcional)
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={teacherSearch}
-                  onChange={(e) => {
-                    setTeacherSearch(e.target.value)
-                    setShowTeacherDropdown(true)
-                    setPreviewEnabled(false)
-                    if (!e.target.value) setFilters(f => ({ ...f, teacher_ci: undefined }))
-                  }}
-                  onFocus={() => setShowTeacherDropdown(true)}
-                  placeholder="Buscar por nombre o CI..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] focus:border-transparent bg-white"
-                />
-                {filters.teacher_ci && (
-                  <button
-                    onClick={() => {
-                      setTeacherSearch('')
-                      setFilters(f => ({ ...f, teacher_ci: undefined }))
+              {/* Teacher — searchable */}
+              <div className="teacher-search-container relative flex flex-col gap-1.5">
+                <Label htmlFor="report-teacher">Docente (opcional)</Label>
+                <div className="relative">
+                  <Input
+                    id="report-teacher"
+                    type="text"
+                    value={teacherSearch}
+                    onChange={(e) => {
+                      setTeacherSearch(e.target.value)
+                      setShowTeacherDropdown(true)
                       setPreviewEnabled(false)
+                      if (!e.target.value) setFilters(f => ({ ...f, teacher_ci: undefined }))
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              {showTeacherDropdown && teacherSearch && filteredTeachers.length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {filteredTeachers.slice(0, 20).map(t => (
-                    <button
-                      key={t.ci}
+                    onFocus={() => setShowTeacherDropdown(true)}
+                    placeholder="Buscar por nombre o CI..."
+                    inputClassName={filters.teacher_ci ? 'pr-9' : undefined}
+                  />
+                  {filters.teacher_ci && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Quitar docente"
+                      className="absolute right-1.5 top-1/2 z-10 -translate-y-1/2"
                       onClick={() => {
-                        setFilters(f => ({ ...f, teacher_ci: t.ci }))
-                        setTeacherSearch(t.full_name)
-                        setShowTeacherDropdown(false)
+                        setTeacherSearch('')
+                        setFilters(f => ({ ...f, teacher_ci: undefined }))
                         setPreviewEnabled(false)
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between"
                     >
-                      <span className="font-medium text-gray-800">{t.full_name}</span>
-                      <span className="text-xs text-gray-400">{t.ci}</span>
-                    </button>
-                  ))}
+                      <X />
+                    </Button>
+                  )}
+                </div>
+                {showTeacherDropdown && teacherSearch && filteredTeachers.length > 0 && (
+                  <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg/5">
+                    {filteredTeachers.slice(0, 20).map(t => (
+                      <button
+                        key={t.ci}
+                        type="button"
+                        onClick={() => {
+                          setFilters(f => ({ ...f, teacher_ci: t.ci }))
+                          setTeacherSearch(t.full_name)
+                          setShowTeacherDropdown(false)
+                          setPreviewEnabled(false)
+                        }}
+                        className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-accent"
+                      >
+                        <span className="font-medium text-foreground">{t.full_name}</span>
+                        <span className="text-xs tabular-nums text-muted-foreground">{t.ci}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Semester — financial & attendance only */}
+              {reportType !== 'comparative' && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="report-semester">Semestre (opcional)</Label>
+                  <Input
+                    id="report-semester"
+                    type="text"
+                    value={semester}
+                    onChange={(e) => { setSemester(e.target.value); setPreviewEnabled(false) }}
+                    placeholder="Ej: 1ER SEMESTRE"
+                  />
+                </div>
+              )}
+
+              {/* Group — financial & attendance only */}
+              {reportType !== 'comparative' && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="report-group">Grupo (opcional)</Label>
+                  <Input
+                    id="report-group"
+                    type="text"
+                    value={groupCode}
+                    onChange={(e) => { setGroupCode(e.target.value); setPreviewEnabled(false) }}
+                    placeholder="Ej: M-1, T-2"
+                  />
+                </div>
+              )}
+
+              {/* Subject — financial only */}
+              {reportType === 'financial' && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="report-subject">Materia (opcional)</Label>
+                  <Input
+                    id="report-subject"
+                    type="text"
+                    value={subject}
+                    onChange={(e) => { setSubject(e.target.value); setPreviewEnabled(false) }}
+                    placeholder="Ej: Anatomía"
+                  />
                 </div>
               )}
             </div>
-
-            {/* Semester — financial & attendance only */}
-            {reportType !== 'comparative' && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Semestre (opcional)</label>
-                <input
-                  type="text"
-                  value={semester}
-                  onChange={(e) => { setSemester(e.target.value); setPreviewEnabled(false) }}
-                  placeholder="Ej: 1ER SEMESTRE"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                />
-              </div>
-            )}
-
-            {/* Group — financial & attendance only */}
-            {reportType !== 'comparative' && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Grupo (opcional)</label>
-                <input
-                  type="text"
-                  value={groupCode}
-                  onChange={(e) => { setGroupCode(e.target.value); setPreviewEnabled(false) }}
-                  placeholder="Ej: M-1, T-2"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                />
-              </div>
-            )}
-
-            {/* Subject — financial only */}
-            {reportType === 'financial' && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Materia (opcional)</label>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => { setSubject(e.target.value); setPreviewEnabled(false) }}
-                  placeholder="Ej: Anatomía"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
-                />
-              </div>
-            )}
-
-          </div>
           )}
 
           {/* Actions */}
-          <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-100">
-            <Button
-              variant="outline"
-              onClick={handlePreview}
-              disabled={previewLoading}
-              className="gap-2 border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
-            >
-              {previewLoading ? (
-                <><Loader2 size={15} className="animate-spin" />Cargando...</>
-              ) : (
-                <><Eye size={15} />Vista Previa</>
-              )}
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t pt-4">
+            <Button variant="outline" onClick={handlePreview} loading={previewLoading} disabled={previewLoading}>
+              <Eye />
+              {previewLoading ? 'Cargando...' : 'Vista Previa'}
             </Button>
 
-            <Button
-              onClick={handleGenerate}
-              disabled={generateReport.isPending}
-              className="gap-2 text-white"
-              style={{ backgroundColor: '#003366' }}
-            >
-              {generateReport.isPending ? (
-                <><Loader2 size={15} className="animate-spin" />Generando PDF...</>
-              ) : (
-                <><FileText size={15} />Generar PDF</>
-              )}
+            <Button onClick={handleGenerate} loading={generateReport.isPending} disabled={generateReport.isPending}>
+              <FileText />
+              {generateReport.isPending ? 'Generando PDF...' : 'Generar PDF'}
             </Button>
-
-            {generateReport.isError && (
-              <p className="text-sm text-red-600 flex-1">
-                Error al generar el reporte. Verificá que haya datos para el período seleccionado.
-              </p>
-            )}
           </div>
-        </div>
-      </div>
+
+          {generateReport.isError && (
+            <Alert variant="error" className="mt-4">
+              <AlertCircle />
+              <AlertDescription>
+                Error al generar el reporte. Verificá que haya datos para el período seleccionado.
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardPanel>
+      </Card>
 
       {/* Success result */}
       {lastGenerated && (
-        <div
-          className="card-3d-static overflow-hidden border-l-4"
-          style={{ borderLeftColor: '#16a34a' }}
-        >
-          <div className="px-6 py-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="flex items-start gap-3">
-                <CheckCircle size={22} className="text-green-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-green-700">¡Reporte generado exitosamente!</p>
-                  <p className="text-sm text-gray-600 mt-0.5">{lastGenerated.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {formatBytes(lastGenerated.file_size)} · {formatDate(lastGenerated.generated_at)}
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
-                onClick={() => void downloadReport(lastGenerated.id, `${lastGenerated.title.replace(/\s+/g, '_')}.pdf`)}
-              >
-                <Download size={15} />
-                Descargar PDF
-              </Button>
+        <Alert variant="success" className="items-center">
+          <CheckCircle />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <AlertTitle>¡Reporte generado exitosamente!</AlertTitle>
+              <AlertDescription>
+                {lastGenerated.description}
+                <span className="block text-xs tabular-nums text-muted-foreground">
+                  {formatBytes(lastGenerated.file_size)} · {formatDate(lastGenerated.generated_at)}
+                </span>
+              </AlertDescription>
             </div>
+            <Button
+              variant="outline"
+              onClick={() => void downloadReport(lastGenerated.id, `${lastGenerated.title.replace(/\s+/g, '_')}.pdf`)}
+            >
+              <Download />
+              Descargar PDF
+            </Button>
           </div>
-        </div>
+        </Alert>
       )}
 
       {/* Preview Section */}
       {previewEnabled && (
-        <div className="card-3d-static overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#0066CC' }}>
-              <Eye size={16} className="text-white" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Vista Previa — {REPORT_TYPES[reportType].label}
-              </h3>
-              <p className="text-xs text-gray-500">Datos que se incluirán en el reporte PDF</p>
-            </div>
-          </div>
-          <div className="p-6">
-            {previewLoading && (
-              <div className="flex justify-center py-10">
-                <Loader2 size={28} className="animate-spin text-[#003366]" />
-              </div>
-            )}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Vista Previa — {REPORT_TYPES[reportType].label}</CardTitle>
+            <CardDescription>Datos que se incluirán en el reporte PDF</CardDescription>
+          </CardHeader>
+          <CardPanel>
+            {previewLoading && <PreviewSkeleton />}
             {previewError && (
-              <div className="p-4 bg-red-50 rounded-lg border border-red-200 text-sm text-red-600">
-                No se pudo cargar la vista previa. Verificá que haya datos para el período seleccionado.
-              </div>
+              <Alert variant="error">
+                <AlertCircle />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <AlertDescription>
+                    No se pudo cargar la vista previa. Verificá que haya datos para el período seleccionado.
+                  </AlertDescription>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refetchPreview()}
+                    loading={previewFetching}
+                    disabled={previewFetching}
+                  >
+                    Reintentar
+                  </Button>
+                </div>
+              </Alert>
             )}
             {previewData && !previewLoading && (
               <>
@@ -961,82 +866,77 @@ export function ReportsPage() {
                 {previewData.report_type === 'reconciliation' && <ReconciliationPreview data={previewData} />}
               </>
             )}
-          </div>
-        </div>
+          </CardPanel>
+        </Card>
       )}
 
       {/* History */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center gradient-stat-navy">
-            <History size={16} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Reportes</h3>
-            <p className="text-xs text-gray-500">Últimos 50 reportes generados</p>
-          </div>
-        </div>
-        <div className="p-6">
-          {historyLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 size={24} className="animate-spin text-[#003366]" />
-            </div>
-          ) : !history || history.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              No hay reportes generados aún. Usá los filtros de arriba para crear uno.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                    {['Tipo', 'Título', 'Descripción', 'Tamaño', 'Generado el', 'Estado', 'Acción'].map(h => (
-                      <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((report, i) => (
-                    <tr
-                      key={report.id}
-                      className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}
-                    >
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <ReportTypeBadge type={report.report_type} />
-                      </td>
-                      <td className="px-3 py-3 font-medium text-gray-800 max-w-[180px] truncate">{report.title}</td>
-                      <td className="px-3 py-3 text-gray-600 max-w-[200px] truncate">{report.description ?? '—'}</td>
-                      <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
-                        {report.file_size ? formatBytes(report.file_size) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <Clock size={12} className="text-gray-400" />
-                          {formatDate(report.generated_at)}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge className={report.status === 'generated' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                          {report.status === 'generated' ? 'Generado' : report.status}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-3">
-                        <button
-                          onClick={() => void downloadReport(report.id, `${report.title.replace(/\s+/g, '_')}.pdf`)}
-                          className="inline-flex items-center gap-1.5 text-[#0066CC] hover:underline text-sm font-medium whitespace-nowrap"
-                        >
-                          <Download size={13} />
-                          PDF
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
+      {historyLoading ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Historial de Reportes</CardTitle>
+            <CardDescription>Últimos 50 reportes generados</CardDescription>
+          </CardHeader>
+          <CardPanel className="space-y-2" role="status" aria-label="Cargando historial">
+            {[0, 1, 2, 3].map((n) => <Skeleton key={n} className="h-8 w-full" />)}
+          </CardPanel>
+        </Card>
+      ) : !history || history.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Historial de Reportes</CardTitle>
+            <CardDescription>Últimos 50 reportes generados</CardDescription>
+          </CardHeader>
+          <EmptyState
+            icon={History}
+            title="No hay reportes generados aún"
+            description="Usá los filtros de arriba para crear uno."
+          />
+        </Card>
+      ) : (
+        <TableCard title="Historial de Reportes" description="Últimos 50 reportes generados">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              {['Tipo', 'Título', 'Descripción', 'Tamaño', 'Generado el', 'Estado', 'Acción'].map(h => (
+                <TableHead key={h}>{h}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {history.map((report) => (
+              <TableRow key={report.id}>
+                <TableCell><ReportTypeBadge type={report.report_type} /></TableCell>
+                <TableCell className="max-w-[180px] truncate font-medium text-foreground">{report.title}</TableCell>
+                <TableCell className="max-w-[200px] truncate text-muted-foreground">{report.description ?? '—'}</TableCell>
+                <TableCell className="tabular-nums text-muted-foreground">
+                  {report.file_size ? formatBytes(report.file_size) : '—'}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 tabular-nums">
+                    <Clock className="size-3" aria-hidden="true" />
+                    {formatDate(report.generated_at)}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <StatusBadge tone={report.status === 'generated' ? 'success' : 'destructive'}>
+                    {report.status === 'generated' ? 'Generado' : report.status}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void downloadReport(report.id, `${report.title.replace(/\s+/g, '_')}.pdf`)}
+                  >
+                    <Download />
+                    PDF
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </TableCard>
+      )}
     </div>
   )
 }

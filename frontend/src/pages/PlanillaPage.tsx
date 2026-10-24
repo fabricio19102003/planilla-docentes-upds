@@ -1,19 +1,34 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FileSpreadsheet, Download, Loader2, CheckCircle, XCircle, Clock, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail, MessageCircle } from 'lucide-react'
+import { FileSpreadsheet, Download, Users, Search, Send, EyeOff, Pencil, Check, X, History, Calendar, Info, AlertTriangle, AlertCircle, Plus, Trash2, CalendarOff, Mail, MessageCircle, CheckCircle, BookOpen, Wallet, Calculator, ChevronDown, ChevronUp } from 'lucide-react'
 import { useGeneratePlanilla, usePlanillaHistory, downloadPlanilla, downloadSalaryReport, usePlanillaDetail, useApprovePlanilla, useRejectPlanilla, usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { useBillingNotificationBatch, useBillingNotificationReadiness, useConfirmBillingNotifications, usePreviewBillingNotifications, usePublicationStatus, usePublishBilling, useUnpublishBilling, useSendBillingEmails, type BillingNotificationPreview } from '@/api/hooks/useBillingPublication'
 import { useBiometricDateRange } from '@/api/hooks/useBiometric'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { api } from '@/api/client'
 
-import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardDescription, CardHeader, CardPanel, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import { formatHours } from '@/lib/displayFormat'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
+import { cn } from '@/lib/utils'
 import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
 import { ConfirmActionDialog } from '@/components/shared/ConfirmActionDialog'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { TONE_CHIP, TONE_TEXT } from '@/components/shared/tones'
 import {
   buildConfirmSummary,
   DISCOUNT_MODE_LABELS,
@@ -31,6 +46,17 @@ const MONTH_NAMES: Record<number, string> = {
   5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
+
+const MONTH_ITEMS = Object.entries(MONTH_NAMES).map(([value, label]) => ({ value, label }))
+
+/** Card header action: below the title on mobile, on the right from `sm`. */
+const HEADER_ACTION = 'col-start-1 row-start-3 mt-2 flex-wrap items-center justify-self-start gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:mt-0 sm:justify-self-end'
+
+const SCOPE_ITEMS = [
+  { value: 'global', label: 'Global' },
+  { value: 'semester', label: 'Por semestre' },
+  { value: 'subject', label: 'Por materia' },
+]
 
 type ExclusionRow = ExcludedDay & {
   selectedSemesters?: string[]
@@ -448,7 +474,7 @@ export function PlanillaPage() {
     const stored = pendingConfirm === 'generate' ? null : planillaStatus
     const storedState = stored ? getHistoricalPaymentState(stored) : null
     const live = pendingConfirm === 'unpublish' && publication?.status === 'published' ? publication : null
-    return buildConfirmSummary({
+    const summary = buildConfirmSummary({
       action: pendingConfirm,
       kind: 'teoricas',
       month,
@@ -461,6 +487,15 @@ export function PlanillaPage() {
       totalsAreEstimate: pendingConfirm === 'generate',
       hasStoredPlanilla: Boolean(planillaStatus),
     })
+    // Generating over an approved planilla replaces it and sends it back to approval: confirm in the destructive tone.
+    if (pendingConfirm === 'generate' && planillaStatus?.status === 'approved') {
+      return {
+        ...summary,
+        tone: 'destructive' as const,
+        warning: `La planilla de ${MONTH_NAMES[month]} ${year} ya está aprobada. Al generar se va a reemplazar y vuelve a quedar pendiente de aprobación.`,
+      }
+    }
+    return summary
   })()
 
   const runConfirmedAction = () => {
@@ -516,201 +551,226 @@ export function PlanillaPage() {
     (newExclusion.scope === 'subject' && Boolean(newExclusion.subjectSelections?.length))
   )
 
+  const restoreFromHistory = (item: NonNullable<typeof history>[number]) => {
+    restoringHistoryRef.current = item.month !== month || item.year !== year
+    setMonth(item.month)
+    setYear(item.year)
+    setStartDate(item.start_date ?? '')
+    setEndDate(item.end_date ?? '')
+    setDatesManuallySet(true)
+    setDiscountMode(item.discount_mode)
+    setDiscountModeManuallySet(true)
+    setExclusionsEdited(false)
+  }
+
+  const publicationNotices: Array<{ key: string; variant: 'success' | 'warning'; content: ReactNode }> = []
+  if (publication?.status === 'published') {
+    publicationNotices.push({
+      key: 'published',
+      variant: 'success',
+      content: (
+        <>
+          Los docentes pueden ver sus montos a facturar para {MONTH_NAMES[month]} {year}.
+          {publication.total_teachers > 0 && (
+            <span className="ml-1 tabular-nums">
+              ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
+            </span>
+          )}
+        </>
+      ),
+    })
+  } else {
+    if (!planillaStatus) {
+      publicationNotices.push({ key: 'missing', variant: 'warning', content: 'Generá y aprobá la planilla antes de publicar.' })
+    } else if (planillaStatus.status !== 'approved') {
+      publicationNotices.push({
+        key: 'not-approved',
+        variant: 'warning',
+        content: planillaStatus.status === 'rejected'
+          ? 'La planilla fue rechazada. Regenerá con los ajustes necesarios.'
+          : 'Aprobá la planilla antes de publicar para docentes.',
+      })
+    }
+    if (exclusionsEdited) {
+      publicationNotices.push({
+        key: 'exclusions',
+        variant: 'warning',
+        content: 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar.',
+      })
+    }
+  }
+
+  const bioExtendsRange = Boolean(
+    bioRange?.has_data && startDate && endDate
+    && (startDate < (bioRange.suggested_start ?? '') || endDate > (bioRange.suggested_end ?? '')),
+  )
+
   return (
     <div className="space-y-6">
-      {/* Top-level Teóricas / Prácticas tab switcher */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          {/* Tab buttons */}
-          <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: '#e8eef6' }}>
-            <button
-              onClick={() => setPlanillaTab('teoricas')}
-              className={`px-5 py-2 rounded-md text-sm font-semibold transition-all duration-150 ${
-                planillaTab === 'teoricas'
-                  ? 'bg-[#003366] text-white shadow-sm border-b-2 border-[#0066CC]'
-                  : 'text-[#003366] hover:bg-[#003366]/10'
-              }`}
-            >
-              Teóricas
-            </button>
-            <button
-              onClick={() => setPlanillaTab('practicas')}
-              className={`px-5 py-2 rounded-md text-sm font-semibold transition-all duration-150 ${
-                planillaTab === 'practicas'
-                  ? 'bg-[#003366] text-white shadow-sm border-b-2 border-[#0066CC]'
-                  : 'text-[#003366] hover:bg-[#003366]/10'
-              }`}
-            >
-              Prácticas
-            </button>
-          </div>
-
-          {/* Shared month/year selectors */}
+      <PageHeader
+        title="Planilla de Pagos"
+        description="Generá, aprobá y publicá la planilla de haberes docentes."
+        actions={(
           <div className="flex items-end gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Mes</label>
-              <select
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] min-w-[130px]"
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="planilla-month">Mes</Label>
+              <Select
+                value={String(month)}
+                items={MONTH_ITEMS}
+                onValueChange={(value) => setMonth(Number(value))}
               >
-                {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
+                <SelectTrigger id="planilla-month" className="min-w-36"><SelectValue /></SelectTrigger>
+                <SelectPopup>
+                  {MONTH_ITEMS.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
             </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Año</label>
-              <input
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="planilla-year">Año</Label>
+              <Input
+                id="planilla-year"
                 type="number"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
                 min={2020}
                 max={2030}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] w-24"
+                className="w-24"
+                inputClassName="tabular-nums"
               />
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      />
+
+      {/* Teóricas / Prácticas switch */}
+      <Tabs value={planillaTab} onValueChange={(value) => setPlanillaTab(value as 'teoricas' | 'practicas')}>
+        <TabsList>
+          <TabsTab value="teoricas">Teóricas</TabsTab>
+          <TabsTab value="practicas">Prácticas</TabsTab>
+        </TabsList>
+      </Tabs>
 
       {/* Prácticas tab content */}
       {planillaTab === 'practicas' && (
         <PracticaPlanillaContent month={month} year={year} setMonth={setMonth} setYear={setYear} />
       )}
 
-      {/* Teóricas tab content — rendered exactly as before */}
+      {/* Teóricas tab content */}
       {planillaTab === 'teoricas' && (
       <div className="space-y-6">
       {/* Generator Card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>Generar Planilla de Pagos</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Seleccioná el período y generá la planilla de haberes docentes</p>
-        </div>
-        <div className="px-6 py-5">
-          <div className="flex flex-wrap items-end gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Generar Planilla de Pagos</CardTitle>
+          <CardDescription>Seleccioná el período y generá la planilla de haberes docentes</CardDescription>
+        </CardHeader>
+        <CardPanel className="space-y-5">
+          <div className="flex flex-wrap items-center gap-4">
             <Button
+              size="lg"
               onClick={() => requestConfirm('generate')}
               disabled={generatePlanilla.isPending || !generationGuard.canGenerate}
-              className="h-11 px-6 font-semibold rounded-xl shadow-lg shadow-blue-900/25 hover:shadow-xl hover:shadow-blue-900/35 active:scale-[0.97] transition-all duration-200"
-              style={{ background: 'linear-gradient(135deg, #1C398E 0%, #193CB8 100%)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #193CB8 0%, #155DFC 100%)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #1C398E 0%, #193CB8 100%)' }}
+              loading={generatePlanilla.isPending}
             >
-              {generatePlanilla.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Generando...
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet size={16} className="mr-2" />
-                  Generar Planilla
-                </>
-              )}
+              <FileSpreadsheet />
+              {generatePlanilla.isPending ? 'Generando...' : 'Generar Planilla'}
             </Button>
-            <div className="text-sm self-center" aria-live="polite">
+            <div className="text-sm" aria-live="polite">
               {generationGuard.canGenerate && effectiveDiscountMode ? (
-                <p className="text-gray-600">
+                <p className="text-muted-foreground">
                   {formatGenerationSummary({ kind: 'teoricas', month, year, startDate, endDate, mode: effectiveDiscountMode })}
                 </p>
               ) : (
                 generationGuard.reasons.map((reason) => (
-                  <p key={reason} className="text-amber-700 font-medium">{reason}</p>
+                  <p key={reason} className={cn('font-medium', TONE_TEXT.warning)}>{reason}</p>
                 ))
               )}
             </div>
           </div>
 
           {Object.keys(paymentOverrides).length > 0 && (
-            <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
-              <p className="font-medium text-yellow-800">
-                {Object.keys(paymentOverrides).length} ajuste(s) de monto pendiente(s)
-              </p>
-              <p className="text-yellow-600 text-xs mt-1">
-                Estos ajustes se aplicarán al generar la planilla
-              </p>
-            </div>
+            <Alert variant="warning">
+              <AlertTriangle />
+              <AlertTitle>{Object.keys(paymentOverrides).length} ajuste(s) de monto pendiente(s)</AlertTitle>
+              <AlertDescription>Estos ajustes se aplicarán al generar la planilla</AlertDescription>
+            </Alert>
           )}
 
-          <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
-            <p className="text-sm text-gray-500 mb-2 font-medium">Período de corte</p>
+          {/* Cut-off period */}
+          <section className="space-y-3 border-t pt-5">
+            <h3 className="text-sm font-semibold text-foreground">Período de corte</h3>
 
-            {/* Biometric Coverage Info */}
+            {/* Biometric coverage */}
             {bioRange && (
-              <div className={`flex items-start gap-2 p-3 rounded-lg border mb-3 ${
-                bioRange.has_data ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'
-              }`}>
-                {bioRange.has_data ? (
-                  <>
-                    <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-blue-700 font-medium">Rango biométrico detectado</p>
-                      <p className="text-xs text-blue-600 mt-0.5">{bioRange.message}</p>
-                      <p className="text-xs text-blue-500 mt-1">
-                        Las fechas de inicio y fin se han ajustado automáticamente al rango del biométrico.
-                        Puede modificarlas si lo necesita.
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm text-yellow-700 font-medium">Sin datos biométricos</p>
-                      <p className="text-xs text-yellow-600 mt-0.5">{bioRange.message}</p>
-                    </div>
-                  </>
-                )}
-              </div>
+              bioRange.has_data ? (
+                <Alert variant="info">
+                  <Info />
+                  <AlertTitle>Rango biométrico detectado</AlertTitle>
+                  <AlertDescription>
+                    <p>{bioRange.message}</p>
+                    <p>
+                      Las fechas de inicio y fin se han ajustado automáticamente al rango del biométrico.
+                      Puede modificarlas si lo necesita.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert variant="warning">
+                  <AlertTriangle />
+                  <AlertTitle>Sin datos biométricos</AlertTitle>
+                  <AlertDescription>{bioRange.message}</AlertDescription>
+                </Alert>
+              )
             )}
 
-            <div className="flex items-end gap-4 flex-wrap">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha inicio</label>
-                <input
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cutoff-start">Fecha inicio</Label>
+                <Input
+                  id="cutoff-start"
                   type="date"
                   value={startDate}
                   onChange={(e) => { setStartDate(e.target.value); setDatesManuallySet(true) }}
-                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                  className="w-44"
+                  inputClassName="tabular-nums"
                 />
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Fecha fin</label>
-                <input
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cutoff-end">Fecha fin</Label>
+                <Input
+                  id="cutoff-end"
                   type="date"
                   value={endDate}
                   onChange={(e) => { setEndDate(e.target.value); setDatesManuallySet(true) }}
-                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                  className="w-44"
+                  inputClassName="tabular-nums"
                 />
               </div>
-              <p className="text-xs text-gray-400 self-center">
+              <p className="pb-2 text-xs text-muted-foreground">
                 Estándar: del 21 del mes anterior al 20 del mes actual
               </p>
             </div>
 
             {/* Warning: dates extend beyond biometric coverage */}
-            {bioRange?.has_data && startDate && endDate &&
-              (startDate < (bioRange.suggested_start ?? '') || endDate > (bioRange.suggested_end ?? '')) && (
-              <div className="flex items-start gap-2 p-3 bg-orange-50 rounded-lg border border-orange-200 mt-2">
-                <AlertTriangle size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-orange-700 font-medium">Rango extendido más allá del biométrico</p>
-                  <p className="text-xs text-orange-600 mt-0.5">
-                    El rango seleccionado ({startDate} — {endDate}) excede la cobertura del biométrico
-                    ({bioRange.suggested_start} — {bioRange.suggested_end}). Los días sin cobertura generarán
-                    ausencias para todos los docentes con biométrico.
-                  </p>
-                </div>
-              </div>
+            {bioExtendsRange && bioRange && (
+              <Alert variant="warning">
+                <AlertTriangle />
+                <AlertTitle>Rango extendido más allá del biométrico</AlertTitle>
+                <AlertDescription>
+                  El rango seleccionado ({startDate} — {endDate}) excede la cobertura del biométrico
+                  ({bioRange.suggested_start} — {bioRange.suggested_end}). Los días sin cobertura generarán
+                  ausencias para todos los docentes con biométrico.
+                </AlertDescription>
+              </Alert>
             )}
-          </div>
+          </section>
 
           {/* Discount Mode Selector */}
-          <div className="mt-4 bg-gray-50/50 rounded-lg p-4">
-            <p id="discount-mode-label" className="text-sm font-medium text-gray-700">Modo de cálculo</p>
-            <div role="radiogroup" aria-labelledby="discount-mode-label" className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <section className="space-y-3 border-t pt-5">
+            <h3 id="discount-mode-label" className="text-sm font-semibold text-foreground">Modo de cálculo</h3>
+            <div role="radiogroup" aria-labelledby="discount-mode-label" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {(['attendance', 'full'] as const).map((option) => {
                 const selected = effectiveDiscountMode === option
                 return (
@@ -720,18 +780,19 @@ export function PlanillaPage() {
                     role="radio"
                     aria-checked={selected}
                     onClick={() => { setDiscountModeManuallySet(true); setDiscountMode(option) }}
-                    className={`text-left rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#0066CC] ${
+                    className={cn(
+                      'rounded-xl border px-4 py-3 text-left text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
                       selected
-                        ? 'border-[#003366] bg-[#003366] text-white shadow-sm'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-blue-50'
-                    }`}
+                        ? 'border-primary bg-primary text-primary-foreground shadow-xs'
+                        : 'border-input bg-background text-foreground hover:bg-accent/50',
+                    )}
                   >
                     {DISCOUNT_MODE_LABELS[option]}
                   </button>
                 )
               })}
             </div>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-muted-foreground">
               {effectiveDiscountMode === 'attendance'
                 ? 'Se aplican descuentos por ausencias registradas en el biométrico'
                 : effectiveDiscountMode === 'full'
@@ -739,120 +800,118 @@ export function PlanillaPage() {
                   : 'Elegí el modo de cálculo para este período.'}
             </p>
             {effectiveDiscountMode === 'full' && (
-              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 mt-3">
-                <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-amber-700">
+              <Alert variant="warning">
+                <AlertTriangle />
+                <AlertDescription>
                   <strong>Atención:</strong> En este modo no se aplicarán descuentos por ausencias.
                   Todos los docentes recibirán el monto total correspondiente a sus horas asignadas.
-                </p>
-              </div>
+                </AlertDescription>
+              </Alert>
             )}
-          </div>
+          </section>
 
           {/* Exclusion Days Section */}
-          <div className="mt-4 bg-gray-50/50 rounded-lg border border-gray-200 overflow-hidden">
-            {/* Collapsible header */}
+          <section className="border-t pt-5">
             <button
               type="button"
               onClick={() => setExclusionPanelOpen(prev => !prev)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-100/50 transition-colors"
+              aria-expanded={exclusionPanelOpen}
+              className="flex w-full items-center justify-between gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="flex items-center gap-2">
-                <CalendarOff size={16} className="text-purple-600 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">
+              <span className="flex items-center gap-3">
+                <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', TONE_CHIP.neutral)}>
+                  <CalendarOff className="size-4" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                     Días excluidos del cálculo
-                    {excludedDays.length > 0 && (
-                      <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold">
-                        {excludedDays.length}
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-xs text-gray-500">
+                    {excludedDays.length > 0 && <StatusBadge tone="primary" className="tabular-nums">{excludedDays.length}</StatusBadge>}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
                     {excludedDays.length === 0
                       ? 'Sin exclusiones — todos los días se calculan normalmente'
                       : `${excludedDays.length} día(s) excluido(s) de la planilla`}
-                  </p>
-                </div>
-              </div>
-              <span className="text-gray-400 text-xs font-medium">
-                {exclusionPanelOpen ? '▲ Cerrar' : '▼ Abrir'}
+                  </span>
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+                {exclusionPanelOpen ? 'Cerrar' : 'Abrir'}
+                {exclusionPanelOpen ? <ChevronUp className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
               </span>
             </button>
 
             {exclusionPanelOpen && (
-              <div className="px-4 pb-4 border-t border-gray-200">
+              <div className="mt-4 space-y-4">
                 {/* Add exclusion form */}
                 <form
                   onSubmit={(e) => { e.preventDefault(); addExclusionRow() }}
-                  className="mt-3 rounded-lg border border-dashed border-purple-300 bg-white p-3"
+                  className="space-y-3 rounded-xl border border-dashed p-4"
                 >
-                  <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-gray-700">Agregar exclusión</p>
-                      <p className="text-xs text-gray-500">Completá los datos y confirmá para enviarla a la lista.</p>
+                      <p className="text-sm font-semibold text-foreground">Agregar exclusión</p>
+                      <p className="text-xs text-muted-foreground">Completá los datos y confirmá para enviarla a la lista.</p>
                     </div>
-                    <button
-                      type="submit"
-                      disabled={!canAddExclusion}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-sm font-medium transition-colors"
-                    >
-                      <Plus size={14} />
+                    <Button type="submit" size="sm" disabled={!canAddExclusion}>
+                      <Plus />
                       Agregar
-                    </button>
+                    </Button>
                   </div>
 
                   <div className="flex flex-wrap items-start gap-3">
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-xs text-gray-500 font-medium">Fecha <span className="text-red-400">*</span></label>
-                      <input
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="exclusion-date">Fecha <span aria-hidden="true" className={TONE_TEXT.destructive}>*</span></Label>
+                      <Input
+                        id="exclusion-date"
                         type="date"
                         value={newExclusion.date}
                         onChange={e => updateNewExclusion({ date: e.target.value })}
-                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                        className="w-44"
+                        inputClassName="tabular-nums"
                         required
                       />
                     </div>
 
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-xs text-gray-500 font-medium">Alcance</label>
-                      <select
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="exclusion-scope">Alcance</Label>
+                      <Select
                         value={newExclusion.scope}
-                        onChange={e => updateNewExclusion({ scope: e.target.value as ExcludedDay['scope'] })}
-                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 min-w-[130px]"
+                        items={SCOPE_ITEMS}
+                        onValueChange={(value) => updateNewExclusion({ scope: value as ExcludedDay['scope'] })}
                       >
-                        <option value="global">Global</option>
-                        <option value="semester">Por semestre</option>
-                        <option value="subject">Por materia</option>
-                      </select>
+                        <SelectTrigger id="exclusion-scope" className="min-w-36"><SelectValue /></SelectTrigger>
+                        <SelectPopup>
+                          {SCOPE_ITEMS.map(({ value, label }) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
                     </div>
 
                     {newExclusion.scope === 'semester' && (
-                      <div className="flex flex-col gap-2 min-w-[220px] max-w-sm flex-1">
-                        <label className="text-xs text-gray-500 font-medium">Semestres <span className="text-red-400">*</span></label>
-                        <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-1">
+                      <div className="min-w-[220px] max-w-sm flex-1 flex flex-col gap-1.5">
+                        <Label>Semestres <span aria-hidden="true" className={TONE_TEXT.destructive}>*</span></Label>
+                        <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border bg-muted/40 p-2">
                           {designationOptionsLoading ? (
-                            <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
+                            <Skeleton className="h-6 w-full" />
                           ) : designationOptions.semesters.length === 0 ? (
-                            <p className="text-xs text-gray-400 px-1 py-1">No hay semestres cargados para el período activo.</p>
+                            <p className="px-1 py-1 text-xs text-muted-foreground">No hay semestres cargados para el período activo.</p>
                           ) : (
                             designationOptions.semesters.map((semester) => {
                               const selectedSemesters = newExclusion.selectedSemesters ?? []
                               const checked = selectedSemesters.includes(semester)
 
                               return (
-                                <label key={semester} className="flex items-center gap-2 rounded bg-white/60 px-2 py-1.5 text-sm text-gray-700 hover:bg-purple-50 cursor-pointer">
-                                  <input
-                                    type="checkbox"
+                                <label key={semester} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent/50">
+                                  <Checkbox
                                     checked={checked}
-                                    onChange={(e) => {
+                                    onCheckedChange={(next) => {
                                       updateNewExclusion({
-                                        selectedSemesters: e.target.checked
+                                        selectedSemesters: next
                                           ? [...selectedSemesters, semester]
                                           : selectedSemesters.filter(selected => selected !== semester),
                                       })
                                     }}
-                                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                   />
                                   <span>{semester}</span>
                                 </label>
@@ -864,13 +923,13 @@ export function PlanillaPage() {
                     )}
 
                     {newExclusion.scope === 'subject' && (
-                      <div className="flex flex-col gap-2 min-w-[260px] max-w-xl flex-1">
-                        <label className="text-xs text-gray-500 font-medium">Materias y grupos <span className="text-red-400">*</span></label>
-                        <div className="max-h-44 overflow-y-auto rounded border border-purple-100 bg-purple-50/40 p-2 space-y-2">
+                      <div className="min-w-[260px] max-w-xl flex-1 flex flex-col gap-1.5">
+                        <Label>Materias y grupos <span aria-hidden="true" className={TONE_TEXT.destructive}>*</span></Label>
+                        <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-muted/40 p-2">
                           {designationOptionsLoading ? (
-                            <p className="text-xs text-purple-500 px-1 py-1">Cargando opciones...</p>
+                            <Skeleton className="h-6 w-full" />
                           ) : designationOptions.subjects.length === 0 ? (
-                            <p className="text-xs text-gray-400 px-1 py-1">No hay materias cargadas para el período activo.</p>
+                            <p className="px-1 py-1 text-xs text-muted-foreground">No hay materias cargadas para el período activo.</p>
                           ) : (
                             getUniqueSubjects(designationOptions.subjects).map((subject) => {
                               const selectedSubjects = newExclusion.selectedSubjects ?? []
@@ -878,23 +937,21 @@ export function PlanillaPage() {
                               const groups = getGroupsForSubject(designationOptions.subjects, subject)
 
                               return (
-                                <div key={subject} className="rounded-md bg-white/60 px-2 py-1.5">
-                                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                                    <input
-                                      type="checkbox"
+                                <div key={subject} className="rounded-md px-2 py-1.5">
+                                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                                    <Checkbox
                                       checked={subjectChecked}
-                                      onChange={(e) => {
+                                      onCheckedChange={(next) => {
                                         const currentSelections = newExclusion.subjectSelections ?? []
                                         updateNewExclusion({
-                                          selectedSubjects: e.target.checked
+                                          selectedSubjects: next
                                             ? [...selectedSubjects, subject]
                                             : selectedSubjects.filter(selected => selected !== subject),
-                                          subjectSelections: e.target.checked
+                                          subjectSelections: next
                                             ? currentSelections
                                             : currentSelections.filter(selection => selection.subject !== subject),
                                         })
                                       }}
-                                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                     />
                                     <span>{subject}</span>
                                   </label>
@@ -906,19 +963,17 @@ export function PlanillaPage() {
                                         const checked = (newExclusion.subjectSelections ?? []).some(selection => getSubjectOptionKey(selection) === optionKey)
 
                                         return (
-                                          <label key={optionKey} className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-gray-600 hover:bg-purple-50 cursor-pointer">
-                                            <input
-                                              type="checkbox"
+                                          <label key={optionKey} className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent/50">
+                                            <Checkbox
                                               checked={checked}
-                                              onChange={(e) => {
+                                              onCheckedChange={(next) => {
                                                 const current = newExclusion.subjectSelections ?? []
                                                 updateNewExclusion({
-                                                  subjectSelections: e.target.checked
+                                                  subjectSelections: next
                                                     ? [...current, option]
                                                     : current.filter(selection => getSubjectOptionKey(selection) !== optionKey),
                                                 })
                                               }}
-                                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-400"
                                             />
                                             <span>{option.group_code} · Sem. {option.semester}</span>
                                           </label>
@@ -934,86 +989,79 @@ export function PlanillaPage() {
                       </div>
                     )}
 
-                    <div className="flex flex-col gap-0.5 flex-1 min-w-[180px]">
-                      <label className="text-xs text-gray-500 font-medium">Motivo <span className="text-gray-300">(opcional)</span></label>
-                      <input
+                    <div className="min-w-[180px] flex-1 flex flex-col gap-1.5">
+                      <Label htmlFor="exclusion-reason">Motivo <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+                      <Input
+                        id="exclusion-reason"
                         type="text"
                         value={newExclusion.reason ?? ''}
                         onChange={e => updateNewExclusion({ reason: e.target.value || undefined })}
                         placeholder="ej: Feriado institucional"
-                        className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                       />
                     </div>
                   </div>
                 </form>
 
                 {/* Confirmed exclusion list */}
-                <div className="mt-4">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <p className="text-sm font-semibold text-gray-700">Exclusiones configuradas</p>
-                    <span className="text-xs text-gray-400">{excludedDays.length} confirmada(s)</span>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-foreground">Exclusiones configuradas</p>
+                    <span className="text-xs tabular-nums text-muted-foreground">{excludedDays.length} confirmada(s)</span>
                   </div>
 
                   {excludedDays.length === 0 ? (
-                    <p className="text-xs text-gray-400 py-4 text-center bg-white rounded-lg border border-gray-200">
+                    <p className="rounded-lg border py-4 text-center text-xs text-muted-foreground">
                       No hay exclusiones configuradas
                     </p>
                   ) : (
-                    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <div className="divide-y overflow-hidden rounded-lg border">
                       {excludedDays.map((row, index) => (
-                        <div key={index} className={`grid grid-cols-1 md:grid-cols-[110px_120px_1fr_1fr_36px] gap-3 px-3 py-3 text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'} border-b border-gray-100 last:border-b-0`}>
+                        <div key={index} className="grid grid-cols-1 gap-3 px-3 py-3 text-sm md:grid-cols-[110px_120px_1fr_1fr_36px]">
                           <div>
-                            <p className="text-xs text-gray-400 font-medium">Fecha</p>
-                            <p className="text-gray-700 font-medium">{formatDate(row.date)}</p>
+                            <p className="text-xs font-medium text-muted-foreground">Fecha</p>
+                            <p className="font-medium tabular-nums text-foreground">{formatDate(row.date)}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-400 font-medium">Alcance</p>
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              row.scope === 'global'
-                                ? 'bg-purple-100 text-purple-700'
-                                : row.scope === 'semester'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-amber-100 text-amber-700'
-                            }`}>
+                            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Alcance</p>
+                            <StatusBadge tone={row.scope === 'global' ? 'primary' : row.scope === 'semester' ? 'info' : 'warning'}>
                               {row.scope === 'global' ? 'Global' : row.scope === 'semester' ? 'Semestre' : 'Materia'}
-                            </span>
+                            </StatusBadge>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-400 font-medium">Detalle</p>
-                            {row.scope === 'global' && <p className="text-gray-500">Todos los docentes</p>}
+                            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Detalle</p>
+                            {row.scope === 'global' && <p className="text-muted-foreground">Todos los docentes</p>}
                             {row.scope === 'semester' && (
                               <div className="flex flex-wrap gap-1">
                                 {(row.selectedSemesters ?? (row.semester_id ? [row.semester_id] : [])).map((semester) => (
-                                  <span key={semester} className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 border border-blue-100">
-                                    {semester}
-                                  </span>
+                                  <Badge key={semester} variant="info">{semester}</Badge>
                                 ))}
                               </div>
                             )}
                             {row.scope === 'subject' && (
                               <div className="flex flex-wrap gap-1">
                                 {(row.subjectSelections ?? []).map((selection) => (
-                                  <span key={getSubjectOptionKey(selection)} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-100">
+                                  <Badge key={getSubjectOptionKey(selection)} variant="warning">
                                     {selection.subject} ({selection.group_code}, Sem. {selection.semester || 'legacy'})
-                                  </span>
+                                  </Badge>
                                 ))}
                               </div>
                             )}
                           </div>
                           <div>
-                            <p className="text-xs text-gray-400 font-medium">Motivo</p>
-                            <p className="text-gray-600">{row.reason || 'Sin motivo'}</p>
+                            <p className="text-xs font-medium text-muted-foreground">Motivo</p>
+                            <p className="text-foreground">{row.reason || 'Sin motivo'}</p>
                           </div>
                           <div className="flex items-start md:justify-end">
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon-sm"
                               onClick={() => removeExclusionRow(index)}
-                              className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                               title="Quitar exclusión"
                               aria-label="Quitar exclusión"
                             >
-                              <Trash2 size={14} />
-                            </button>
+                              <Trash2 />
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -1021,481 +1069,362 @@ export function PlanillaPage() {
                   )}
                 </div>
 
-                <div className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-lg border border-purple-200 mt-3">
-                  <Info size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-purple-700">
+                <Alert variant="info">
+                  <Info />
+                  <AlertDescription>
                     <strong>Global</strong>: excluye el día para todos los docentes. <strong>Por semestre</strong>: solo el semestre indicado. <strong>Por materia</strong>: solo la materia y grupo exactos. Las celdas excluidas aparecen en rojo en el Excel.
-                  </p>
-                </div>
+                  </AlertDescription>
+                </Alert>
               </div>
             )}
-          </div>
+          </section>
 
           {generatePlanilla.isError && (
-            <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
-              <p className="text-sm text-red-600">
+            <Alert variant="error">
+              <AlertCircle />
+              <AlertDescription>
                 Error al generar la planilla. Verificá que la asistencia esté procesada para el período seleccionado.
-              </p>
-            </div>
+              </AlertDescription>
+            </Alert>
           )}
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
       {/* Result Card */}
       {lastResult && (
-        <div
-          className="card-3d-static overflow-hidden border-l-4"
-          style={{ borderLeftColor: '#16a34a' }}
-        >
-          <div className="py-5 px-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-green-700">
-                    ¡Planilla generada exitosamente!
+        <Alert variant="success" className="items-center">
+          <CheckCircle />
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <AlertTitle>¡Planilla generada exitosamente!</AlertTitle>
+              <AlertDescription>
+                <p className="tabular-nums">
+                  {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {formatHours(lastResult.total_hours)} totales
+                </p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                  Total: Bs {parseFloat(lastResult.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                {lastResult.warnings.length > 0 && (
+                  <p className={cn('text-xs', TONE_TEXT.warning)}>
+                    {lastResult.warnings.length} advertencia(s) durante la generación
                   </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {MONTH_NAMES[lastResult.month]} {lastResult.year} · {lastResult.total_teachers} docentes · {formatHours(lastResult.total_hours)} totales
-                  </p>
-                  <p className="text-lg font-bold mt-2" style={{ color: '#003366' }}>
-                    Total: Bs {parseFloat(lastResult.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                  {lastResult.warnings.length > 0 && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      {lastResult.warnings.length} advertencia(s) durante la generación
-                    </p>
-                  )}
-                </div>
-              </div>
-              {lastResult.file_path && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    variant="outline"
-                    className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50 gap-2"
-                    onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
-                  >
-                    <Download size={16} />
-                    Descargar Excel
-                  </Button>
-                  <button
-                    onClick={async () => {
-                      setSalaryReportLoading((prev) => ({ ...prev, current: true }))
-                      try {
-                        await downloadSalaryReport({
-                          month: lastResult.month,
-                          year: lastResult.year,
-                          discount_mode: effectiveDiscountMode ?? lastResult.discount_mode,
-                          start_date: optionalDate(startDate),
-                          end_date: optionalDate(endDate),
-                        })
-                      } finally {
-                        setSalaryReportLoading((prev) => ({ ...prev, current: false }))
-                      }
-                    }}
-                    disabled={salaryReportLoading.current}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
-                  >
-                    {salaryReportLoading.current ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
-                    Planilla Salarios
-                  </button>
-                </div>
-              )}
+                )}
+              </AlertDescription>
             </div>
+            {lastResult.file_path && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => void downloadPlanilla(lastResult.planilla_id, `planilla_${MONTH_NAMES[lastResult.month]}_${lastResult.year}.xlsx`)}
+                >
+                  <Download />
+                  Descargar Excel
+                </Button>
+                <Button
+                  variant="secondary"
+                  loading={salaryReportLoading.current}
+                  disabled={salaryReportLoading.current}
+                  onClick={async () => {
+                    setSalaryReportLoading((prev) => ({ ...prev, current: true }))
+                    try {
+                      await downloadSalaryReport({
+                        month: lastResult.month,
+                        year: lastResult.year,
+                        discount_mode: effectiveDiscountMode ?? lastResult.discount_mode,
+                        start_date: optionalDate(startDate),
+                        end_date: optionalDate(endDate),
+                      })
+                    } finally {
+                      setSalaryReportLoading((prev) => ({ ...prev, current: false }))
+                    }
+                  }}
+                >
+                  <FileSpreadsheet />
+                  Planilla Salarios
+                </Button>
+              </div>
+            )}
           </div>
-        </div>
+        </Alert>
       )}
 
       {/* History */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-            <History size={16} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Historial de Planillas</h3>
-            <p className="text-xs text-gray-500">
-              {history ? `${history.length} planilla(s) generada(s)` : 'Cargando...'}
-            </p>
-          </div>
-        </div>
-        <div className="p-0">
-          {historyLoading ? (
-            <div className="p-5">
-              <LoadingPage />
-            </div>
-          ) : !history || history.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              No hay planillas generadas aún
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                    {['Período', 'Corte', 'Generada el', 'Docentes', 'Horas', 'Total (Bs)', 'Estado', 'Descarga'].map(h => (
-                      <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((item, i) => {
-                    const paymentState = getHistoricalPaymentState(item)
-                    return (
-                    <tr
-                      key={item.id}
-                      className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
-                      onClick={() => {
-                        restoringHistoryRef.current = item.month !== month || item.year !== year
-                        setMonth(item.month)
-                        setYear(item.year)
-                        setStartDate(item.start_date ?? '')
-                        setEndDate(item.end_date ?? '')
-                        setDatesManuallySet(true)
-                        setDiscountMode(item.discount_mode)
-                        setDiscountModeManuallySet(true)
-                        setExclusionsEdited(false)
-                      }}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-[#0066CC] flex-shrink-0" />
-                          <span className="font-semibold text-gray-800">{MONTH_NAMES[item.month]} {item.year}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {item.start_date && item.end_date
-                          ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1C398E]/8 text-[#1C398E] text-xs font-semibold border border-[#1C398E]/15">
-                              <Calendar size={11} />
-                              {formatShortDate(item.start_date)} — {formatShortDate(item.end_date)}
-                            </span>
-                          )
-                          : <span className="text-gray-300">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(item.generated_at)}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 text-gray-700 font-medium">
-                          <Users size={13} className="text-gray-400" />
-                          {item.total_teachers}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 font-medium">{formatHours(item.total_hours)}</td>
-                      <td className="px-4 py-3">
-                        <span className="font-bold" style={{ color: '#003366' }}>
-                          {paymentState.display}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          className={
-                            item.status?.toLowerCase() === 'approved'
-                              ? 'bg-green-100 text-green-700 text-xs'
-                              : item.status?.toLowerCase() === 'rejected'
-                                ? 'bg-red-100 text-red-700 text-xs'
-                                : 'bg-yellow-100 text-yellow-700 text-xs'
-                          }
+      {historyLoading ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Historial de Planillas</CardTitle>
+            <CardDescription>Cargando...</CardDescription>
+          </CardHeader>
+          <CardPanel className="space-y-2" role="status" aria-label="Cargando historial">
+            {[0, 1, 2, 3].map((n) => <Skeleton key={n} className="h-8 w-full" />)}
+          </CardPanel>
+        </Card>
+      ) : !history || history.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Historial de Planillas</CardTitle>
+            <CardDescription>0 planilla(s) generada(s)</CardDescription>
+          </CardHeader>
+          <EmptyState icon={History} title="No hay planillas generadas aún" />
+        </Card>
+      ) : (
+        <TableCard
+          title="Historial de Planillas"
+          description={`${history.length} planilla(s) generada(s)`}
+        >
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Período</TableHead>
+              <TableHead>Corte</TableHead>
+              <TableHead>Generada el</TableHead>
+              <TableHead className="text-right">Docentes</TableHead>
+              <TableHead className="text-right">Horas</TableHead>
+              <TableHead className="text-right">Total (Bs)</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead>Descarga</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {history.map((item) => {
+              const paymentState = getHistoricalPaymentState(item)
+              const itemStatus = item.status?.toLowerCase()
+              return (
+                <TableRow
+                  key={item.id}
+                  className="cursor-pointer"
+                  tabIndex={0}
+                  onClick={() => restoreFromHistory(item)}
+                  onKeyDown={(e) => {
+                    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault()
+                      restoreFromHistory(item)
+                    }
+                  }}
+                >
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2 font-medium text-foreground">
+                      <Calendar className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      {MONTH_NAMES[item.month]} {item.year}
+                    </span>
+                  </TableCell>
+                  <TableCell className="tabular-nums text-muted-foreground">
+                    {item.start_date && item.end_date
+                      ? `${formatShortDate(item.start_date)} — ${formatShortDate(item.end_date)}`
+                      : '—'}
+                  </TableCell>
+                  <TableCell className="tabular-nums text-muted-foreground">{formatDate(item.generated_at)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{item.total_teachers}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatHours(item.total_hours)}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums text-foreground">{paymentState.display}</TableCell>
+                  <TableCell>
+                    <StatusBadge tone={itemStatus === 'approved' ? 'success' : itemStatus === 'rejected' ? 'destructive' : 'warning'}>
+                      {itemStatus === 'approved' ? 'Aprobada' : itemStatus === 'rejected' ? 'Rechazada' : 'Pend. Aprobación'}
+                    </StatusBadge>
+                  </TableCell>
+                  <TableCell>
+                    {paymentState.snapshotAvailable && item.file_path ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
+                          }}
                         >
-                          {item.status?.toLowerCase() === 'approved'
-                            ? 'Aprobada'
-                            : item.status?.toLowerCase() === 'rejected'
-                              ? 'Rechazada'
-                              : 'Pend. Aprobación'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        {paymentState.snapshotAvailable && item.file_path ? (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void downloadPlanilla(item.id, `planilla_${MONTH_NAMES[item.month]}_${item.year}.xlsx`)
-                              }}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#1C398E] bg-[#1C398E]/5 hover:bg-[#1C398E] hover:text-white border border-[#1C398E]/20 hover:border-[#1C398E] text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md"
-                            >
-                              <Download size={12} />
-                              Excel
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                const key = `row-${item.id}`
-                                setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
-                                try {
-                                  await downloadSalaryReport({
-                                    month: item.month,
-                                    year: item.year,
-                                    discount_mode: item.discount_mode,
-                                  })
-                                } finally {
-                                  setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
-                                }
-                              }}
-                              disabled={salaryReportLoading[`row-${item.id}`]}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50"
-                            >
-                              {salaryReportLoading[`row-${item.id}`]
-                                ? <Loader2 size={12} className="animate-spin" />
-                                : <FileSpreadsheet size={12} />}
-                              Salarios
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-gray-300 text-xs">No disponible</span>
-                        )}
-                      </td>
-                    </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
+                          <Download />
+                          Excel
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          loading={salaryReportLoading[`row-${item.id}`]}
+                          disabled={salaryReportLoading[`row-${item.id}`]}
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            const key = `row-${item.id}`
+                            setSalaryReportLoading((prev) => ({ ...prev, [key]: true }))
+                            try {
+                              await downloadSalaryReport({
+                                month: item.month,
+                                year: item.year,
+                                discount_mode: item.discount_mode,
+                              })
+                            } finally {
+                              setSalaryReportLoading((prev) => ({ ...prev, [key]: false }))
+                            }
+                          }}
+                        >
+                          <FileSpreadsheet />
+                          Salarios
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No disponible</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </TableCard>
+      )}
 
       {/* Approval Status — show when there is a planilla for this period */}
       {selectedHistoryState && !selectedHistoryState.snapshotAvailable && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Regeneración requerida: el historial legacy no permite aprobar, publicar, exportar ni abrir el detalle.
-        </div>
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertDescription>
+            Regeneración requerida: el historial legacy no permite aprobar, publicar, exportar ni abrir el detalle.
+          </AlertDescription>
+        </Alert>
       )}
 
       {planillaStatus && (
-        <div className="card-3d-static overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                planillaStatus.status === 'approved' ? 'bg-green-100' :
-                planillaStatus.status === 'rejected' ? 'bg-red-100' : 'bg-yellow-100'
-              }`}>
-                {planillaStatus.status === 'approved'
-                  ? <CheckCircle size={16} className="text-green-600" />
-                  : planillaStatus.status === 'rejected'
-                    ? <XCircle size={16} className="text-red-600" />
-                    : <Clock size={16} className="text-yellow-600" />
-                }
-              </div>
-              <div>
-                <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                  Estado de la Planilla
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {planillaStatus.status === 'approved'
-                    ? 'Aprobada — lista para publicar'
-                    : planillaStatus.status === 'rejected'
-                      ? 'Rechazada — requiere regeneración'
-                      : 'Pendiente de aprobación'}
-                </p>
-              </div>
-            </div>
-
-            {planillaStatus.status === 'generated' && (
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white gap-1"
-                  onClick={() => requestConfirm('approve')}
-                  disabled={approvePlanilla.isPending || !canUseSelectedSnapshot || detailError}
-                  title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : detailError ? 'No se pudo cargar el detalle de la planilla' : undefined}
-                >
-                  <Check size={14} /> Aprobar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-300 text-red-600 hover:bg-red-50 gap-1"
-                  onClick={() => requestConfirm('reject')}
-                  disabled={rejectPlanilla.isPending}
-                >
-                  <X size={14} /> Rechazar
-                </Button>
-              </div>
-            )}
-
-            {planillaStatus.status === 'approved' && (
-              <span className="text-sm text-green-700 font-medium">✅ Lista para publicar</span>
-            )}
-
-            {planillaStatus.status === 'rejected' && (
-              <span className="text-sm text-red-600 font-medium">❌ Regenerá la planilla</span>
-            )}
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="col-start-1 text-base">Estado de la Planilla</CardTitle>
+            <CardDescription className="col-start-1">
+              {planillaStatus.status === 'approved'
+                ? 'Aprobada — lista para publicar'
+                : planillaStatus.status === 'rejected'
+                  ? 'Rechazada — requiere regeneración'
+                  : 'Pendiente de aprobación'}
+            </CardDescription>
+            <CardAction className={HEADER_ACTION}>
+              {planillaStatus.status === 'generated' && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => requestConfirm('approve')}
+                    disabled={approvePlanilla.isPending || !canUseSelectedSnapshot || detailError}
+                    title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de aprobar' : detailError ? 'No se pudo cargar el detalle de la planilla' : undefined}
+                  >
+                    <Check /> Aprobar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive-outline"
+                    onClick={() => requestConfirm('reject')}
+                    disabled={rejectPlanilla.isPending}
+                  >
+                    <X /> Rechazar
+                  </Button>
+                </>
+              )}
+              {planillaStatus.status === 'approved' && <StatusBadge tone="success">Lista para publicar</StatusBadge>}
+              {planillaStatus.status === 'rejected' && <StatusBadge tone="destructive">Regenerá la planilla</StatusBadge>}
+            </CardAction>
+          </CardHeader>
+        </Card>
       )}
 
       {/* Publication Status — at the top so admin doesn't need to scroll */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-              publication?.status === 'published' ? 'bg-green-100' : 'bg-gray-100'
-            }`}>
-              {publication?.status === 'published'
-                ? <Send size={16} className="text-green-600" />
-                : <EyeOff size={16} className="text-gray-400" />
-              }
-            </div>
-            <div>
-              <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Publicación de Facturación
-              </h3>
-              <p className="text-xs text-gray-500">
-                {MONTH_NAMES[month]} {year} — {
-                  publication?.status === 'published'
-                    ? `Publicado el ${new Date(publication.published_at!).toLocaleDateString('es-BO')}`
-                    : 'No publicado para docentes'
-                }
-              </p>
-            </div>
-          </div>
-
-          {publication?.status === 'published' ? (
-            <Button
-              variant="outline"
-              className="border-red-300 text-red-600 hover:bg-red-50 gap-2"
-              onClick={() => requestConfirm('unpublish')}
-              disabled={unpublishBilling.isPending}
-            >
-              <EyeOff size={14} />
-              {unpublishBilling.isPending ? 'Despublicando...' : 'Despublicar'}
-            </Button>
-          ) : (
-            <Button
-              className="gap-2 text-white"
-              style={{ backgroundColor: planillaStatus?.status === 'approved' && !exclusionsEdited && !detailError ? '#16a34a' : '#9ca3af' }}
-              onClick={() => requestConfirm('publish')}
-              disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot || detailError}
-              title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : detailError ? 'No se pudo cargar el detalle de la planilla' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
-            >
-              <Send size={14} />
-              {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
-            </Button>
-          )}
-        </div>
-
-        {publication?.status === 'published' && (
-          <div className="px-5 py-3 bg-green-50/50 text-sm text-green-700 flex items-center gap-2">
-            <span>✅ Los docentes pueden ver sus montos a facturar para {MONTH_NAMES[month]} {year}.</span>
-            {publication.total_teachers > 0 && (
-              <span className="text-green-600">
-                ({publication.total_teachers} docentes · Bs {publication.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })})
-              </span>
+      <Card>
+        <CardHeader>
+          <CardTitle className="col-start-1 text-base">Publicación de Facturación</CardTitle>
+          <CardDescription className="col-start-1">
+            {MONTH_NAMES[month]} {year} — {
+              publication?.status === 'published'
+                ? `Publicado el ${new Date(publication.published_at!).toLocaleDateString('es-BO')}`
+                : 'No publicado para docentes'
+            }
+          </CardDescription>
+          <CardAction className={HEADER_ACTION}>
+            {publication?.status === 'published' ? (
+              <Button
+                variant="destructive-outline"
+                onClick={() => requestConfirm('unpublish')}
+                disabled={unpublishBilling.isPending}
+              >
+                <EyeOff />
+                {unpublishBilling.isPending ? 'Despublicando...' : 'Despublicar'}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => requestConfirm('publish')}
+                disabled={publishBilling.isPending || planillaStatus?.status !== 'approved' || exclusionsEdited || !canUseSelectedSnapshot || detailError}
+                title={!canUseSelectedSnapshot ? 'Regeneración requerida antes de publicar' : detailError ? 'No se pudo cargar el detalle de la planilla' : exclusionsEdited ? 'Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar' : planillaStatus?.status !== 'approved' ? 'La planilla debe estar aprobada antes de publicar' : undefined}
+              >
+                <Send />
+                {publishBilling.isPending ? 'Publicando...' : 'Publicar para Docentes'}
+              </Button>
             )}
-          </div>
-        )}
+          </CardAction>
+        </CardHeader>
 
-        {!planillaStatus && publication?.status !== 'published' && (
-          <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
-            Generá y aprobá la planilla antes de publicar.
-          </div>
+        {publicationNotices.length > 0 && (
+          <CardPanel className="space-y-2">
+            {publicationNotices.map(({ key, variant, content }) => (
+              <Alert key={key} variant={variant}>
+                {variant === 'success' ? <CheckCircle /> : <AlertTriangle />}
+                <AlertDescription>{content}</AlertDescription>
+              </Alert>
+            ))}
+          </CardPanel>
         )}
-
-        {planillaStatus && planillaStatus.status !== 'approved' && publication?.status !== 'published' && (
-          <div className="px-5 py-3 bg-yellow-50/50 text-sm text-yellow-700">
-            {planillaStatus.status === 'rejected'
-              ? 'La planilla fue rechazada. Regenerá con los ajustes necesarios.'
-              : 'Aprobá la planilla antes de publicar para docentes.'}
-          </div>
-        )}
-
-        {exclusionsEdited && publication?.status !== 'published' && (
-          <div className="px-5 py-3 bg-amber-50/50 text-sm text-amber-700">
-            Regenerá la planilla para aplicar los cambios de exclusiones antes de publicar.
-          </div>
-        )}
-      </div>
+      </Card>
 
       {/* Planilla Detail Section — ALWAYS visible */}
-      <div className="card-3d-static overflow-hidden">
-        {/* Header */}
-        <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-100">
-          <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-            <Users size={16} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-              Detalle por Docente
-            </h3>
-            <p className="text-xs text-gray-500">
-              {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
-            </p>
-          </div>
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Detalle por Docente</CardTitle>
+          <CardDescription>
+            {detailError ? 'No se pudo cargar' : detail ? `${detail.total_teachers} docentes` : effectiveDiscountMode === null ? 'Sin vista previa' : 'Cargando...'} · {MONTH_NAMES[month]} {year}
+          </CardDescription>
+        </CardHeader>
 
-        {/* Detail content */}
-        <div className="p-5">
+        <CardPanel className="space-y-4">
           {detailLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 size={24} className="animate-spin text-[#003366]" />
+            <div className="space-y-4" role="status" aria-label="Cargando detalle">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[0, 1, 2].map((n) => <Skeleton key={n} className="h-20 rounded-2xl" />)}
+              </div>
+              <Skeleton className="h-40 w-full rounded-xl" />
             </div>
           ) : detailError ? (
-            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center">
-              <AlertCircle size={24} className="text-red-500" />
-              <p className="text-sm text-red-600 font-medium">No se pudo cargar el detalle de la planilla.</p>
-              <Button
-                variant="outline"
-                className="border-[#0066CC] text-[#0066CC] hover:bg-blue-50"
-                onClick={() => void detailQuery.refetch()}
-                disabled={detailQuery.isFetching}
-              >
-                {detailQuery.isFetching ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                Reintentar
-              </Button>
-            </div>
+            <Alert variant="error">
+              <AlertCircle />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <AlertDescription>No se pudo cargar el detalle de la planilla.</AlertDescription>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void detailQuery.refetch()}
+                  disabled={detailQuery.isFetching}
+                  loading={detailQuery.isFetching}
+                >
+                  Reintentar
+                </Button>
+              </div>
+            </Alert>
           ) : detail ? (
             <div className="space-y-4">
               {/* Summary stats */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_teachers}</p>
-                  <p className="text-xs text-gray-500">Docentes</p>
-                </div>
-                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>{detail.total_designations}</p>
-                  <p className="text-xs text-gray-500">Designaciones</p>
-                </div>
-                <div className="bg-blue-50/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold" style={{ color: '#003366' }}>Bs {detail.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
-                  <p className="text-xs text-gray-500">Total a Pagar</p>
-                </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <StatCard icon={Users} title="Docentes" value={detail.total_teachers} />
+                <StatCard icon={BookOpen} title="Designaciones" value={detail.total_designations} tone="info" />
+                <StatCard icon={Wallet} title="Total a Pagar" value={`Bs ${detail.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}`} tone="success" />
               </div>
 
               {/* Tabs + Search row */}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-1 rounded-xl p-1 w-fit" style={{ backgroundColor: '#1C398E15' }}>
-                  <button
-                    onClick={() => setDetailTab('teachers')}
-                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                      detailTab === 'teachers'
-                        ? 'bg-[#1C398E] text-white shadow-md shadow-blue-900/25'
-                        : 'text-[#1C398E] hover:bg-[#1C398E]/10'
-                    }`}
-                  >
-                    Por Docente
-                  </button>
-                  <button
-                    onClick={() => setDetailTab('designations')}
-                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                      detailTab === 'designations'
-                        ? 'bg-[#1C398E] text-white shadow-md shadow-blue-900/25'
-                        : 'text-[#1C398E] hover:bg-[#1C398E]/10'
-                    }`}
-                  >
-                    Por Designación
-                  </button>
-                </div>
+                <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as 'designations' | 'teachers')}>
+                  <TabsList>
+                    <TabsTab value="teachers">Por Docente</TabsTab>
+                    <TabsTab value="designations">Por Designación</TabsTab>
+                  </TabsList>
+                </Tabs>
 
-                {/* Search */}
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[#1C398E]/50" />
-                  <input
-                    type="text"
+                <div className="relative min-w-[200px] max-w-sm flex-1">
+                  <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    aria-label="Buscar docente por nombre o CI"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Buscar docente por nombre o CI..."
-                    className="w-full pl-10 pr-4 py-2.5 border-2 border-[#1C398E]/20 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#1C398E]/30 focus:border-[#1C398E]/40 bg-white shadow-sm placeholder:text-slate-400 transition-all duration-200"
+                    inputClassName="pl-9"
                   />
                 </div>
               </div>
@@ -1503,57 +1432,31 @@ export function PlanillaPage() {
               {/* Tab: Por Docente */}
               {detailTab === 'teachers' && (
                 <div className="space-y-3">
-                  {isBillingPublished && (
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#0066CC]/20 bg-blue-50/50 px-4 py-3">
-                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allVisibleTeachersSelected}
-                          onChange={toggleAllVisibleTeachers}
-                          disabled={visibleTeacherTotals.length === 0}
-                          className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
-                        />
-                        Seleccionar todos
-                      </label>
-                      <Badge className="bg-[#003366] text-white">
-                        {selectedTeachers.size} seleccionado(s)
-                      </Badge>
-                    </div>
-                  )}
-
                   {isBillingPublished && selectedTeachers.size > 0 && (
-                    <div className="rounded-xl border border-[#0066CC]/30 bg-[#003366] px-5 py-4 text-white shadow-lg">
+                    <Alert variant="info" className="items-center">
+                      <Mail />
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15">
-                            <Mail size={18} className="text-white" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{selectedTeachers.size} docente(s) seleccionado(s)</p>
-                            <p className="text-xs text-white/60">Seleccioná los docentes a quienes enviar el correo</p>
-                          </div>
+                        <div>
+                          <AlertTitle className="tabular-nums">{selectedTeachers.size} docente(s) seleccionado(s)</AlertTitle>
+                          <AlertDescription>Seleccioná los docentes a quienes enviar el correo</AlertDescription>
                         </div>
-                        <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Button
                             type="button"
                             onClick={handlePreviewWhatsAppNotifications}
                             disabled={previewBillingNotifications.isPending || confirmBillingNotifications.isPending}
-                            className="gap-2 bg-green-500 text-white font-semibold hover:bg-green-600"
+                            loading={previewBillingNotifications.isPending}
                           >
-                            {previewBillingNotifications.isPending ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
+                            <MessageCircle />
                             Generar vista previa WhatsApp
                           </Button>
                           <Button
                             type="button"
                             onClick={handleSendSelectedBillingEmails}
                             disabled={sendBillingEmails.isPending}
-                            className="gap-2 bg-white text-[#003366] font-semibold hover:bg-[#f4b400] hover:text-[#003366] transition-all duration-200 shadow-md hover:shadow-lg"
+                            loading={sendBillingEmails.isPending}
                           >
-                            {sendBillingEmails.isPending ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              <Mail size={16} />
-                            )}
+                            <Mail />
                             Enviar correo
                           </Button>
                           <Button
@@ -1561,360 +1464,366 @@ export function PlanillaPage() {
                             variant="outline"
                             onClick={() => setSelectedTeachers(new Set())}
                             disabled={sendBillingEmails.isPending}
-                            className="border-white/50 text-white bg-white/10 hover:bg-white/25 hover:text-white font-medium transition-all duration-200"
                           >
                             Limpiar selección
                           </Button>
                         </div>
                       </div>
-                    </div>
+                    </Alert>
                   )}
 
                   {(whatsAppReadiness.data || whatsAppReadiness.isError) && (
-                    <div className={`rounded-lg border px-4 py-3 text-sm ${whatsAppReadiness.data?.ready ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-                      <strong>WhatsApp oficial:</strong>{' '}
-                      {whatsAppReadiness.data?.ready
-                        ? 'listo para una vista previa; la confirmación volverá a validar la capacidad.'
-                        : 'no está listo para enviar. La confirmación queda bloqueada hasta que la verificación en vivo sea válida.'}
-                    </div>
+                    <Alert variant={whatsAppReadiness.data?.ready ? 'success' : 'warning'}>
+                      <MessageCircle />
+                      <AlertDescription>
+                        <strong>WhatsApp oficial:</strong>{' '}
+                        {whatsAppReadiness.data?.ready
+                          ? 'listo para una vista previa; la confirmación volverá a validar la capacidad.'
+                          : 'no está listo para enviar. La confirmación queda bloqueada hasta que la verificación en vivo sea válida.'}
+                      </AlertDescription>
+                    </Alert>
                   )}
 
                   {whatsAppPreview && (
-                    <div className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
-                      <div>
-                        <p className="font-semibold text-green-900">Vista previa de WhatsApp oficial</p>
-                        <p className="text-xs text-green-800">El resumen muestra solo teléfonos enmascarados. La confirmación usa este digest y se rechaza si cambia la preparación, la capacidad o el consentimiento.</p>
+                    <Alert variant="success">
+                      <MessageCircle />
+                      <div className="space-y-3">
+                        <div>
+                          <AlertTitle>Vista previa de WhatsApp oficial</AlertTitle>
+                          <AlertDescription>El resumen muestra solo teléfonos enmascarados. La confirmación usa este digest y se rechaza si cambia la preparación, la capacidad o el consentimiento.</AlertDescription>
+                        </div>
+                        <div className="grid gap-2 text-sm tabular-nums sm:grid-cols-3">
+                          <span>WhatsApp: {whatsAppPreview.recipients.filter(item => item.channel === 'whatsapp').length}</span>
+                          <span>Correo alternativo: {whatsAppPreview.recipients.filter(item => item.channel === 'email').length}</span>
+                          <span>Bloqueados: {whatsAppPreview.recipients.filter(item => item.channel === 'blocked').length}</span>
+                        </div>
+                        <ul className="max-h-36 divide-y overflow-y-auto rounded-lg border bg-background px-3 text-xs text-muted-foreground">
+                          {whatsAppPreview.recipients.map(item => (
+                            <li key={item.teacher_ci} className="py-1.5 tabular-nums">{item.teacher_ci} · {item.phone_masked ?? 'sin número verificado'} · {item.channel}</li>
+                          ))}
+                        </ul>
+                        {!hasSafeWhatsAppPreview && <p className={cn('text-sm font-medium', TONE_TEXT.warning)}>La preparación o la capacidad cambió/no está disponible. No podés confirmar este envío.</p>}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            onClick={handleConfirmWhatsAppNotifications}
+                            disabled={!hasSafeWhatsAppPreview || confirmBillingNotifications.isPending}
+                            loading={confirmBillingNotifications.isPending}
+                          >
+                            <CheckCircle />
+                            Confirmar envío
+                          </Button>
+                          <Button type="button" variant="outline" onClick={() => setWhatsAppPreview(null)} disabled={confirmBillingNotifications.isPending}>Cancelar</Button>
+                        </div>
                       </div>
-                      <div className="grid gap-2 text-sm sm:grid-cols-3">
-                        <span>WhatsApp: {whatsAppPreview.recipients.filter(item => item.channel === 'whatsapp').length}</span>
-                        <span>Correo alternativo: {whatsAppPreview.recipients.filter(item => item.channel === 'email').length}</span>
-                        <span>Bloqueados: {whatsAppPreview.recipients.filter(item => item.channel === 'blocked').length}</span>
-                      </div>
-                      <ul className="max-h-36 space-y-1 overflow-y-auto rounded bg-white p-3 text-xs text-gray-700">
-                        {whatsAppPreview.recipients.map(item => (
-                          <li key={item.teacher_ci}>{item.teacher_ci} · {item.phone_masked ?? 'sin número verificado'} · {item.channel}</li>
-                        ))}
-                      </ul>
-                      {!hasSafeWhatsAppPreview && <p className="text-sm font-medium text-amber-800">La preparación o la capacidad cambió/no está disponible. No podés confirmar este envío.</p>}
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="button" onClick={handleConfirmWhatsAppNotifications} disabled={!hasSafeWhatsAppPreview || confirmBillingNotifications.isPending} className="gap-2 bg-green-600 hover:bg-green-700">
-                          {confirmBillingNotifications.isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                          Confirmar envío
-                        </Button>
-                        <Button type="button" variant="outline" onClick={() => setWhatsAppPreview(null)} disabled={confirmBillingNotifications.isPending}>Cancelar</Button>
-                      </div>
-                    </div>
+                    </Alert>
                   )}
 
-                  {whatsAppError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{whatsAppError}</div>}
+                  {whatsAppError && (
+                    <Alert variant="error">
+                      <AlertCircle />
+                      <AlertDescription>{whatsAppError}</AlertDescription>
+                    </Alert>
+                  )}
 
                   {whatsAppBatch.data && (
-                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                      <p className="font-semibold">Estado durable de WhatsApp · lote #{whatsAppBatch.data.batch_id}</p>
-                      <p className="mt-1">Estado: {whatsAppBatch.data.status}. {whatsAppBatch.data.jobs.length} intento(s) registrado(s).</p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        {Object.entries(whatsAppBatch.data.jobs.reduce<Record<string, number>>((counts, job) => {
-                          const label = `${job.channel}: ${job.status}`
-                          counts[label] = (counts[label] ?? 0) + 1
-                          return counts
-                        }, {})).map(([label, count]) => (
-                          <Badge key={label} className="bg-blue-100 text-blue-800">{label} · {count}</Badge>
-                        ))}
+                    <Alert variant="info">
+                      <Info />
+                      <div className="space-y-2">
+                        <AlertTitle>Estado durable de WhatsApp · lote #{whatsAppBatch.data.batch_id}</AlertTitle>
+                        <AlertDescription>Estado: {whatsAppBatch.data.status}. {whatsAppBatch.data.jobs.length} intento(s) registrado(s).</AlertDescription>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          {Object.entries(whatsAppBatch.data.jobs.reduce<Record<string, number>>((counts, job) => {
+                            const label = `${job.channel}: ${job.status}`
+                            counts[label] = (counts[label] ?? 0) + 1
+                            return counts
+                          }, {})).map(([label, count]) => (
+                            <StatusBadge key={label} tone="info" className="tabular-nums">{label} · {count}</StatusBadge>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    </Alert>
                   )}
 
                   {/* Email send result banner */}
                   {emailSendResult && (
-                    <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 flex-shrink-0">
-                          <CheckCircle size={18} className="text-green-600" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-green-800 text-sm">Correos procesados exitosamente</p>
-                          <div className="flex flex-wrap gap-4 mt-1.5">
-                            {emailSendResult.sent > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-green-500" />
-                                {emailSendResult.sent} enviado(s)
-                              </span>
-                            )}
-                            {emailSendResult.failed > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-red-500" />
-                                {emailSendResult.failed} fallido(s)
-                              </span>
-                            )}
-                            {emailSendResult.skipped > 0 && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
-                                <span className="w-2 h-2 rounded-full bg-gray-400" />
-                                {emailSendResult.skipped} omitido(s)
-                              </span>
-                            )}
+                    <Alert variant="success">
+                      <CheckCircle />
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <AlertTitle>Correos procesados exitosamente</AlertTitle>
+                          <div className="flex flex-wrap gap-2">
+                            {emailSendResult.sent > 0 && <StatusBadge tone="success" className="tabular-nums">{emailSendResult.sent} enviado(s)</StatusBadge>}
+                            {emailSendResult.failed > 0 && <StatusBadge tone="destructive" className="tabular-nums">{emailSendResult.failed} fallido(s)</StatusBadge>}
+                            {emailSendResult.skipped > 0 && <StatusBadge tone="neutral" className="tabular-nums">{emailSendResult.skipped} omitido(s)</StatusBadge>}
                           </div>
                         </div>
-                        <button
-                          onClick={() => setEmailSendResult(null)}
-                          className="p-1 rounded-md hover:bg-green-100 text-green-400 hover:text-green-600 transition-colors flex-shrink-0"
-                        >
-                          <X size={14} />
-                        </button>
+                        <Button variant="ghost" size="icon-xs" aria-label="Cerrar resultado de correos" onClick={() => setEmailSendResult(null)}>
+                          <X />
+                        </Button>
                       </div>
-                    </div>
+                    </Alert>
                   )}
                   {emailSendError && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="font-semibold text-red-800 text-sm">No se pudieron enviar los correos</p>
-                          <p className="text-xs text-red-600 mt-0.5">Verificá la configuración de email e intentá nuevamente.</p>
+                    <Alert variant="error">
+                      <AlertCircle />
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <AlertTitle>No se pudieron enviar los correos</AlertTitle>
+                          <AlertDescription>Verificá la configuración de email e intentá nuevamente.</AlertDescription>
                         </div>
-                        <button
-                          onClick={() => setEmailSendError(false)}
-                          className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
-                        >
-                          <X size={14} />
-                        </button>
+                        <Button variant="ghost" size="icon-xs" aria-label="Cerrar error de correos" onClick={() => setEmailSendError(false)}>
+                          <X />
+                        </Button>
                       </div>
-                    </div>
+                    </Alert>
                   )}
 
-                  {visibleTeacherTotals.map(teacher => (
-                      <div key={teacher.teacher_ci} className="border border-gray-200 rounded-lg overflow-hidden">
-                        {/* Teacher header */}
-                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
-                          <div className="flex items-center gap-3">
-                            {isBillingPublished && (
-                              <input
-                                type="checkbox"
-                                checked={selectedTeachers.has(teacher.teacher_ci)}
-                                onChange={() => toggleTeacherSelection(teacher.teacher_ci)}
-                                aria-label={`Seleccionar ${teacher.teacher_name}`}
-                                className="h-4 w-4 rounded border-gray-300 text-[#0066CC] focus:ring-[#0066CC]"
-                              />
-                            )}
-                            <div className="w-9 h-9 rounded-full gradient-stat-navy flex items-center justify-center">
-                              <span className="text-white text-sm font-bold">{teacher.teacher_name.charAt(0)}</span>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-800 text-sm">{teacher.teacher_name}</p>
-                              <p className="text-xs text-gray-500">CI: {teacher.teacher_ci} · {teacher.designation_count} materia(s)</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            {editingOverride === teacher.teacher_ci ? (
-                              <div className="flex items-center gap-2 justify-end">
-                                <span className="text-xs text-gray-500">Bs</span>
-                                <input
-                                  type="number"
-                                  value={overrideValue}
-                                  onChange={e => setOverrideValue(e.target.value)}
-                                  className="w-24 border border-[#0066CC] rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#0066CC]"
-                                  autoFocus
-                                />
-                                <button
-                                  onClick={() => {
-                                    if (overrideValue) {
-                                      setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
-                                    }
-                                    setEditingOverride(null)
-                                    setOverrideValue('')
-                                  }}
-                                  className="text-green-600 hover:text-green-800"
-                                  title="Confirmar ajuste"
-                                >
-                                  <Check size={14} />
-                                </button>
-                                <button
-                                  onClick={() => { setEditingOverride(null); setOverrideValue('') }}
-                                  className="text-gray-400 hover:text-gray-600"
-                                  title="Cancelar"
-                                >
-                                  <X size={14} />
-                                </button>
+                  {visibleTeacherTotals.length === 0 ? (
+                    <EmptyState
+                      icon={Search}
+                      title="Sin docentes para mostrar"
+                      description={searchTerm ? 'Ningún docente coincide con la búsqueda.' : 'La planilla no tiene docentes.'}
+                    />
+                  ) : (
+                    <TableCard
+                      toolbar={isBillingPublished ? (
+                        <>
+                          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                            <Checkbox
+                              checked={allVisibleTeachersSelected}
+                              onCheckedChange={toggleAllVisibleTeachers}
+                              disabled={visibleTeacherTotals.length === 0}
+                            />
+                            Seleccionar todos
+                          </label>
+                          <StatusBadge tone="primary" className="tabular-nums">{selectedTeachers.size} seleccionado(s)</StatusBadge>
+                        </>
+                      ) : undefined}
+                    >
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead>Docente / Materia</TableHead>
+                          <TableHead>Grupo</TableHead>
+                          <TableHead>Sem.</TableHead>
+                          <TableHead className="text-right">Hrs base</TableHead>
+                          <TableHead className="text-right">Ausencias</TableHead>
+                          <TableHead className="text-right">Hrs a pagar</TableHead>
+                          <TableHead className="text-right">Monto (Bs)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      {visibleTeacherTotals.map(teacher => (
+                        <TableBody key={teacher.teacher_ci}>
+                          {/* Teacher header row */}
+                          <TableRow className="bg-muted/40 hover:bg-muted/40">
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                {isBillingPublished && (
+                                  <Checkbox
+                                    checked={selectedTeachers.has(teacher.teacher_ci)}
+                                    onCheckedChange={() => toggleTeacherSelection(teacher.teacher_ci)}
+                                    aria-label={`Seleccionar ${teacher.teacher_name}`}
+                                  />
+                                )}
+                                <div>
+                                  <p className="font-medium text-foreground">{teacher.teacher_name}</p>
+                                  <p className="text-xs tabular-nums text-muted-foreground">CI: {teacher.teacher_ci} · {teacher.designation_count} materia(s)</p>
+                                </div>
                               </div>
-                            ) : (
-                              <div className="flex flex-col items-end gap-0.5">
-                                {teacher.has_retention ? (
-                                  <>
-                                    <p className="text-xs text-gray-400 line-through">
-                                      Bruto: Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    </p>
-                                    <p className="text-xs text-red-500">
-                                      Retención 13%: -Bs {(teacher.retention_amount ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                      <p
-                                        className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
-                                        style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
-                                      >
-                                        Neto: Bs {(teacher.final_payment ?? teacher.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell colSpan={2}>
+                              {!teacher.has_biometric && <StatusBadge tone="warning">Sin Bio</StatusBadge>}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">{teacher.total_base_hours}h</TableCell>
+                            <TableCell />
+                            <TableCell className="text-right font-medium tabular-nums text-foreground">{teacher.total_payable_hours}h</TableCell>
+                            <TableCell className="text-right">
+                              {editingOverride === teacher.teacher_ci ? (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <span className="text-xs text-muted-foreground">Bs</span>
+                                  <Input
+                                    type="number"
+                                    aria-label={`Ajustar monto de ${teacher.teacher_name}`}
+                                    value={overrideValue}
+                                    onChange={e => setOverrideValue(e.target.value)}
+                                    className="w-28"
+                                    inputClassName="text-right tabular-nums"
+                                    size="sm"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    title="Confirmar ajuste"
+                                    aria-label="Confirmar ajuste"
+                                    onClick={() => {
+                                      if (overrideValue) {
+                                        setPaymentOverrides(prev => ({ ...prev, [teacher.teacher_ci]: Number(overrideValue) }))
+                                      }
+                                      setEditingOverride(null)
+                                      setOverrideValue('')
+                                    }}
+                                  >
+                                    <Check />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    title="Cancelar"
+                                    aria-label="Cancelar ajuste"
+                                    onClick={() => { setEditingOverride(null); setOverrideValue('') }}
+                                  >
+                                    <X />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  {teacher.has_retention && (
+                                    <>
+                                      <p className="text-xs tabular-nums text-muted-foreground line-through">
+                                        Bruto: Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
                                       </p>
-                                      {paymentOverrides[teacher.teacher_ci] != null && (
-                                        <p className="text-lg font-bold text-green-700">
-                                          Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                        </p>
-                                      )}
-                                      <button
-                                        onClick={() => {
-                                          setEditingOverride(teacher.teacher_ci)
-                                          setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? (teacher.final_payment ?? teacher.total_payment)))
-                                        }}
-                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
-                                        title="Ajustar monto"
-                                      >
-                                        <Pencil size={13} />
-                                      </button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="flex items-center gap-2 justify-end">
+                                      <p className={cn('text-xs tabular-nums', TONE_TEXT.destructive)}>
+                                        Retención 13%: -Bs {(teacher.retention_amount ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                      </p>
+                                    </>
+                                  )}
+                                  <div className="flex items-center gap-1.5">
                                     <p
-                                      className={`text-lg font-bold ${paymentOverrides[teacher.teacher_ci] != null ? 'line-through text-red-700' : ''}`}
-                                      style={{ color: paymentOverrides[teacher.teacher_ci] != null ? undefined : '#003366' }}
+                                      className={cn(
+                                        'text-base font-semibold tabular-nums',
+                                        paymentOverrides[teacher.teacher_ci] != null ? cn('line-through', TONE_TEXT.destructive) : 'text-foreground',
+                                      )}
                                     >
-                                      Bs {teacher.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                      {teacher.has_retention ? 'Neto: ' : ''}Bs {(teacher.has_retention ? (teacher.final_payment ?? teacher.total_payment) : teacher.total_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
                                     </p>
                                     {paymentOverrides[teacher.teacher_ci] != null && (
-                                      <p className="text-lg font-bold text-green-700">
+                                      <p className={cn('text-base font-semibold tabular-nums', TONE_TEXT.success)}>
                                         Bs {paymentOverrides[teacher.teacher_ci].toLocaleString('es-BO', { minimumFractionDigits: 2 })}
                                       </p>
                                     )}
-                                    <button
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      title="Ajustar monto"
+                                      aria-label={`Ajustar monto de ${teacher.teacher_name}`}
                                       onClick={() => {
                                         setEditingOverride(teacher.teacher_ci)
-                                        setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? teacher.total_payment))
+                                        setOverrideValue(String(paymentOverrides[teacher.teacher_ci] ?? (teacher.has_retention ? (teacher.final_payment ?? teacher.total_payment) : teacher.total_payment)))
                                       }}
-                                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#0066CC] transition-colors"
-                                      title="Ajustar monto"
                                     >
-                                      <Pencil size={13} />
-                                    </button>
+                                      <Pencil />
+                                    </Button>
+                                    {paymentOverrides[teacher.teacher_ci] != null && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        title="Quitar ajuste"
+                                        aria-label={`Quitar ajuste de ${teacher.teacher_name}`}
+                                        onClick={() => {
+                                          setPaymentOverrides(prev => {
+                                            const next = { ...prev }
+                                            delete next[teacher.teacher_ci]
+                                            return next
+                                          })
+                                        }}
+                                      >
+                                        <X />
+                                      </Button>
+                                    )}
                                   </div>
-                                )}
-
-                                {paymentOverrides[teacher.teacher_ci] != null && (
-                                  <button
-                                    onClick={() => {
-                                      setPaymentOverrides(prev => {
-                                        const next = { ...prev }
-                                        delete next[teacher.teacher_ci]
-                                        return next
-                                      })
-                                    }}
-                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 transition-colors"
-                                    title="Quitar ajuste"
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            <p className="text-xs text-gray-500 mt-1">
-                              {teacher.total_payable_hours}h de {teacher.total_base_hours}h
-                              {!teacher.has_biometric && (
-                                <span className="ml-1 text-yellow-600 font-medium">· Sin Bio</span>
+                                </div>
                               )}
-                            </p>
-                          </div>
-                        </div>
-                        {/* Teacher designations */}
-                        <div className="divide-y divide-gray-100">
+                            </TableCell>
+                          </TableRow>
+
+                          {/* Teacher designations */}
                           {detail.detail
                             .filter(d => d.teacher_ci === teacher.teacher_ci)
                             .map(d => (
-                              <div key={`${d.subject}-${d.group_code}`} className="flex items-center justify-between px-4 py-2 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-gray-700">{d.subject}</span>
-                                  <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
-                                  <span className="text-gray-400 text-xs">{d.semester}</span>
-                                </div>
-                                <div className="flex items-center gap-4 text-xs">
-                                  <span className="text-gray-500">{d.base_monthly_hours}h base</span>
-                                  {d.absent_hours > 0 && <span className="text-red-500">-{d.absent_hours}h</span>}
-                                  <span className="font-semibold text-gray-800">{d.payable_hours}h</span>
-                                  <span className="font-bold min-w-[80px] text-right" style={{ color: '#003366' }}>
-                                    Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                    {(d.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
-                                  </span>
-                                </div>
-                              </div>
-                            ))
-                          }
-                        </div>
-                      </div>
-                    ))}
-
+                              <TableRow key={`${d.subject}-${d.group_code}`}>
+                                <TableCell className="max-w-[260px] truncate pl-8 text-foreground">{d.subject}</TableCell>
+                                <TableCell><Badge variant="outline">{d.group_code}</Badge></TableCell>
+                                <TableCell className="text-muted-foreground">{d.semester}</TableCell>
+                                <TableCell className="text-right tabular-nums text-muted-foreground">{d.base_monthly_hours}h</TableCell>
+                                <TableCell className={cn('text-right tabular-nums', d.absent_hours > 0 ? TONE_TEXT.destructive : 'text-muted-foreground')}>
+                                  {d.absent_hours > 0 ? `-${d.absent_hours}h` : '0h'}
+                                </TableCell>
+                                <TableCell className="text-right font-medium tabular-nums text-foreground">{d.payable_hours}h</TableCell>
+                                <TableCell className="text-right font-medium tabular-nums text-foreground">
+                                  Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                  {(d.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs', TONE_TEXT.destructive)}>(con retención)</span>}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      ))}
+                    </TableCard>
+                  )}
                 </div>
               )}
 
               {/* Tab: Por Designación */}
               {detailTab === 'designations' && (
-                <div className="overflow-x-auto rounded-lg border border-gray-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                        {['Docente', 'Materia', 'Grupo', 'Sem.', 'Hrs Base', 'Ausencias', 'Hrs a Pagar', 'Monto (Bs)', 'Estado'].map(h => (
-                          <th key={h} className="text-left text-white font-semibold text-xs uppercase tracking-wider px-3 py-2.5">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.detail
-                        .filter(row => {
-                          if (!searchTerm) return true
-                          const term = searchTerm.toLowerCase()
-                          return row.teacher_name.toLowerCase().includes(term) || row.teacher_ci.includes(term)
-                        })
-                        .map((row, i) => (
-                          <tr key={`${row.teacher_ci}-${row.subject}-${row.group_code}`} className={`border-b last:border-0 hover:bg-blue-50/70 transition-colors ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                            <td className="px-3 py-2.5 font-medium text-gray-800 max-w-[200px] truncate">{row.teacher_name}</td>
-                            <td className="px-3 py-2.5 text-gray-700 max-w-[180px] truncate">{row.subject}</td>
-                            <td className="px-3 py-2.5 text-gray-600">{row.group_code}</td>
-                            <td className="px-3 py-2.5 text-gray-600">{row.semester}</td>
-                            <td className="px-3 py-2.5 text-gray-700 font-medium">{row.base_monthly_hours}h</td>
-                            <td className="px-3 py-2.5">
-                              {row.absent_hours > 0 ? (
-                                <span className="text-red-600 font-medium">-{row.absent_hours}h</span>
-                              ) : (
-                                <span className="text-green-600">0h</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-800 font-semibold">{row.payable_hours}h</td>
-                            <td className="px-3 py-2.5 font-bold" style={{ color: '#003366' }}>
-                              {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                              {(row.retention_amount ?? 0) > 0 && <span className="ml-1 text-xs text-red-500 font-medium">(con retención)</span>}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              {!row.has_biometric ? (
-                                <Badge className="bg-yellow-100 text-yellow-700 text-xs">Sin Bio</Badge>
-                              ) : row.absent_count > 0 ? (
-                                <Badge className="bg-red-100 text-red-700 text-xs">{row.absent_count} falta(s)</Badge>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-700 text-xs">Completo</Badge>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      }
-                    </tbody>
-                  </table>
-                </div>
+                <TableCard>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      {['Docente', 'Materia', 'Grupo', 'Sem.'].map(h => <TableHead key={h}>{h}</TableHead>)}
+                      {['Hrs Base', 'Ausencias', 'Hrs a Pagar', 'Monto (Bs)'].map(h => <TableHead key={h} className="text-right">{h}</TableHead>)}
+                      <TableHead>Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detail.detail
+                      .filter(row => {
+                        if (!searchTerm) return true
+                        const term = searchTerm.toLowerCase()
+                        return row.teacher_name.toLowerCase().includes(term) || row.teacher_ci.includes(term)
+                      })
+                      .map((row) => (
+                        <TableRow key={`${row.teacher_ci}-${row.subject}-${row.group_code}`}>
+                          <TableCell className="max-w-[200px] truncate font-medium text-foreground">{row.teacher_name}</TableCell>
+                          <TableCell className="max-w-[180px] truncate">{row.subject}</TableCell>
+                          <TableCell className="text-muted-foreground">{row.group_code}</TableCell>
+                          <TableCell className="text-muted-foreground">{row.semester}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.base_monthly_hours}h</TableCell>
+                          <TableCell className={cn('text-right tabular-nums', row.absent_hours > 0 ? cn('font-medium', TONE_TEXT.destructive) : 'text-muted-foreground')}>
+                            {row.absent_hours > 0 ? `-${row.absent_hours}h` : '0h'}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-foreground">{row.payable_hours}h</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-foreground">
+                            {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                            {(row.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs font-medium', TONE_TEXT.destructive)}>(con retención)</span>}
+                          </TableCell>
+                          <TableCell>
+                            {!row.has_biometric ? (
+                              <StatusBadge tone="warning">Sin Bio</StatusBadge>
+                            ) : row.absent_count > 0 ? (
+                              <StatusBadge tone="destructive">{row.absent_count} falta(s)</StatusBadge>
+                            ) : (
+                              <StatusBadge tone="success">Completo</StatusBadge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </TableCard>
               )}
             </div>
           ) : effectiveDiscountMode === null ? (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              Elegí el modo de cálculo para ver la vista previa.
-            </div>
+            <EmptyState
+              icon={Calculator}
+              title="Elegí el modo de cálculo para ver la vista previa."
+            />
           ) : (
-            <div className="text-center py-10 text-gray-400 text-sm">
-              No hay datos para {MONTH_NAMES[month]} {year}. Generá la planilla para ver el detalle.
-            </div>
+            <EmptyState
+              icon={FileSpreadsheet}
+              title={`No hay datos para ${MONTH_NAMES[month]} ${year}.`}
+              description="Generá la planilla para ver el detalle."
+            />
           )}
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
       </div>
       )}
