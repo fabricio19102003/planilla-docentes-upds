@@ -15,6 +15,7 @@ from app.domain.teacher_types import TeacherType, normalize_teacher_type
 from app.models.billing_publication import BillingPublication
 from app.models.notification import Notification
 from app.models.teacher import Teacher
+from app.models.teacher_ci_alias import TeacherCiAlias
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
@@ -396,12 +397,42 @@ def _filter_excluded_days_for_teacher(
 # ------------------------------------------------------------------
 
 
+def _teacher_ci_aliases(db: Session, teacher_ci: str) -> list[TeacherCiAlias]:
+    return db.query(TeacherCiAlias).filter(TeacherCiAlias.teacher_ci == teacher_ci).all()
+
+
+def _snapshot_teacher_entry(
+    snapshot: dict,
+    pub: BillingPublication,
+    teacher_ci: str,
+    aliases: list[TeacherCiAlias],
+) -> Optional[dict]:
+    """Find the teacher's row in an immutable snapshot, including rows stored under a previous CI.
+
+    A previous CI only matches publications made before the correction, so a CI later
+    assigned to another teacher never leaks that person's months.
+    """
+    entries = snapshot.get("teacher_details", [])
+    current = next((t for t in entries if t.get("teacher_ci") == teacher_ci), None)
+    if current is not None:
+        return current
+    published_at = pub.published_at or pub.created_at
+    for alias in aliases:
+        if published_at is not None and published_at > alias.changed_at:
+            continue
+        previous = next((t for t in entries if t.get("teacher_ci") == alias.previous_ci), None)
+        if previous is not None:
+            return previous
+    return None
+
+
 def _build_billing_response_from_publication(
     pub: BillingPublication,
     teacher_ci: str,
     month: int,
     year: int,
     db: Session,
+    aliases: Optional[list[TeacherCiAlias]] = None,
 ) -> Optional[BillingResponse]:
     """Build a BillingResponse from a published BillingPublication for a specific teacher.
 
@@ -412,10 +443,7 @@ def _build_billing_response_from_publication(
     ptype = pub.planilla_type or "regular"
 
     if snapshot:
-        teacher_data = next(
-            (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher_ci),
-            None,
-        )
+        teacher_data = _snapshot_teacher_entry(snapshot, pub, teacher_ci, aliases or [])
         if teacher_data:
             designations = [
                 _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
@@ -505,7 +533,9 @@ def get_current_billing(
                 ),
             )
         else:
-            billing = _build_billing_response_from_publication(pub, teacher.ci, now.month, now.year, db)
+            billing = _build_billing_response_from_publication(
+                pub, teacher.ci, now.month, now.year, db, aliases=_teacher_ci_aliases(db, teacher.ci)
+            )
         if billing is None:
             continue
         if ptype == "practice":
@@ -544,6 +574,7 @@ def get_billing_history(
         .all()
     )
 
+    aliases = _teacher_ci_aliases(db, teacher.ci)
     history: list[BillingHistoryItem] = []
     for pub in published_publications:
         ptype = pub.planilla_type or "regular"
@@ -551,10 +582,7 @@ def get_billing_history(
         # Read from snapshot if available — prevents retroactive recalculation
         snapshot = pub.billing_snapshot
         if snapshot:
-            teacher_data = next(
-                (t for t in snapshot.get("teacher_details", []) if t.get("teacher_ci") == teacher.ci),
-                None,
-            )
+            teacher_data = _snapshot_teacher_entry(snapshot, pub, teacher.ci, aliases)
             if teacher_data:
                 designations = [
                     _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
