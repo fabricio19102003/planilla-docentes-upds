@@ -226,10 +226,11 @@ def test_ci_change_moves_teacher_availability(client, db_session):
     assert db_session.query(TeacherAvailability).filter_by(teacher_ci="111").count() == 0
 
 
-def test_ci_change_rejects_teacher_with_issued_contracts_and_changes_nothing(client, db_session):
+def test_ci_change_moves_issued_contracts_and_records_the_correction(client, db_session):
     from app.models.contract import ContractDocument
+    from app.models.contract_ci_correction import ContractCiCorrection
 
-    designation_id = _seed(db_session)
+    _seed(db_session)
     db_session.add(ContractDocument(
         public_id="00000000-0000-0000-0000-000000000001", teacher_ci="111",
         teacher_name="Docente Mal Registrado", teacher_snapshot={}, academic_period="II/2026",
@@ -242,12 +243,12 @@ def test_ci_change_rejects_teacher_with_issued_contracts_and_changes_nothing(cli
 
     response = client.put("/api/teachers/111", json={"ci": "222"})
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == (
-        "No se puede cambiar el CI: el docente tiene 1 contrato(s) emitido(s), que son inmutables"
-    )
-    _assert_unchanged(db_session, designation_id)
-    assert db_session.query(ContractDocument).filter_by(teacher_ci="111").count() == 1
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.query(ContractDocument).filter_by(teacher_ci="222").count() == 1
+    correction = db_session.query(ContractCiCorrection).one()
+    assert (correction.old_ci, correction.new_ci, correction.contract_count) == ("111", "222", 1)
+    assert correction.corrected_by is not None
 
 
 def test_registered_by_on_a_login_that_keeps_its_ci_does_not_block(client, db_session):

@@ -319,7 +319,7 @@ def update_teacher(
         # child, which is safe with PostgreSQL's immediate foreign-key constraints.
         if new_ci and new_ci != ci:
             try:
-                teacher = TeacherIdentityService(db).change_ci(ci, new_ci)
+                teacher = TeacherIdentityService(db).change_ci(ci, new_ci, corrected_by=current_user.id)
             except TeacherIdentityConflict as exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
