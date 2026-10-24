@@ -1,6 +1,7 @@
 # Import all models to ensure they are registered in Base.metadata
 # This is CRITICAL — SQLAlchemy needs all models imported before create_all() is called
 from app.models.teacher import Teacher
+from app.models.teacher_ci_alias import TeacherCiAlias
 from app.models.designation import Designation
 from app.models.biometric import BiometricUpload, BiometricRecord
 from app.models.attendance import AttendanceRecord
@@ -38,6 +39,7 @@ from app.models.academic_management import (
 from app.models.designation_bootstrap import DesignationBootstrapReceipt
 
 __all__ = [
+    "TeacherCiAlias",
     "Teacher",
     "Designation",
     "BiometricUpload",

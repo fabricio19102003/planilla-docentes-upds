@@ -7,6 +7,7 @@ from app.models.biometric import BiometricRecord
 from app.models.contract import ContractDocument
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
+from app.models.teacher_ci_alias import TeacherCiAlias
 from app.models.user import User
 
 
@@ -33,6 +34,7 @@ class TeacherIdentityService:
         "billing_media_tokens",
         "teacher_availability",
         "academic_schedule_assignments",
+        "teacher_ci_aliases",
     )
     # Issued contracts are immutable (database triggers reject UPDATE and DELETE), so a
     # teacher who has any cannot move; change_ci rejects the change before writing.
@@ -62,6 +64,7 @@ class TeacherIdentityService:
         for table in self.child_tables:
             self._repoint_child(table, old_ci, new_ci)
         self._repoint_docente_login(old_ci, new_ci)
+        self.db.add(TeacherCiAlias(previous_ci=old_ci, teacher_ci=new_ci))
         self._delete_old_parent(teacher)
         return replacement
 
