@@ -3,9 +3,17 @@ import { useUsers, useCreateUser, useUpdateUser, useResetUserPassword } from '@/
 import { useTeachers } from '@/api/hooks/useTeachers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StatCard } from '@/components/shared/StatCard'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
 import {
   Dialog,
   DialogDescription,
@@ -33,7 +41,7 @@ import {
   IdCard,
   KeyRound,
   User as UserIcon,
-  Loader2,
+  AlertCircle,
   Search,
   Check,
   X,
@@ -77,7 +85,7 @@ function PasswordChecklist({ value }: { value: string }) {
         return (
           <li
             key={rule.label}
-            className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-600' : 'text-gray-400'}`}
+            className={`flex items-center gap-1.5 text-xs ${ok ? 'text-success-foreground' : 'text-muted-foreground'}`}
           >
             {ok ? <Check size={12} /> : <X size={12} />}
             {rule.label}
@@ -89,6 +97,15 @@ function PasswordChecklist({ value }: { value: string }) {
 }
 
 // ─── Create User Dialog ───────────────────────────────────────────────────────
+function SectionTitle({ icon: Icon, children }: { icon: typeof IdCard; children: string }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <Icon size={14} className="text-muted-foreground" aria-hidden="true" />
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{children}</p>
+    </div>
+  )
+}
+
 function CreateUserDialog({
   open,
   onClose,
@@ -143,8 +160,8 @@ function CreateUserDialog({
       <DialogPopup className="max-w-lg">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <UserPlus size={20} className="text-primary" />
+            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+              <UserPlus size={20} className="text-primary" aria-hidden="true" />
             </div>
             <div className="flex flex-col gap-1">
               <DialogTitle>Nuevo Usuario</DialogTitle>
@@ -157,22 +174,19 @@ function CreateUserDialog({
           <DialogPanel className="space-y-5">
             {/* Section 1: Identification */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <IdCard size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Identificación</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-user-ci" className="text-sm">CI *</Label>
+              <SectionTitle icon={IdCard}>Identificación</SectionTitle>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="create-user-ci">CI *</FieldLabel>
                   <Input
                     id="create-user-ci"
                     value={form.ci}
                     onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
                     placeholder="12345678"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-user-role" className="text-sm">Rol *</Label>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="create-user-role">Rol *</FieldLabel>
                   <Select
                     value={form.role}
                     items={ROLE_ITEMS}
@@ -184,40 +198,37 @@ function CreateUserDialog({
                     <SelectPopup>
                       <SelectItem value="admin">
                         <div className="flex items-center gap-2">
-                          <Shield size={14} className="text-blue-600" />
+                          <Shield size={14} className="text-primary" aria-hidden="true" />
                           Administrador
                         </div>
                       </SelectItem>
                       <SelectItem value="docente">
                         <div className="flex items-center gap-2">
-                          <GraduationCap size={14} className="text-green-600" />
+                          <GraduationCap size={14} className="text-success" aria-hidden="true" />
                           Docente
                         </div>
                       </SelectItem>
                     </SelectPopup>
                   </Select>
-                </div>
+                </Field>
               </div>
             </div>
 
             {/* Section 2: Personal info */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <UserIcon size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Datos Personales</p>
-              </div>
+              <SectionTitle icon={UserIcon}>Datos Personales</SectionTitle>
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-user-name" className="text-sm">Nombre Completo *</Label>
+                <Field>
+                  <FieldLabel htmlFor="create-user-name">Nombre Completo *</FieldLabel>
                   <Input
                     id="create-user-name"
                     value={form.full_name}
                     onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
                     placeholder="Juan Pérez García"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-user-email" className="text-sm">Email</Label>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="create-user-email">Email</FieldLabel>
                   <Input
                     id="create-user-email"
                     type="email"
@@ -225,19 +236,16 @@ function CreateUserDialog({
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                     placeholder="juan@upds.edu.bo"
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
             {/* Section 3: Access */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <KeyRound size={14} className="text-gray-400" />
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Acceso</p>
-              </div>
+              <SectionTitle icon={KeyRound}>Acceso</SectionTitle>
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-user-password" className="text-sm">Contraseña *</Label>
+                <Field>
+                  <FieldLabel htmlFor="create-user-password">Contraseña *</FieldLabel>
                   <Input
                     id="create-user-password"
                     type="password"
@@ -246,10 +254,10 @@ function CreateUserDialog({
                     placeholder="••••••••"
                   />
                   <PasswordChecklist value={form.password} />
-                </div>
+                </Field>
                 {form.role === 'docente' && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="create-user-teacher" className="text-sm">Docente vinculado</Label>
+                  <Field>
+                    <FieldLabel htmlFor="create-user-teacher">Docente vinculado</FieldLabel>
                     <Select
                       value={form.teacher_ci || null}
                       items={teachers?.items?.map((t) => ({ value: t.ci, label: `${t.full_name} — ${t.ci}` })) ?? []}
@@ -266,35 +274,29 @@ function CreateUserDialog({
                         ))}
                       </SelectPopup>
                     </Select>
-                  </div>
+                  </Field>
                 )}
               </div>
             </div>
 
             {error && (
-              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                {error}
-              </p>
+              <Alert variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
-
           </DialogPanel>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
-            <Button
-              type="submit"
-              disabled={createUser.isPending}
-            >
+            <Button type="submit" loading={createUser.isPending}>
               {createUser.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin mr-2" />
-                  Creando...
-                </>
+                'Creando...'
               ) : (
                 <>
-                  <UserPlus size={16} className="mr-2" />
+                  <UserPlus aria-hidden="true" />
                   Crear Usuario
                 </>
               )}
@@ -348,16 +350,16 @@ function ResetPasswordDialog({
         </DialogHeader>
         {success ? (
           <DialogPanel className="text-center">
-            <p className="text-green-600 font-medium">¡Contraseña actualizada!</p>
+            <p className="font-medium text-success-foreground">¡Contraseña actualizada!</p>
           </DialogPanel>
         ) : (
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <DialogPanel className="space-y-4">
-              <p className="text-sm text-gray-500">
-                Establecer nueva contraseña para: <span className="font-medium text-gray-700">{user?.full_name}</span>
+              <p className="text-sm text-muted-foreground">
+                Establecer nueva contraseña para: <span className="font-medium text-foreground">{user?.full_name}</span>
               </p>
-              <div className="space-y-1.5">
-                <Label htmlFor="reset-user-password">Nueva Contraseña *</Label>
+              <Field>
+                <FieldLabel htmlFor="reset-user-password">Nueva Contraseña *</FieldLabel>
                 <Input
                   id="reset-user-password"
                   type="password"
@@ -366,21 +368,19 @@ function ResetPasswordDialog({
                   placeholder="••••••••"
                 />
                 <PasswordChecklist value={newPassword} />
-              </div>
+              </Field>
               {error && (
-                <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-                  {error}
-                </p>
+                <Alert variant="error">
+                  <AlertCircle aria-hidden="true" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
             </DialogPanel>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancelar
               </Button>
-              <Button
-                type="submit"
-                disabled={resetPwd.isPending}
-              >
+              <Button type="submit" loading={resetPwd.isPending}>
                 {resetPwd.isPending ? 'Guardando...' : 'Guardar'}
               </Button>
             </DialogFooter>
@@ -399,7 +399,7 @@ export function UsersPage() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [page, setPage] = useState(1)
   const perPage = 15
-  const { data, isLoading, error } = useUsers({
+  const { data, isLoading, error, refetch } = useUsers({
     search: debouncedSearch || undefined,
     role: roleFilter === 'all' ? undefined : roleFilter,
     active: activeFilter === 'all' ? undefined : activeFilter === 'active',
@@ -410,6 +410,8 @@ export function UsersPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AuthUser | null>(null)
+  const [deactivateTarget, setDeactivateTarget] = useState<AuthUser | null>(null)
+  const [deactivateError, setDeactivateError] = useState<string | null>(null)
   const users = data?.items ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / perPage))
 
@@ -422,68 +424,74 @@ export function UsersPage() {
     await updateUser.mutateAsync({ id: u.id, data: { is_active: !u.is_active } })
   }
 
+  const confirmDeactivate = async () => {
+    if (!deactivateTarget) return
+    setDeactivateError(null)
+    try {
+      await handleToggleActive(deactivateTarget)
+      setDeactivateTarget(null)
+    } catch (err) {
+      setDeactivateError(apiErrorMessage(err, 'No se pudo desactivar al usuario.'))
+    }
+  }
+
   if (isLoading) {
     return (
-      <div role="status" aria-live="polite" className="flex items-center justify-center gap-3 py-24 text-sm text-gray-500">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin motion-reduce:animate-none" />
-        Cargando usuarios...
+      <div role="status" aria-live="polite" aria-label="Cargando usuarios" className="space-y-6">
+        <Skeleton className="h-16 w-full max-w-md" />
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+        <Skeleton className="h-80 rounded-2xl" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <p className="text-red-600 font-medium">Error al cargar usuarios</p>
-      </div>
+      <Alert variant="error">
+        <AlertCircle aria-hidden="true" />
+        <AlertTitle>Error al cargar usuarios</AlertTitle>
+        <AlertDescription>No pudimos obtener la lista de usuarios. Intentá nuevamente.</AlertDescription>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Reintentar
+          </Button>
+        </AlertAction>
+      </Alert>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
-            Usuarios del Sistema
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {data?.summary.total ?? 0} usuarios registrados
-          </p>
-        </div>
-        <Button
-          onClick={() => setCreateOpen(true)}
-          className="gap-2 text-white"
-          style={{ backgroundColor: '#003366' }}
-        >
-          <UserPlus size={16} />
-          Nuevo Usuario
-        </Button>
-      </div>
+      <PageHeader
+        title="Usuarios del Sistema"
+        description={`${data?.summary.total ?? 0} usuarios registrados`}
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <UserPlus aria-hidden="true" />
+            Nuevo Usuario
+          </Button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <div>
-          <StatCard icon={Users} title="Total" value={data?.summary.total ?? 0} subtitle="Usuarios registrados" color="#003366" />
-        </div>
-        <div>
-          <StatCard icon={Shield} title="Administradores" value={data?.summary.admins ?? 0} subtitle="Rol administrativo" color="#1d4ed8" />
-        </div>
-        <div>
-          <StatCard icon={GraduationCap} title="Docentes" value={data?.summary.docentes ?? 0} subtitle="Rol docente" color="#15803d" />
-        </div>
-        <div>
-          <StatCard icon={UserCheck} title="Activos" value={data?.summary.active ?? 0} subtitle="Usuarios activos" color="#0066CC" />
-        </div>
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard icon={Users} title="Total" value={data?.summary.total ?? 0} subtitle="Usuarios registrados" tone="primary" />
+        <StatCard icon={Shield} title="Administradores" value={data?.summary.admins ?? 0} subtitle="Rol administrativo" tone="info" />
+        <StatCard icon={GraduationCap} title="Docentes" value={data?.summary.docentes ?? 0} subtitle="Rol docente" tone="success" />
+        <StatCard icon={UserCheck} title="Activos" value={data?.summary.active ?? 0} subtitle="Usuarios activos" tone="primary" />
       </div>
 
       {/* Server-side search and filters */}
-      <section aria-label="Filtros de usuarios" className="card-3d-static p-5">
+      <Card render={<section aria-label="Filtros de usuarios" />} className="p-5">
         <div className="grid gap-4 md:grid-cols-[minmax(260px,1fr)_220px_220px]">
-          <div className="space-y-1.5">
-            <Label htmlFor="user-search">Buscar usuarios</Label>
-            <div className="relative">
-              <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
+          <Field>
+            <FieldLabel htmlFor="user-search">Buscar usuarios</FieldLabel>
+            <div className="relative w-full">
+              <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="user-search"
                 type="search"
@@ -493,12 +501,12 @@ export function UsersPage() {
                   setPage(1)
                 }}
                 placeholder="Nombre, CI, correo o docente vinculado"
-                className="pl-9"
+                inputClassName="pl-9"
               />
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="user-role-filter">Rol</Label>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="user-role-filter">Rol</FieldLabel>
             <Select value={roleFilter} items={ROLE_FILTER_ITEMS} onValueChange={(value) => {
               setRoleFilter((value ?? 'all') as typeof roleFilter)
               setPage(1)
@@ -510,9 +518,9 @@ export function UsersPage() {
                 <SelectItem value="docente">Docentes</SelectItem>
               </SelectPopup>
             </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="user-active-filter">Estado</Label>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="user-active-filter">Estado</FieldLabel>
             <Select value={activeFilter} items={ACTIVE_FILTER_ITEMS} onValueChange={(value) => {
               setActiveFilter((value ?? 'all') as typeof activeFilter)
               setPage(1)
@@ -524,112 +532,17 @@ export function UsersPage() {
                 <SelectItem value="inactive">Inactivos</SelectItem>
               </SelectPopup>
             </Select>
-          </div>
+          </Field>
         </div>
-      </section>
+      </Card>
 
       {/* Table */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>Lista de Usuarios</h3>
-        </div>
-        <div className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <caption className="sr-only">Usuarios del sistema y acciones administrativas</caption>
-              <thead>
-                <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                  {['Nombre', 'CI', 'Rol', 'Vinculado a', 'Estado', 'Último Login', 'Acciones'].map((h) => (
-                    <th
-                      key={h}
-                      scope="col"
-                      className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {!users.length ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-12 text-gray-400">
-                      No hay usuarios registrados
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((u, i) => (
-                    <tr
-                      key={u.id}
-                      className={`border-b last:border-0 hover:bg-blue-50 transition-colors ${
-                        i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                      }`}
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-800">{u.full_name}</td>
-                      <td className="px-4 py-3 text-gray-600 font-mono text-xs">{u.ci}</td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          className={
-                            u.role === 'admin'
-                              ? 'bg-blue-100 text-blue-700 border-blue-200'
-                              : 'bg-green-100 text-green-700 border-green-200'
-                          }
-                        >
-                          {u.role === 'admin' ? 'Admin' : 'Docente'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
-                        {u.teacher_ci ?? '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          className={
-                            u.is_active
-                              ? 'bg-green-100 text-green-700 border-green-200'
-                              : 'bg-gray-100 text-gray-500 border-gray-200'
-                          }
-                        >
-                          {u.is_active ? 'Activo' : 'Inactivo'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
-                        {formatDateTime(u.last_login)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setResetTarget(u)}
-                            className="p-1.5 rounded text-gray-400 hover:text-[#003366] hover:bg-blue-50 transition-colors"
-                            title="Resetear contraseña"
-                            aria-label={`Resetear contraseña de ${u.full_name}`}
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleActive(u)}
-                            className={`p-1.5 rounded transition-colors ${
-                              u.is_active
-                                ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
-                                : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
-                            }`}
-                            title={u.is_active ? 'Desactivar' : 'Activar'}
-                            aria-label={`${u.is_active ? 'Desactivar' : 'Activar'} a ${u.full_name}`}
-                          >
-                            {u.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {data && data.total > 0 && (
-            <nav aria-label="Paginación de usuarios" className="flex items-center justify-between border-t border-gray-100 px-5 py-4">
-              <p className="text-sm text-gray-500" aria-live="polite">
+      <TableCard
+        title="Lista de Usuarios"
+        footer={
+          data && data.total > 0 ? (
+            <nav aria-label="Paginación de usuarios" className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground tabular-nums" aria-live="polite">
                 Página {page} de {totalPages} · {data.total} resultado{data.total === 1 ? '' : 's'}
               </p>
               <div className="flex gap-2">
@@ -641,13 +554,101 @@ export function UsersPage() {
                 </Button>
               </div>
             </nav>
+          ) : undefined
+        }
+      >
+        <caption className="sr-only">Usuarios del sistema y acciones administrativas</caption>
+        <TableHeader>
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            {['Nombre', 'CI', 'Rol', 'Vinculado a', 'Estado', 'Último Login', 'Acciones'].map((h) => (
+              <TableHead key={h} scope="col" className="h-10 px-4 text-xs font-medium uppercase tracking-wider">
+                {h}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!users.length ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={7} className="p-0 whitespace-normal">
+                <EmptyState icon={Users} title="No hay usuarios registrados" description="Probá con otros filtros o creá un nuevo usuario." />
+              </TableCell>
+            </TableRow>
+          ) : (
+            users.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="px-4 py-3 font-medium text-foreground">{u.full_name}</TableCell>
+                <TableCell className="px-4 py-3 font-mono text-xs text-muted-foreground">{u.ci}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <StatusBadge tone={u.role === 'admin' ? 'info' : 'success'}>
+                    {u.role === 'admin' ? 'Admin' : 'Docente'}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell className="px-4 py-3 text-xs text-muted-foreground">{u.teacher_ci ?? '—'}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <StatusBadge tone={u.is_active ? 'success' : 'neutral'}>
+                    {u.is_active ? 'Activo' : 'Inactivo'}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(u.last_login)}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setResetTarget(u)}
+                      title="Resetear contraseña"
+                      aria-label={`Resetear contraseña de ${u.full_name}`}
+                    >
+                      <RotateCcw aria-hidden="true" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={u.is_active ? 'hover:text-destructive-foreground' : 'hover:text-success-foreground'}
+                      onClick={() => (u.is_active ? setDeactivateTarget(u) : void handleToggleActive(u))}
+                      title={u.is_active ? 'Desactivar' : 'Activar'}
+                      aria-label={`${u.is_active ? 'Desactivar' : 'Activar'} a ${u.full_name}`}
+                    >
+                      {u.is_active ? <UserX aria-hidden="true" /> : <UserCheck aria-hidden="true" />}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
           )}
-        </div>
-      </div>
+        </TableBody>
+      </TableCard>
 
       {/* Dialogs */}
       <CreateUserDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <ResetPasswordDialog user={resetTarget} onClose={() => setResetTarget(null)} />
+      <ConfirmAlertDialog
+        summary={
+          deactivateTarget
+            ? {
+                title: 'Desactivar usuario',
+                confirmLabel: 'Desactivar',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Usuario', value: deactivateTarget.full_name },
+                  { label: 'CI', value: deactivateTarget.ci },
+                  { label: 'Rol', value: deactivateTarget.role === 'admin' ? 'Administrador' : 'Docente' },
+                ],
+                consequence: 'El usuario no podrá ingresar a SIPAD hasta que lo vuelvas a activar.',
+              }
+            : null
+        }
+        pending={updateUser.isPending}
+        description={deactivateError ?? undefined}
+        onConfirm={() => void confirmDeactivate()}
+        onCancel={() => {
+          setDeactivateTarget(null)
+          setDeactivateError(null)
+        }}
+      />
     </div>
   )
 }

@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Settings, Save, Loader2, Info, AlertCircle, ShieldCheck } from 'lucide-react'
+import { Save, Info, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react'
 
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardHeader, CardPanel, CardTitle } from '@/components/ui/card'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { cn } from '@/lib/utils'
 import { useAppSettings, useUpdateAppSettings } from '@/api/hooks/useAppSettings'
 import { describeWhatsappReasons } from '@/lib/displayFormat'
 import {
@@ -38,35 +44,38 @@ function PermissionToggle({
       aria-describedby={`${id}-description`}
       onClick={() => onChange(!checked)}
       disabled={disabled}
-      className={`group flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-colors disabled:opacity-60 ${
-        checked
-          ? 'border-[#0066CC]/30 bg-[#EEF6FF]'
-          : 'border-gray-200 bg-white hover:border-[#003366]/20 hover:bg-gray-50'
-      }`}
+      className={cn(
+        'group flex w-full items-start gap-3 rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
+        checked ? 'border-primary/30 bg-primary/5' : 'bg-background hover:bg-accent/50',
+      )}
     >
       <span
-        className={`mt-0.5 flex h-6 w-11 flex-shrink-0 items-center rounded-full p-0.5 transition-colors ${
-          checked ? 'bg-[#003366]' : 'bg-gray-300'
-        }`}
+        className={cn(
+          'mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors',
+          checked ? 'bg-primary' : 'bg-input',
+        )}
         aria-hidden="true"
       >
         <span
-          className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
+          className={cn(
+            'size-5 rounded-full bg-background shadow-sm transition-transform',
+            checked ? 'translate-x-5' : 'translate-x-0',
+          )}
         />
       </span>
       <span>
-        <span className="block text-sm font-semibold text-[#003366]">{title}</span>
-        <span id={`${id}-description`} className="mt-1 block text-xs leading-5 text-gray-500">{description}</span>
-        <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${checked ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+        <span className="block text-sm font-semibold text-foreground">{title}</span>
+        <span id={`${id}-description`} className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
+        <StatusBadge tone={checked ? 'success' : 'warning'} className="mt-2">
           {checked ? 'Habilitado para docentes' : 'Controlado por administración'}
-        </span>
+        </StatusBadge>
       </span>
     </button>
   )
 }
 
 export function SettingsPage() {
-  const { data: settings, isLoading, isError, error } = useAppSettings()
+  const { data: settings, isLoading, isError, error, refetch } = useAppSettings()
   const updateMutation = useUpdateAppSettings()
 
   const [form, setForm] = useState<SettingsFormState | null>(null)
@@ -151,77 +160,64 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
-      <div
-        className="card-3d-static overflow-hidden"
-        style={{ borderTop: '4px solid #003366' }}
-      >
-        <div
-          className="px-6 py-5"
-          style={{
-            backgroundImage:
-              'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-              <Settings size={22} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-white">Configuración del Sistema</h2>
-              <p className="text-sm text-blue-200 mt-0.5">
-                Valores de negocio usados en planillas, contratos y reportes
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Configuración del Sistema"
+        description="Valores de negocio usados en planillas, contratos y reportes"
+      />
 
-      {/* Info Card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Info size={16} className="text-blue-600" />
-          </div>
-          <p className="text-sm text-gray-600">
-            Estos valores se guardan en la base de datos y reemplazan la configuración
-            anterior por variables de entorno. Los cambios se aplican inmediatamente
-            a nuevas planillas, reportes y contratos generados desde el sistema.
-          </p>
-        </div>
-      </div>
+      {/* Info */}
+      <Alert variant="info">
+        <Info aria-hidden="true" />
+        <AlertDescription>
+          Estos valores se guardan en la base de datos y reemplazan la configuración
+          anterior por variables de entorno. Los cambios se aplican inmediatamente
+          a nuevas planillas, reportes y contratos generados desde el sistema.
+        </AlertDescription>
+      </Alert>
 
       {/* Form Card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            Valores Editables
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Modificá solo los campos que necesités actualizar
-          </p>
-        </div>
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="text-base">Valores Editables</CardTitle>
+          <CardDescription>Modificá solo los campos que necesités actualizar</CardDescription>
+        </CardHeader>
 
-        {isLoading || !form || !settings ? (
-          <div className="flex justify-center py-14">
-            <Loader2 size={24} className="animate-spin text-[#003366]" />
-          </div>
+        {isLoading ? (
+          <CardPanel role="status" aria-live="polite" aria-label="Cargando configuración" className="space-y-5">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ))}
+            </div>
+          </CardPanel>
         ) : isError ? (
-          <div className="px-6 py-8 text-sm text-red-700">
-            <div className="flex items-start gap-2">
-              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-              <span>
+          <CardPanel>
+            <Alert variant="error">
+              <AlertCircle aria-hidden="true" />
+              <AlertDescription>
                 No se pudo cargar la configuración.
                 {error instanceof Error ? ` (${error.message})` : ''}
-              </span>
-            </div>
-          </div>
+              </AlertDescription>
+              <AlertAction>
+                <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                  Reintentar
+                </Button>
+              </AlertAction>
+            </Alert>
+          </CardPanel>
+        ) : !form || !settings ? (
+          <CardPanel role="status" aria-live="polite" aria-label="Cargando configuración">
+            <Skeleton className="h-40 w-full" />
+          </CardPanel>
         ) : (
-          <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <form onSubmit={handleSubmit} className="space-y-6 p-6">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {/* Active Academic Period */}
-              <div className="space-y-1.5">
-                <Label htmlFor="active_academic_period">Período Académico Activo</Label>
+              <Field>
+                <FieldLabel htmlFor="active_academic_period">Período Académico Activo</FieldLabel>
                 <Input
                   id="active_academic_period"
                   placeholder="I/2026"
@@ -231,16 +227,16 @@ export function SettingsPage() {
                   }
                   disabled={updateMutation.isPending}
                 />
-                <p className="text-xs text-gray-500">
+                <FieldDescription>
                   Ej: <span className="font-mono">I/2026</span>,{' '}
                   <span className="font-mono">II/2025</span>. Filtra las designaciones
                   activas.
-                </p>
-              </div>
+                </FieldDescription>
+              </Field>
 
               {/* Hourly Rate - Theory */}
-              <div className="space-y-1.5">
-                <Label htmlFor="hourly_rate">Tarifa por Hora — Teoría (Bs)</Label>
+              <Field>
+                <FieldLabel htmlFor="hourly_rate">Tarifa por Hora — Teoría (Bs)</FieldLabel>
                 <Input
                   id="hourly_rate"
                   type="number"
@@ -251,15 +247,14 @@ export function SettingsPage() {
                   value={form.hourly_rate}
                   onChange={(e) => setForm({ ...form, hourly_rate: e.target.value })}
                   disabled={updateMutation.isPending}
+                  inputClassName="tabular-nums"
                 />
-                <p className="text-xs text-gray-500">
-                  Monto por hora académica para docentes de teoría.
-                </p>
-              </div>
+                <FieldDescription>Monto por hora académica para docentes de teoría.</FieldDescription>
+              </Field>
 
               {/* Hourly Rate - Practice */}
-              <div className="space-y-1.5">
-                <Label htmlFor="practice_hourly_rate">Tarifa por Hora — Prácticas (Bs)</Label>
+              <Field>
+                <FieldLabel htmlFor="practice_hourly_rate">Tarifa por Hora — Prácticas (Bs)</FieldLabel>
                 <Input
                   id="practice_hourly_rate"
                   type="number"
@@ -270,15 +265,16 @@ export function SettingsPage() {
                   value={form.practice_hourly_rate}
                   onChange={(e) => setForm({ ...form, practice_hourly_rate: e.target.value })}
                   disabled={updateMutation.isPending}
+                  inputClassName="tabular-nums"
                 />
-                <p className="text-xs text-gray-500">
+                <FieldDescription>
                   Monto por hora académica para docentes asistenciales (prácticas internas).
-                </p>
-              </div>
+                </FieldDescription>
+              </Field>
 
               {/* Academic hour length */}
-              <div className="space-y-1.5">
-                <Label htmlFor="academic_hour_minutes">Duración de la hora académica (minutos)</Label>
+              <Field>
+                <FieldLabel htmlFor="academic_hour_minutes">Duración de la hora académica (minutos)</FieldLabel>
                 <Input
                   id="academic_hour_minutes"
                   type="number"
@@ -289,15 +285,16 @@ export function SettingsPage() {
                   value={form.academic_hour_minutes}
                   onChange={(e) => setForm({ ...form, academic_hour_minutes: e.target.value })}
                   disabled={updateMutation.isPending}
+                  inputClassName="tabular-nums"
                 />
-                <p className="text-xs text-gray-500">
+                <FieldDescription>
                   Se usa para precargar las horas académicas de cada bloque nuevo (duración ÷ este valor). Las horas de cada bloque se pueden corregir a mano; los bloques existentes no cambian.
-                </p>
-              </div>
+                </FieldDescription>
+              </Field>
 
               {/* Company Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="company_name">Nombre de Empresa</Label>
+              <Field>
+                <FieldLabel htmlFor="company_name">Nombre de Empresa</FieldLabel>
                 <Input
                   id="company_name"
                   placeholder="UNIPANDO S.R.L."
@@ -305,14 +302,12 @@ export function SettingsPage() {
                   onChange={(e) => setForm({ ...form, company_name: e.target.value })}
                   disabled={updateMutation.isPending}
                 />
-                <p className="text-xs text-gray-500">
-                  Se muestra en el encabezado de la planilla de salarios.
-                </p>
-              </div>
+                <FieldDescription>Se muestra en el encabezado de la planilla de salarios.</FieldDescription>
+              </Field>
 
               {/* Company NIT */}
-              <div className="space-y-1.5">
-                <Label htmlFor="company_nit">NIT de Empresa</Label>
+              <Field>
+                <FieldLabel htmlFor="company_nit">NIT de Empresa</FieldLabel>
                 <Input
                   id="company_nit"
                   placeholder="456850023"
@@ -320,20 +315,18 @@ export function SettingsPage() {
                   onChange={(e) => setForm({ ...form, company_nit: e.target.value })}
                   disabled={updateMutation.isPending}
                 />
-                <p className="text-xs text-gray-500">
-                  NIT de la empresa mostrado en la planilla de salarios.
-                </p>
-              </div>
+                <FieldDescription>NIT de la empresa mostrado en la planilla de salarios.</FieldDescription>
+              </Field>
             </div>
 
-            <div className="rounded-2xl border border-[#003366]/10 bg-[#F8FBFF] p-4">
+            <section aria-labelledby="settings-permissions-heading" className="border-t pt-6">
               <div className="mb-4 flex items-start gap-3">
-                <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#003366]/10">
-                  <ShieldCheck size={17} className="text-[#003366]" />
+                <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <ShieldCheck size={17} className="text-primary" aria-hidden="true" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-[#003366]">Permisos de Mi Perfil docente</h4>
-                  <p className="mt-1 text-xs leading-5 text-gray-500">
+                  <h4 id="settings-permissions-heading" className="text-sm font-semibold text-foreground">Permisos de Mi Perfil docente</h4>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
                     Definí qué puede autogestionar un docente desde su portal. El backend mantiene el bloqueo aunque alguien intente llamar la API directamente.
                   </p>
                 </div>
@@ -357,12 +350,12 @@ export function SettingsPage() {
                   disabled={updateMutation.isPending}
                 />
               </div>
-            </div>
+            </section>
 
-            <div className="rounded-2xl border border-green-200 bg-green-50/40 p-4">
+            <section aria-labelledby="settings-whatsapp-heading" className="border-t pt-6">
               <div className="mb-3">
-                <h4 className="text-sm font-bold text-[#003366]">Entrega de facturación por WhatsApp</h4>
-                <p className="mt-1 text-xs leading-5 text-gray-600">
+                <h4 id="settings-whatsapp-heading" className="text-sm font-semibold text-foreground">Entrega de facturación por WhatsApp</h4>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Este control solo solicita envíos nuevos. La infraestructura, el worker y la aprobación del proveedor deben estar disponibles.
                 </p>
               </div>
@@ -383,55 +376,47 @@ export function SettingsPage() {
                   || (!settings.whatsapp_billing_delivery.can_enable && !form.whatsapp_billing_requested_enabled)
                 }
               />
-              <p className="mt-3 text-xs font-medium text-gray-700" aria-live="polite">
+              <p className="mt-3 text-xs font-medium text-foreground" aria-live="polite">
                 Estado efectivo: {settings.whatsapp_billing_delivery.effective_enabled ? 'disponible' : 'no disponible'}.
               </p>
-            </div>
+            </section>
 
             {/* Validation error */}
             {validationError && (
-              <div role="alert" className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
-                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                <span>{validationError}</span>
-              </div>
+              <Alert variant="warning" role="alert">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription>{validationError}</AlertDescription>
+              </Alert>
             )}
 
             {/* Server error */}
             {updateMutation.isError && (
-              <div role="alert" className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700 flex items-start gap-2">
-                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                <span>
+              <Alert variant="error" role="alert">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription>
                   No se pudo guardar la configuración.
                   {updateMutation.error instanceof Error
                     ? ` (${updateMutation.error.message})`
                     : ''}
-                </span>
-              </div>
+                </AlertDescription>
+              </Alert>
             )}
 
             {/* Success */}
             {savedMessage && !updateMutation.isError && (
-              <div role="status" className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 flex items-start gap-2">
-                <span>✅</span>
-                <span>{savedMessage}</span>
-              </div>
+              <Alert variant="success" role="status">
+                <CheckCircle2 aria-hidden="true" />
+                <AlertDescription>{savedMessage}</AlertDescription>
+              </Alert>
             )}
 
-            <div className="pt-2 flex items-center gap-3">
-              <Button
-                type="submit"
-                disabled={updateMutation.isPending}
-                className="gap-2"
-                style={{ backgroundColor: '#003366' }}
-              >
+            <div className="flex items-center gap-3 pt-2">
+              <Button type="submit" loading={updateMutation.isPending}>
                 {updateMutation.isPending ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Guardando...
-                  </>
+                  'Guardando...'
                 ) : (
                   <>
-                    <Save size={16} />
+                    <Save aria-hidden="true" />
                     Guardar Cambios
                   </>
                 )}
@@ -439,7 +424,7 @@ export function SettingsPage() {
             </div>
           </form>
         )}
-      </div>
+      </Card>
     </div>
   )
 }

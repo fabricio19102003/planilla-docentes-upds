@@ -70,11 +70,11 @@ export function WhatsAppConsentCard({ ci }: { ci: string }) {
     <section aria-label="Preferencia de WhatsApp">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base" style={{ color: '#003366' }}>Preferencia de WhatsApp</CardTitle>
+          <CardTitle className="text-base">Preferencia de WhatsApp</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4" aria-busy={preference.isLoading || busy}>
           {preference.isLoading ? <p role="status">Cargando preferencia…</p> : preference.error ? (
-            <p role="alert" aria-live="assertive" className="text-sm text-red-600">No se pudo cargar la preferencia de WhatsApp.</p>
+            <p role="alert" aria-live="assertive" className="text-sm text-destructive-foreground">No se pudo cargar la preferencia de WhatsApp.</p>
           ) : (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge variant={current?.is_verified ? 'default' : 'secondary'}>{current?.is_verified ? 'Número verificado' : 'Número sin verificar'}</Badge>
@@ -86,14 +86,14 @@ export function WhatsAppConsentCard({ ci }: { ci: string }) {
               {current?.consented_at && <span>Fecha de consentimiento: {new Date(current.consented_at).toLocaleString('es-BO')}</span>}
             </div>
           )}
-          {message && <p role="status" aria-live="polite" className="text-sm text-green-700">{message}</p>}
-          {error && <p role="alert" aria-live="assertive" className="text-sm text-red-600">{error}</p>}
+          {message && <p role="status" aria-live="polite" className="text-sm text-success-foreground">{message}</p>}
+          {error && <p role="alert" aria-live="assertive" className="text-sm text-destructive-foreground">{error}</p>}
 
           <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => void save(event)}>
             <div className="space-y-1">
               <Label htmlFor="whatsapp-phone">Número de WhatsApp en formato internacional</Label>
               <Input id="whatsapp-phone" value={phoneE164} onChange={(event) => setPhoneE164(event.target.value)} placeholder="+59170000000" required aria-invalid={Boolean(error)} aria-describedby={fieldError ? `whatsapp-phone-help ${fieldError}` : 'whatsapp-phone-help'} />
-              <p id="whatsapp-phone-help" className="text-xs text-gray-500">Se guarda solo mediante el registro protegido; aquí se mostrará enmascarado.</p>
+              <p id="whatsapp-phone-help" className="text-xs text-muted-foreground">Se guarda solo mediante el registro protegido; aquí se mostrará enmascarado.</p>
             </div>
             <div className="space-y-1">
               <Label htmlFor="whatsapp-consent-evidence">Referencia de evidencia de consentimiento</Label>

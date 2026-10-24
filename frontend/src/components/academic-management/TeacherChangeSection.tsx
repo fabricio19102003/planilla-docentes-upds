@@ -32,7 +32,7 @@ function useTeacherPicker() {
 export function ImpactTable({ teachers, caption }: { teachers: DesignationChangeTeacherImpact[]; caption: string }) {
   const rows = impactRows(teachers)
   const totals = impactTotals(teachers)
-  if (!rows.length) return <p className="text-sm text-slate-600">No cambia lo que cobra ningún docente en ese mes.</p>
+  if (!rows.length) return <p className="text-sm text-muted-foreground">No cambia lo que cobra ningún docente en ese mes.</p>
   return (
     <Table>
       <caption className="sr-only">{caption}</caption>
@@ -56,7 +56,7 @@ export function ImpactTable({ teachers, caption }: { teachers: DesignationChange
             <TableCell className="text-right tabular-nums">{row.hours_after}</TableCell>
             <TableCell className="text-right tabular-nums">{formatBs(row.amount_before)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatBs(row.amount_after)}</TableCell>
-            <TableCell className={`text-right tabular-nums ${row.amount_delta < 0 ? 'text-red-700' : row.amount_delta > 0 ? 'text-emerald-700' : ''}`}>
+            <TableCell className={`text-right tabular-nums ${row.amount_delta < 0 ? 'text-destructive-foreground' : row.amount_delta > 0 ? 'text-success-foreground' : ''}`}>
               {row.amount_delta > 0 ? '+' : ''}{formatBs(row.amount_delta)}
             </TableCell>
           </TableRow>
@@ -106,20 +106,20 @@ function PreviewResult({ preview }: { preview: DesignationChangePreview }) {
         </Alert>
       )}
       <section aria-labelledby="teacher-change-items" className="flex flex-col gap-2">
-        <h3 id="teacher-change-items" className="font-semibold text-slate-950">Designaciones que cambian</h3>
+        <h3 id="teacher-change-items" className="font-semibold text-foreground">Designaciones que cambian</h3>
         <ul className="flex flex-col gap-1 text-sm">
           {preview.items.map((item) => (
             <li key={item.designation_id} className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{item.designation_type === 'practice' ? 'Práctica' : 'Teoría'}</Badge>
               <span className="font-medium">{item.subject}</span>
-              <span className="text-slate-600">Sem. {item.semester} · {item.group_code}</span>
-              <span className="text-slate-600">saliente hasta {item.outgoing_until}, entrante desde {item.incoming_from}{item.incoming_until ? ` hasta ${item.incoming_until}` : ''}</span>
+              <span className="text-muted-foreground">Sem. {item.semester} · {item.group_code}</span>
+              <span className="text-muted-foreground">saliente hasta {item.outgoing_until}, entrante desde {item.incoming_from}{item.incoming_until ? ` hasta ${item.incoming_until}` : ''}</span>
             </li>
           ))}
         </ul>
       </section>
       <section aria-labelledby="teacher-change-impact" className="flex flex-col gap-2">
-        <h3 id="teacher-change-impact" className="font-semibold text-slate-950">
+        <h3 id="teacher-change-impact" className="font-semibold text-foreground">
           Pago base de {preview.impact.month}/{preview.impact.year} (antes de descuentos por asistencia)
         </h3>
         <ImpactTable teachers={preview.impact.teachers} caption="Impacto del cambio en la planilla por docente" />
@@ -187,7 +187,7 @@ export function TeacherChangeSection() {
           <div>
             <Label htmlFor="teacher-change-date">Fecha del cambio</Label>
             <Input id="teacher-change-date" type="date" value={effectiveFrom} onChange={(event) => { setEffectiveFrom(event.target.value); resetPreview() }} aria-describedby="teacher-change-date-help" />
-            <p id="teacher-change-date-help" className="mt-1 text-xs text-slate-500">
+            <p id="teacher-change-date-help" className="mt-1 text-xs text-muted-foreground">
               {effectiveFrom ? `El docente saliente cobra hasta el ${outgoingUntil(effectiveFrom)}.` : 'Elegí la fecha desde la que enseña el docente entrante.'}
             </p>
           </div>
@@ -237,9 +237,9 @@ export function TeacherChangeSection() {
                 </option>
               ))}
             </select>
-            {designations.isError && <p role="alert" className="mt-1 text-sm text-red-700">No se pudieron cargar las designaciones del docente.</p>}
+            {designations.isError && <p role="alert" className="mt-1 text-sm text-destructive-foreground">No se pudieron cargar las designaciones del docente.</p>}
             {outgoingCi && designations.isSuccess && active.length === 0 && (
-              <p className="mt-1 text-sm text-slate-600">Este docente no tiene designaciones activas en {period} para esa fecha.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Este docente no tiene designaciones activas en {period} para esa fecha.</p>
             )}
           </div>
         </div>
@@ -253,8 +253,8 @@ export function TeacherChangeSection() {
           </Button>
         </div>
 
-        {preview.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{apiErrorText(preview.error, 'No se pudo calcular la vista previa.')}</p>}
-        {apply.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{apiErrorText(apply.error, 'No se pudo aplicar el cambio.')}</p>}
+        {preview.isError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{apiErrorText(preview.error, 'No se pudo calcular la vista previa.')}</p>}
+        {apply.isError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{apiErrorText(apply.error, 'No se pudo aplicar el cambio.')}</p>}
         {previewIsCurrent && preview.data && <PreviewResult preview={preview.data} />}
         {applied && (
           <Alert role="status">

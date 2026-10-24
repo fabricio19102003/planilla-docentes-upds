@@ -24,38 +24,37 @@ export function WeeklyScheduleGrid({ blocks, label }: { blocks: ScheduleViewBloc
   const height = (range.end - range.start) * PIXELS_PER_MINUTE
   const labels = Array.from({ length: Math.floor((range.end - range.start) / 30) + 1 }, (_, index) => range.start + index * 30)
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white" role="region" aria-label={label}>
+    <div className="overflow-x-auto rounded-xl border bg-card" role="region" aria-label={label}>
       <div className="grid min-w-[900px]" style={{ gridTemplateColumns: '64px repeat(6, minmax(130px, 1fr))' }}>
-        <div className="sticky top-0 border-b bg-slate-50" />
+        <div className="sticky top-0 border-b bg-muted/40" />
         {GRID_DAYS.map(([, name]) => (
-          <div key={name} className="border-b border-l bg-slate-50 px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">{name}</div>
+          <div key={name} className="border-b border-l bg-muted/40 px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">{name}</div>
         ))}
         <div className="relative border-r" style={{ height }} aria-hidden="true">
           {labels.map((minutes) => (
-            <span key={minutes} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-slate-400" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }}>{clock(minutes)}</span>
+            <span key={minutes} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-muted-foreground" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }}>{clock(minutes)}</span>
           ))}
         </div>
         {GRID_DAYS.map(([weekday, name]) => (
           <div key={weekday} className="relative border-l" style={{ height }}>
             {labels.map((minutes) => (
-              <div key={minutes} aria-hidden="true" className="absolute inset-x-0 border-t border-slate-100" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }} />
+              <div key={minutes} aria-hidden="true" className="absolute inset-x-0 border-t border-border" style={{ top: (minutes - range.start) * PIXELS_PER_MINUTE }} />
             ))}
             <ul aria-label={`Clases del ${name.toLowerCase()}`}>
               {layoutDay(blocks.filter((block) => block.weekday === weekday), range).map((item) => {
-                const color = subjectColor(item.block.subject_name)
+                const { background: fill, border: edge, text: ink } = subjectColor(item.block.subject_name)
                 const practice = item.block.activity_type === 'practice'
                 const width = 100 / item.columns
                 return (
                   <li
                     key={item.block.key}
                     title={blockTitle(item.block)}
-                    className={`absolute overflow-hidden rounded-md border-l-4 px-1.5 py-1 text-[11px] leading-tight shadow-sm ${practice ? 'border-dashed' : ''}`}
+                    className={`absolute overflow-hidden rounded-md border-(--subject-border) bg-(--subject-bg) px-1.5 py-1 text-[11px] leading-tight text-(--subject-text) shadow-sm ${practice ? 'border border-l-4 border-dashed' : 'border-l-4'}`}
                     style={{
                       top: `${item.top}%`, height: `calc(${item.height}% - 2px)`,
                       left: `calc(${item.column * width}% + 2px)`, width: `calc(${width}% - 4px)`,
-                      background: color.background, borderColor: color.border, color: color.text,
-                      borderStyle: practice ? 'dashed' : 'solid', borderWidth: practice ? '1px 1px 1px 4px' : undefined,
-                    }}
+                      '--subject-bg': fill, '--subject-border': edge, '--subject-text': ink,
+                    } as React.CSSProperties}
                   >
                     <p className="font-semibold">{item.block.subject_name}</p>
                     <p className="tabular-nums opacity-80">{item.block.start_time}–{item.block.end_time} · {practice ? <em>Práctica</em> : 'Teoría'}</p>

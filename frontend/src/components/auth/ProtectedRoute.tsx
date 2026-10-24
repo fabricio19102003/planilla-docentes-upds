@@ -12,10 +12,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   // While checking token on mount, show nothing (avoids flash)
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#003366' }}>
-        <div className="text-white text-center">
-          <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-white/70">Verificando sesión...</p>
+      <div className="flex min-h-screen items-center justify-center bg-primary">
+        <div className="text-primary-foreground text-center">
+          <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground motion-reduce:animate-none" />
+          <p className="text-sm text-primary-foreground/70">Verificando sesión...</p>
         </div>
       </div>
     )

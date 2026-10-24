@@ -27,9 +27,9 @@ function Summary({ report }: { report: ScheduleConflictsReport }) {
   return (
     <dl className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {items.map((item) => (
-        <div key={item.label} className={`rounded-lg border p-3 ${item.alert ? 'border-red-200 bg-red-50' : 'bg-white'}`}>
-          <dt className="text-xs text-slate-600">{item.label}</dt>
-          <dd className={`text-2xl font-semibold tabular-nums ${item.alert ? 'text-red-700' : 'text-slate-950'}`}>{item.value}</dd>
+        <div key={item.label} className={`rounded-lg border p-3 ${item.alert ? 'border-destructive/32 bg-destructive/4' : 'bg-card'}`}>
+          <dt className="text-xs text-muted-foreground">{item.label}</dt>
+          <dd className={`text-2xl font-semibold tabular-nums ${item.alert ? 'text-destructive-foreground' : 'text-foreground'}`}>{item.value}</dd>
         </div>
       ))}
     </dl>
@@ -37,7 +37,7 @@ function Summary({ report }: { report: ScheduleConflictsReport }) {
 }
 
 function Clashes({ report }: { report: ScheduleConflictsReport }) {
-  if (!report.clashes.length) return <p className="text-sm text-slate-600">No hay choques de más de {report.tolerance_minutes} minutos.</p>
+  if (!report.clashes.length) return <p className="text-sm text-muted-foreground">No hay choques de más de {report.tolerance_minutes} minutos.</p>
   return (
     <Table>
       <caption className="sr-only">Choques de docentes, grupos y aulas</caption>
@@ -87,20 +87,20 @@ function FreeSlots({ report }: { report: ScheduleConflictsReport }) {
         </select>
       </div>
       {report.summary.blocks_without_room > 0 && selection.startsWith('room:') && (
-        <p className="text-sm text-amber-800">
+        <p className="text-sm text-warning-foreground">
           {report.summary.blocks_without_room} bloques no tienen aula registrada (la teoría vigente sale de las designaciones); un aula puede figurar libre aunque se use.
         </p>
       )}
       {selection && (slots.length ? (
         <ul className="grid gap-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
           {slots.map((item) => (
-            <li key={`${item.weekday}-${item.start_time}`} className="rounded-md border bg-white px-3 py-2 tabular-nums">
+            <li key={`${item.weekday}-${item.start_time}`} className="rounded-md border bg-card px-3 py-2 tabular-nums">
               <span className="font-medium">{weekdayLabel(item.weekday)}</span> {item.start_time}–{item.end_time}
-              <span className="text-slate-600"> · {item.minutes} min</span>
+              <span className="text-muted-foreground"> · {item.minutes} min</span>
             </li>
           ))}
         </ul>
-      ) : <p className="text-sm text-slate-600">No tiene horarios libres de {report.day_window.min_free_minutes} minutos o más.</p>)}
+      ) : <p className="text-sm text-muted-foreground">No tiene horarios libres de {report.day_window.min_free_minutes} minutos o más.</p>)}
     </div>
   )
 }
@@ -119,15 +119,15 @@ export function ScheduleConflictsSection() {
   return (
     <section aria-labelledby="conflicts-heading" className="flex flex-col gap-5">
       <div>
-        <h2 id="conflicts-heading" className="flex items-center gap-2 text-xl font-semibold text-slate-900">
-          <CalendarClock aria-hidden="true" className="size-5 text-sky-700" />Conflictos y huecos
+        <h2 id="conflicts-heading" className="flex items-center gap-2 text-xl font-semibold text-foreground">
+          <CalendarClock aria-hidden="true" className="size-5 text-info-foreground" />Conflictos y huecos
         </h2>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted-foreground">
           Choques de docentes, grupos y aulas, horarios libres y carga semanal. Las superposiciones de hasta 5 minutos (cambio de aula) no cuentan como choque.
         </p>
       </div>
 
-      <div className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="conflicts-period">Período</Label>
           <Input id="conflicts-period" value={period} onChange={(event) => setPeriod(event.target.value.trim())} placeholder="II/2026" />
@@ -158,8 +158,8 @@ export function ScheduleConflictsSection() {
         </div>
       </div>
 
-      {source === 'draft' && !draftId && <p className="text-sm text-slate-600">Seleccione el borrador que desea revisar.</p>}
-      {report.isLoading && <p className="text-sm text-slate-600">Analizando el horario…</p>}
+      {source === 'draft' && !draftId && <p className="text-sm text-muted-foreground">Seleccione el borrador que desea revisar.</p>}
+      {report.isLoading && <p className="text-sm text-muted-foreground">Analizando el horario…</p>}
       {report.isError && (
         <Alert variant="error">
           <TriangleAlert aria-hidden="true" />
@@ -207,10 +207,10 @@ export function ScheduleConflictsSection() {
                 </TableHeader>
                 <TableBody>
                   {data.teacher_loads.map((item) => (
-                    <TableRow key={item.teacher_ci} className={item.over_threshold ? 'bg-red-50' : undefined}>
+                    <TableRow key={item.teacher_ci} className={item.over_threshold ? 'bg-destructive/4' : undefined}>
                       <TableCell className="font-medium">{item.teacher_name ?? item.teacher_ci}</TableCell>
                       <TableCell className="text-right tabular-nums">{item.blocks}</TableCell>
-                      <TableCell className={`text-right tabular-nums ${item.over_threshold ? 'font-semibold text-red-700' : ''}`}>{item.weekly_hours}</TableCell>
+                      <TableCell className={`text-right tabular-nums ${item.over_threshold ? 'font-semibold text-destructive-foreground' : ''}`}>{item.weekly_hours}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

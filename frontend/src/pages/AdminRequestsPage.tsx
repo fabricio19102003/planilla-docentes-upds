@@ -1,8 +1,17 @@
 import { useState } from 'react'
 import { useAllRequests, useRespondRequest } from '@/api/hooks/useAuth'
 import { usePlanillaDetail, usePlanillaStatus, useTeacherDesignations } from '@/api/hooks/usePlanilla'
-import { Button } from '@/components/ui/button'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TableCard } from '@/components/shared/TableCard'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import type { Tone } from '@/components/shared/tones'
 import {
   Dialog,
   DialogFooter,
@@ -12,8 +21,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import { Check, X, Filter, Eye } from 'lucide-react'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { AlertCircle, Check, X, Filter, Eye, Inbox } from 'lucide-react'
 import type { DetailRequestInfo } from '@/api/types'
 import { ResolutionSnapshotPanel } from '@/components/requests/ResolutionSnapshotPanel'
 import { selectAdminRequestEvidence } from '@/lib/adminRequestResolution'
@@ -32,22 +41,20 @@ const MONTH_NAMES: Record<number, string> = {
   9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    approved: 'bg-green-100 text-green-700 border-green-200',
-    rejected: 'bg-red-100 text-red-700 border-red-200',
-  }
-  const labels: Record<string, string> = {
-    pending: 'Pendiente',
-    approved: 'Aprobada',
-    rejected: 'Rechazada',
-  }
-  return (
-    <Badge className={map[status] ?? 'bg-gray-100 text-gray-600 border-gray-200'}>
-      {labels[status] ?? status}
-    </Badge>
-  )
+const STATUS_TONE: Record<string, Tone> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'destructive',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendiente',
+  approved: 'Aprobada',
+  rejected: 'Rechazada',
+}
+
+function RequestStatusBadge({ status }: { status: string }) {
+  return <StatusBadge tone={STATUS_TONE[status] ?? 'neutral'}>{STATUS_LABEL[status] ?? status}</StatusBadge>
 }
 
 function RequestDetailDialog({
@@ -106,63 +113,63 @@ function RequestDetailDialog({
         </DialogHeader>
         <DialogPanel className="space-y-4">
           {/* Request info */}
-          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+          <div className="bg-muted/40 rounded-lg p-3 space-y-1.5 text-sm">
             <p>
-              <span className="text-gray-500">Docente:</span>{' '}
+              <span className="text-muted-foreground">Docente:</span>{' '}
               <span className="font-medium">{request.teacher_name ?? request.teacher_ci}</span>
             </p>
             <p>
-              <span className="text-gray-500">Solicitud:</span>{' '}
+              <span className="text-muted-foreground">Solicitud:</span>{' '}
               <span className="font-medium">
                 {REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}
               </span>
             </p>
             <p>
-              <span className="text-gray-500">Período:</span>{' '}
+              <span className="text-muted-foreground">Período:</span>{' '}
               <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
             </p>
             <p>
-              <span className="text-gray-500">Fecha:</span>{' '}
+              <span className="text-muted-foreground">Fecha:</span>{' '}
               <span className="font-medium">{new Date(request.created_at).toLocaleDateString('es-BO')}</span>
             </p>
           </div>
 
           {/* Docente's message */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Mensaje del docente</p>
-            <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
-              {request.message || <span className="text-gray-400 italic">Sin mensaje</span>}
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Mensaje del docente</p>
+            <div className="bg-white border border-border rounded-lg p-3 text-sm text-foreground">
+              {request.message || <span className="text-muted-foreground italic">Sin mensaje</span>}
             </div>
           </div>
 
           {/* Admin response */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Respuesta del administrador</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Respuesta del administrador</p>
             {request.admin_response ? (
               <div className={`border rounded-lg p-3 text-sm ${
                 request.status === 'approved'
-                  ? 'bg-green-50 border-green-200 text-green-800'
+                  ? 'bg-success/4 border-success/32 text-success-foreground'
                   : request.status === 'rejected'
-                  ? 'bg-red-50 border-red-200 text-red-800'
-                  : 'bg-gray-50 border-gray-200 text-gray-700'
+                  ? 'bg-destructive/4 border-destructive/32 text-destructive-foreground'
+                  : 'bg-muted/40 border-border text-foreground'
               }`}>
                 {request.admin_response}
               </div>
             ) : (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-400 italic">
+              <div className="bg-muted/40 border border-border rounded-lg p-3 text-sm text-muted-foreground italic">
                 Sin respuesta
               </div>
             )}
             {request.responded_at && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Respondido el {new Date(request.responded_at).toLocaleDateString('es-BO')}
               </p>
             )}
           </div>
 
           {evidence.kind === 'historical' && (
-            <div className="rounded-lg border border-blue-300 bg-blue-50/40 p-3">
-              <p className="mb-3 text-sm font-semibold text-[#003366]">
+            <div className="rounded-lg border border-primary/32 bg-primary/40 p-3">
+              <p className="mb-3 text-sm font-semibold text-foreground">
                 Evidencia histórica autoritativa
               </p>
               <ResolutionSnapshotPanel
@@ -176,7 +183,7 @@ function RequestDetailDialog({
             <div
               role="status"
               aria-label="Solicitud histórica sin resolución guardada"
-              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+              className="rounded-lg border border-warning/32 bg-warning/4 p-3 text-sm text-warning-foreground"
             >
               <p className="font-semibold">Solicitud histórica sin evidencia guardada</p>
               <p className="mt-1 text-xs">
@@ -187,15 +194,15 @@ function RequestDetailDialog({
 
           {/* Teacher billing info */}
           {evidence.kind === 'live-pending' && teacherBilling && (
-            <div className="bg-blue-50/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contexto actual de facturación · solo apoyo</p>
+            <div className="bg-primary/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contexto actual de facturación · solo apoyo</p>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total a facturar</span>
-                <span className="text-lg font-bold" style={{ color: '#003366' }}>
+                <span className="text-sm text-muted-foreground">Total a facturar</span>
+                <span className="text-lg font-bold tabular-nums text-foreground">
                   Bs {teacherBilling.total_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{teacherBilling.total_base_hours}h asignadas</span>
                 <span>{teacherBilling.total_absent_hours > 0 ? `-${teacherBilling.total_absent_hours}h ausencias` : 'Sin ausencias'}</span>
                 <span>{teacherBilling.total_payable_hours}h a pagar</span>
@@ -204,8 +211,8 @@ function RequestDetailDialog({
                 <div className="mt-2 space-y-1">
                   {teacherDesignations.map(d => (
                     <div key={`${d.subject}-${d.group_code}`} className="flex justify-between text-xs">
-                      <span className="text-gray-600">{d.subject} ({d.group_code})</span>
-                      <span className="font-medium text-gray-800">Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                      <span className="text-muted-foreground">{d.subject} ({d.group_code})</span>
+                      <span className="font-medium text-foreground">Bs {d.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
                     </div>
                   ))}
                 </div>
@@ -215,24 +222,24 @@ function RequestDetailDialog({
 
           {/* Teacher Schedule */}
           {evidence.kind === 'live-pending' && teacherSchedule && teacherSchedule.designations.length > 0 && (
-            <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="bg-success/50 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Contexto actual de horarios · solo apoyo ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
               </p>
               <div className="space-y-2">
                 {teacherSchedule.designations.map(d => (
                   <div key={d.source_key} className="text-sm">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-gray-800">{d.subject}</span>
-                      <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
-                      <Badge className="bg-blue-50 text-blue-700 text-xs">
+                      <span className="font-medium text-foreground">{d.subject}</span>
+                      <Badge variant="outline" size="sm">{d.group_code}</Badge>
+                      <Badge variant="info" size="sm">
                         {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
                       </Badge>
-                      <span className="text-xs text-gray-400">{d.semester}</span>
+                      <span className="text-xs text-muted-foreground">{d.semester}</span>
                     </div>
                     <div className="flex flex-wrap gap-1 ml-2">
                       {d.schedule.map((slot, i) => (
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-border text-xs text-muted-foreground">
                           <span className="font-medium capitalize">{slot.dia}</span>
                           <span>{slot.hora_inicio}-{slot.hora_fin}</span>
                         </span>
@@ -261,6 +268,7 @@ function RespondDialog({
   const respond = useRespondRequest()
   const [adminResponse, setAdminResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmingReject, setConfirmingReject] = useState(false)
 
   // Load teacher designations with schedule info
   const { data: teacherSchedule } = useTeacherDesignations(
@@ -268,8 +276,7 @@ function RespondDialog({
     Boolean(request),
   )
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const submitResponse = async () => {
     if (!request || !action) return
     setError(null)
     try {
@@ -281,10 +288,21 @@ function RespondDialog({
         },
       })
       setAdminResponse('')
+      setConfirmingReject(false)
       onClose()
     } catch {
       setError('No se pudo procesar la solicitud.')
     }
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Rejecting is final for the docente, so it goes through a summary confirmation first.
+    if (action === 'rejected') {
+      setConfirmingReject(true)
+      return
+    }
+    void submitResponse()
   }
 
   if (!request || !action) return null
@@ -300,25 +318,25 @@ function RespondDialog({
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogPanel className="space-y-4">
             {/* Request info */}
-            <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+            <div className="bg-muted/40 rounded-lg p-3 space-y-1.5 text-sm">
               <p>
-                <span className="text-gray-500">Docente:</span>{' '}
+                <span className="text-muted-foreground">Docente:</span>{' '}
                 <span className="font-medium">{request.teacher_name ?? request.teacher_ci}</span>
               </p>
               <p>
-                <span className="text-gray-500">Solicitud:</span>{' '}
+                <span className="text-muted-foreground">Solicitud:</span>{' '}
                 <span className="font-medium">
                   {REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}
                 </span>
               </p>
               <p>
-                <span className="text-gray-500">Período:</span>{' '}
+                <span className="text-muted-foreground">Período:</span>{' '}
                 <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
               </p>
               {request.message && (
-                <div className="mt-2 pt-2 border-t border-gray-200">
-                  <span className="text-gray-500">Mensaje del docente:</span>
-                  <p className="text-gray-700 mt-1 bg-white rounded p-2 border border-gray-200 text-sm">
+                <div className="mt-2 pt-2 border-t border-border">
+                  <span className="text-muted-foreground">Mensaje del docente:</span>
+                  <p className="text-foreground mt-1 bg-white rounded p-2 border border-border text-sm">
                     {request.message}
                   </p>
                 </div>
@@ -327,24 +345,24 @@ function RespondDialog({
 
             {/* Teacher Schedule */}
             {teacherSchedule && teacherSchedule.designations.length > 0 && (
-              <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <div className="bg-success/50 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
                 </p>
                 <div className="space-y-2">
                   {teacherSchedule.designations.map(d => (
                     <div key={d.source_key} className="text-sm">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-gray-800">{d.subject}</span>
-                        <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
-                        <Badge className="bg-blue-50 text-blue-700 text-xs">
+                        <span className="font-medium text-foreground">{d.subject}</span>
+                        <Badge variant="outline" size="sm">{d.group_code}</Badge>
+                        <Badge variant="info" size="sm">
                           {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
                         </Badge>
-                        <span className="text-xs text-gray-400">{d.semester}</span>
+                        <span className="text-xs text-muted-foreground">{d.semester}</span>
                       </div>
                       <div className="flex flex-wrap gap-1 ml-2">
                         {d.schedule.map((slot, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-border text-xs text-muted-foreground">
                             <span className="font-medium capitalize">{slot.dia}</span>
                             <span>{slot.hora_inicio}-{slot.hora_fin}</span>
                           </span>
@@ -356,8 +374,8 @@ function RespondDialog({
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="admin-request-observation">Observaciones para el docente (opcional)</Label>
+            <Field>
+              <FieldLabel htmlFor="admin-request-observation">Observaciones para el docente (opcional)</FieldLabel>
               <Textarea
                 id="admin-request-observation"
                 value={adminResponse}
@@ -365,12 +383,13 @@ function RespondDialog({
                 placeholder="Agregá una observación sobre la resolución..."
                 rows={3}
               />
-            </div>
+            </Field>
 
             {error && (
-              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-                {error}
-              </p>
+              <Alert variant="error">
+                <AlertCircle aria-hidden="true" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
 
           </DialogPanel>
@@ -381,11 +400,10 @@ function RespondDialog({
             </Button>
             <Button
               type="submit"
-              disabled={respond.isPending}
+              loading={respond.isPending && action === 'approved'}
               variant={action === 'approved' ? 'default' : 'destructive'}
-              className={action === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : undefined}
             >
-              {respond.isPending
+              {respond.isPending && action === 'approved'
                 ? 'Procesando...'
                 : action === 'approved'
                 ? 'Aprobar'
@@ -394,12 +412,35 @@ function RespondDialog({
           </DialogFooter>
         </form>
       </DialogPopup>
+
+      <ConfirmAlertDialog
+        summary={
+          confirmingReject
+            ? {
+                title: 'Rechazar solicitud',
+                confirmLabel: 'Confirmar rechazo',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Docente', value: request.teacher_name ?? request.teacher_ci },
+                  { label: 'Solicitud', value: REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type },
+                  { label: 'Período', value: `${MONTH_NAMES[request.month]} ${request.year}` },
+                  { label: 'Observaciones', value: adminResponse.trim() || 'Sin observaciones' },
+                ],
+                consequence: 'El docente verá la solicitud como rechazada.',
+              }
+            : null
+        }
+        pending={respond.isPending}
+        description={error ?? undefined}
+        onConfirm={() => void submitResponse()}
+        onCancel={() => setConfirmingReject(false)}
+      />
     </Dialog>
   )
 }
 
 export function AdminRequestsPage() {
-  const { data: requests, isLoading } = useAllRequests()
+  const { data: requests, isLoading, error, refetch } = useAllRequests()
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [respondTarget, setRespondTarget] = useState<DetailRequestInfo | null>(null)
   const [respondAction, setRespondAction] = useState<'approved' | 'rejected' | null>(null)
@@ -431,143 +472,121 @@ export function AdminRequestsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-8 h-8 border-2 border-[#003366]/30 border-t-[#003366] rounded-full animate-spin" />
+      <div role="status" aria-live="polite" aria-label="Cargando solicitudes" className="space-y-6">
+        <Skeleton className="h-14 w-full max-w-md" />
+        <Skeleton className="h-8 w-full max-w-sm" />
+        <Skeleton className="h-72 rounded-2xl" />
       </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <Alert variant="error">
+        <AlertCircle aria-hidden="true" />
+        <AlertTitle>No se pudieron cargar las solicitudes</AlertTitle>
+        <AlertDescription>Revisá tu conexión e intentá nuevamente.</AlertDescription>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Reintentar
+          </Button>
+        </AlertAction>
+      </Alert>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: '#003366' }}>
-            Solicitudes de Docentes
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {pendingCount > 0
-              ? `${pendingCount} solicitud${pendingCount !== 1 ? 'es' : ''} pendiente${pendingCount !== 1 ? 's' : ''}`
-              : 'Sin solicitudes pendientes'}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Solicitudes de Docentes"
+        description={
+          pendingCount > 0
+            ? `${pendingCount} solicitud${pendingCount !== 1 ? 'es' : ''} pendiente${pendingCount !== 1 ? 's' : ''}`
+            : 'Sin solicitudes pendientes'
+        }
+      />
 
       {/* Filters */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Filter size={15} className="text-gray-400" />
+      <div className="flex flex-wrap items-center gap-2">
+        <Filter size={15} className="text-muted-foreground" aria-hidden="true" />
         {filterButtons.map((btn) => (
-          <button
+          <Button
             key={btn.key}
+            type="button"
+            size="sm"
+            variant={filter === btn.key ? 'default' : 'outline'}
+            aria-pressed={filter === btn.key}
             onClick={() => setFilter(btn.key)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              filter === btn.key
-                ? 'text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-            style={filter === btn.key ? { backgroundColor: '#003366' } : undefined}
           >
             {btn.label}
             {btn.key === 'pending' && pendingCount > 0 && (
-              <span className="ml-1.5 bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full px-1.5">
+              <Badge variant="warning" size="sm" className="tabular-nums">
                 {pendingCount}
-              </span>
+              </Badge>
             )}
-          </button>
+          </Button>
         ))}
       </div>
 
       {/* Table */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            {filtered?.length ?? 0} solicitud{filtered?.length !== 1 ? 'es' : ''}
-          </h3>
-        </div>
-        <div className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ backgroundImage: 'linear-gradient(135deg, #003366 0%, #004d99 50%, #0066CC 100%)' }}>
-                  {['Docente', 'Período', 'Tipo de Solicitud', 'Mensaje', 'Estado', 'Fecha', 'Acciones'].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-white font-semibold text-xs uppercase tracking-wider px-4 py-3"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {!filtered?.length ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-12 text-gray-400">
-                      No hay solicitudes para mostrar
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((req, i) => (
-                    <tr
-                      key={req.id}
-                      className={`border-b last:border-0 hover:bg-blue-50 transition-colors ${
-                        i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                      }`}
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-800">
-                        {req.teacher_name ?? req.teacher_ci}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {MONTH_NAMES[req.month]} {req.year}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">
-                        {req.message || '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={req.status} />
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
-                        {new Date(req.created_at).toLocaleDateString('es-BO')}
-                      </td>
-                      <td className="px-4 py-3">
-                        {req.status === 'pending' ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleRespond(req, 'approved')}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
-                            >
-                              <Check size={12} />
-                              Aprobar
-                            </button>
-                            <button
-                              onClick={() => handleRespond(req, 'rejected')}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                            >
-                              <X size={12} />
-                              Rechazar
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setViewTarget(req)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-blue-50 text-[#0066CC] hover:bg-blue-100 transition-colors"
-                          >
-                            <Eye size={12} />
-                            Ver detalle
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <TableCard title={`${filtered?.length ?? 0} solicitud${filtered?.length !== 1 ? 'es' : ''}`}>
+        <TableHeader>
+          <TableRow className="bg-muted/40 hover:bg-muted/40">
+            {['Docente', 'Período', 'Tipo de Solicitud', 'Mensaje', 'Estado', 'Fecha', 'Acciones'].map((h) => (
+              <TableHead key={h} className="h-10 px-4 text-xs font-medium uppercase tracking-wider">
+                {h}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!filtered?.length ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={7} className="p-0 whitespace-normal">
+                <EmptyState icon={Inbox} title="No hay solicitudes para mostrar" />
+              </TableCell>
+            </TableRow>
+          ) : (
+            filtered.map((req) => (
+              <TableRow key={req.id}>
+                <TableCell className="px-4 py-3 font-medium text-foreground">{req.teacher_name ?? req.teacher_ci}</TableCell>
+                <TableCell className="px-4 py-3 text-muted-foreground">
+                  {MONTH_NAMES[req.month]} {req.year}
+                </TableCell>
+                <TableCell className="px-4 py-3 text-foreground">
+                  {REQUEST_TYPE_LABELS[req.request_type] ?? req.request_type}
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate px-4 py-3 text-muted-foreground">{req.message || '—'}</TableCell>
+                <TableCell className="px-4 py-3">
+                  <RequestStatusBadge status={req.status} />
+                </TableCell>
+                <TableCell className="px-4 py-3 text-xs text-muted-foreground tabular-nums">
+                  {new Date(req.created_at).toLocaleDateString('es-BO')}
+                </TableCell>
+                <TableCell className="px-4 py-3">
+                  {req.status === 'pending' ? (
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="xs" onClick={() => handleRespond(req, 'approved')}>
+                        <Check aria-hidden="true" />
+                        Aprobar
+                      </Button>
+                      <Button variant="destructive-outline" size="xs" onClick={() => handleRespond(req, 'rejected')}>
+                        <X aria-hidden="true" />
+                        Rechazar
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="xs" className="text-primary" onClick={() => setViewTarget(req)}>
+                      <Eye aria-hidden="true" />
+                      Ver detalle
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </TableCard>
 
       <RespondDialog request={respondTarget} action={respondAction} onClose={handleClose} />
       <RequestDetailDialog request={viewTarget} onClose={() => setViewTarget(null)} />
