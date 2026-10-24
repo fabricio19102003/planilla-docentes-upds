@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
-  SelectContent,
   SelectItem,
+  SelectPopup,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -259,8 +259,9 @@ export function RetentionLetterPage() {
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="retention-title">Título profesional *</Label>
               <Select
-                value={form.titulo}
-                onValueChange={(v) => setForm((f) => ({ ...f, titulo: v }))}
+                value={form.titulo || null}
+                items={TITULOS}
+                onValueChange={(v) => setForm((f) => ({ ...f, titulo: v ?? '' }))}
               >
                 <SelectTrigger
                   id="retention-title"
@@ -269,13 +270,13 @@ export function RetentionLetterPage() {
                 >
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectPopup>
                   {TITULOS.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>
                   ))}
-                </SelectContent>
+                </SelectPopup>
               </Select>
             </div>
 
@@ -297,7 +298,8 @@ export function RetentionLetterPage() {
               <Label htmlFor="retention-month">Mes de cobro *</Label>
               <Select
                 value={String(form.mes_cobro)}
-                onValueChange={(v) => setForm((f) => ({ ...f, mes_cobro: Number(v) }))}
+                items={MONTH_NAMES}
+                onValueChange={(v) => setForm((f) => ({ ...f, mes_cobro: v ? Number(v) : f.mes_cobro }))}
               >
                 <SelectTrigger
                   id="retention-month"
@@ -306,13 +308,13 @@ export function RetentionLetterPage() {
                 >
                   <SelectValue placeholder="Seleccionar mes..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectPopup>
                   {Object.entries(MONTH_NAMES).map(([k, v]) => (
                     <SelectItem key={k} value={k}>
                       {v}
                     </SelectItem>
                   ))}
-                </SelectContent>
+                </SelectPopup>
               </Select>
             </div>
 

@@ -34,20 +34,26 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import {
   Select,
-  SelectContent,
   SelectItem,
+  SelectPopup,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
 import type { ScheduleSlot, TeacherDetail, TeacherWorkload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
+
+const GENDER_ITEMS = [
+  { value: 'M', label: 'Masculino' },
+  { value: 'F', label: 'Femenino' },
+]
 
 function formatSchedule(schedule: ScheduleSlot[]): string {
   if (!schedule || schedule.length === 0) return '—'
@@ -153,33 +159,35 @@ function DeleteConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-red-600 flex items-center gap-2">
+          <DialogTitle className="text-destructive-foreground flex items-center gap-2">
             <Trash2 size={18} />
             Eliminar Docente
           </DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-gray-600">
-          ¿Estás seguro de que querés eliminar a{' '}
-          <strong className="text-gray-800">{name}</strong>{' '}
-          (CI: {ci})?
-          <br />
-          <span className="text-red-500 text-xs mt-1 block">
-            Esta acción eliminará también todas sus designaciones y registros de asistencia.
-          </span>
-        </p>
-        {error && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-            {error}
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-gray-600">
+            ¿Estás seguro de que querés eliminar a{' '}
+            <strong className="text-gray-800">{name}</strong>{' '}
+            (CI: {ci})?
+            <br />
+            <span className="text-red-500 text-xs mt-1 block">
+              Esta acción eliminará también todas sus designaciones y registros de asistencia.
+            </span>
           </p>
-        )}
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+        </DialogPanel>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button
-            className="bg-red-600 hover:bg-red-700 text-white"
+            variant="destructive"
             onClick={handleDelete}
             disabled={deleteTeacher.isPending}
           >
@@ -196,7 +204,7 @@ function DeleteConfirmDialog({
             )}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -601,32 +609,34 @@ export function TeacherDetailPage() {
                   <div className="space-y-1.5">
                     <Label className="text-sm">Género</Label>
                     <Select
-                      value={editForm.gender}
-                      onValueChange={(v) => handleFieldChange('gender', v)}
+                      value={editForm.gender || null}
+                      items={GENDER_ITEMS}
+                      onValueChange={(v) => handleFieldChange('gender', v ?? '')}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectPopup>
                         <SelectItem value="M">Masculino</SelectItem>
                         <SelectItem value="F">Femenino</SelectItem>
-                      </SelectContent>
+                      </SelectPopup>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">Tipo</Label>
                     <Select
-                      value={editForm.external_permanent}
-                      onValueChange={(v) => handleFieldChange('external_permanent', v)}
+                      value={editForm.external_permanent || null}
+                      items={TEACHER_TYPE_OPTIONS}
+                      onValueChange={(v) => handleFieldChange('external_permanent', v ?? '')}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectPopup>
                         {TEACHER_TYPE_OPTIONS.map((option) => (
                           <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                         ))}
-                      </SelectContent>
+                      </SelectPopup>
                     </Select>
                   </div>
                 </div>
@@ -644,19 +654,19 @@ export function TeacherDetailPage() {
                   <div className="space-y-1.5">
                     <Label className="text-sm">Nivel Académico</Label>
                     <Select
-                      value={editForm.academic_level}
-                      onValueChange={(v) => handleFieldChange('academic_level', v)}
+                      value={editForm.academic_level || null}
+                      onValueChange={(v) => handleFieldChange('academic_level', v ?? '')}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectPopup>
                         <SelectItem value="Licenciatura">Licenciatura</SelectItem>
                         <SelectItem value="Maestría">Maestría</SelectItem>
                         <SelectItem value="Doctorado">Doctorado</SelectItem>
                         <SelectItem value="Especialidad">Especialidad</SelectItem>
                         <SelectItem value="Técnico Superior">Técnico Superior</SelectItem>
-                      </SelectContent>
+                      </SelectPopup>
                     </Select>
                   </div>
                   <EditField

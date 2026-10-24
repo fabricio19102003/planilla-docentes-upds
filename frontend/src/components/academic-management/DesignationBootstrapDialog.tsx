@@ -27,9 +27,10 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogClose,
-  DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogPanel,
+  DialogPopup,
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
@@ -221,97 +222,99 @@ export function DesignationBootstrapDialog({ programs, onContinue }: Designation
       if (!nextOpen) reset()
       setOpen(nextOpen)
     }}>
-      <DialogTrigger asChild>
-        <Button variant="outline"><Upload aria-hidden="true" />Importación inicial</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        <Upload aria-hidden="true" />Importación inicial
       </DialogTrigger>
-      <DialogContent aria-busy={busy} showCloseButton={false} className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogPopup aria-busy={busy} showCloseButton={false} className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Importación inicial de designaciones</DialogTitle>
           <DialogDescription className="max-w-2xl leading-5">
             Cargue una sola vez el libro oficial de teoría y práctica junto con el libro salarial de práctica. Los archivos y las decisiones permanecen en la memoria de este navegador hasta confirmar.
           </DialogDescription>
         </DialogHeader>
-        <p role="status" aria-live="polite" className="sr-only">{busyStatus}</p>
+        <DialogPanel className="grid gap-4">
+          <p role="status" aria-live="polite" className="sr-only">{busyStatus}</p>
 
-        {result ? (
-          <section role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
-            <FileCheck2 aria-hidden="true" className="size-7 text-emerald-700" />
-            <h3 className="mt-3 text-lg font-semibold text-emerald-950">Importación aplicada correctamente</h3>
-            <p className="mt-1 text-sm leading-5 text-emerald-900">
-              Se creó el borrador con {result.theory_block_count + result.practice_block_count} bloques y {result.theory_assignment_count + result.practice_assignment_count} asignaciones. Todavía no se publicó ninguna revisión.
-            </p>
-            <Button className="mt-4 w-full sm:w-auto" onClick={() => {
-              onContinue(result.draft_id)
-              setOpen(false)
-              reset()
-            }}>Continuar en el borrador</Button>
-          </section>
-        ) : (
-          <>
-            <DesignationBootstrapFields
-              activePrograms={activePrograms}
-              programIdentity={programIdentity}
-              fieldErrors={fieldErrors}
-              disabled={busy}
-              onProgramChange={(identity) => {
-                requestGeneration.current += 1
-                setProgramIdentity(identity)
-                setFieldErrors((current) => ({ ...current, programIdentity: '' }))
-                clearReview()
-              }}
-              onFileChange={updateFile}
-            />
-
-            {requestError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{requestError}</p>}
-            {previewMutation.isPending && <p role="status" aria-busy="true" className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">Analizando ambos libros, el catálogo y la disponibilidad…</p>}
-            {preview && !resolutionContext && (
-              <DesignationBootstrapPreview
-                preview={preview}
-                resolving={resolutionMutation.isPending}
-                onResolve={() => void startResolution()}
+          {result ? (
+            <section role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+              <FileCheck2 aria-hidden="true" className="size-7 text-emerald-700" />
+              <h3 className="mt-3 text-lg font-semibold text-emerald-950">Importación aplicada correctamente</h3>
+              <p className="mt-1 text-sm leading-5 text-emerald-900">
+                Se creó el borrador con {result.theory_block_count + result.practice_block_count} bloques y {result.theory_assignment_count + result.practice_assignment_count} asignaciones. Todavía no se publicó ninguna revisión.
+              </p>
+              <Button className="mt-4 w-full sm:w-auto" onClick={() => {
+                onContinue(result.draft_id)
+                setOpen(false)
+                reset()
+              }}>Continuar en el borrador</Button>
+            </section>
+          ) : (
+            <>
+              <DesignationBootstrapFields
+                activePrograms={activePrograms}
+                programIdentity={programIdentity}
+                fieldErrors={fieldErrors}
+                disabled={busy}
+                onProgramChange={(identity) => {
+                  requestGeneration.current += 1
+                  setProgramIdentity(identity)
+                  setFieldErrors((current) => ({ ...current, programIdentity: '' }))
+                  clearReview()
+                }}
+                onFileChange={updateFile}
               />
-            )}
-            {resolutionContext && (
-              <DesignationAliasResolver
-                key={resolutionContext.resolution_token}
-                context={resolutionContext}
-                pending={artifactMutation.isPending || previewMutation.isPending}
-                onCancel={() => setResolutionContext(null)}
-                onSubmit={(selections) => void completeResolution(selections)}
-              />
-            )}
 
-            {preview?.can_apply && !resolutionContext && (
-              <section aria-labelledby="bootstrap-confirm-title" className="rounded-lg border-2 border-sky-300 bg-sky-50 p-4">
-                <h3 id="bootstrap-confirm-title" className="font-semibold text-sky-950">Confirmación final</h3>
-                <p className="mt-1 text-sm leading-5 text-sky-900">
-                  Se aplicarán {preview.planned.theory_block_count + preview.planned.practice_block_count} bloques y {preview.planned.theory_assignment_count + preview.planned.practice_assignment_count} asignaciones, vigentes desde el 21 de agosto de 2026.
-                </p>
-                <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-sky-200 bg-white p-3 text-sm text-slate-900 focus-within:ring-3 focus-within:ring-sky-600/30">
-                  <input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 size-5 shrink-0 accent-sky-700" />
-                  <span>Confirmo la fecha efectiva y los conteos anteriores. Entiendo que se creará un borrador editable y no se publicará automáticamente.</span>
-                </label>
-              </section>
-            )}
+              {requestError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{requestError}</p>}
+              {previewMutation.isPending && <p role="status" aria-busy="true" className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">Analizando ambos libros, el catálogo y la disponibilidad…</p>}
+              {preview && !resolutionContext && (
+                <DesignationBootstrapPreview
+                  preview={preview}
+                  resolving={resolutionMutation.isPending}
+                  onResolve={() => void startResolution()}
+                />
+              )}
+              {resolutionContext && (
+                <DesignationAliasResolver
+                  key={resolutionContext.resolution_token}
+                  context={resolutionContext}
+                  pending={artifactMutation.isPending || previewMutation.isPending}
+                  onCancel={() => setResolutionContext(null)}
+                  onSubmit={(selections) => void completeResolution(selections)}
+                />
+              )}
 
-            {!resolutionContext && (
-              <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
-                <DialogClose asChild><Button variant="outline" disabled={busy}>Cancelar</Button></DialogClose>
-                {!preview?.can_apply && (
-                  <Button onClick={() => void generatePreview()} disabled={busy || !activePrograms.length}>
-                    {previewMutation.isPending ? 'Generando vista previa…' : preview ? 'Generar nueva vista previa' : 'Generar vista previa'}
-                  </Button>
-                )}
-                {preview?.can_apply && (
-                  <Button onClick={() => void applyImport()} disabled={!confirmed || busy}>
-                    {applyMutation.isPending ? 'Aplicando importación…' : 'Confirmar y crear borrador'}
-                  </Button>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </DialogContent>
+              {preview?.can_apply && !resolutionContext && (
+                <section aria-labelledby="bootstrap-confirm-title" className="rounded-lg border-2 border-sky-300 bg-sky-50 p-4">
+                  <h3 id="bootstrap-confirm-title" className="font-semibold text-sky-950">Confirmación final</h3>
+                  <p className="mt-1 text-sm leading-5 text-sky-900">
+                    Se aplicarán {preview.planned.theory_block_count + preview.planned.practice_block_count} bloques y {preview.planned.theory_assignment_count + preview.planned.practice_assignment_count} asignaciones, vigentes desde el 21 de agosto de 2026.
+                  </p>
+                  <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-sky-200 bg-white p-3 text-sm text-slate-900 focus-within:ring-3 focus-within:ring-sky-600/30">
+                    <input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 size-5 shrink-0 accent-sky-700" />
+                    <span>Confirmo la fecha efectiva y los conteos anteriores. Entiendo que se creará un borrador editable y no se publicará automáticamente.</span>
+                  </label>
+                </section>
+              )}
+
+              {!resolutionContext && (
+                <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+                  <DialogClose render={<Button variant="outline" disabled={busy} />}>Cancelar</DialogClose>
+                  {!preview?.can_apply && (
+                    <Button onClick={() => void generatePreview()} disabled={busy || !activePrograms.length}>
+                      {previewMutation.isPending ? 'Generando vista previa…' : preview ? 'Generar nueva vista previa' : 'Generar vista previa'}
+                    </Button>
+                  )}
+                  {preview?.can_apply && (
+                    <Button onClick={() => void applyImport()} disabled={!confirmed || busy}>
+                      {applyMutation.isPending ? 'Aplicando importación…' : 'Confirmar y crear borrador'}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </DialogPanel>
+      </DialogPopup>
     </Dialog>
   )
 }

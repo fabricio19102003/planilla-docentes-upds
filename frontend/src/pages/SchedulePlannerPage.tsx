@@ -37,7 +37,7 @@ import { DesignationBootstrapDialog } from '@/components/academic-management/Des
 import { TeacherCombobox } from '@/components/academic-management/TeacherCombobox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -524,337 +524,349 @@ export function SchedulePlannerPage() {
         )}
 
         <Dialog open={draftOpen} onOpenChange={setDraftOpen}>
-          <DialogContent>
+          <DialogPopup>
             <DialogHeader><DialogTitle>{editingDraftId ? 'Editar borrador' : 'Nuevo borrador'}</DialogTitle><DialogDescription>Defina el programa, período y un nombre descriptivo.</DialogDescription></DialogHeader>
-            <form onSubmit={submitDraft} className="flex flex-col gap-4">
-              <div><Label htmlFor="draft-program">Programa</Label><select id="draft-program" required value={draftForm.program_id} onChange={(event) => setDraftForm((value) => ({ ...value, program_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{programs.data?.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></div>
-              <div><Label htmlFor="draft-period">Período académico</Label><Input id="draft-period" required maxLength={30} value={draftForm.academic_period} onChange={(event) => setDraftForm((value) => ({ ...value, academic_period: event.target.value }))} /></div>
-              <div><Label htmlFor="draft-name">Nombre</Label><Input id="draft-name" required maxLength={120} value={draftForm.name} onChange={(event) => setDraftForm((value) => ({ ...value, name: event.target.value }))} /></div>
-              {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-              <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setDraftOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveDraft.isPending}>{saveDraft.isPending ? 'Guardando…' : editingDraftId ? 'Guardar cambios' : 'Crear borrador'}</Button></div>
-            </form>
-          </DialogContent>
+            <DialogPanel>
+              <form onSubmit={submitDraft} className="flex flex-col gap-4">
+                <div><Label htmlFor="draft-program">Programa</Label><select id="draft-program" required value={draftForm.program_id} onChange={(event) => setDraftForm((value) => ({ ...value, program_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{programs.data?.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></div>
+                <div><Label htmlFor="draft-period">Período académico</Label><Input id="draft-period" required maxLength={30} value={draftForm.academic_period} onChange={(event) => setDraftForm((value) => ({ ...value, academic_period: event.target.value }))} /></div>
+                <div><Label htmlFor="draft-name">Nombre</Label><Input id="draft-name" required maxLength={120} value={draftForm.name} onChange={(event) => setDraftForm((value) => ({ ...value, name: event.target.value }))} /></div>
+                {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setDraftOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveDraft.isPending}>{saveDraft.isPending ? 'Guardando…' : editingDraftId ? 'Guardar cambios' : 'Crear borrador'}</Button></div>
+              </form>
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
 
         <Dialog open={blockOpen} onOpenChange={setBlockOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogPopup className="sm:max-w-xl">
             <DialogHeader><DialogTitle>{editingBlock ? 'Editar bloque' : 'Agregar bloque'}</DialogTitle><DialogDescription>Cualquier horario entre 06:00 y 23:30 en pasos de 5 minutos (de 15 minutos a 6 horas).</DialogDescription></DialogHeader>
-            <form onSubmit={submitBlock} className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2"><Label htmlFor="block-offering">Oferta académica</Label><select id="block-offering" required value={blockForm.offering_id} onChange={(event) => setBlockForm((value) => ({ ...value, offering_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedOfferings.map((item) => <option key={item.id} value={item.id}>{item.subject.code} · {item.subject.name}</option>)}</select></div>
-              <div><Label htmlFor="block-group">Grupo</Label><select id="block-group" required value={blockForm.group_id} onChange={(event) => setBlockForm((value) => ({ ...value, group_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedGroups.map((item) => <option key={item.id} value={item.id}>{item.code} · Semestre {item.semester}</option>)}</select></div>
-              <div><Label htmlFor="block-classroom">Aula</Label><select id="block-classroom" required value={blockForm.classroom_id} onChange={(event) => setBlockForm((value) => ({ ...value, classroom_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{activeClassrooms.map((item) => <option key={item.id} value={item.id}>{item.code} · Cap. {item.capacity ?? 'No aplica'}</option>)}</select></div>
-              <div><Label htmlFor="block-activity">Actividad</Label><select id="block-activity" value={blockForm.activity_type} onChange={(event) => setBlockForm((value) => ({ ...value, activity_type: event.target.value as ScheduleActivityType }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="theory">Teoría</option><option value="practice">Práctica</option></select></div>
-              <div><Label htmlFor="block-day">Día</Label><select id="block-day" value={blockForm.weekday} onChange={(event) => setBlockForm((value) => ({ ...value, weekday: event.target.value as ScheduleWeekday }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div>
-              <div><Label htmlFor="block-start">Inicio</Label><Input id="block-start" type="time" step={300} min="06:00" max="23:30" required value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1" /></div>
-              <div><Label htmlFor="block-end">Fin</Label><Input id="block-end" type="time" step={300} min="06:00" max="23:30" required value={blockForm.end_time} aria-invalid={Boolean(blockFormError)} aria-describedby="block-time-help" onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1" /></div>
-              <div className="sm:col-span-2 flex flex-wrap items-center gap-2" role="group" aria-label="Duración rápida">
-                <span className="text-sm text-slate-600">Duración:</span>
-                {BLOCK_DURATION_PRESETS.map((minutes) => (
-                  <Button key={minutes} type="button" size="sm" variant="outline" onClick={() => setBlockForm((value) => ({ ...value, end_time: addMinutes(value.start_time, minutes) }))}>{minutes} min</Button>
-                ))}
-              </div>
-              <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
-              <div className="sm:col-span-2"><Label htmlFor="block-hours">Horas académicas que se pagan</Label><Input id="block-hours" type="number" min={1} max={12} step={1} placeholder={prefilledHours ? String(prefilledHours) : ''} value={blockForm.academic_hours} onChange={(event) => setBlockForm((value) => ({ ...value, academic_hours: event.target.value }))} aria-describedby="block-hours-help" className="mt-1" />
-                <p id="block-hours-help" className="mt-1 text-xs text-slate-500">
-                  {blockForm.academic_hours.trim()
-                    ? `Se pagarán ${blockForm.academic_hours} hora(s) académica(s) por clase.`
-                    : prefilledHours && keepsLegacyHours
-                      ? `Vacío = mantiene lo que paga hoy: ${prefilledHours} hora(s) académica(s) (regla anterior, minutos ÷ 45). Escriba un valor para fijarlo.`
-                      : prefilledHours
-                      ? `Vacío = ${prefilledHours} hora(s) académica(s) (duración ÷ ${academicHourMinutes} min). Puede corregirlo.`
-                      : 'Se calculan a partir de la duración.'}
-                </p>
-              </div>
-              {error && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-              <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setBlockOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveBlock.isPending}>{saveBlock.isPending ? 'Guardando…' : 'Guardar bloque'}</Button></div>
-            </form>
-          </DialogContent>
+            <DialogPanel>
+              <form onSubmit={submitBlock} className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2"><Label htmlFor="block-offering">Oferta académica</Label><select id="block-offering" required value={blockForm.offering_id} onChange={(event) => setBlockForm((value) => ({ ...value, offering_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedOfferings.map((item) => <option key={item.id} value={item.id}>{item.subject.code} · {item.subject.name}</option>)}</select></div>
+                <div><Label htmlFor="block-group">Grupo</Label><select id="block-group" required value={blockForm.group_id} onChange={(event) => setBlockForm((value) => ({ ...value, group_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedGroups.map((item) => <option key={item.id} value={item.id}>{item.code} · Semestre {item.semester}</option>)}</select></div>
+                <div><Label htmlFor="block-classroom">Aula</Label><select id="block-classroom" required value={blockForm.classroom_id} onChange={(event) => setBlockForm((value) => ({ ...value, classroom_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{activeClassrooms.map((item) => <option key={item.id} value={item.id}>{item.code} · Cap. {item.capacity ?? 'No aplica'}</option>)}</select></div>
+                <div><Label htmlFor="block-activity">Actividad</Label><select id="block-activity" value={blockForm.activity_type} onChange={(event) => setBlockForm((value) => ({ ...value, activity_type: event.target.value as ScheduleActivityType }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="theory">Teoría</option><option value="practice">Práctica</option></select></div>
+                <div><Label htmlFor="block-day">Día</Label><select id="block-day" value={blockForm.weekday} onChange={(event) => setBlockForm((value) => ({ ...value, weekday: event.target.value as ScheduleWeekday }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div>
+                <div><Label htmlFor="block-start">Inicio</Label><Input id="block-start" type="time" step={300} min="06:00" max="23:30" required value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1" /></div>
+                <div><Label htmlFor="block-end">Fin</Label><Input id="block-end" type="time" step={300} min="06:00" max="23:30" required value={blockForm.end_time} aria-invalid={Boolean(blockFormError)} aria-describedby="block-time-help" onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1" /></div>
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-2" role="group" aria-label="Duración rápida">
+                  <span className="text-sm text-slate-600">Duración:</span>
+                  {BLOCK_DURATION_PRESETS.map((minutes) => (
+                    <Button key={minutes} type="button" size="sm" variant="outline" onClick={() => setBlockForm((value) => ({ ...value, end_time: addMinutes(value.start_time, minutes) }))}>{minutes} min</Button>
+                  ))}
+                </div>
+                <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
+                <div className="sm:col-span-2"><Label htmlFor="block-hours">Horas académicas que se pagan</Label><Input id="block-hours" type="number" min={1} max={12} step={1} placeholder={prefilledHours ? String(prefilledHours) : ''} value={blockForm.academic_hours} onChange={(event) => setBlockForm((value) => ({ ...value, academic_hours: event.target.value }))} aria-describedby="block-hours-help" className="mt-1" />
+                  <p id="block-hours-help" className="mt-1 text-xs text-slate-500">
+                    {blockForm.academic_hours.trim()
+                      ? `Se pagarán ${blockForm.academic_hours} hora(s) académica(s) por clase.`
+                      : prefilledHours && keepsLegacyHours
+                        ? `Vacío = mantiene lo que paga hoy: ${prefilledHours} hora(s) académica(s) (regla anterior, minutos ÷ 45). Escriba un valor para fijarlo.`
+                        : prefilledHours
+                        ? `Vacío = ${prefilledHours} hora(s) académica(s) (duración ÷ ${academicHourMinutes} min). Puede corregirlo.`
+                        : 'Se calculan a partir de la duración.'}
+                  </p>
+                </div>
+                {error && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setBlockOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveBlock.isPending}>{saveBlock.isPending ? 'Guardando…' : 'Guardar bloque'}</Button></div>
+              </form>
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
 
         <Dialog open={assignmentOpen} onOpenChange={setAssignmentOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogPopup className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>{assignmentAtEffectiveDate ? 'Reemplazar docente' : 'Asignar docente'}</DialogTitle>
               <DialogDescription>
                 {assignmentBlock ? `${assignmentBlock.offering.subject.name} · ${assignmentBlock.group.code}` : 'Seleccione un bloque.'}
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={submitAssignment} className="flex flex-col gap-4" aria-busy={saveAssignment.isPending}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="assignment-from">Vigente desde</Label>
-                  <Input
-                    id="assignment-from"
-                    type="date"
-                    required
-                    value={assignmentForm.effective_from}
-                    aria-invalid={Boolean(error)}
-                    aria-describedby={error ? 'assignment-error' : undefined}
-                    onChange={(event) => { setAssignmentForm((value) => ({ ...value, effective_from: event.target.value })); setTeacherPage(1) }}
-                  />
+            <DialogPanel>
+              <form onSubmit={submitAssignment} className="flex flex-col gap-4" aria-busy={saveAssignment.isPending}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="assignment-from">Vigente desde</Label>
+                    <Input
+                      id="assignment-from"
+                      type="date"
+                      required
+                      value={assignmentForm.effective_from}
+                      aria-invalid={Boolean(error)}
+                      aria-describedby={error ? 'assignment-error' : undefined}
+                      onChange={(event) => { setAssignmentForm((value) => ({ ...value, effective_from: event.target.value })); setTeacherPage(1) }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="assignment-to">Vigente hasta (opcional)</Label>
+                    <Input
+                      id="assignment-to"
+                      type="date"
+                      min={assignmentForm.effective_from}
+                      value={assignmentForm.effective_to}
+                      aria-invalid={Boolean(error)}
+                      aria-describedby={error ? 'assignment-error' : undefined}
+                      onChange={(event) => { setAssignmentForm((value) => ({ ...value, effective_to: event.target.value })); setTeacherPage(1) }}
+                    />
+                  </div>
                 </div>
+                {assignmentAtEffectiveDate && (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Reemplazará a {assignmentAtEffectiveDate.teacher_name}. {replacementWarning(assignmentForm.effective_from)}
+                  </p>
+                )}
                 <div>
-                  <Label htmlFor="assignment-to">Vigente hasta (opcional)</Label>
-                  <Input
-                    id="assignment-to"
-                    type="date"
-                    min={assignmentForm.effective_from}
-                    value={assignmentForm.effective_to}
-                    aria-invalid={Boolean(error)}
-                    aria-describedby={error ? 'assignment-error' : undefined}
-                    onChange={(event) => { setAssignmentForm((value) => ({ ...value, effective_to: event.target.value })); setTeacherPage(1) }}
+                  <Label htmlFor="assignment-teacher">Docente compatible</Label>
+                  <TeacherCombobox
+                    id="assignment-teacher"
+                    teachers={compatibleTeachers.data?.items ?? []}
+                    value={assignmentForm.teacher_ci}
+                    onChange={(ci) => setAssignmentForm((value) => ({ ...value, teacher_ci: ci }))}
+                    search={teacherSearch}
+                    onSearchChange={(value) => { setTeacherSearch(value); setTeacherPage(1) }}
+                    loading={compatibleTeachers.isLoading}
+                    emptyMessage="No existe un docente con disponibilidad completa y sin cruces para este bloque e intervalo."
+                    page={teacherPage}
+                    pageCount={compatiblePageCount}
+                    onPageChange={setTeacherPage}
+                    invalid={Boolean(error)}
+                    describedBy={error ? 'assignment-error' : 'assignment-teacher-help'}
                   />
+                  <p id="assignment-teacher-help" className="mt-1 text-xs text-slate-500">Solo se listan docentes con disponibilidad completa y sin cruces en este bloque.</p>
                 </div>
-              </div>
-              {assignmentAtEffectiveDate && (
-                <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  Reemplazará a {assignmentAtEffectiveDate.teacher_name}. {replacementWarning(assignmentForm.effective_from)}
-                </p>
-              )}
-              <div>
-                <Label htmlFor="assignment-teacher">Docente compatible</Label>
-                <TeacherCombobox
-                  id="assignment-teacher"
-                  teachers={compatibleTeachers.data?.items ?? []}
-                  value={assignmentForm.teacher_ci}
-                  onChange={(ci) => setAssignmentForm((value) => ({ ...value, teacher_ci: ci }))}
-                  search={teacherSearch}
-                  onSearchChange={(value) => { setTeacherSearch(value); setTeacherPage(1) }}
-                  loading={compatibleTeachers.isLoading}
-                  emptyMessage="No existe un docente con disponibilidad completa y sin cruces para este bloque e intervalo."
-                  page={teacherPage}
-                  pageCount={compatiblePageCount}
-                  onPageChange={setTeacherPage}
-                  invalid={Boolean(error)}
-                  describedBy={error ? 'assignment-error' : 'assignment-teacher-help'}
-                />
-                <p id="assignment-teacher-help" className="mt-1 text-xs text-slate-500">Solo se listan docentes con disponibilidad completa y sin cruces en este bloque.</p>
-              </div>
-              {compatibleTeachers.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudieron consultar los docentes compatibles.</p>}
-              {compatibleTeachers.isLoading && <p role="status" className="sr-only">Buscando docentes con disponibilidad…</p>}
-              {error && <p id="assignment-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setAssignmentOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={saveAssignment.isPending || !assignmentForm.teacher_ci || compatibleTeachers.isLoading}>
-                  {saveAssignment.isPending ? 'Guardando…' : assignmentAtEffectiveDate ? 'Confirmar reemplazo' : 'Asignar docente'}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
+                {compatibleTeachers.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudieron consultar los docentes compatibles.</p>}
+                {compatibleTeachers.isLoading && <p role="status" className="sr-only">Buscando docentes con disponibilidad…</p>}
+                {error && <p id="assignment-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setAssignmentOpen(false)}>Cancelar</Button>
+                  <Button type="submit" disabled={saveAssignment.isPending || !assignmentForm.teacher_ci || compatibleTeachers.isLoading}>
+                    {saveAssignment.isPending ? 'Guardando…' : assignmentAtEffectiveDate ? 'Confirmar reemplazo' : 'Asignar docente'}
+                  </Button>
+                </div>
+              </form>
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
 
         <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogPopup className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Historial de asignaciones</DialogTitle>
               <DialogDescription>
                 {assignmentBlock ? `${assignmentBlock.offering.subject.name} · ${assignmentBlock.group.code}` : 'Bloque seleccionado'}
               </DialogDescription>
             </DialogHeader>
-            {assignmentHistories.isLoading ? (
-              <p role="status" className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Cargando historial…</p>
-            ) : !selectedHistory.length ? (
-              <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Este bloque todavía no tiene asignaciones.</p>
-            ) : (
-              <ol className="flex flex-col gap-2">
-                {selectedHistory.map((assignment) => <li key={assignment.id} className="rounded-md border p-3 text-sm">
-                  <p className="font-semibold text-slate-900">{assignment.teacher_name}</p>
-                  <p className="text-slate-600">{assignment.effective_from} — {assignment.effective_to ?? 'Sin fecha final'}</p>
-                </li>)}
-              </ol>
-            )}
-          </DialogContent>
+            <DialogPanel>
+              {assignmentHistories.isLoading ? (
+                <p role="status" className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Cargando historial…</p>
+              ) : !selectedHistory.length ? (
+                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Este bloque todavía no tiene asignaciones.</p>
+              ) : (
+                <ol className="flex flex-col gap-2">
+                  {selectedHistory.map((assignment) => <li key={assignment.id} className="rounded-md border p-3 text-sm">
+                    <p className="font-semibold text-slate-900">{assignment.teacher_name}</p>
+                    <p className="text-slate-600">{assignment.effective_from} — {assignment.effective_to ?? 'Sin fecha final'}</p>
+                  </li>)}
+                </ol>
+              )}
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
 
         <Dialog open={publicationOpen} onOpenChange={setPublicationOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogPopup className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Revisar publicación completa</DialogTitle>
               <DialogDescription>
                 La vista previa valida y sella todo el borrador. No se publican bloques individuales.
               </DialogDescription>
             </DialogHeader>
-            <form
-              className="flex flex-col gap-4"
-              aria-busy={previewPublication.isPending || publishDraft.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                setError(null)
-                previewPublication.mutate(publicationEffectiveFrom, {
-                  onError: (caught) => setError(errorMessage(caught)),
-                })
-              }}
-            >
-              <div>
-                <Label htmlFor="publication-effective-from">Fecha efectiva</Label>
-                <Input
-                  id="publication-effective-from"
-                  type="date"
-                  required
-                  autoFocus
-                  value={publicationEffectiveFrom}
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={error ? 'publication-error' : 'publication-effective-help'}
-                  onChange={(event) => {
-                    setPublicationEffectiveFrom(event.target.value)
-                    previewPublication.reset()
-                  }}
-                />
-                <p id="publication-effective-help" className="mt-1 text-xs text-slate-500">
-                  Las fechas retroactivas se bloquean cuando ya existen datos operativos afectados.
-                </p>
-              </div>
-              <Button type="submit" variant="outline" disabled={previewPublication.isPending || !publicationEffectiveFrom}>
-                {previewPublication.isPending ? 'Validando…' : 'Generar vista previa vinculante'}
-              </Button>
-              {previewPublication.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo generar la vista previa.</p>}
-              {previewPublication.data && (
-                <section aria-labelledby="publication-preview-title" className="flex flex-col gap-4 rounded-lg border p-4">
-                  <div>
-                    <h3 id="publication-preview-title" className="font-semibold text-slate-950">Resumen sellado</h3>
-                    <p className="text-sm text-slate-600">
-                      Secuencia {previewPublication.data.sequence} · {previewPublication.data.block_count} bloques · {previewPublication.data.assignment_count} intervalos docentes
-                    </p>
-                    <p className="mt-1 break-all font-mono text-xs text-slate-500">Digest: {previewPublication.data.digest}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                    {publicationDiffItems(previewPublication.data.diff).map((item) => (
-                      <p key={item.key} className={`rounded p-2 ${item.className}`}>
-                        {item.label}: <strong>{item.value}</strong>
-                      </p>
-                    ))}
-                  </div>
-                  {previewPublication.data.diff.workload_changes.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold">Cambios de carga semanal</h4>
-                      <ul className="mt-2 flex flex-col gap-1 text-sm">
-                        {previewPublication.data.diff.workload_changes.map((item) => <li key={item.teacher_ci}>
-                          {item.teacher_name}: {item.total_minutes_week > 0 ? '+' : ''}{item.total_minutes_week} min
-                        </li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {previewPublication.data.blockers.length > 0 && (
-                    <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-                      <h4 className="font-semibold">Publicación bloqueada</h4>
-                      <ul className="mt-2 list-disc pl-5">
-                        {previewPublication.data.blockers.map((blocker) => <li key={`${blocker.category}-${blocker.message}`}>
-                          {blocker.message} ({blocker.count})
-                        </li>)}
-                      </ul>
-                    </div>
-                  )}
-                  <div role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-                    <h4 className="font-semibold">Límite operativo</h4>
-                    <ul className="mt-2 list-disc pl-5">
-                      {previewPublication.data.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-                    </ul>
-                  </div>
-                </section>
-              )}
-              <section aria-labelledby="payroll-simulation-title" className="flex flex-col gap-2 rounded-lg border p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 id="payroll-simulation-title" className="font-semibold text-slate-950">Simulador de planilla</h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={simulatePayroll.isPending || !publicationEffectiveFrom}
-                    onClick={() => {
-                      const [year, month] = publicationEffectiveFrom.split('-').map(Number)
-                      simulatePayroll.mutate({ effective_from: publicationEffectiveFrom, month, year })
+            <DialogPanel>
+              <form
+                className="flex flex-col gap-4"
+                aria-busy={previewPublication.isPending || publishDraft.isPending}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  setError(null)
+                  previewPublication.mutate(publicationEffectiveFrom, {
+                    onError: (caught) => setError(errorMessage(caught)),
+                  })
+                }}
+              >
+                <div>
+                  <Label htmlFor="publication-effective-from">Fecha efectiva</Label>
+                  <Input
+                    id="publication-effective-from"
+                    type="date"
+                    required
+                    autoFocus
+                    value={publicationEffectiveFrom}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'publication-error' : 'publication-effective-help'}
+                    onChange={(event) => {
+                      setPublicationEffectiveFrom(event.target.value)
+                      previewPublication.reset()
                     }}
-                  >
-                    {simulatePayroll.isPending ? 'Simulando…' : 'Simular planilla'}
-                  </Button>
+                  />
+                  <p id="publication-effective-help" className="mt-1 text-xs text-slate-500">
+                    Las fechas retroactivas se bloquean cuando ya existen datos operativos afectados.
+                  </p>
                 </div>
-                <p className="text-sm text-slate-600">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
-                {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
-                {simulatePayroll.data && simulatePayroll.data.effective_from === publicationEffectiveFrom && (
-                  <>
-                    <p className="text-sm text-slate-600">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
-                    <ImpactTable teachers={simulatePayroll.data.teachers} caption="Simulación de planilla por docente" />
-                  </>
+                <Button type="submit" variant="outline" disabled={previewPublication.isPending || !publicationEffectiveFrom}>
+                  {previewPublication.isPending ? 'Validando…' : 'Generar vista previa vinculante'}
+                </Button>
+                {previewPublication.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo generar la vista previa.</p>}
+                {previewPublication.data && (
+                  <section aria-labelledby="publication-preview-title" className="flex flex-col gap-4 rounded-lg border p-4">
+                    <div>
+                      <h3 id="publication-preview-title" className="font-semibold text-slate-950">Resumen sellado</h3>
+                      <p className="text-sm text-slate-600">
+                        Secuencia {previewPublication.data.sequence} · {previewPublication.data.block_count} bloques · {previewPublication.data.assignment_count} intervalos docentes
+                      </p>
+                      <p className="mt-1 break-all font-mono text-xs text-slate-500">Digest: {previewPublication.data.digest}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                      {publicationDiffItems(previewPublication.data.diff).map((item) => (
+                        <p key={item.key} className={`rounded p-2 ${item.className}`}>
+                          {item.label}: <strong>{item.value}</strong>
+                        </p>
+                      ))}
+                    </div>
+                    {previewPublication.data.diff.workload_changes.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold">Cambios de carga semanal</h4>
+                        <ul className="mt-2 flex flex-col gap-1 text-sm">
+                          {previewPublication.data.diff.workload_changes.map((item) => <li key={item.teacher_ci}>
+                            {item.teacher_name}: {item.total_minutes_week > 0 ? '+' : ''}{item.total_minutes_week} min
+                          </li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {previewPublication.data.blockers.length > 0 && (
+                      <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                        <h4 className="font-semibold">Publicación bloqueada</h4>
+                        <ul className="mt-2 list-disc pl-5">
+                          {previewPublication.data.blockers.map((blocker) => <li key={`${blocker.category}-${blocker.message}`}>
+                            {blocker.message} ({blocker.count})
+                          </li>)}
+                        </ul>
+                      </div>
+                    )}
+                    <div role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                      <h4 className="font-semibold">Límite operativo</h4>
+                      <ul className="mt-2 list-disc pl-5">
+                        {previewPublication.data.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                      </ul>
+                    </div>
+                  </section>
                 )}
-              </section>
-              {error && <p id="publication-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setPublicationOpen(false)}>Cancelar</Button>
-                {previewPublication.data?.can_publish && (
-                  <Button
-                    ref={publishConfirmRef}
-                    type="button"
-                    disabled={publishDraft.isPending}
-                    onClick={() => void publishReviewedDraft()}
-                  >
-                    {publishDraft.isPending ? 'Publicando…' : 'Publicar borrador completo'}
-                  </Button>
-                )}
-              </div>
-            </form>
-          </DialogContent>
+                <section aria-labelledby="payroll-simulation-title" className="flex flex-col gap-2 rounded-lg border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 id="payroll-simulation-title" className="font-semibold text-slate-950">Simulador de planilla</h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={simulatePayroll.isPending || !publicationEffectiveFrom}
+                      onClick={() => {
+                        const [year, month] = publicationEffectiveFrom.split('-').map(Number)
+                        simulatePayroll.mutate({ effective_from: publicationEffectiveFrom, month, year })
+                      }}
+                    >
+                      {simulatePayroll.isPending ? 'Simulando…' : 'Simular planilla'}
+                    </Button>
+                  </div>
+                  <p className="text-sm text-slate-600">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
+                  {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
+                  {simulatePayroll.data && simulatePayroll.data.effective_from === publicationEffectiveFrom && (
+                    <>
+                      <p className="text-sm text-slate-600">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
+                      <ImpactTable teachers={simulatePayroll.data.teachers} caption="Simulación de planilla por docente" />
+                    </>
+                  )}
+                </section>
+                {error && <p id="publication-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setPublicationOpen(false)}>Cancelar</Button>
+                  {previewPublication.data?.can_publish && (
+                    <Button
+                      ref={publishConfirmRef}
+                      type="button"
+                      disabled={publishDraft.isPending}
+                      onClick={() => void publishReviewedDraft()}
+                    >
+                      {publishDraft.isPending ? 'Publicando…' : 'Publicar borrador completo'}
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
 
         <Dialog open={publicationHistoryOpen} onOpenChange={setPublicationHistoryOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogPopup className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Historial de publicaciones</DialogTitle>
               <DialogDescription>Las revisiones publicadas son inmutables.</DialogDescription>
             </DialogHeader>
-            {publications.isLoading && <p role="status" className="rounded-md bg-slate-50 p-3 text-sm">Cargando publicaciones…</p>}
-            {publications.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo cargar el historial.</p>}
-            {!publications.isLoading && !publications.isError && !publications.data?.length && (
-              <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Todavía no existen publicaciones.</p>
-            )}
-            {publications.data && publications.data.length > 0 && (
-              <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-                <nav aria-label="Revisiones publicadas">
-                  <ul className="flex flex-col gap-2">
-                    {publications.data.map((publication) => <li key={publication.id}>
-                      <button
-                        type="button"
-                        aria-pressed={selectedPublication?.id === publication.id}
-                        onClick={() => setSelectedPublicationId(publication.id)}
-                        className="w-full rounded-md border p-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 aria-pressed:border-sky-500 aria-pressed:bg-sky-50"
-                      >
-                        <span className="block font-semibold">{publication.academic_period}</span>
-                        <span className="text-slate-600">{publication.effective_from} · Rev. {publication.sequence}</span>
-                      </button>
-                    </li>)}
-                  </ul>
-                </nav>
-                {selectedPublication && (
-                  <section aria-labelledby="publication-detail-title" className="rounded-lg border p-4">
-                    <h3 id="publication-detail-title" className="font-semibold">Detalle inmutable</h3>
-                    <p className="mt-1 text-sm text-slate-600">{selectedPublication.blocks.length} bloques · Fuente #{selectedPublication.source_draft_id}</p>
-                    <p className="mt-1 break-all font-mono text-xs text-slate-500">{selectedPublication.content_digest}</p>
-                    <ul className="mt-4 flex max-h-56 flex-col gap-2 overflow-y-auto">
-                      {selectedPublication.blocks.map((block) => <li key={block.id} className="rounded-md bg-slate-50 p-3 text-sm">
-                        <p className="font-semibold">{block.subject_code} · {block.group_code}</p>
-                        <p>{block.weekday} {block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom_code}</p>
-                        <p className="text-slate-600">{block.assignments.map((item) => item.teacher_name).join(' → ')}</p>
+            <DialogPanel>
+              {publications.isLoading && <p role="status" className="rounded-md bg-slate-50 p-3 text-sm">Cargando publicaciones…</p>}
+              {publications.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo cargar el historial.</p>}
+              {!publications.isLoading && !publications.isError && !publications.data?.length && (
+                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Todavía no existen publicaciones.</p>
+              )}
+              {publications.data && publications.data.length > 0 && (
+                <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+                  <nav aria-label="Revisiones publicadas">
+                    <ul className="flex flex-col gap-2">
+                      {publications.data.map((publication) => <li key={publication.id}>
+                        <button
+                          type="button"
+                          aria-pressed={selectedPublication?.id === publication.id}
+                          onClick={() => setSelectedPublicationId(publication.id)}
+                          className="w-full rounded-md border p-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 aria-pressed:border-sky-500 aria-pressed:bg-sky-50"
+                        >
+                          <span className="block font-semibold">{publication.academic_period}</span>
+                          <span className="text-slate-600">{publication.effective_from} · Rev. {publication.sequence}</span>
+                        </button>
                       </li>)}
                     </ul>
-                    <div className="mt-4">
-                      <Label htmlFor="clone-publication-name">Nombre del nuevo borrador</Label>
-                      <Input
-                        id="clone-publication-name"
-                        required
-                        maxLength={120}
-                        value={cloneName}
-                        aria-invalid={Boolean(error)}
-                        aria-describedby={error ? 'clone-error' : undefined}
-                        onChange={(event) => setCloneName(event.target.value)}
-                      />
-                      {error && <p id="clone-error" role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
-                      <Button className="mt-3" type="button" disabled={!cloneName.trim() || clonePublication.isPending} onClick={() => void cloneSelectedPublication()}>
-                        {clonePublication.isPending ? 'Clonando…' : 'Clonar como borrador editable'}
-                      </Button>
-                    </div>
-                  </section>
-                )}
-              </div>
-            )}
-          </DialogContent>
+                  </nav>
+                  {selectedPublication && (
+                    <section aria-labelledby="publication-detail-title" className="rounded-lg border p-4">
+                      <h3 id="publication-detail-title" className="font-semibold">Detalle inmutable</h3>
+                      <p className="mt-1 text-sm text-slate-600">{selectedPublication.blocks.length} bloques · Fuente #{selectedPublication.source_draft_id}</p>
+                      <p className="mt-1 break-all font-mono text-xs text-slate-500">{selectedPublication.content_digest}</p>
+                      <ul className="mt-4 flex max-h-56 flex-col gap-2 overflow-y-auto">
+                        {selectedPublication.blocks.map((block) => <li key={block.id} className="rounded-md bg-slate-50 p-3 text-sm">
+                          <p className="font-semibold">{block.subject_code} · {block.group_code}</p>
+                          <p>{block.weekday} {block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom_code}</p>
+                          <p className="text-slate-600">{block.assignments.map((item) => item.teacher_name).join(' → ')}</p>
+                        </li>)}
+                      </ul>
+                      <div className="mt-4">
+                        <Label htmlFor="clone-publication-name">Nombre del nuevo borrador</Label>
+                        <Input
+                          id="clone-publication-name"
+                          required
+                          maxLength={120}
+                          value={cloneName}
+                          aria-invalid={Boolean(error)}
+                          aria-describedby={error ? 'clone-error' : undefined}
+                          onChange={(event) => setCloneName(event.target.value)}
+                        />
+                        {error && <p id="clone-error" role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+                        <Button className="mt-3" type="button" disabled={!cloneName.trim() || clonePublication.isPending} onClick={() => void cloneSelectedPublication()}>
+                          {clonePublication.isPending ? 'Clonando…' : 'Clonar como borrador editable'}
+                        </Button>
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </DialogPanel>
+          </DialogPopup>
         </Dialog>
       </main>
       <DragOverlay>{dragLabel ? <div className="rounded-lg border border-sky-300 bg-white px-4 py-3 text-sm font-semibold shadow-lg">{dragLabel}</div> : null}</DragOverlay>

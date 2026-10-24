@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
-import { SidebarProvider } from './context/SidebarContext'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Layout } from './components/layout/Layout'
+import { ToastProvider } from './components/ui/toast'
 
 // Pages — Admin
 import { DashboardPage } from './pages/DashboardPage'
@@ -51,7 +51,7 @@ const queryClient = new QueryClient({
 function AppRoutes() {
   return (
     <AuthProvider>
-      <SidebarProvider>
+      <ToastProvider>
         <Routes>
           {/* Public */}
           <Route path="/login" element={<LoginPage />} />
@@ -105,7 +105,7 @@ function AppRoutes() {
             <Route path="retention-letter" element={<RetentionLetterPage />} />
           </Route>
         </Routes>
-      </SidebarProvider>
+      </ToastProvider>
     </AuthProvider>
   )
 }
