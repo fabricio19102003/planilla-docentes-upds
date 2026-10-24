@@ -1,5 +1,20 @@
 "use client";
 
+/*
+ * className vs inputClassName (read before styling an Input)
+ *
+ * coss renders <span data-slot="input-control"><input/></span>:
+ *   - className       -> the wrapper span (width, margin, border, ring, shadow, background).
+ *   - inputClassName  -> the inner <input> (text-center, font-mono, tabular-nums, pl-10 for an icon).
+ *
+ * Utilities that only make sense on the control (text alignment, font, padding) do not reach the
+ * inner input through className: padding would land on the wrapper, outside the border, and the
+ * input does not inherit text-align reliably. Pass them through inputClassName; it is merged
+ * last, so it overrides the size defaults.
+ * Example for an icon on the left: <Input inputClassName="pl-9" /> next to an absolutely
+ * positioned icon inside a `relative` parent. Without inputClassName the behavior is unchanged.
+ */
+
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
@@ -11,17 +26,20 @@ export type InputProps = Omit<
   size?: "sm" | "default" | "lg" | number;
   unstyled?: boolean;
   nativeInput?: boolean;
+  /** Classes for the inner <input>. `className` targets the wrapper span. */
+  inputClassName?: string;
 };
 
 export function Input({
   className,
+  inputClassName,
   size = "default",
   unstyled = false,
   nativeInput = false,
   style,
   ...props
 }: InputProps): React.ReactElement {
-  const inputClassName = cn(
+  const controlClassName = cn(
     "h-8.5 w-full min-w-0 rounded-[inherit] px-[calc(--spacing(3)-1px)] text-foreground leading-8.5 outline-none [transition:background-color_5000000s_ease-in-out_0s] placeholder:text-muted-foreground/72 sm:h-7.5 sm:leading-7.5 autofill:[-webkit-text-fill-color:var(--foreground)]",
     size === "sm" &&
       "h-7.5 px-[calc(--spacing(2.5)-1px)] leading-7.5 sm:h-6.5 sm:leading-6.5",
@@ -30,6 +48,7 @@ export function Input({
       "[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none [&::-webkit-search-results-button]:appearance-none [&::-webkit-search-results-decoration]:appearance-none",
     props.type === "file" &&
       "text-muted-foreground file:me-3 file:bg-transparent file:font-medium file:text-foreground file:text-sm",
+    inputClassName,
   );
 
   return (
@@ -46,7 +65,7 @@ export function Input({
     >
       {nativeInput ? (
         <input
-          className={inputClassName}
+          className={controlClassName}
           data-slot="input"
           size={typeof size === "number" ? size : undefined}
           style={typeof style === "function" ? undefined : style}
@@ -54,7 +73,7 @@ export function Input({
         />
       ) : (
         <InputPrimitive
-          className={inputClassName}
+          className={controlClassName}
           data-slot="input"
           size={typeof size === "number" ? size : undefined}
           style={style}

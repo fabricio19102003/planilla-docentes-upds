@@ -32,6 +32,7 @@
     "test:admin-clarity": "node --experimental-strip-types --test scripts/check-admin-clarity.mjs",
     "test:user-credentials": "node --experimental-strip-types --test scripts/check-user-credentials.mjs",
     "test:coss-foundation": "node --test scripts/check-coss-foundation.mjs",
+    "test:ui-shared": "node --test scripts/check-ui-shared.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"
