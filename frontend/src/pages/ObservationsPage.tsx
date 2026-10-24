@@ -2,10 +2,16 @@ import { useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useObservations } from '@/api/hooks/useAttendance'
 import { DataTable } from '@/components/shared/DataTable'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import type { Tone } from '@/components/shared/tones'
 
+import { Card, CardContent } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
 import type { Observation } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
@@ -26,10 +32,12 @@ function formatTime(t: string): string {
   return t.slice(0, 5)
 }
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  LATE: { label: 'Tardanza', className: 'bg-yellow-100 text-yellow-700' },
-  ABSENT: { label: 'Ausente', className: 'bg-red-100 text-red-700' },
-  NO_EXIT: { label: 'Sin Salida', className: 'bg-orange-100 text-orange-700' },
+const MONTH_ITEMS = Object.entries(MONTH_NAMES).map(([value, label]) => ({ value, label }))
+
+const STATUS_CONFIG: Record<string, { label: string; tone: Tone }> = {
+  LATE: { label: 'Tardanza', tone: 'warning' },
+  ABSENT: { label: 'Ausente', tone: 'destructive' },
+  NO_EXIT: { label: 'Sin Salida', tone: 'info' },
 }
 
 const observationColumns: Column<Observation>[] = [
@@ -45,31 +53,34 @@ const observationColumns: Column<Observation>[] = [
   {
     key: 'date',
     header: 'Fecha',
+    className: 'tabular-nums',
     render: (item) => formatDate(item.date),
   },
   {
     key: 'scheduled_start',
     header: 'Horario',
+    className: 'tabular-nums',
     render: (item) => `${formatTime(item.scheduled_start)} - ${formatTime(item.scheduled_end)}`,
   },
   {
     key: 'status',
     header: 'Estado',
     render: (item) => {
-      const cfg = STATUS_CONFIG[item.status] ?? { label: item.status, className: 'bg-gray-100 text-gray-700' }
-      return <Badge className={cfg.className}>{cfg.label}</Badge>
+      const cfg = STATUS_CONFIG[item.status] ?? { label: item.status, tone: 'neutral' as Tone }
+      return <StatusBadge tone={cfg.tone}>{cfg.label}</StatusBadge>
     },
   },
   {
     key: 'late_minutes',
     header: 'Minutos de Tardanza',
+    align: 'right',
     render: (item) => item.late_minutes > 0 ? `${item.late_minutes} min` : '—',
   },
   {
     key: 'observation',
     header: 'Observación',
     render: (item) => (
-      <span className="text-gray-500 text-xs max-w-[200px] truncate block">
+      <span className="block max-w-[200px] truncate text-xs text-muted-foreground">
         {item.observation ?? '—'}
       </span>
     ),
@@ -99,86 +110,89 @@ export function ObservationsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Controls */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="py-4 px-5">
-          <div className="flex flex-wrap items-end gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Mes</label>
-              <select
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] min-w-[130px]"
-              >
-                {Object.entries(MONTH_NAMES).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
-            </div>
+      <PageHeader
+        title="Observaciones de asistencia"
+        description="Tardanzas, ausencias y salidas sin marcar del mes seleccionado."
+      />
 
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Año</label>
-              <input
+      {/* Controls */}
+      <Card>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
+            <Field>
+              <FieldLabel>Mes</FieldLabel>
+              <Select
+                value={String(month)}
+                items={MONTH_ITEMS}
+                onValueChange={(v) => setMonth(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {MONTH_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel>Año</FieldLabel>
+              <Input
                 type="number"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
                 min={2020}
                 max={2030}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] w-24"
+                inputClassName="tabular-nums"
               />
-            </div>
+            </Field>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Observations Table with Tabs */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold" style={{ color: '#003366' }}>
-            Observaciones — {MONTH_NAMES[month]} {year}
-          </h3>
-        </div>
-        <div className="p-5">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
-              {TABS.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value}>
-                  {tab.label}
-                  {tab.value !== '' && observations && (
-                    <span className="ml-1.5 text-xs">
-                      ({observations.filter((o) => o.status === tab.value).length})
-                    </span>
-                  )}
-                  {tab.value === '' && observations && (
-                    <span className="ml-1.5 text-xs">({observations.length})</span>
-                  )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
+      <section className="space-y-3">
+        <h3 className="text-base font-semibold text-foreground">
+          Observaciones — {MONTH_NAMES[month]} {year}
+        </h3>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="max-w-full overflow-x-auto">
             {TABS.map((tab) => (
-              <TabsContent key={tab.value} value={tab.value}>
-                {isLoading ? (
-                  <LoadingPage />
-                ) : !observations?.length ? (
-                  <div className="py-16 text-center">
-                    <AlertTriangle size={36} className="mx-auto text-gray-300 mb-3" />
-                    <p className="text-gray-400">
-                      No hay observaciones para este período
-                    </p>
-                  </div>
-                ) : (
-                  <DataTable
-                    columns={observationColumns}
-                    data={observations}
-                    emptyMessage="No hay observaciones para esta categoría"
-                  />
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
+                {tab.value !== '' && observations && (
+                  <span className="ml-1.5 text-xs tabular-nums">
+                    ({observations.filter((o) => o.status === tab.value).length})
+                  </span>
                 )}
-              </TabsContent>
+                {tab.value === '' && observations && (
+                  <span className="ml-1.5 text-xs tabular-nums">({observations.length})</span>
+                )}
+              </TabsTrigger>
             ))}
-          </Tabs>
-        </div>
-      </div>
+          </TabsList>
+
+          {TABS.map((tab) => (
+            <TabsContent key={tab.value} value={tab.value}>
+              {isLoading ? (
+                <DataTable columns={observationColumns} data={[]} loading />
+              ) : !observations?.length ? (
+                <Card>
+                  <EmptyState icon={AlertTriangle} title="No hay observaciones para este período" />
+                </Card>
+              ) : (
+                <DataTable
+                  columns={observationColumns}
+                  data={observations}
+                  emptyMessage="No hay observaciones para esta categoría"
+                />
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
+      </section>
     </div>
   )
 }
