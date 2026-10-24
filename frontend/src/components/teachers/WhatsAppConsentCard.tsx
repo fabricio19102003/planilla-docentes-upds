@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { useOptOutWhatsAppPreference, useSaveWhatsAppPreference, useWhatsAppPreference } from '@/api/hooks/useTeachers'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,6 +24,8 @@ export function WhatsAppConsentCard({ ci }: { ci: string }) {
   const [optOutEvidenceReference, setOptOutEvidenceReference] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [confirmingOptOut, setConfirmingOptOut] = useState(false)
+  const [optOutError, setOptOutError] = useState('')
   const busy = savePreference.isPending || optOut.isPending
   const current = preference.data
   const fieldError = error ? 'whatsapp-consent-error' : undefined
@@ -52,17 +55,28 @@ export function WhatsAppConsentCard({ ci }: { ci: string }) {
     }
   }
 
-  const registerOptOut = async () => {
+  const openOptOutConfirmation = () => {
     setMessage('')
     setError('')
-    if (!window.confirm('¿Confirmás registrar la baja de WhatsApp para este docente?')) return
+    setOptOutError('')
+    setConfirmingOptOut(true)
+  }
+
+  const closeOptOutConfirmation = () => {
+    setConfirmingOptOut(false)
+    setOptOutError('')
+  }
+
+  const registerOptOut = async () => {
+    setOptOutError('')
     try {
       await optOut.mutateAsync({ ci, data: { opt_out_evidence_reference: optOutEvidenceReference } })
       setOptOutEvidenceReference('')
       optOut.reset()
+      setConfirmingOptOut(false)
       setMessage('La baja de WhatsApp fue registrada.')
     } catch (requestError) {
-      setError(errorMessage(requestError))
+      setOptOutError(errorMessage(requestError))
     }
   }
 
@@ -120,12 +134,33 @@ export function WhatsAppConsentCard({ ci }: { ci: string }) {
               <Label htmlFor="whatsapp-opt-out-evidence">Referencia de evidencia de baja</Label>
               <div className="mt-1 flex flex-wrap gap-2">
                 <Input id="whatsapp-opt-out-evidence" value={optOutEvidenceReference} onChange={(event) => setOptOutEvidenceReference(event.target.value)} required aria-invalid={Boolean(error)} aria-describedby={fieldError} />
-                <Button type="button" variant="outline" disabled={busy || !optOutEvidenceReference} onClick={() => void registerOptOut()}>{optOut.isPending ? 'Registrando…' : 'Registrar baja'}</Button>
+                <Button type="button" variant="outline" disabled={busy || !optOutEvidenceReference} onClick={openOptOutConfirmation}>{optOut.isPending ? 'Registrando…' : 'Registrar baja'}</Button>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <ConfirmAlertDialog
+        summary={
+          confirmingOptOut
+            ? {
+                title: 'Registrar baja de WhatsApp',
+                confirmLabel: 'Registrar baja',
+                tone: 'destructive',
+                rows: [
+                  { label: 'C.I.', value: ci },
+                  { label: 'WhatsApp', value: current?.phone_masked ?? 'Sin número registrado' },
+                ],
+                warning: optOutError || null,
+                consequence: 'No recibirá avisos de facturación por WhatsApp hasta registrar un nuevo consentimiento',
+              }
+            : null
+        }
+        pending={optOut.isPending}
+        onConfirm={() => void registerOptOut()}
+        onCancel={closeOptOutConfirmation}
+      />
     </section>
   )
 }

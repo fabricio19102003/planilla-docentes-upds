@@ -25,7 +25,6 @@ import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
 import { AcademicManagementPage } from './pages/AcademicManagementPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
-// PracticePlanillaPage removed — unified into PlanillaPage tabs
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'

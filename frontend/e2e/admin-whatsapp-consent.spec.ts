@@ -36,7 +36,9 @@ test('admin creates, opts out, and re-consents a masked WhatsApp preference', as
     preference.opted_out = false
     return route.fulfill({ json: preference })
   })
+  let optOutCalls = 0
   await page.route('**/api/teachers/CI-E2E/whatsapp-preference/opt-out', async (route) => {
+    optOutCalls += 1
     const body = route.request().postDataJSON() as Record<string, unknown>
     expect(body).toEqual({ opt_out_evidence_reference: 'Solicitud firmada' })
     preference.eligible = false
@@ -60,10 +62,20 @@ test('admin creates, opts out, and re-consents a masked WhatsApp preference', as
   await expect(page.getByLabel('Referencia de evidencia de consentimiento')).toHaveValue('')
   await expect(page.getByText('+591 70•• ••••')).toBeVisible()
 
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByLabel('Referencia de evidencia de baja').fill('Solicitud firmada')
   await page.getByRole('button', { name: 'Registrar baja' }).press('Enter')
+  const confirmation = page.getByRole('alertdialog')
+  await expect(confirmation).toContainText('No recibirá avisos de facturación por WhatsApp hasta registrar un nuevo consentimiento')
+  await expect(confirmation).toContainText('+591 70•• ••••')
+  await confirmation.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(confirmation).toHaveCount(0)
+  expect(optOutCalls).toBe(0)
+  await expect(page.getByLabel('Referencia de evidencia de baja')).toHaveValue('Solicitud firmada')
+
+  await page.getByRole('button', { name: 'Registrar baja' }).press('Enter')
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Registrar baja' }).click()
   await expect(page.getByRole('status')).toContainText('baja')
+  expect(optOutCalls).toBe(1)
   await expect(page.getByLabel('Referencia de evidencia de baja')).toHaveCount(0)
 
   await page.getByLabel('Número de WhatsApp en formato internacional').fill('+59170000000')
@@ -93,4 +105,17 @@ test('admin sees a preference load failure instead of an empty state', async ({ 
   await page.goto('/teachers/CI-E2E')
   await expect(page.getByRole('alert')).toContainText('No se pudo cargar la preferencia de WhatsApp.')
   await expect(page.getByText('Sin preferencia registrada')).toHaveCount(0)
+})
+
+test('admin sees an opt-out backend error inside the confirmation dialog', async ({ page }) => {
+  await authenticateAdmin(page)
+  await page.route('**/api/teachers/CI-E2E', (route) => route.fulfill({ json: teacherDetail(null) }))
+  await page.route('**/api/teachers/CI-E2E/whatsapp-preference', (route) => route.fulfill({ json: { ...preference, exists: true, phone_masked: '+591 70•• ••••', is_verified: true, eligible: true, consent_revision: 1 } }))
+  await page.route('**/api/teachers/CI-E2E/whatsapp-preference/opt-out', (route) => route.fulfill({ status: 422, json: { detail: 'Evidencia inválida' } }))
+  await page.goto('/teachers/CI-E2E')
+  await page.getByLabel('Referencia de evidencia de baja').fill('Solicitud firmada')
+  await page.getByRole('button', { name: 'Registrar baja' }).click()
+  const confirmation = page.getByRole('alertdialog')
+  await confirmation.getByRole('button', { name: 'Registrar baja' }).click()
+  await expect(confirmation).toContainText('Evidencia inválida')
 })
