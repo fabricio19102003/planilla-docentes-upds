@@ -22,6 +22,7 @@ from app.models.academic_management import (
     SubjectOffering,
     TeacherAvailability,
 )
+from app.models.contract import ContractDocument
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
@@ -62,6 +63,14 @@ def _seed_all_ci_consumers(db_session):
     ])
     db_session.flush()
     _seed_schedule_assignment(db_session)
+    db_session.add(ContractDocument(
+        public_id="00000000-0000-0000-0000-0000000000c1", teacher_ci=OLD_CI, teacher_name="Original Teacher",
+        teacher_snapshot={}, academic_period="I/2027", period_snapshot={}, document_kind="original",
+        effective_date=date(2027, 1, 1), source_digest="d" * 64, template_version="v1", department="medicina",
+        full_snapshot={}, artifact_filename="c.pdf", artifact_media_type="application/pdf",
+        artifact_sha256="e" * 64, artifact_size=1, artifact_content=b"x",
+    ))
+    db_session.flush()
     return teacher
 
 
