@@ -21,7 +21,7 @@ SIPAD runs as three private containers—PostgreSQL, FastAPI, and the React/Ngin
 | Browser/API | App Nginx serves the Vite SPA and proxies `/api`, `/uploads`, `/health`, and `/ready` to FastAPI. |
 | Database | PostgreSQL has no published host port and is reachable only on the internal Compose network. |
 | Schema | Alembic runs separately, creates the complete runtime schema on an empty DB, and validates compatible legacy `create_all` tables without replacing their data. FastAPI refuses production startup unless the DB exactly matches the packaged Alembic head. |
-| Persistence | Dedicated volumes preserve PostgreSQL, uploads, generated output, reports, contracts, schedules, retention letters, and in-app backups. |
+| Persistence | Dedicated volumes preserve PostgreSQL, uploads, private chat attachments, generated output, reports, contracts, schedules, retention letters, and in-app backups. |
 | Release | Images use an immutable `IMAGE_TAG`; `latest` is rejected. |
 | Rollback | Application image rollback is supported only after schema compatibility is proven. Database restore is a separate human-approved operation. |
 
