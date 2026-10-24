@@ -471,6 +471,7 @@ class PracticePlanillaGenerator:
             period_start=period_start,
             period_end=period_end,
             activity_kind="practice",
+            explicit_cutoff=start_date is not None,
         )
         if not sources:
             warnings.append("No hay fuentes horarias de práctica para el período solicitado")

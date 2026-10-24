@@ -28,6 +28,7 @@ from app.schemas.practice_planilla import (
     PracticePlanillaOutputResponse,
 )
 from app.services import app_settings_service
+from app.services.designation_window import contract_end_dates, is_zero_hours_row, period_note
 from app.services.practice_planilla_generator import (
     PracticePlanillaCoverageError,
     PracticePlanillaGenerator,
@@ -419,9 +420,23 @@ def get_practice_planilla_detail(
                 discount_mode=discount_mode, excluded_days=effective_exclusions,
             )
 
+        contract_ends = contract_end_dates(
+            db,
+            [
+                row.designation_id
+                for row in rows
+                if is_zero_hours_row(row.base_monthly_hours, row.payable_hours)
+            ],
+        )
         row_list = []
         for row in rows:
             row_list.append({
+                "period_note": period_note(
+                    row.base_monthly_hours,
+                    row.payable_hours,
+                    getattr(row, "effective_from", None),
+                    contract_ends.get(row.designation_id),
+                ),
                 "teacher_ci": row.teacher_ci,
                 "teacher_name": row.teacher_name,
                 "subject": row.subject,

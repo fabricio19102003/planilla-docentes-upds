@@ -19,6 +19,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
 import { formatHours } from '@/lib/displayFormat'
+import { planillaRowNote } from '@/lib/closedDesignation'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import { cn } from '@/lib/utils'
 import type { DesignationOption, DesignationOptions, ExcludedDay, PlanillaGenerateResponse } from '@/api/types'
@@ -1750,10 +1751,14 @@ export function PlanillaPage() {
                                   {d.absent_hours > 0 ? `-${d.absent_hours}h` : '0h'}
                                 </TableCell>
                                 <TableCell className="text-right font-medium tabular-nums text-foreground">{d.payable_hours}h</TableCell>
-                                <TableCell className="text-right font-medium tabular-nums text-foreground">
-                                  Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                  {(d.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs', TONE_TEXT.destructive)}>(con retención)</span>}
-                                </TableCell>
+                                {planillaRowNote(d) ? (
+                                  <TableCell className="text-right text-muted-foreground">{planillaRowNote(d)}</TableCell>
+                                ) : (
+                                  <TableCell className="text-right font-medium tabular-nums text-foreground">
+                                    Bs {(d.final_payment ?? d.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                    {(d.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs', TONE_TEXT.destructive)}>(con retención)</span>}
+                                  </TableCell>
+                                )}
                               </TableRow>
                             ))}
                         </TableBody>
@@ -1791,10 +1796,14 @@ export function PlanillaPage() {
                             {row.absent_hours > 0 ? `-${row.absent_hours}h` : '0h'}
                           </TableCell>
                           <TableCell className="text-right font-semibold tabular-nums text-foreground">{row.payable_hours}h</TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums text-foreground">
-                            {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                            {(row.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs font-medium', TONE_TEXT.destructive)}>(con retención)</span>}
-                          </TableCell>
+                          {planillaRowNote(row) ? (
+                            <TableCell className="text-right text-muted-foreground">{planillaRowNote(row)}</TableCell>
+                          ) : (
+                            <TableCell className="text-right font-semibold tabular-nums text-foreground">
+                              {(row.final_payment ?? row.calculated_payment).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                              {(row.retention_amount ?? 0) > 0 && <span className={cn('ml-1 text-xs font-medium', TONE_TEXT.destructive)}>(con retención)</span>}
+                            </TableCell>
+                          )}
                           <TableCell>
                             {!row.has_biometric ? (
                               <StatusBadge tone="warning">Sin Bio</StatusBadge>

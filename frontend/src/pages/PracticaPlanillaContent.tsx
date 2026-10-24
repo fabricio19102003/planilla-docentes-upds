@@ -53,6 +53,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateInBolivia as formatDate, formatShortDateInBolivia as formatShortDate, getTodayInBolivia } from '@/lib/boliviaDates'
+import { planillaRowNote } from '@/lib/closedDesignation'
 import { getHistoricalPaymentState, getVisiblePlanillaDetail } from '@/lib/planillaHistory'
 import { cn } from '@/lib/utils'
 import type { ExcludedDay } from '@/api/types'
@@ -1541,10 +1542,14 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                             {row.absent_hours > 0 ? `-${row.absent_hours}h` : '0h'}
                           </TableCell>
                           <TableCell className="text-right font-medium tabular-nums text-foreground">{row.payable_hours}h</TableCell>
-                          <TableCell className="text-right font-medium tabular-nums text-foreground">
-                            Bs {row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                            {row.has_retention && <span className={cn('ml-1 text-xs', TONE_TEXT.destructive)}>(con retención)</span>}
-                          </TableCell>
+                          {planillaRowNote(row) ? (
+                            <TableCell className="text-right text-muted-foreground">{planillaRowNote(row)}</TableCell>
+                          ) : (
+                            <TableCell className="text-right font-medium tabular-nums text-foreground">
+                              Bs {row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                              {row.has_retention && <span className={cn('ml-1 text-xs', TONE_TEXT.destructive)}>(con retención)</span>}
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1581,13 +1586,19 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                             {row.absent_hours > 0 ? `-${row.absent_hours}h` : '0h'}
                           </TableCell>
                           <TableCell className="text-right font-semibold tabular-nums text-foreground">{row.payable_hours}h</TableCell>
-                          <TableCell className="text-right tabular-nums">{row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {row.has_retention
-                              ? <span className={cn('font-medium', TONE_TEXT.destructive)}>-{row.retention_amount.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
-                              : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums text-foreground">{row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</TableCell>
+                          {planillaRowNote(row) ? (
+                            <TableCell colSpan={3} className="text-right text-muted-foreground">{planillaRowNote(row)}</TableCell>
+                          ) : (
+                            <>
+                              <TableCell className="text-right tabular-nums">{row.calculated_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {row.has_retention
+                                  ? <span className={cn('font-medium', TONE_TEXT.destructive)}>-{row.retention_amount.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold tabular-nums text-foreground">{row.final_payment.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</TableCell>
+                            </>
+                          )}
                           <TableCell className="max-w-[150px] truncate text-xs text-muted-foreground" title={row.observation}>{row.observation || '—'}</TableCell>
                         </TableRow>
                       ))}

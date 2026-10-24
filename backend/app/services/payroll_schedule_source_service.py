@@ -8,6 +8,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.models.designation import Designation
+from app.services.designation_window import overlaps_cutoff
 from app.services.effective_schedule_service import EffectiveScheduleSlot, effective_schedule_slots
 
 
@@ -82,8 +83,13 @@ def payroll_schedule_sources(
     period_start: date,
     period_end: date,
     activity_kind: Literal["theory", "practice"],
+    explicit_cutoff: bool = False,
 ) -> list[PayrollScheduleSource]:
-    """Resolve published schedules per date with deterministic legacy fallback."""
+    """Resolve published schedules per date with deterministic legacy fallback.
+
+    With ``explicit_cutoff`` the period is a payroll cut-off window and a legacy
+    contract that does not overlap it yields no zero-pay fallback row.
+    """
     groups: dict[str, PayrollScheduleSource] = {}
     active_dates: dict[str, list[date]] = {}
     legacy_by_id = {
@@ -159,6 +165,10 @@ def payroll_schedule_sources(
             str(designation.semester).casefold().strip(),
         )
         if legacy_activity != activity_kind or key in groups or scope in published_scopes:
+            continue
+        if explicit_cutoff and not overlaps_cutoff(
+            designation.contract_start_date, designation.contract_end_date, period_start, period_end,
+        ):
             continue
         # Preserve the historical zero-pay row for an unmatched legacy contract
         # that does not intersect the requested period.
