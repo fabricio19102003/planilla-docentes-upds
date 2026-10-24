@@ -1288,7 +1288,7 @@ export function PracticaPlanillaContent({ month, year, setMonth, setYear }: Prac
                   </span>
                 </div>
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600/50" />
+                  <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-emerald-600/50" />
                   <input
                     type="text"
                     value={searchTerm}

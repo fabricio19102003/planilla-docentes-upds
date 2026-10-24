@@ -236,7 +236,7 @@ export function ContractsPage() {
             <>
               {/* Search */}
               <div className="relative max-w-sm">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   value={searchTerm}

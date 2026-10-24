@@ -13,7 +13,7 @@ import type { ClassroomCatalogPlan, DesignationLoadPreview, DesignationLoadResul
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -91,7 +91,7 @@ function LoadPreview({ preview }: { preview: DesignationLoadPreview }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
       {preview.blockers.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="error">
           <TriangleAlert aria-hidden="true" />
           <AlertTitle>No se puede crear el borrador</AlertTitle>
           <AlertDescription>
@@ -241,7 +241,7 @@ export function DesignationLoadSection() {
       </Card>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
+        <DialogPopup>
           <DialogHeader>
             <DialogTitle>¿Crear el borrador de horario?</DialogTitle>
             <DialogDescription>
@@ -252,7 +252,7 @@ export function DesignationLoadSection() {
             <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
             <Button type="button" onClick={confirm} disabled={apply.isPending}>{apply.isPending ? 'Creando…' : 'Crear borrador'}</Button>
           </DialogFooter>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>
     </section>
   )

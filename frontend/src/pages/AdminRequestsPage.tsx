@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -99,11 +100,11 @@ function RequestDetailDialog({
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>Detalle de Solicitud</DialogTitle>
+          <DialogTitle>Detalle de Solicitud</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <DialogPanel className="space-y-4">
           {/* Request info */}
           <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
             <p>
@@ -242,8 +243,8 @@ function RequestDetailDialog({
               </div>
             </div>
           )}
-        </div>
-      </DialogContent>
+        </DialogPanel>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -290,86 +291,89 @@ function RespondDialog({
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>
+          <DialogTitle>
             {action === 'approved' ? 'Aprobar Solicitud' : 'Rechazar Solicitud'}
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Request info */}
-          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
-            <p>
-              <span className="text-gray-500">Docente:</span>{' '}
-              <span className="font-medium">{request.teacher_name ?? request.teacher_ci}</span>
-            </p>
-            <p>
-              <span className="text-gray-500">Solicitud:</span>{' '}
-              <span className="font-medium">
-                {REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}
-              </span>
-            </p>
-            <p>
-              <span className="text-gray-500">Período:</span>{' '}
-              <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
-            </p>
-            {request.message && (
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <span className="text-gray-500">Mensaje del docente:</span>
-                <p className="text-gray-700 mt-1 bg-white rounded p-2 border border-gray-200 text-sm">
-                  {request.message}
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogPanel className="space-y-4">
+            {/* Request info */}
+            <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+              <p>
+                <span className="text-gray-500">Docente:</span>{' '}
+                <span className="font-medium">{request.teacher_name ?? request.teacher_ci}</span>
+              </p>
+              <p>
+                <span className="text-gray-500">Solicitud:</span>{' '}
+                <span className="font-medium">
+                  {REQUEST_TYPE_LABELS[request.request_type] ?? request.request_type}
+                </span>
+              </p>
+              <p>
+                <span className="text-gray-500">Período:</span>{' '}
+                <span className="font-medium">{MONTH_NAMES[request.month]} {request.year}</span>
+              </p>
+              {request.message && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <span className="text-gray-500">Mensaje del docente:</span>
+                  <p className="text-gray-700 mt-1 bg-white rounded p-2 border border-gray-200 text-sm">
+                    {request.message}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Teacher Schedule */}
+            {teacherSchedule && teacherSchedule.designations.length > 0 && (
+              <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
                 </p>
+                <div className="space-y-2">
+                  {teacherSchedule.designations.map(d => (
+                    <div key={d.source_key} className="text-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-gray-800">{d.subject}</span>
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
+                        <Badge className="bg-blue-50 text-blue-700 text-xs">
+                          {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
+                        </Badge>
+                        <span className="text-xs text-gray-400">{d.semester}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 ml-2">
+                        {d.schedule.map((slot, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
+                            <span className="font-medium capitalize">{slot.dia}</span>
+                            <span>{slot.hora_inicio}-{slot.hora_fin}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Teacher Schedule */}
-          {teacherSchedule && teacherSchedule.designations.length > 0 && (
-            <div className="bg-green-50/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Horarios asignados ({teacherSchedule.designation_count} materia{teacherSchedule.designation_count !== 1 ? 's' : ''} · {teacherSchedule.total_weekly_hours}h/sem)
-              </p>
-              <div className="space-y-2">
-                {teacherSchedule.designations.map(d => (
-                  <div key={d.source_key} className="text-sm">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-gray-800">{d.subject}</span>
-                      <Badge className="bg-gray-100 text-gray-600 text-xs">{d.group_code}</Badge>
-                      <Badge className="bg-blue-50 text-blue-700 text-xs">
-                        {d.activity_kind === 'practice' ? 'Práctica' : 'Teoría'}
-                      </Badge>
-                      <span className="text-xs text-gray-400">{d.semester}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 ml-2">
-                      {d.schedule.map((slot, i) => (
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600">
-                          <span className="font-medium capitalize">{slot.dia}</span>
-                          <span>{slot.hora_inicio}-{slot.hora_fin}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-request-observation">Observaciones para el docente (opcional)</Label>
+              <Textarea
+                id="admin-request-observation"
+                value={adminResponse}
+                onChange={(e) => setAdminResponse(e.target.value)}
+                placeholder="Agregá una observación sobre la resolución..."
+                rows={3}
+              />
             </div>
-          )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="admin-request-observation">Observaciones para el docente (opcional)</Label>
-            <Textarea
-              id="admin-request-observation"
-              value={adminResponse}
-              onChange={(e) => setAdminResponse(e.target.value)}
-              placeholder="Agregá una observación sobre la resolución..."
-              rows={3}
-            />
-          </div>
+            {error && (
+              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {error}
+              </p>
+            )}
 
-          {error && (
-            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {error}
-            </p>
-          )}
+          </DialogPanel>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -378,7 +382,8 @@ function RespondDialog({
             <Button
               type="submit"
               disabled={respond.isPending}
-              className={action === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}
+              variant={action === 'approved' ? 'default' : 'destructive'}
+              className={action === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : undefined}
             >
               {respond.isPending
                 ? 'Procesando...'
@@ -388,7 +393,7 @@ function RespondDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }

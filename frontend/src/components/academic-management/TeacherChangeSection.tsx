@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -78,7 +78,7 @@ function PreviewResult({ preview }: { preview: DesignationChangePreview }) {
   return (
     <div className="flex flex-col gap-4">
       {preview.blockers.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="error">
           <TriangleAlert aria-hidden="true" />
           <AlertTitle>El cambio no se puede aplicar</AlertTitle>
           <AlertDescription>
@@ -269,7 +269,7 @@ export function TeacherChangeSection() {
       </CardContent>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
+        <DialogPopup>
           <DialogHeader>
             <DialogTitle>¿Aplicar el cambio de docente?</DialogTitle>
             <DialogDescription>
@@ -280,7 +280,7 @@ export function TeacherChangeSection() {
             <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
             <Button type="button" onClick={confirmApply} disabled={apply.isPending}>{apply.isPending ? 'Aplicando…' : 'Aplicar cambio'}</Button>
           </DialogFooter>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>
     </Card>
   )

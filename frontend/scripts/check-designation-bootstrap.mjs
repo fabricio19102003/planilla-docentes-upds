@@ -71,7 +71,7 @@ test('discards stale async results and locks source controls while busy', () => 
   assert.match(dialog, /const requestGeneration = useRef\(0\)/)
   assert.match(dialog, /generation !== requestGeneration\.current/)
   assert.match(dialog, /if \(!nextOpen && busy\) return/)
-  assert.match(dialog, /<DialogContent aria-busy=\{busy\}/)
+  assert.match(dialog, /<DialogPopup aria-busy=\{busy\}/)
   assert.match(dialog, /disabled=\{busy\}/)
   assert.match(fields, /disabled=\{disabled\}/)
   assert.match(dialog, /role="status" aria-live="polite"/)

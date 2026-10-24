@@ -161,7 +161,7 @@ export function ScheduleConflictsSection() {
       {source === 'draft' && !draftId && <p className="text-sm text-slate-600">Seleccione el borrador que desea revisar.</p>}
       {report.isLoading && <p className="text-sm text-slate-600">Analizando el horario…</p>}
       {report.isError && (
-        <Alert variant="destructive">
+        <Alert variant="error">
           <TriangleAlert aria-hidden="true" />
           <AlertTitle>No se pudo analizar el horario</AlertTitle>
           <AlertDescription>{apiErrorText(report.error, 'Revise los filtros e intente nuevamente.')}</AlertDescription>

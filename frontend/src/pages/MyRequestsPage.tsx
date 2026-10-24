@@ -5,16 +5,17 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogHeader,
-  DialogTitle,
   DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import {
   Select,
-  SelectContent,
   SelectItem,
+  SelectPopup,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -98,90 +99,95 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
     <Dialog open={open} onOpenChange={(nextOpen) => {
       if (!nextOpen && !createReq.isPending) onClose()
     }}>
-      <DialogContent className="max-w-md">
+      <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>Nueva Solicitud</DialogTitle>
+          <DialogTitle>Nueva Solicitud</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogPanel className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="request-month">Mes *</Label>
+                <Select
+                  value={String(form.month)}
+                  items={MONTH_NAMES}
+                  onValueChange={(v) => setForm((f) => ({ ...f, month: v ? Number(v) : f.month }))}
+                >
+                  <SelectTrigger
+                    id="request-month"
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'request-form-error' : undefined}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup className="max-h-48">
+                    {Object.entries(MONTH_NAMES).map(([num, name]) => (
+                      <SelectItem key={num} value={num}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="request-year">Año *</Label>
+                <Input
+                  id="request-year"
+                  type="number"
+                  value={form.year}
+                  onChange={(e) => setForm((f) => ({ ...f, year: Number(e.target.value) }))}
+                  min={2020}
+                  max={currentYear + 1}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'request-form-error' : undefined}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
-              <Label htmlFor="request-month">Mes *</Label>
+              <Label htmlFor="request-type">Tipo de Solicitud *</Label>
               <Select
-                value={String(form.month)}
-                onValueChange={(v) => setForm((f) => ({ ...f, month: Number(v) }))}
+                value={form.request_type || null}
+                items={REQUEST_TYPE_LABELS}
+                onValueChange={(v) => setForm((f) => ({ ...f, request_type: v ?? '' }))}
               >
                 <SelectTrigger
-                  id="request-month"
+                  id="request-type"
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'request-form-error' : undefined}
                 >
-                  <SelectValue />
+                  <SelectValue placeholder="Seleccioná un tipo..." />
                 </SelectTrigger>
-                <SelectContent className="max-h-48">
-                  {Object.entries(MONTH_NAMES).map(([num, name]) => (
-                    <SelectItem key={num} value={num}>
-                      {name}
+                <SelectPopup>
+                  {Object.entries(REQUEST_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
                     </SelectItem>
                   ))}
-                </SelectContent>
+                </SelectPopup>
               </Select>
             </div>
+
             <div className="space-y-1.5">
-              <Label htmlFor="request-year">Año *</Label>
-              <Input
-                id="request-year"
-                type="number"
-                value={form.year}
-                onChange={(e) => setForm((f) => ({ ...f, year: Number(e.target.value) }))}
-                min={2020}
-                max={currentYear + 1}
+              <Label htmlFor="request-message">Mensaje (opcional)</Label>
+              <Textarea
+                id="request-message"
+                value={form.message}
+                onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="Describí tu solicitud o dejá un mensaje para el administrador..."
+                rows={3}
                 aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'request-form-error' : undefined}
               />
             </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="request-type">Tipo de Solicitud *</Label>
-            <Select
-              value={form.request_type}
-              onValueChange={(v) => setForm((f) => ({ ...f, request_type: v }))}
-            >
-              <SelectTrigger
-                id="request-type"
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'request-form-error' : undefined}
-              >
-                <SelectValue placeholder="Seleccioná un tipo..." />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(REQUEST_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {error && (
+              <p id="request-form-error" role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {error}
+              </p>
+            )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="request-message">Mensaje (opcional)</Label>
-            <Textarea
-              id="request-message"
-              value={form.message}
-              onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-              placeholder="Describí tu solicitud o dejá un mensaje para el administrador..."
-              rows={3}
-              aria-invalid={Boolean(error)}
-              aria-describedby={error ? 'request-form-error' : undefined}
-            />
-          </div>
-
-          {error && (
-            <p id="request-form-error" role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {error}
-            </p>
-          )}
+          </DialogPanel>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={createReq.isPending}>
@@ -190,14 +196,12 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
             <Button
               type="submit"
               disabled={createReq.isPending}
-              style={{ backgroundColor: '#003366' }}
-              className="text-white"
             >
               {createReq.isPending ? 'Enviando...' : 'Enviar Solicitud'}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -207,14 +211,14 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>Detalle de Solicitud</DialogTitle>
+          <DialogTitle>Detalle de Solicitud</DialogTitle>
           <DialogDescription className="sr-only">
             Consulta la solicitud, la información histórica resuelta y las observaciones del administrador.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <DialogPanel className="space-y-4">
           {/* Request info */}
           <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
             <p>
@@ -273,8 +277,8 @@ function ViewRequestDialog({ request, onClose }: { request: DetailRequestInfo | 
               </p>
             )}
           </div>
-        </div>
-      </DialogContent>
+        </DialogPanel>
+      </DialogPopup>
     </Dialog>
   )
 }
