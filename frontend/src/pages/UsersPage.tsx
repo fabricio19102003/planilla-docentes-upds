@@ -33,8 +33,11 @@ import {
   User as UserIcon,
   Loader2,
   Search,
+  Check,
+  X,
 } from 'lucide-react'
 import type { AuthUser, UserCreate } from '@/api/types'
+import { apiErrorMessage, PASSWORD_RULES, passwordIssues } from '@/lib/userCredentials'
 
 const MONTH_NAMES: Record<number, string> = {
   1: 'Ene', 2: 'Feb', 3: 'Mar', 4: 'Abr', 5: 'May', 6: 'Jun',
@@ -45,6 +48,25 @@ function formatDateTime(dt: string | null) {
   if (!dt) return '—'
   const d = new Date(dt)
   return `${String(d.getDate()).padStart(2, '0')} ${MONTH_NAMES[d.getMonth() + 1]} ${d.getFullYear()}`
+}
+
+function PasswordChecklist({ value }: { value: string }) {
+  return (
+    <ul className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1">
+      {PASSWORD_RULES.map((rule) => {
+        const ok = rule.test(value)
+        return (
+          <li
+            key={rule.label}
+            className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-600' : 'text-gray-400'}`}
+          >
+            {ok ? <Check size={12} /> : <X size={12} />}
+            {rule.label}
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 // ─── Create User Dialog ───────────────────────────────────────────────────────
@@ -75,6 +97,15 @@ function CreateUserDialog({
       setError('CI, nombre y contraseña son obligatorios.')
       return
     }
+    const issues = passwordIssues(form.password)
+    if (issues.length) {
+      setError(`La contraseña no cumple: ${issues.join(', ').toLowerCase()}.`)
+      return
+    }
+    if (form.role === 'docente' && !form.teacher_ci) {
+      setError('Seleccioná el docente vinculado.')
+      return
+    }
     try {
       await createUser.mutateAsync({
         ...form,
@@ -83,8 +114,8 @@ function CreateUserDialog({
       })
       setForm({ ci: '', full_name: '', email: '', password: '', role: 'docente', teacher_ci: '' })
       onClose()
-    } catch {
-      setError('No se pudo crear el usuario. Verificá que el CI no esté duplicado.')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'No se pudo crear el usuario.'))
     }
   }
 
@@ -191,6 +222,7 @@ function CreateUserDialog({
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   placeholder="••••••••"
                 />
+                <PasswordChecklist value={form.password} />
               </div>
               {form.role === 'docente' && (
                 <div className="space-y-1.5">
@@ -265,8 +297,10 @@ function ResetPasswordDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newPassword || newPassword.length < 4) {
-      setError('La contraseña debe tener al menos 4 caracteres.')
+    setError(null)
+    const issues = passwordIssues(newPassword)
+    if (issues.length) {
+      setError(`La contraseña no cumple: ${issues.join(', ').toLowerCase()}.`)
       return
     }
     try {
@@ -277,8 +311,8 @@ function ResetPasswordDialog({
         setNewPassword('')
         onClose()
       }, 1500)
-    } catch {
-      setError('No se pudo resetear la contraseña.')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'No se pudo resetear la contraseña.'))
     }
   }
 
@@ -306,6 +340,7 @@ function ResetPasswordDialog({
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="••••••••"
               />
+              <PasswordChecklist value={newPassword} />
             </div>
             {error && (
               <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">

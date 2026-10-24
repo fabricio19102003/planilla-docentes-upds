@@ -30,6 +30,7 @@
     "test:navigation": "node --experimental-strip-types --test scripts/check-navigation.mjs",
     "test:portal-clarity": "node --experimental-strip-types --test scripts/check-portal-clarity.mjs",
     "test:admin-clarity": "node --experimental-strip-types --test scripts/check-admin-clarity.mjs",
+    "test:user-credentials": "node --experimental-strip-types --test scripts/check-user-credentials.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview"
