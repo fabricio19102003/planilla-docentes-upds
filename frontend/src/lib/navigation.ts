@@ -21,6 +21,7 @@ export type NavIconName =
   | 'history'
   | 'letter'
   | 'notifications'
+  | 'messages'
   | 'profile'
 
 export interface NavItemDef {
@@ -66,6 +67,7 @@ export const adminNav: AdminNavEntry[] = [
       { to: '/academic-management', label: 'Gestión académica', icon: 'school' },
       { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },
       { to: '/requests', label: 'Solicitudes', icon: 'requests' },
+      { to: '/chat', label: 'Mensajes', icon: 'messages' },
     ],
   },
   {
@@ -86,6 +88,7 @@ export const docenteNav: NavItemDef[] = [
   { to: '/portal/schedule', label: 'Mi Horario', icon: 'schedule' },
   { to: RETENTION_LETTER_PATH, label: 'Carta Retención', icon: 'letter' },
   { to: '/portal/requests', label: 'Mis Solicitudes', icon: 'requests' },
+  { to: '/portal/chat', label: 'Mensajes', icon: 'messages' },
   { to: '/portal/notifications', label: 'Notificaciones', icon: 'notifications' },
   { to: '/portal/profile', label: 'Mi Perfil', icon: 'profile' },
 ]

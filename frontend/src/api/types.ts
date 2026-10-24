@@ -1351,3 +1351,53 @@ export interface DesignationLoadResult {
   designation_ids: number[]
   conflicts: ScheduleConflictsSummary
 }
+
+// ── Chat (shared inbox between docentes and Administración) ──
+// Timestamps are naive UTC (the backend stores datetime.utcnow without an offset).
+
+export type ChatSenderRole = 'admin' | 'docente'
+
+export interface ChatAttachment {
+  id: number
+  filename: string
+  content_type: string
+  size_bytes: number
+}
+
+export interface ChatMessage {
+  id: number
+  conversation_id: number
+  sender_user_id: number | null
+  sender_role: ChatSenderRole
+  sender_name: string | null
+  body: string
+  created_at: string
+  attachments: ChatAttachment[]
+}
+
+export interface ChatConversation {
+  id: number
+  teacher_ci: string
+  teacher_name: string | null
+  unread_count: number
+  last_message_at: string | null
+}
+
+export interface ChatThread {
+  conversation: ChatConversation
+  messages: ChatMessage[]
+}
+
+export interface ChatLastMessage {
+  preview: string
+  sender_role: ChatSenderRole
+  created_at: string
+}
+
+export interface ChatConversationSummary extends ChatConversation {
+  last_message: ChatLastMessage | null
+}
+
+export interface ChatUnreadCount {
+  unread_count: number
+}

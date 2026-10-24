@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  MessagesSquare,
   Receipt,
   School,
   Settings,
@@ -31,6 +32,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { useAuth } from '@/context/AuthContext'
 import { useMyProfile } from '@/api/hooks/useAuth'
+import { ChatNavBadge } from '@/components/chat/ChatNavBadge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -48,6 +50,7 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { CHAT_ADMIN_PATH, CHAT_PORTAL_PATH } from '@/lib/chat'
 import {
   adminNav,
   getActiveGroupLabel,
@@ -84,6 +87,7 @@ const navIcons: Record<NavIconName, LucideIcon> = {
   letter: FileText,
   notifications: Bell,
   profile: User,
+  messages: MessagesSquare,
 }
 
 function NavItemLink({ item }: { item: NavItemDef }) {
@@ -112,6 +116,8 @@ function NavItemLink({ item }: { item: NavItemDef }) {
       {item.badge != null && item.badge > 0 && (
         <SidebarMenuBadge>{item.badge > 9 ? '9+' : item.badge}</SidebarMenuBadge>
       )}
+      {item.to === CHAT_ADMIN_PATH && <ChatNavBadge side="admin" />}
+      {item.to === CHAT_PORTAL_PATH && <ChatNavBadge side="docente" />}
     </SidebarMenuItem>
   )
 }
