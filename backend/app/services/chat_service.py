@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 MAX_BODY_LENGTH = 4000
 MAX_ATTACHMENTS = 3
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# Keeps a full multipart request under the 25 MB nginx client_max_body_size.
+MAX_MESSAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024
 PREVIEW_LENGTH = 120
 DEFAULT_PAGE_SIZE = 200
 MAX_PAGE_SIZE = 500
@@ -121,12 +123,22 @@ def prepare_message(body: Optional[str], uploads: Iterable[UploadFile]) -> tuple
         )
 
     prepared: list[PreparedAttachment] = []
+    total_bytes = 0
     for upload in files:
         content = upload.file.read(MAX_ATTACHMENT_BYTES + 1)
         if len(content) > MAX_ATTACHMENT_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"El archivo supera el máximo de {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB",
+            )
+        total_bytes += len(content)
+        if total_bytes > MAX_MESSAGE_ATTACHMENT_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    "Los archivos de un mensaje no pueden superar "
+                    f"{MAX_MESSAGE_ATTACHMENT_BYTES // (1024 * 1024)} MB en total"
+                ),
             )
         detected = detect_content_type(content)
         declared = (upload.content_type or "").split(";")[0].strip().lower()

@@ -336,6 +336,15 @@ def test_all_allowed_types_and_three_files_are_accepted(client, ana, chat_dir):
     assert len(_files_on_disk(chat_dir)) == 3
 
 
+def test_files_totalling_exactly_20_mb_are_accepted(client, ana, chat_dir):
+    half = PDF + b"0" * (MAX_BYTES - len(PDF))
+
+    response = _send(client, ana, "dos", files=[_upload(f"{i}.pdf", half, "application/pdf") for i in range(2)])
+
+    assert response.status_code == 201, response.text
+    assert len(_files_on_disk(chat_dir)) == 2
+
+
 def test_body_of_exactly_4000_characters_and_a_file_of_exactly_10_mb_are_accepted(client, ana, chat_dir):
     big = PDF + b"0" * (MAX_BYTES - len(PDF))
 
@@ -355,6 +364,12 @@ REJECTIONS = {
     "unsupported_type": ("hola", [("script.exe", b"MZ\x90\x00", "application/x-msdownload")]),
     "html_declared_as_pdf": ("hola", [("x.pdf", b"<html><script>1</script></html>", "application/pdf")]),
     "fourth_file": ("hola", [(f"{i}.png", PNG, "image/png") for i in range(4)]),
+    # Each file is valid, but together they pass the 20 MB per-message cap that keeps
+    # requests under the 25 MB nginx limit.
+    "files_over_20_mb_together": (
+        "hola",
+        [(f"{i}.pdf", PDF + b"0" * (8 * 1024 * 1024), "application/pdf") for i in range(3)],
+    ),
     "one_bad_file_among_good_ones": (
         "hola",
         [("ok.png", PNG, "image/png"), ("mal.png", b"nope", "image/png")],
