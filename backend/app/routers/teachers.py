@@ -321,10 +321,7 @@ def update_teacher(
             try:
                 teacher = TeacherIdentityService(db).change_ci(ci, new_ci)
             except TeacherIdentityConflict as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Ya existe un docente con CI {new_ci}",
-                ) from exc
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
         # Update remaining fields
         for field, value in update_data.items():

@@ -556,6 +556,11 @@ export function TeacherDetailPage() {
                     Identificación
                   </p>
                 </div>
+                {editForm.ci && editForm.ci !== ci && (
+                  <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Al guardar, el docente ingresará al portal con el C.I. {editForm.ci}. Su contraseña no cambia.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <EditField
                     label="C.I. *"

@@ -11,6 +11,17 @@ from app.models.billing_publication import BillingPublication
 from app.models.designation import Designation
 from app.models.detail_request import DetailRequest
 from app.models.practice_attendance import PracticeAttendanceLog
+from app.models.academic_management import (
+    AcademicGroup,
+    AcademicProgram,
+    AcademicScheduleAssignment,
+    AcademicScheduleBlock,
+    AcademicScheduleDraft,
+    AcademicSubject,
+    Classroom,
+    SubjectOffering,
+    TeacherAvailability,
+)
 from app.models.teacher import Teacher
 from app.models.user import User
 from app.models.whatsapp_preference import WhatsAppConsentRevision, WhatsAppPreference
@@ -47,9 +58,35 @@ def _seed_all_ci_consumers(db_session):
         WhatsAppPreference(teacher_ci=OLD_CI, phone_e164="+59170000000", is_verified=True, consent_evidence="record", consent_source="written_record", consented_at=date(2026, 1, 1), consent_revision=1),
         WhatsAppConsentRevision(teacher_ci=OLD_CI, revision=1, event_type="consent", phone_e164="+59170000000", is_verified=True),
         BillingMediaToken(job_id=job.id, batch_id=batch.id, teacher_ci=OLD_CI, token_hash="b" * 64, artifact_hash="c" * 64, artifact_path="artifact.pdf", artifact_size=1, expires_at=date(2027, 1, 1)),
+        TeacherAvailability(teacher_ci=OLD_CI, academic_period="I/2027", weekday="monday", start_time=time(7), end_time=time(12)),
     ])
     db_session.flush()
+    _seed_schedule_assignment(db_session)
     return teacher
+
+
+def _seed_schedule_assignment(db_session):
+    program = AcademicProgram(code="CI-MOVE", name="CI move")
+    subject = AcademicSubject(code="CI-MOVE-101", name="CI move")
+    db_session.add_all([program, subject])
+    db_session.flush()
+    offering = SubjectOffering(
+        subject_id=subject.id, program_id=program.id, academic_period="I/2027",
+        semester=1, theory_hours=10, practice_hours=0,
+    )
+    room = Classroom(code="CI-MOVE-R", name="Room", campus="Central", capacity=30, classroom_type="classroom", resources=[])
+    group = AcademicGroup(program_id=program.id, academic_period="I/2027", semester=1, shift="Morning", code="A", expected_size=10)
+    draft = AcademicScheduleDraft(program_id=program.id, academic_period="I/2027", name="CI move", normalized_name="ci move", status="draft")
+    db_session.add_all([offering, room, group, draft])
+    db_session.flush()
+    block = AcademicScheduleBlock(
+        draft_id=draft.id, offering_id=offering.id, group_id=group.id, classroom_id=room.id,
+        activity_type="theory", weekday="monday", start_time=time(8), end_time=time(9),
+    )
+    db_session.add(block)
+    db_session.flush()
+    db_session.add(AcademicScheduleAssignment(block_id=block.id, teacher_ci=OLD_CI, effective_from=date(2027, 1, 1)))
+    db_session.flush()
 
 
 def test_change_ci_inserts_new_parent_then_repoints_every_current_consumer(db_session):
