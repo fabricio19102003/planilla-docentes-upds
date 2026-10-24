@@ -33,8 +33,10 @@ that transaction back at the end; ``apply`` commits it once (all or nothing). Th
 workbook is generated in a temporary directory and only moved over the live file after the
 commit, so a failed run never touches planilla 3's current file. Re-running ``apply`` detects
 the draft (by name), the publication (draft name + effective date), the changed CI and the
-regenerated planilla, and continues instead of duplicating. Nothing is deleted or retried, and
-publications 1-3, the theory planillas and the billing publications are never touched.
+regenerated planilla, and continues instead of duplicating. Nothing is retried. The only delete
+is the old teacher row removed by ``change_ci`` (the same as the UI path), which also repoints that
+teacher's draft assignments and portal login. Publications 1-3, the theory planillas and the
+billing publications are never touched.
 
 GUARD BYPASS (deliberate, authorized): publishing goes through
 ``_materialize_publication`` with the sequence and digest computed by ``preview_publication``
