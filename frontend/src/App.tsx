@@ -24,6 +24,7 @@ import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
 import { AcademicManagementPage } from './pages/AcademicManagementPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
+import { AdminChatPage } from './pages/AdminChatPage'
 // PracticePlanillaPage removed — unified into PlanillaPage tabs
 
 // Pages — Auth
@@ -38,6 +39,7 @@ import { MyProfilePage } from './pages/MyProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { SchedulePage } from './pages/SchedulePage'
 import { RetentionLetterPage } from './pages/RetentionLetterPage'
+import { PortalChatPage } from './pages/PortalChatPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +87,7 @@ function AppRoutes() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="academic-management" element={<AcademicManagementPage />} />
             <Route path="schedule-planner" element={<SchedulePlannerPage />} />
+            <Route path="chat" element={<AdminChatPage />} />
           </Route>
 
           {/* Docente routes */}
@@ -103,6 +106,7 @@ function AppRoutes() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="retention-letter" element={<RetentionLetterPage />} />
+            <Route path="chat" element={<PortalChatPage />} />
           </Route>
         </Routes>
       </ToastProvider>
