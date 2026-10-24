@@ -1029,6 +1029,7 @@ class PlanillaGenerator:
             period_start=period_start,
             period_end=period_end,
             activity_kind="theory",
+            explicit_cutoff=start_date is not None,
         )
         if not sources:
             warnings.append("No hay fuentes horarias regulares para el período solicitado")

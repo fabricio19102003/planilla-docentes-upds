@@ -30,6 +30,7 @@ from app.schemas.planilla import (
 )
 from app.services import app_settings_service
 from app.services.attendance_engine import AttendanceEngine
+from app.services.designation_window import contract_end_dates, is_zero_hours_row, period_note
 from app.services.planilla_generator import PayrollDataError, PlanillaGenerator
 from app.services.practice_planilla_generator import PracticePlanillaGenerator
 from app.services.salary_report_generator import SalaryReportGenerator
@@ -506,6 +507,14 @@ def get_planilla_detail(
                 elif row_key in stored_overrides:
                     resolved_payments[row_key] = float(stored_overrides[row_key])
 
+        contract_ends = contract_end_dates(
+            db,
+            [
+                row.designation_id
+                for row in rows
+                if is_zero_hours_row(row.base_monthly_hours, row.payable_hours)
+            ],
+        )
         detail = []
         for row in rows:
             source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
@@ -534,6 +543,12 @@ def get_planilla_detail(
                 "late_count": row.late_count,
                 "absent_count": row.absent_count,
                 "observations": row.observations,
+                "period_note": period_note(
+                    row.base_monthly_hours,
+                    row.payable_hours,
+                    getattr(row, "effective_from", None),
+                    contract_ends.get(row.designation_id),
+                ),
             })
 
         # Group by teacher for totals

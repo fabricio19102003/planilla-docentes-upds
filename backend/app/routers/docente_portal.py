@@ -19,6 +19,7 @@ from app.models.teacher_ci_alias import TeacherCiAlias
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
+from app.services.designation_window import contract_end_dates, is_zero_hours_row, period_note
 from app.services.exclusion_matching import exclusion_matches_designation
 from app.services.teacher_workload_service import active_period_effective_date, effective_workloads
 from app.services.teacher_photo_service import (
@@ -68,6 +69,7 @@ class DesignationBilling(BaseModel):
     activity_kind: Literal["theory", "practice"] = "theory"
     effective_from: str | None = None
     effective_to: str | None = None
+    period_note: str | None = None
 
 
 class ExcludedDayInfo(BaseModel):
@@ -155,7 +157,25 @@ def _money(value: Any) -> Decimal:
         return Decimal("0.00")
 
 
-def _designation_billing_from_snapshot(data: dict[str, Any], has_retention: bool) -> DesignationBilling:
+def _designation_billings_from_snapshot(
+    items: list[dict[str, Any]],
+    has_retention: bool,
+    db: Session,
+) -> list[DesignationBilling]:
+    zero_ids = [
+        item.get("designation_id")
+        for item in items
+        if is_zero_hours_row(item.get("base_hours"), item.get("payable_hours"))
+    ]
+    contract_ends = contract_end_dates(db, zero_ids)
+    return [_designation_billing_from_snapshot(item, has_retention, contract_ends) for item in items]
+
+
+def _designation_billing_from_snapshot(
+    data: dict[str, Any],
+    has_retention: bool,
+    contract_ends: dict[int, Any] | None = None,
+) -> DesignationBilling:
     financials = _snapshot_financials({**data, "has_retention": has_retention})
     return DesignationBilling(
         subject=str(data.get("subject", "")),
@@ -172,6 +192,12 @@ def _designation_billing_from_snapshot(data: dict[str, Any], has_retention: bool
         activity_kind=data.get("activity_kind", "theory"),
         effective_from=data.get("effective_from"),
         effective_to=data.get("effective_to"),
+        period_note=period_note(
+            data.get("base_hours"),
+            data.get("payable_hours"),
+            data.get("effective_from"),
+            (contract_ends or {}).get(data.get("designation_id")),
+        ),
         **financials,
         payment=financials["net_payment"],
     )
@@ -445,10 +471,9 @@ def _build_billing_response_from_publication(
     if snapshot:
         teacher_data = _snapshot_teacher_entry(snapshot, pub, teacher_ci, aliases or [])
         if teacher_data:
-            designations = [
-                _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
-                for d in teacher_data.get("designations", [])
-            ]
+            designations = _designation_billings_from_snapshot(
+                teacher_data.get("designations", []), bool(teacher_data.get("has_retention", False)), db,
+            )
             excluded_days = snapshot.get("excluded_days_json")
             snap_has_retention = teacher_data.get("has_retention", False)
             financials = _snapshot_financials(teacher_data)
@@ -584,10 +609,9 @@ def get_billing_history(
         if snapshot:
             teacher_data = _snapshot_teacher_entry(snapshot, pub, teacher.ci, aliases)
             if teacher_data:
-                designations = [
-                    _designation_billing_from_snapshot(d, bool(teacher_data.get("has_retention", False)))
-                    for d in teacher_data.get("designations", [])
-                ]
+                designations = _designation_billings_from_snapshot(
+                    teacher_data.get("designations", []), bool(teacher_data.get("has_retention", False)), db,
+                )
                 excluded_days = snapshot.get("excluded_days_json")
                 financials = _snapshot_financials(teacher_data)
                 total_hours = int(teacher_data.get("total_hours", 0) or 0)

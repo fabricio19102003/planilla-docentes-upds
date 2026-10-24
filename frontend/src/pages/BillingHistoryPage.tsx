@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { TrendingUp, Receipt, Clock, ChevronDown, ChevronRight, AlertCircle, Inbox } from 'lucide-react'
 import type { BillingHistoryInfo } from '@/api/types'
 import { invoiceInstruction } from '@/lib/billingInvoice'
+import { portalRowNote } from '@/lib/closedDesignation'
 
 function formatBs(value: number) {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -129,14 +130,22 @@ function BillingRow({
                       <td className="px-3 py-2">{designation.semester}</td>
                       <td className="px-3 py-2">{designation.group}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{designation.hours}h</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatBs(designation.gross_payment)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</td>
-                      {billing.has_admin_override && (
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warning-foreground">
-                          {designation.has_admin_override ? formatBs(designation.admin_adjustment) : '—'}
+                      {portalRowNote(designation) ? (
+                        <td colSpan={billing.has_admin_override ? 4 : 3} className="px-3 py-2 text-right text-muted-foreground">
+                          {portalRowNote(designation)}
                         </td>
+                      ) : (
+                        <>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatBs(designation.gross_payment)}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</td>
+                          {billing.has_admin_override && (
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warning-foreground">
+                              {designation.has_admin_override ? formatBs(designation.admin_adjustment) : '—'}
+                            </td>
+                          )}
+                          <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">{formatBs(designation.net_payment)}</td>
+                        </>
                       )}
-                      <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">{formatBs(designation.net_payment)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -253,28 +262,32 @@ function BillingMonthCard({
                 Semestre {designation.semester} · Grupo {designation.group} ·{' '}
                 <span className="font-semibold tabular-nums text-foreground">{designation.hours}h</span>
               </p>
-              <dl className="mt-2 space-y-1">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Bruto</dt>
-                  <dd className="text-right tabular-nums">{formatBs(designation.gross_payment)}</dd>
-                </div>
-                {designation.retention_amount > 0 && (
+              {portalRowNote(designation) ? (
+                <p className="mt-2 text-muted-foreground">{portalRowNote(designation)}</p>
+              ) : (
+                <dl className="mt-2 space-y-1">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Retención</dt>
-                    <dd className="text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</dd>
+                    <dt className="text-muted-foreground">Bruto</dt>
+                    <dd className="text-right tabular-nums">{formatBs(designation.gross_payment)}</dd>
                   </div>
-                )}
-                {designation.has_admin_override && (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Ajuste</dt>
-                    <dd className="text-right tabular-nums text-warning-foreground">{formatBs(designation.admin_adjustment)}</dd>
+                  {designation.retention_amount > 0 && (
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Retención</dt>
+                      <dd className="text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</dd>
+                    </div>
+                  )}
+                  {designation.has_admin_override && (
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Ajuste</dt>
+                      <dd className="text-right tabular-nums text-warning-foreground">{formatBs(designation.admin_adjustment)}</dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between gap-4 border-t pt-1">
+                    <dt className="font-semibold text-muted-foreground">Neto</dt>
+                    <dd className="text-right font-semibold tabular-nums text-foreground">{formatBs(designation.net_payment)}</dd>
                   </div>
-                )}
-                <div className="flex justify-between gap-4 border-t pt-1">
-                  <dt className="font-semibold text-muted-foreground">Neto</dt>
-                  <dd className="text-right font-semibold tabular-nums text-foreground">{formatBs(designation.net_payment)}</dd>
-                </div>
-              </dl>
+                </dl>
+              )}
             </div>
           ))}
         </div>

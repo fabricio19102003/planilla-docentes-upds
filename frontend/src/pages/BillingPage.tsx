@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useCurrentBilling } from '@/api/hooks/useAuth'
 import { invoiceInstruction, RETENTION_LETTER_PATH } from '@/lib/billingInvoice'
+import { portalRowNote } from '@/lib/closedDesignation'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,7 @@ function formatAdjustment(value: number) {
 const NUMERIC_HEADINGS = new Set(['Horas', 'Bruto', 'Retención', 'Ajuste', 'Neto'])
 
 function DesignationMobileCard({ designation }: { designation: BillingDesignation }) {
+  const periodNote = portalRowNote(designation)
   return (
     <Card render={<article />} className="p-4">
       <div className="flex items-start justify-between gap-3">
@@ -45,28 +47,32 @@ function DesignationMobileCard({ designation }: { designation: BillingDesignatio
       <p className="mt-1 text-xs text-muted-foreground">
         Semestre {designation.semester} · <span className="font-semibold tabular-nums text-foreground">{designation.hours}h</span>
       </p>
-      <dl className="mt-3 space-y-1.5 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Bruto</dt>
-          <dd className="text-right tabular-nums text-foreground">{formatBs(designation.gross_payment)}</dd>
-        </div>
-        {designation.retention_amount > 0 && (
+      {periodNote ? (
+        <p className="mt-3 text-sm text-muted-foreground">{periodNote}</p>
+      ) : (
+        <dl className="mt-3 space-y-1.5 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Retención</dt>
-            <dd className="text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</dd>
+            <dt className="text-muted-foreground">Bruto</dt>
+            <dd className="text-right tabular-nums text-foreground">{formatBs(designation.gross_payment)}</dd>
           </div>
-        )}
-        {designation.has_admin_override && (
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Ajuste</dt>
-            <dd className="text-right tabular-nums text-warning-foreground">{formatAdjustment(designation.admin_adjustment)}</dd>
+          {designation.retention_amount > 0 && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Retención</dt>
+              <dd className="text-right tabular-nums text-destructive-foreground">- {formatBs(designation.retention_amount)}</dd>
+            </div>
+          )}
+          {designation.has_admin_override && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Ajuste</dt>
+              <dd className="text-right tabular-nums text-warning-foreground">{formatAdjustment(designation.admin_adjustment)}</dd>
+            </div>
+          )}
+          <div className="flex justify-between gap-4 border-t pt-1.5">
+            <dt className="font-semibold text-muted-foreground">Neto</dt>
+            <dd className="text-right font-semibold tabular-nums text-foreground">{formatBs(designation.net_payment)}</dd>
           </div>
-        )}
-        <div className="flex justify-between gap-4 border-t pt-1.5">
-          <dt className="font-semibold text-muted-foreground">Neto</dt>
-          <dd className="text-right font-semibold tabular-nums text-foreground">{formatBs(designation.net_payment)}</dd>
-        </div>
-      </dl>
+        </dl>
+      )}
     </Card>
   )
 }
@@ -297,18 +303,26 @@ function BillingCard({ billing }: { billing: BillingInfo }) {
                         </Badge>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">{d.hours}h</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-foreground">{formatBs(d.gross_payment)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-destructive-foreground">- {formatBs(d.retention_amount)}</td>
-                      {hasAdjustments && (
-                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-warning-foreground">
-                          {d.has_admin_override
-                            ? `${d.admin_adjustment >= 0 ? '+' : '-'} ${formatBs(Math.abs(d.admin_adjustment))}`
-                            : '—'}
+                      {portalRowNote(d) ? (
+                        <td colSpan={hasAdjustments ? 4 : 3} className="px-4 py-3 text-right text-muted-foreground">
+                          {portalRowNote(d)}
                         </td>
+                      ) : (
+                        <>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-foreground">{formatBs(d.gross_payment)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-destructive-foreground">- {formatBs(d.retention_amount)}</td>
+                          {hasAdjustments && (
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-warning-foreground">
+                              {d.has_admin_override
+                                ? `${d.admin_adjustment >= 0 ? '+' : '-'} ${formatBs(Math.abs(d.admin_adjustment))}`
+                                : '—'}
+                            </td>
+                          )}
+                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
+                            {formatBs(d.net_payment)}
+                          </td>
+                        </>
                       )}
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
-                        {formatBs(d.net_payment)}
-                      </td>
                     </tr>
                   ))
                 )}

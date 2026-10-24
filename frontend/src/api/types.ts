@@ -71,6 +71,7 @@ export interface BillingDesignation {
   activity_kind?: 'theory' | 'practice'
   effective_from?: string | null
   effective_to?: string | null
+  period_note?: string | null
 }
 
 export interface BillingInfo {
@@ -1061,6 +1062,7 @@ export interface PlanillaDetailRow {
   late_count: number
   absent_count: number
   observations: string[]
+  period_note?: string | null
 }
 
 export interface PlanillaTeacherTotal {
