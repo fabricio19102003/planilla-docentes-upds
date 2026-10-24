@@ -1,34 +1,19 @@
+import { cn } from '@/lib/utils'
+
+/** Brand lockup for dark brand surfaces (login). Colors come from the primary-foreground token. */
 export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const textSize = { sm: 'text-2xl', md: 'text-4xl', lg: 'text-6xl' }
+  const textSize = { sm: 'text-2xl tracking-[0.2em]', md: 'text-4xl tracking-[0.25em]', lg: 'text-6xl tracking-[0.3em]' }
   const subtitleSize = { sm: 'text-[8px]', md: 'text-[9px]', lg: 'text-sm' }
-  const letterSpacing = { sm: '0.2em', md: '0.25em', lg: '0.3em' }
-  const lineWidth = { sm: 40, md: 64, lg: 96 }
+  const lineWidth = { sm: 'w-10', md: 'w-16', lg: 'w-24' }
 
   return (
     <div className="flex flex-col items-center select-none">
-      <div
-        className={`font-black text-white ${textSize[size]}`}
-        style={{ letterSpacing: letterSpacing[size] }}
-      >
-        UPDS
-      </div>
+      <div className={cn('font-black text-primary-foreground', textSize[size])}>UPDS</div>
 
       {/* Accent line */}
-      <div className="flex flex-col items-center gap-[2px] mt-1.5">
-        <div
-          className="rounded-full"
-          style={{
-            width: `${lineWidth[size]}px`,
-            height: '2px',
-            background: 'linear-gradient(90deg, transparent 0%, #1C398E 20%, #00A6F4 50%, #1C398E 80%, transparent 100%)',
-          }}
-        />
-      </div>
+      <div className={cn('mt-1.5 h-0.5 rounded-full bg-primary-foreground/40', lineWidth[size])} />
 
-      <p
-        className={`${subtitleSize[size]} font-bold uppercase mt-1.5`}
-        style={{ letterSpacing: '0.25em', color: 'rgba(184, 230, 254, 0.5)' }}
-      >
+      <p className={cn('mt-1.5 font-bold uppercase tracking-[0.25em] text-primary-foreground/60', subtitleSize[size])}>
         Sistema de Pago
       </p>
     </div>

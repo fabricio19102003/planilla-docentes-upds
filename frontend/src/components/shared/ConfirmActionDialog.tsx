@@ -1,5 +1,3 @@
-import { AlertTriangle } from 'lucide-react'
-
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,6 +9,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { ConfirmSummary } from '@/lib/planillaGenerationGuard'
+
+import { ConfirmSummaryDetails } from './ConfirmSummaryDetails'
 
 interface ConfirmActionDialogProps {
   summary: ConfirmSummary | null
@@ -32,26 +32,8 @@ export function ConfirmActionDialog({ summary, pending = false, onConfirm, onCan
               <DialogDescription>Revisá el resumen antes de continuar.</DialogDescription>
             </DialogHeader>
 
-            <DialogPanel className="space-y-4">
-              <dl className="rounded-lg bg-gray-50 border border-gray-200 divide-y divide-gray-200 text-sm">
-                {summary.rows.map((row) => (
-                  <div key={row.label} className="flex items-start justify-between gap-4 px-3 py-2">
-                    <dt className="text-gray-500">{row.label}</dt>
-                    <dd className="font-medium text-gray-800 text-right">{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-
-              {summary.warning && (
-                <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                  <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-amber-700">{summary.warning}</p>
-                </div>
-              )}
-
-              {summary.consequence && (
-                <p className="text-sm text-gray-700">{summary.consequence}</p>
-              )}
+            <DialogPanel>
+              <ConfirmSummaryDetails rows={summary.rows} warning={summary.warning} consequence={summary.consequence} />
             </DialogPanel>
 
             <DialogFooter>

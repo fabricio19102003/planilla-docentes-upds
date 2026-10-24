@@ -1,5 +1,11 @@
 "use client";
 
+/*
+ * className vs inputClassName: `className` styles the wrapper span (width, border, ring,
+ * background); `inputClassName` styles the inner <textarea> (font-mono, text alignment,
+ * min height, padding). See the note at the top of input.tsx.
+ */
+
 import { Field as FieldPrimitive } from "@base-ui/react/field";
 import { mergeProps } from "@base-ui/react/merge-props";
 import type * as React from "react";
@@ -9,10 +15,13 @@ export type TextareaProps = React.ComponentPropsWithoutRef<"textarea"> &
   React.RefAttributes<HTMLTextAreaElement> & {
     size?: "sm" | "default" | "lg" | number;
     unstyled?: boolean;
+    /** Classes for the inner <textarea>. `className` targets the wrapper span. */
+    inputClassName?: string;
   };
 
 export function Textarea({
   className,
+  inputClassName,
   size = "default",
   unstyled = false,
   ref,
@@ -45,6 +54,7 @@ export function Textarea({
                 "min-h-16.5 px-[calc(--spacing(2.5)-1px)] py-[calc(--spacing(1)-1px)] max-sm:min-h-19.5",
               size === "lg" &&
                 "min-h-18.5 py-[calc(--spacing(2)-1px)] max-sm:min-h-21.5",
+              inputClassName,
             )}
             data-slot="textarea"
             {...mergeProps(defaultProps, props)}

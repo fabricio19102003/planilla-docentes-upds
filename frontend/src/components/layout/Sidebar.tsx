@@ -288,7 +288,8 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="px-3 py-3">
+      {/* The 3rem collapsed rail leaves room for p-2 plus the 2rem badge, the same box as the menu icons. */}
+      <SidebarHeader className="px-4 py-3 group-data-[collapsible=icon]:px-2">
         <div className="flex items-center gap-2.5 overflow-hidden">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-black text-primary-foreground shadow-xs">
             S
