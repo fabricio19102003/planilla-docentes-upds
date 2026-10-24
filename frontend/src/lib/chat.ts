@@ -1,4 +1,4 @@
-import type { ChatConversationSummary, ChatMessage, ChatSenderRole } from '@/api/types'
+import type { ChatConversationSummary, ChatMessage, ChatSenderRole, ChatThread } from '@/api/types'
 
 // Limits mirror app/services/chat_service.py; the backend stays the authority.
 export const CHAT_MAX_BODY_LENGTH = 4000
@@ -80,6 +80,31 @@ export function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): 
   for (const message of current) byId.set(message.id, message)
   for (const message of incoming) byId.set(message.id, message)
   return [...byId.values()].sort((a, b) => a.id - b.id)
+}
+
+export function oldestMessageId(messages: ChatMessage[]): number {
+  return messages.length > 0 ? messages[0].id : 0
+}
+
+/**
+ * Folds a fetched page into the cached thread. First load takes the page as is. A poll (`after`)
+ * appends newer messages and keeps the cached `has_more`, because polls never report older ones.
+ * An `older` page (`before`) is merged in front, deduped by id, and brings the new `has_more`.
+ */
+export function applyThreadPage(current: ChatThread | undefined, page: ChatThread, kind: 'poll' | 'older'): ChatThread {
+  if (!current) return { ...page, has_more: page.has_more ?? false }
+  if (kind === 'older') {
+    return {
+      conversation: current.conversation,
+      messages: mergeMessages(current.messages, page.messages),
+      has_more: page.has_more ?? false,
+    }
+  }
+  return {
+    conversation: page.conversation,
+    messages: mergeMessages(current.messages, page.messages),
+    has_more: current.has_more ?? false,
+  }
 }
 
 export function lastMessageId(messages: ChatMessage[]): number {

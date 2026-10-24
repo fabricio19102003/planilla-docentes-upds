@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatAttachmentResponse(BaseModel):
@@ -35,6 +35,12 @@ class ChatConversationResponse(BaseModel):
 class ChatThreadResponse(BaseModel):
     conversation: ChatConversationResponse
     messages: list[ChatMessageResponse]
+    # True when messages older than the first one returned exist; always false for `after` polls.
+    has_more: bool = False
+
+
+class ChatStartRequest(BaseModel):
+    teacher_ci: str = Field(min_length=1, max_length=20)
 
 
 class ChatLastMessage(BaseModel):

@@ -1,7 +1,7 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, MessageSquareText, TriangleAlert } from 'lucide-react'
 
-import { useChatThread, useMarkChatRead, useSendChatMessage } from '@/api/hooks/useChat'
+import { useChatThread, useLoadOlderChatMessages, useMarkChatRead, useSendChatMessage } from '@/api/hooks/useChat'
 import type { ChatTarget } from '@/api/hooks/useChat'
 import type { ChatSenderRole } from '@/api/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -44,6 +44,7 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
   const thread = useChatThread(target)
   const send = useSendChatMessage(target)
   const markRead = useMarkChatRead(target)
+  const loadOlder = useLoadOlderChatMessages(target)
   const visible = usePageVisible()
 
   const data = thread.data
@@ -68,6 +69,34 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
   const items = messages ? buildThreadItems(messages, viewer, dividerId ?? null) : []
   const lastId = messages && messages.length > 0 ? messages[messages.length - 1].id : 0
   const scroll = useChatScroll({ itemCount: items.length, layoutKey: lastId })
+
+  // Keeps the viewport anchored on the message that was first before older ones were prepended.
+  const anchorRef = useRef<{ id: number; top: number } | null>(null)
+  const firstId = messages && messages.length > 0 ? messages[0].id : 0
+  const { viewportRef, atBottomRef } = scroll
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current
+    const viewport = viewportRef.current
+    if (!anchor || !viewport) return
+    anchorRef.current = null
+    const element = viewport.querySelector(`[data-message-id="${anchor.id}"]`)
+    if (!element) return
+    const shift = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.top
+    if (shift !== 0) viewport.scrollTop += shift
+    atBottomRef.current = false
+  }, [firstId, viewportRef, atBottomRef])
+
+  const loadOlderMessages = () => {
+    loadOlder.mutate({
+      beforeApply: () => {
+        const viewport = viewportRef.current
+        const first = viewport?.querySelector('[data-message-id]')
+        const id = Number(first?.getAttribute('data-message-id'))
+        if (!viewport || !first || !id) return
+        anchorRef.current = { id, top: first.getBoundingClientRect().top - viewport.getBoundingClientRect().top }
+      },
+    })
+  }
 
   return (
     <section aria-label={`Conversación con ${heading}`} className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -111,7 +140,20 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
               description={emptyDescription}
             />
           ) : (
-            groupByDay(items).map((day) => (
+            <>
+              {data.has_more && (
+                <div className="flex flex-col items-center gap-1 pt-3">
+                  <Button type="button" variant="outline" size="sm" disabled={loadOlder.isPending} onClick={loadOlderMessages}>
+                    {loadOlder.isPending ? 'Cargando mensajes…' : 'Cargar mensajes anteriores'}
+                  </Button>
+                  {loadOlder.isError && (
+                    <p role="alert" className="text-xs text-destructive-foreground">
+                      {apiErrorMessage(loadOlder.error, 'No se pudieron cargar los mensajes anteriores.')}
+                    </p>
+                  )}
+                </div>
+              )}
+              {groupByDay(items).map((day) => (
               // One section per day keeps each sticky date pill inside its own day.
               <div key={day.key} className="flex flex-col gap-1.5">
                 <ChatDatePill>{day.label}</ChatDatePill>
@@ -122,6 +164,7 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
                   return (
                     <ChatMessage
                       key={item.key}
+                      data-message-id={message.id}
                       side={side}
                       grouped={grouped}
                       author={author}
@@ -146,7 +189,8 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
                   )
                 })}
               </div>
-            ))
+              ))}
+            </>
           )}
         </ChatConversation>
       )}

@@ -2,8 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
-import type { ChatConversationSummary, ChatMessage, ChatThread, ChatUnreadCount } from '@/api/types'
-import { CHAT_INBOX_POLL_MS, CHAT_THREAD_POLL_MS, lastMessageId, mergeMessages } from '@/lib/chat'
+import type { ChatConversation, ChatConversationSummary, ChatMessage, ChatThread, ChatUnreadCount } from '@/api/types'
+import { CHAT_INBOX_POLL_MS, CHAT_THREAD_POLL_MS, applyThreadPage, lastMessageId, mergeMessages, oldestMessageId } from '@/lib/chat'
 
 export type ChatSide = 'docente' | 'admin'
 
@@ -48,8 +48,40 @@ export function useChatThread(target: ChatTarget | null) {
       const previous = client.getQueryData<ChatThread>(key)
       const after = previous ? lastMessageId(previous.messages) : 0
       const { data } = await api.get<ChatThread>(threadPath(target), { params: after > 0 ? { after } : undefined })
-      if (!previous) return data
-      return { conversation: data.conversation, messages: mergeMessages(previous.messages, data.messages) }
+      if (!previous) return applyThreadPage(undefined, data, 'poll')
+      // Older messages may have been prepended while this poll was in flight; merge into the latest cache.
+      return applyThreadPage(client.getQueryData<ChatThread>(key) ?? previous, data, 'poll')
+    },
+  })
+}
+
+export interface LoadOlderChatPayload {
+  /** Runs right before the older page enters the cache, e.g. to capture a scroll anchor. */
+  beforeApply?: () => void
+}
+
+/** Fetches the page of messages right before the oldest loaded one and prepends it to the cached thread. */
+export function useLoadOlderChatMessages(target: ChatTarget) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ beforeApply }: LoadOlderChatPayload = {}) => {
+      const key = chatKeys.thread(target)
+      const current = queryClient.getQueryData<ChatThread>(key)
+      const before = current ? oldestMessageId(current.messages) : 0
+      if (!current?.has_more || before === 0) return
+      const { data } = await api.get<ChatThread>(threadPath(target), { params: { before } })
+      beforeApply?.()
+      queryClient.setQueryData<ChatThread>(key, (thread) => (thread ? applyThreadPage(thread, data, 'older') : thread))
+    },
+  })
+}
+
+/** Admin: opens (or lazily creates) a teacher's single conversation. It joins the inbox once a message is sent. */
+export function useStartChatConversation() {
+  return useMutation({
+    mutationFn: async (teacherCi: string) => {
+      const { data } = await api.post<ChatConversation>('/chat/conversations', { teacher_ci: teacherCi })
+      return data
     },
   })
 }

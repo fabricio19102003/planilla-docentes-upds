@@ -4,6 +4,7 @@ import { MessagesSquare } from 'lucide-react'
 
 import { useChatConversations } from '@/api/hooks/useChat'
 import { ChatConversationList } from '@/components/chat/ChatConversationList'
+import { NewChatDialog } from '@/components/chat/NewChatDialog'
 import { ChatThreadPanel } from '@/components/chat/ChatThreadPanel'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +20,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
 export function AdminChatPage() {
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
+  const [newChatOpen, setNewChatOpen] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
   const { data: conversations, isLoading, error } = useChatConversations(debouncedSearch)
 
@@ -39,6 +41,7 @@ export function AdminChatPage() {
         onSearchChange={setSearch}
         selectedId={selectedId}
         onSelect={select}
+        onNewMessage={() => setNewChatOpen(true)}
       />
       <div className={cn('min-w-0 flex-1 flex-col', selectedId ? 'flex' : 'hidden md:flex')}>
         {selectedId ? (
@@ -56,6 +59,7 @@ export function AdminChatPage() {
           </div>
         )}
       </div>
+      <NewChatDialog open={newChatOpen} onOpenChange={setNewChatOpen} onStarted={select} />
     </div>
   )
 }

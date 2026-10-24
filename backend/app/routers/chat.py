@@ -11,8 +11,10 @@ from app.database import get_db
 from app.models.chat import ChatAttachment, ChatConversation, ChatMessage
 from app.models.user import User
 from app.schemas.chat import (
+    ChatConversationResponse,
     ChatConversationSummary,
     ChatMessageResponse,
+    ChatStartRequest,
     ChatThreadResponse,
     ChatUnreadCount,
 )
@@ -34,12 +36,25 @@ def _own_conversation(db: Session, user: User) -> ChatConversation:
 
 
 def _thread(
-    db: Session, conversation: ChatConversation, side: str, after: int, limit: int
+    db: Session,
+    conversation: ChatConversation,
+    side: str,
+    after: Optional[int],
+    before: Optional[int],
+    limit: int,
 ) -> ChatThreadResponse:
-    messages = chat_service.list_messages(db, conversation, after=after, limit=limit)
+    if after is not None and before is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Los parámetros 'after' y 'before' no se pueden usar juntos",
+        )
+    messages, has_more = chat_service.list_messages(
+        db, conversation, after=after or 0, limit=limit, before=before
+    )
     return ChatThreadResponse(
         conversation=chat_service.serialize_conversation(db, conversation, side),
         messages=[chat_service.serialize_message(m, side) for m in messages],
+        has_more=has_more,
     )
 
 
@@ -64,13 +79,16 @@ def _send(
 
 @router.get("/me", response_model=ChatThreadResponse)
 def get_my_conversation(
-    after: int = Query(0, ge=0, description="Devuelve solo mensajes con id mayor a este"),
+    after: Optional[int] = Query(None, ge=0, description="Devuelve solo mensajes con id mayor a este"),
+    before: Optional[int] = Query(
+        None, ge=1, description="Devuelve los mensajes anteriores a este id (excluyente con after)"
+    ),
     limit: int = Query(chat_service.DEFAULT_PAGE_SIZE, ge=1, le=chat_service.MAX_PAGE_SIZE),
     current_user: User = Depends(require_docente),
     db: Session = Depends(get_db),
 ) -> ChatThreadResponse:
     conversation = _own_conversation(db, current_user)
-    return _thread(db, conversation, "docente", after, limit)
+    return _thread(db, conversation, "docente", after, before, limit)
 
 
 @router.post("/me/messages", response_model=ChatMessageResponse, status_code=status.HTTP_201_CREATED)
@@ -117,6 +135,17 @@ def list_conversations(
     return chat_service.list_conversation_summaries(db, q)
 
 
+@router.post("/conversations", response_model=ChatConversationResponse)
+def start_conversation(
+    payload: ChatStartRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ChatConversationResponse:
+    """Open (or lazily create) a teacher's single conversation; it stays out of the inbox until a message is sent."""
+    conversation = chat_service.start_conversation(db, payload.teacher_ci.strip())
+    return chat_service.serialize_conversation(db, conversation, "admin")
+
+
 @router.get("/unread-count", response_model=ChatUnreadCount)
 def get_admin_unread_count(
     _: User = Depends(require_admin),
@@ -128,13 +157,16 @@ def get_admin_unread_count(
 @router.get("/conversations/{conversation_id}/messages", response_model=ChatThreadResponse)
 def get_conversation_messages(
     conversation_id: int,
-    after: int = Query(0, ge=0, description="Devuelve solo mensajes con id mayor a este"),
+    after: Optional[int] = Query(None, ge=0, description="Devuelve solo mensajes con id mayor a este"),
+    before: Optional[int] = Query(
+        None, ge=1, description="Devuelve los mensajes anteriores a este id (excluyente con after)"
+    ),
     limit: int = Query(chat_service.DEFAULT_PAGE_SIZE, ge=1, le=chat_service.MAX_PAGE_SIZE),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> ChatThreadResponse:
     conversation = chat_service.get_conversation(db, conversation_id)
-    return _thread(db, conversation, "admin", after, limit)
+    return _thread(db, conversation, "admin", after, before, limit)
 
 
 @router.post(

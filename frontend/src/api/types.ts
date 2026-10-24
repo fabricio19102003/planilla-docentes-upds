@@ -1386,6 +1386,8 @@ export interface ChatConversation {
 export interface ChatThread {
   conversation: ChatConversation
   messages: ChatMessage[]
+  /** True when messages older than the first one loaded exist (never set by `after` polls). */
+  has_more: boolean
 }
 
 export interface ChatLastMessage {

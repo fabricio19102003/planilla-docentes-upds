@@ -175,6 +175,21 @@ def get_or_create_conversation(db: Session, teacher_ci: str) -> ChatConversation
     return conversation
 
 
+def start_conversation(db: Session, teacher_ci: str) -> ChatConversation:
+    """The teacher's single conversation for an admin to open, created lazily."""
+    if db.get(Teacher, teacher_ci) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Docente no encontrado")
+    has_portal_user = (
+        db.query(User.id).filter(User.role == "docente", User.teacher_ci == teacher_ci).first() is not None
+    )
+    if not has_portal_user:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Este docente no tiene una cuenta en el portal, por lo que no podría leer el mensaje",
+        )
+    return get_or_create_conversation(db, teacher_ci)
+
+
 def get_conversation(db: Session, conversation_id: int) -> ChatConversation:
     conversation = db.get(ChatConversation, conversation_id)
     if conversation is None:
@@ -301,14 +316,26 @@ def mark_read(db: Session, conversation: ChatConversation, side: str) -> int:
 
 
 def list_messages(
-    db: Session, conversation: ChatConversation, after: int = 0, limit: int = DEFAULT_PAGE_SIZE
-) -> list[ChatMessage]:
+    db: Session,
+    conversation: ChatConversation,
+    after: int = 0,
+    limit: int = DEFAULT_PAGE_SIZE,
+    before: Optional[int] = None,
+) -> tuple[list[ChatMessage], bool]:
+    """One page oldest first, plus whether older messages exist beyond it.
+
+    `after` polls newer messages (never reports older ones); otherwise the latest page, or the
+    page right before the `before` cursor.
+    """
     limit = max(1, min(limit, MAX_PAGE_SIZE))
     query = db.query(ChatMessage).filter(ChatMessage.conversation_id == conversation.id)
     if after > 0:
-        return query.filter(ChatMessage.id > after).order_by(ChatMessage.id.asc()).limit(limit).all()
-    # First load: the most recent page, oldest first.
-    return list(reversed(query.order_by(ChatMessage.id.desc()).limit(limit).all()))
+        return query.filter(ChatMessage.id > after).order_by(ChatMessage.id.asc()).limit(limit).all(), False
+    if before is not None:
+        query = query.filter(ChatMessage.id < before)
+    # Fetch one extra row to learn whether anything older remains.
+    rows = query.order_by(ChatMessage.id.desc()).limit(limit + 1).all()
+    return list(reversed(rows[:limit])), len(rows) > limit
 
 
 # ── Serialization ────────────────────────────────────────────────────────────
