@@ -4,6 +4,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.models.biometric import BiometricRecord
+from app.models.contract import ContractDocument
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -30,7 +31,12 @@ class TeacherIdentityService:
         "whatsapp_consent_revisions",
         "billing_notification_jobs",
         "billing_media_tokens",
+        "teacher_availability",
+        "academic_schedule_assignments",
     )
+    # Issued contracts are immutable (database triggers reject UPDATE and DELETE), so a
+    # teacher who has any cannot move; change_ci rejects the change before writing.
+    guarded_tables = ("contract_documents",)
 
     def __init__(self, db: Session):
         self.db = db
@@ -48,7 +54,8 @@ class TeacherIdentityService:
             raise TeacherIdentityConflict(
                 f"El CI {new_ci} ya está en uso por el usuario {existing_user.full_name}"
             )
-        self._check_portal_logins(old_ci)
+        self._check_issued_contracts(old_ci)
+        self._check_portal_logins(old_ci, new_ci)
         self._check_biometric_collisions(old_ci, new_ci)
 
         replacement = self._insert_replacement(teacher, new_ci)
@@ -58,7 +65,17 @@ class TeacherIdentityService:
         self._delete_old_parent(teacher)
         return replacement
 
-    def _check_portal_logins(self, old_ci: str) -> None:
+    def _check_issued_contracts(self, old_ci: str) -> None:
+        contracts = self.db.scalar(
+            select(func.count()).select_from(ContractDocument).where(ContractDocument.teacher_ci == old_ci)
+        )
+        if contracts:
+            raise TeacherIdentityConflict(
+                f"No se puede cambiar el CI: el docente tiene {contracts} contrato(s) emitido(s), "
+                "que son inmutables"
+            )
+
+    def _check_portal_logins(self, old_ci: str, new_ci: str) -> None:
         """Reject renames the database cannot apply without a 500."""
         logins = self.db.scalars(
             select(User.ci)
@@ -73,6 +90,8 @@ class TeacherIdentityService:
             )
         # practice_attendance_logs.registered_by references users.ci without ON UPDATE.
         for login in logins:
+            if login == new_ci:
+                continue  # this login keeps its CI, so its references stay valid
             registered = self.db.scalar(
                 select(func.count()).select_from(PracticeAttendanceLog).where(
                     PracticeAttendanceLog.registered_by == login

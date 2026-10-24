@@ -206,3 +206,72 @@ def test_ci_change_rejects_teacher_with_two_portal_users(client, db_session):
     assert db_session.get(Teacher, "111") is not None
     assert db_session.get(Designation, designation_id).teacher_ci == "111"
     assert sorted(u.ci for u in db_session.query(User).filter_by(teacher_ci="111")) == ["111", "111-B"]
+
+
+def test_ci_change_moves_teacher_availability(client, db_session):
+    from app.models.academic_management import TeacherAvailability
+
+    _seed(db_session)
+    db_session.add(TeacherAvailability(
+        teacher_ci="111", academic_period="II/2026", weekday="monday",
+        start_time=time(8, 0), end_time=time(10, 0),
+    ))
+    db_session.commit()
+
+    response = client.put("/api/teachers/111", json={"ci": "222"})
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.query(TeacherAvailability).filter_by(teacher_ci="222").count() == 1
+    assert db_session.query(TeacherAvailability).filter_by(teacher_ci="111").count() == 0
+
+
+def test_ci_change_rejects_teacher_with_issued_contracts_and_changes_nothing(client, db_session):
+    from app.models.contract import ContractDocument
+
+    designation_id = _seed(db_session)
+    db_session.add(ContractDocument(
+        public_id="00000000-0000-0000-0000-000000000001", teacher_ci="111",
+        teacher_name="Docente Mal Registrado", teacher_snapshot={}, academic_period="II/2026",
+        period_snapshot={}, document_kind="original", effective_date=date(2026, 8, 1),
+        source_digest="0" * 64, template_version="v1", department="medicina", full_snapshot={},
+        artifact_filename="c.pdf", artifact_media_type="application/pdf",
+        artifact_sha256="0" * 64, artifact_size=1, artifact_content=b"x",
+    ))
+    db_session.commit()
+
+    response = client.put("/api/teachers/111", json={"ci": "222"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "No se puede cambiar el CI: el docente tiene 1 contrato(s) emitido(s), que son inmutables"
+    )
+    _assert_unchanged(db_session, designation_id)
+    assert db_session.query(ContractDocument).filter_by(teacher_ci="111").count() == 1
+
+
+def test_registered_by_on_a_login_that_keeps_its_ci_does_not_block(client, db_session):
+    _seed(db_session, user_ci="222")
+    log = db_session.query(PracticeAttendanceLog).filter_by(teacher_ci="111").one()
+    log.registered_by = "222"
+    db_session.commit()
+
+    response = client.put("/api/teachers/111", json={"ci": "222"})
+
+    assert response.status_code == 200, response.text
+
+
+def test_every_teacher_ci_foreign_key_is_moved_or_guarded():
+    import app.models  # noqa: F401  registers every table
+    from app.database import Base
+    from app.services.teacher_identity_service import TeacherIdentityService
+
+    teacher_ci = Teacher.__table__.c.ci
+    referencing = {
+        table.name
+        for table in Base.metadata.sorted_tables
+        for fk in table.foreign_keys
+        if fk.column is teacher_ci
+    }
+    handled = set(TeacherIdentityService.child_tables) | set(TeacherIdentityService.guarded_tables)
+    assert referencing - handled == set()
