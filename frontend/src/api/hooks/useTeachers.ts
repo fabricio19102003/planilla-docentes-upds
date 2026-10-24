@@ -91,6 +91,8 @@ export function useUpdateTeacher() {
       void qc.invalidateQueries({ queryKey: ['teacher-detail'] })
       void qc.invalidateQueries({ queryKey: ['whatsapp-preference', variables.ci] })
       void qc.invalidateQueries({ queryKey: ['whatsapp-preference', teacher.ci] })
+      // A CI change also renames the linked portal user.
+      void qc.invalidateQueries({ queryKey: ['users'] })
     },
   })
 }
