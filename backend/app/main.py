@@ -37,6 +37,7 @@ from app.routers import (
     admin_whatsapp_router,
     academic_management_router,
 )
+from app.routers.chat import router as chat_router
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,12 @@ def _ensure_teacher_photo_storage() -> str:
     from app.services.teacher_photo_service import ensure_teacher_photos_dir
 
     return str(ensure_teacher_photos_dir())
+
+
+def _ensure_chat_attachment_storage() -> str:
+    from app.services.chat_service import attachments_dir
+
+    return str(attachments_dir())
 
 
 def _run_column_migrations() -> None:
@@ -289,6 +296,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure local storage for public docente profile photos exists.
     _ensure_teacher_photo_storage()
+    _ensure_chat_attachment_storage()
 
     # Seed default business settings if the table is empty.
     # This must run AFTER create_tables() so the ``app_settings`` table exists.
@@ -422,6 +430,7 @@ app.include_router(twilio_whatsapp_router)
 app.include_router(billing_media_router)
 app.include_router(admin_whatsapp_router)
 app.include_router(academic_management_router)
+app.include_router(chat_router)
 
 
 @app.get("/health", tags=["system"])

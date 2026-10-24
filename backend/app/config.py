@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000"]'
     UPLOAD_DIR: str = "./data/uploads"
     BILLING_MEDIA_DIR: str = "./data/billing-media"
+    CHAT_ATTACHMENTS_DIR: str = "./data/chat-attachments"
     BILLING_MEDIA_PUBLIC_BASE_URL: Optional[str] = None
 
     # App metadata
