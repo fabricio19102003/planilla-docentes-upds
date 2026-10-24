@@ -8,15 +8,17 @@ import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/shared/StatCard'
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import {
   Select,
-  SelectContent,
   SelectItem,
+  SelectPopup,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -43,6 +45,23 @@ const MONTH_NAMES: Record<number, string> = {
   1: 'Ene', 2: 'Feb', 3: 'Mar', 4: 'Abr', 5: 'May', 6: 'Jun',
   7: 'Jul', 8: 'Ago', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dic',
 }
+
+const ROLE_ITEMS = [
+  { value: 'admin', label: 'Administrador' },
+  { value: 'docente', label: 'Docente' },
+]
+
+const ROLE_FILTER_ITEMS = [
+  { value: 'all', label: 'Todos los roles' },
+  { value: 'admin', label: 'Administradores' },
+  { value: 'docente', label: 'Docentes' },
+]
+
+const ACTIVE_FILTER_ITEMS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'active', label: 'Activos' },
+  { value: 'inactive', label: 'Inactivos' },
+]
 
 function formatDateTime(dt: string | null) {
   if (!dt) return '—'
@@ -121,147 +140,152 @@ function CreateUserDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg p-0 overflow-hidden">
-        {/* Header with gradient */}
-        <div className="gradient-navy px-6 py-4">
+      <DialogPopup className="max-w-lg">
+        <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-              <UserPlus size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <UserPlus size={20} className="text-primary" />
             </div>
+            <div className="flex flex-col gap-1">
+              <DialogTitle>Nuevo Usuario</DialogTitle>
+              <DialogDescription>Completá los datos para crear un nuevo usuario</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogPanel className="space-y-5">
+            {/* Section 1: Identification */}
             <div>
-              <h2 className="text-lg font-semibold text-white">Nuevo Usuario</h2>
-              <p className="text-white/60 text-sm">Completá los datos para crear un nuevo usuario</p>
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-          {/* Section 1: Identification */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <IdCard size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Identificación</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-user-ci" className="text-sm">CI *</Label>
-                <Input
-                  id="create-user-ci"
-                  value={form.ci}
-                  onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
-                  placeholder="12345678"
-                />
+              <div className="flex items-center gap-2 mb-3">
+                <IdCard size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Identificación</p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="create-user-role" className="text-sm">Rol *</Label>
-                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
-                  <SelectTrigger id="create-user-role">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">
-                      <div className="flex items-center gap-2">
-                        <Shield size={14} className="text-blue-600" />
-                        Administrador
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="docente">
-                      <div className="flex items-center gap-2">
-                        <GraduationCap size={14} className="text-green-600" />
-                        Docente
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Personal info */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <UserIcon size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Datos Personales</p>
-            </div>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-user-name" className="text-sm">Nombre Completo *</Label>
-                <Input
-                  id="create-user-name"
-                  value={form.full_name}
-                  onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Juan Pérez García"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="create-user-email" className="text-sm">Email</Label>
-                <Input
-                  id="create-user-email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="juan@upds.edu.bo"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Access */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <KeyRound size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Acceso</p>
-            </div>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-user-password" className="text-sm">Contraseña *</Label>
-                <Input
-                  id="create-user-password"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="••••••••"
-                />
-                <PasswordChecklist value={form.password} />
-              </div>
-              {form.role === 'docente' && (
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="create-user-teacher" className="text-sm">Docente vinculado</Label>
+                  <Label htmlFor="create-user-ci" className="text-sm">CI *</Label>
+                  <Input
+                    id="create-user-ci"
+                    value={form.ci}
+                    onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
+                    placeholder="12345678"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-user-role" className="text-sm">Rol *</Label>
                   <Select
-                    value={form.teacher_ci ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, teacher_ci: v }))}
+                    value={form.role}
+                    items={ROLE_ITEMS}
+                    onValueChange={(v) => setForm((f) => ({ ...f, role: v ?? f.role }))}
                   >
-                    <SelectTrigger id="create-user-teacher">
-                      <SelectValue placeholder="Seleccionar docente..." />
+                    <SelectTrigger id="create-user-role">
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="max-h-48">
-                      {teachers?.items?.map((t) => (
-                        <SelectItem key={t.ci} value={t.ci}>
-                          {t.full_name} — {t.ci}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                    <SelectPopup>
+                      <SelectItem value="admin">
+                        <div className="flex items-center gap-2">
+                          <Shield size={14} className="text-blue-600" />
+                          Administrador
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="docente">
+                        <div className="flex items-center gap-2">
+                          <GraduationCap size={14} className="text-green-600" />
+                          Docente
+                        </div>
+                      </SelectItem>
+                    </SelectPopup>
                   </Select>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
 
-          {error && (
-            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
+            {/* Section 2: Personal info */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <UserIcon size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Datos Personales</p>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-user-name" className="text-sm">Nombre Completo *</Label>
+                  <Input
+                    id="create-user-name"
+                    value={form.full_name}
+                    onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Juan Pérez García"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-user-email" className="text-sm">Email</Label>
+                  <Input
+                    id="create-user-email"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="juan@upds.edu.bo"
+                  />
+                </div>
+              </div>
+            </div>
 
-          <div className="flex justify-end gap-3 pt-2">
+            {/* Section 3: Access */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <KeyRound size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Acceso</p>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-user-password" className="text-sm">Contraseña *</Label>
+                  <Input
+                    id="create-user-password"
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    placeholder="••••••••"
+                  />
+                  <PasswordChecklist value={form.password} />
+                </div>
+                {form.role === 'docente' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="create-user-teacher" className="text-sm">Docente vinculado</Label>
+                    <Select
+                      value={form.teacher_ci || null}
+                      items={teachers?.items?.map((t) => ({ value: t.ci, label: `${t.full_name} — ${t.ci}` })) ?? []}
+                      onValueChange={(v) => setForm((f) => ({ ...f, teacher_ci: v ?? '' }))}
+                    >
+                      <SelectTrigger id="create-user-teacher">
+                        <SelectValue placeholder="Seleccionar docente..." />
+                      </SelectTrigger>
+                      <SelectPopup className="max-h-48">
+                        {teachers?.items?.map((t) => (
+                          <SelectItem key={t.ci} value={t.ci}>
+                            {t.full_name} — {t.ci}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {error && (
+              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {error}
+              </p>
+            )}
+
+          </DialogPanel>
+
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
             <Button
               type="submit"
               disabled={createUser.isPending}
-              style={{ backgroundColor: '#003366' }}
-              className="text-white"
             >
               {createUser.isPending ? (
                 <>
@@ -275,9 +299,9 @@ function CreateUserDialog({
                 </>
               )}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -318,35 +342,37 @@ function ResetPasswordDialog({
 
   return (
     <Dialog open={Boolean(user)} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogPopup className="max-w-sm">
         <DialogHeader>
-          <DialogTitle style={{ color: '#003366' }}>Resetear Contraseña</DialogTitle>
+          <DialogTitle>Resetear Contraseña</DialogTitle>
         </DialogHeader>
         {success ? (
-          <div className="py-4 text-center">
+          <DialogPanel className="text-center">
             <p className="text-green-600 font-medium">¡Contraseña actualizada!</p>
-          </div>
+          </DialogPanel>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <p className="text-sm text-gray-500">
-              Establecer nueva contraseña para: <span className="font-medium text-gray-700">{user?.full_name}</span>
-            </p>
-            <div className="space-y-1.5">
-              <Label htmlFor="reset-user-password">Nueva Contraseña *</Label>
-              <Input
-                id="reset-user-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-              <PasswordChecklist value={newPassword} />
-            </div>
-            {error && (
-              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-                {error}
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <DialogPanel className="space-y-4">
+              <p className="text-sm text-gray-500">
+                Establecer nueva contraseña para: <span className="font-medium text-gray-700">{user?.full_name}</span>
               </p>
-            )}
+              <div className="space-y-1.5">
+                <Label htmlFor="reset-user-password">Nueva Contraseña *</Label>
+                <Input
+                  id="reset-user-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+                <PasswordChecklist value={newPassword} />
+              </div>
+              {error && (
+                <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                  {error}
+                </p>
+              )}
+            </DialogPanel>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancelar
@@ -354,14 +380,13 @@ function ResetPasswordDialog({
               <Button
                 type="submit"
                 disabled={resetPwd.isPending}
-                style={{ backgroundColor: '#003366' }}
               >
                 {resetPwd.isPending ? 'Guardando...' : 'Guardar'}
               </Button>
             </DialogFooter>
           </form>
         )}
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -458,7 +483,7 @@ export function UsersPage() {
           <div className="space-y-1.5">
             <Label htmlFor="user-search">Buscar usuarios</Label>
             <div className="relative">
-              <Search aria-hidden="true" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
               <Input
                 id="user-search"
                 type="search"
@@ -474,30 +499,30 @@ export function UsersPage() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-role-filter">Rol</Label>
-            <Select value={roleFilter} onValueChange={(value) => {
-              setRoleFilter(value as typeof roleFilter)
+            <Select value={roleFilter} items={ROLE_FILTER_ITEMS} onValueChange={(value) => {
+              setRoleFilter((value ?? 'all') as typeof roleFilter)
               setPage(1)
             }}>
               <SelectTrigger id="user-role-filter"><SelectValue /></SelectTrigger>
-              <SelectContent>
+              <SelectPopup>
                 <SelectItem value="all">Todos los roles</SelectItem>
                 <SelectItem value="admin">Administradores</SelectItem>
                 <SelectItem value="docente">Docentes</SelectItem>
-              </SelectContent>
+              </SelectPopup>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-active-filter">Estado</Label>
-            <Select value={activeFilter} onValueChange={(value) => {
-              setActiveFilter(value as typeof activeFilter)
+            <Select value={activeFilter} items={ACTIVE_FILTER_ITEMS} onValueChange={(value) => {
+              setActiveFilter((value ?? 'all') as typeof activeFilter)
               setPage(1)
             }}>
               <SelectTrigger id="user-active-filter"><SelectValue /></SelectTrigger>
-              <SelectContent>
+              <SelectPopup>
                 <SelectItem value="all">Todos los estados</SelectItem>
                 <SelectItem value="active">Activos</SelectItem>
                 <SelectItem value="inactive">Inactivos</SelectItem>
-              </SelectContent>
+              </SelectPopup>
             </Select>
           </div>
         </div>

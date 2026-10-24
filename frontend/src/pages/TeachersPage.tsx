@@ -16,11 +16,20 @@ import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import {
   Select,
-  SelectContent,
   SelectItem,
+  SelectPopup,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -28,6 +37,11 @@ import {
 import type { Teacher } from '@/api/types'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import type { TeacherType } from '@/domain/teacherTypes'
+
+const GENDER_ITEMS = [
+  { value: 'M', label: 'Masculino' },
+  { value: 'F', label: 'Femenino' },
+]
 
 // ─── Create Teacher Dialog ────────────────────────────────────────────────────
 function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -96,214 +110,216 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
-        {/* Gradient header */}
-        <div className="gradient-navy px-6 py-4">
+      <DialogPopup className="max-w-2xl">
+        <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-              <UserPlus size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <UserPlus size={20} className="text-primary" />
             </div>
+            <div className="flex flex-col gap-1">
+              <DialogTitle>Nuevo Docente</DialogTitle>
+              <DialogDescription>Completá los datos del docente</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogPanel className="space-y-5">
+            {/* Section: Identificación */}
             <div>
-              <h2 className="text-lg font-semibold text-white">Nuevo Docente</h2>
-              <p className="text-white/60 text-sm">Completá los datos del docente</p>
+              <div className="flex items-center gap-2 mb-3">
+                <IdCard size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Identificación
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">CI *</Label>
+                  <Input
+                    value={form.ci}
+                    onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
+                    placeholder="12345678"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Nombre Completo *</Label>
+                  <Input
+                    value={form.full_name}
+                    onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Juan Pérez García"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-          {/* Section: Identificación */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <IdCard size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Identificación
+            {/* Section: Datos Personales */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <IdCard size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Datos Personales
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Email</Label>
+                  <Input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="docente@upds.edu.bo"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Teléfono</Label>
+                  <Input
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="70012345"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Género</Label>
+                  <Select
+                    value={form.gender || null}
+                    items={GENDER_ITEMS}
+                    onValueChange={(v) => setForm((f) => ({ ...f, gender: v ?? '' }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="M">Masculino</SelectItem>
+                      <SelectItem value="F">Femenino</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Tipo</Label>
+                  <Select
+                    value={form.external_permanent || null}
+                    items={TEACHER_TYPE_OPTIONS}
+                    onValueChange={(v) => setForm((f) => ({ ...f, external_permanent: v ?? '' }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {TEACHER_TYPE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Section: Datos Académicos */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <GraduationCap size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Datos Académicos
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Nivel Académico</Label>
+                  <Select
+                    value={form.academic_level || null}
+                    onValueChange={(v) => setForm((f) => ({ ...f, academic_level: v ?? '' }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="Licenciatura">Licenciatura</SelectItem>
+                      <SelectItem value="Maestría">Maestría</SelectItem>
+                      <SelectItem value="Doctorado">Doctorado</SelectItem>
+                      <SelectItem value="Especialidad">Especialidad</SelectItem>
+                      <SelectItem value="Técnico Superior">Técnico Superior</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Profesión</Label>
+                  <Input
+                    value={form.profession}
+                    onChange={(e) => setForm((f) => ({ ...f, profession: e.target.value }))}
+                    placeholder="Ej: Ingeniero de Sistemas"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Especialidad</Label>
+                  <Input
+                    value={form.specialty}
+                    onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))}
+                    placeholder="Ej: Desarrollo de Software"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Código SAP</Label>
+                  <Input
+                    value={form.sap_code}
+                    onChange={(e) => setForm((f) => ({ ...f, sap_code: e.target.value }))}
+                    placeholder="Ej: SAP-001"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section: Datos Bancarios */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <CreditCard size={14} className="text-gray-400" />
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Datos Bancarios
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Banco</Label>
+                  <Input
+                    value={form.bank}
+                    onChange={(e) => setForm((f) => ({ ...f, bank: e.target.value }))}
+                    placeholder="Ej: Banco Unión"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Número de Cuenta</Label>
+                  <Input
+                    value={form.account_number}
+                    onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
+                    placeholder="Ej: 1234567890"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Retención Factura</Label>
+                  <Input
+                    value={form.invoice_retention}
+                    onChange={(e) => setForm((f) => ({ ...f, invoice_retention: e.target.value }))}
+                    placeholder="Ej: IT, IUE"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {error}
               </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">CI *</Label>
-                <Input
-                  value={form.ci}
-                  onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))}
-                  placeholder="12345678"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Nombre Completo *</Label>
-                <Input
-                  value={form.full_name}
-                  onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Juan Pérez García"
-                />
-              </div>
-            </div>
-          </div>
+            )}
 
-          {/* Section: Datos Personales */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <IdCard size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Datos Personales
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Email</Label>
-                <Input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="docente@upds.edu.bo"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Teléfono</Label>
-                <Input
-                  value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="70012345"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Género</Label>
-                <Select
-                  value={form.gender}
-                  onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="M">Masculino</SelectItem>
-                    <SelectItem value="F">Femenino</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Tipo</Label>
-                <Select
-                  value={form.external_permanent}
-                  onValueChange={(v) => setForm((f) => ({ ...f, external_permanent: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TEACHER_TYPE_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
+          </DialogPanel>
 
-          {/* Section: Datos Académicos */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <GraduationCap size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Datos Académicos
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Nivel Académico</Label>
-                <Select
-                  value={form.academic_level}
-                  onValueChange={(v) => setForm((f) => ({ ...f, academic_level: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Licenciatura">Licenciatura</SelectItem>
-                    <SelectItem value="Maestría">Maestría</SelectItem>
-                    <SelectItem value="Doctorado">Doctorado</SelectItem>
-                    <SelectItem value="Especialidad">Especialidad</SelectItem>
-                    <SelectItem value="Técnico Superior">Técnico Superior</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Profesión</Label>
-                <Input
-                  value={form.profession}
-                  onChange={(e) => setForm((f) => ({ ...f, profession: e.target.value }))}
-                  placeholder="Ej: Ingeniero de Sistemas"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Especialidad</Label>
-                <Input
-                  value={form.specialty}
-                  onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))}
-                  placeholder="Ej: Desarrollo de Software"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Código SAP</Label>
-                <Input
-                  value={form.sap_code}
-                  onChange={(e) => setForm((f) => ({ ...f, sap_code: e.target.value }))}
-                  placeholder="Ej: SAP-001"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section: Datos Bancarios */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <CreditCard size={14} className="text-gray-400" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Datos Bancarios
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Banco</Label>
-                <Input
-                  value={form.bank}
-                  onChange={(e) => setForm((f) => ({ ...f, bank: e.target.value }))}
-                  placeholder="Ej: Banco Unión"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Número de Cuenta</Label>
-                <Input
-                  value={form.account_number}
-                  onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
-                  placeholder="Ej: 1234567890"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Retención Factura</Label>
-                <Input
-                  value={form.invoice_retention}
-                  onChange={(e) => setForm((f) => ({ ...f, invoice_retention: e.target.value }))}
-                  placeholder="Ej: IT, IUE"
-                />
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
             <Button
               type="submit"
               disabled={createTeacher.isPending}
-              style={{ backgroundColor: '#003366' }}
-              className="text-white"
             >
               {createTeacher.isPending ? (
                 <>
@@ -317,9 +333,9 @@ function CreateTeacherDialog({ open, onClose }: { open: boolean; onClose: () => 
                 </>
               )}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      </DialogContent>
+      </DialogPopup>
     </Dialog>
   )
 }
@@ -363,7 +379,7 @@ export function TeachersPage() {
       <div className="card-3d-static overflow-hidden">
         <div className="py-4 px-5">
           <div className="relative max-w-md">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               placeholder="Buscar por nombre o C.I."
@@ -547,41 +563,41 @@ export function TeachersPage() {
       <CreateTeacherDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
       {/* Bulk Delete Confirmation Dialog */}
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
-          <div className="space-y-4">
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <Trash2 size={20} className="text-red-600" />
+              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-destructive-foreground" />
               </div>
-              <div>
-                <h3 className="font-semibold text-gray-800">
+              <div className="flex flex-col gap-1">
+                <AlertDialogTitle>
                   Eliminar {selectedCIs.size} docente{selectedCIs.size !== 1 ? 's' : ''}
-                </h3>
-                <p className="text-sm text-gray-500">
+                </AlertDialogTitle>
+                <AlertDialogDescription>
                   Esta acción eliminará también sus designaciones, asistencia y cuentas de usuario
-                </p>
+                </AlertDialogDescription>
               </div>
             </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
-                Cancelar
-              </Button>
-              <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
-                disabled={bulkDelete.isPending}
-                onClick={async () => {
-                  await bulkDelete.mutateAsync([...selectedCIs])
-                  setSelectedCIs(new Set())
-                  setShowDeleteConfirm(false)
-                }}
-              >
-                {bulkDelete.isPending ? 'Eliminando...' : 'Confirmar eliminación'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              Cancelar
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              disabled={bulkDelete.isPending}
+              onClick={async () => {
+                await bulkDelete.mutateAsync([...selectedCIs])
+                setSelectedCIs(new Set())
+                setShowDeleteConfirm(false)
+              }}
+            >
+              {bulkDelete.isPending ? 'Eliminando...' : 'Confirmar eliminación'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </div>
   )
 }

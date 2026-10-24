@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   User,
   Mail,
@@ -128,7 +128,14 @@ function SelectField({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#003366]/65">{label}</Label>
-      <Select value={value || SELECT_EMPTY} onValueChange={(next) => onChange(next === SELECT_EMPTY ? '' : next)}>
+      <Select
+        value={value || SELECT_EMPTY}
+        items={[
+          { value: SELECT_EMPTY, label: 'Sin especificar' },
+          ...normalizedOptions.map((option) => ({ value: option, label: option })),
+        ]}
+        onValueChange={(next) => onChange(next === SELECT_EMPTY || next == null ? '' : next)}
+      >
         <SelectTrigger
           id={id}
           aria-invalid={invalid}
@@ -137,14 +144,14 @@ function SelectField({
         >
           <SelectValue placeholder="Seleccionar" />
         </SelectTrigger>
-        <SelectContent position="popper" className="rounded-xl">
+        <SelectPopup className="rounded-xl">
           <SelectItem value={SELECT_EMPTY}>Sin especificar</SelectItem>
           {normalizedOptions.map((option) => (
             <SelectItem key={option} value={option}>
               {option}
             </SelectItem>
           ))}
-        </SelectContent>
+        </SelectPopup>
       </Select>
     </div>
   )

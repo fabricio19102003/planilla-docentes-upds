@@ -21,7 +21,7 @@ import type {
 } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -199,54 +199,56 @@ function CatalogSection<T extends AcademicCatalogBase>({
       ))}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+        <DialogPopup className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{editing ? `Editar ${title.toLowerCase()}` : `Agregar ${title.toLowerCase()}`}</DialogTitle>
             <DialogDescription>Complete los campos obligatorios antes de guardar.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            {fields.map((field) => {
-              const id = `${resource}-${field.name}`
-              const required = typeof field.required === 'function' ? field.required(form) : field.required
-              return (
-                <div key={field.name} className="flex flex-col gap-1.5">
-                  <Label htmlFor={id}>{field.label}{required ? ' *' : ''}</Label>
-                  {field.type === 'select' ? (
-                    <select
-                      id={id}
-                      value={form[field.name] ?? ''}
-                      required={required}
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? errorId : undefined}
-                      onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <option value="">Seleccione una opción</option>
-                      {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  ) : (
-                    <Input
-                      id={id}
-                      type={field.type ?? 'text'}
-                      min={field.min}
-                      required={required}
-                      placeholder={field.placeholder}
-                      value={form[field.name] ?? ''}
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? errorId : undefined}
-                      onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
-                    />
-                  )}
-                </div>
-              )
-            })}
-            {error && <p id={errorId} role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Guardando…' : 'Guardar'}</Button>
-            </div>
-          </form>
-        </DialogContent>
+          <DialogPanel>
+            <form onSubmit={submit} className="flex flex-col gap-4">
+              {fields.map((field) => {
+                const id = `${resource}-${field.name}`
+                const required = typeof field.required === 'function' ? field.required(form) : field.required
+                return (
+                  <div key={field.name} className="flex flex-col gap-1.5">
+                    <Label htmlFor={id}>{field.label}{required ? ' *' : ''}</Label>
+                    {field.type === 'select' ? (
+                      <select
+                        id={id}
+                        value={form[field.name] ?? ''}
+                        required={required}
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? errorId : undefined}
+                        onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <option value="">Seleccione una opción</option>
+                        {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    ) : (
+                      <Input
+                        id={id}
+                        type={field.type ?? 'text'}
+                        min={field.min}
+                        required={required}
+                        placeholder={field.placeholder}
+                        value={form[field.name] ?? ''}
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? errorId : undefined}
+                        onChange={(event) => setForm((current) => ({ ...current, [field.name]: event.target.value }))}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+              {error && <p id={errorId} role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Guardando…' : 'Guardar'}</Button>
+              </div>
+            </form>
+          </DialogPanel>
+        </DialogPopup>
       </Dialog>
     </section>
   )
