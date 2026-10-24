@@ -97,20 +97,20 @@ export function TeacherCombobox({
             showTrigger={false}
           />
         </div>
-        {loading && <p role="status" className="p-3 text-sm text-slate-600">Buscando docentes…</p>}
+        {loading && <p role="status" className="p-3 text-sm text-muted-foreground">Buscando docentes…</p>}
         {!loading && <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>}
         <ComboboxList>
           {(teacher: TeacherOption) => (
             <ComboboxItem key={teacher.ci} value={teacher}>
               <span className="flex items-center gap-2">
                 <span className="truncate">{teacher.full_name}</span>
-                <span className="ml-auto text-xs text-slate-500">{teacher.ci}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{teacher.ci}</span>
               </span>
             </ComboboxItem>
           )}
         </ComboboxList>
         {pageCount && pageCount > 1 && onPageChange && page ? (
-          <div className="flex items-center justify-between border-t p-2 text-xs text-slate-500">
+          <div className="flex items-center justify-between border-t p-2 text-xs text-muted-foreground">
             <Button type="button" size="sm" variant="ghost" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Anterior</Button>
             <span>Página {page} de {pageCount}</span>
             <Button type="button" size="sm" variant="ghost" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)}>Siguiente</Button>

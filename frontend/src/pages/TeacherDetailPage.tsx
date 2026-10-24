@@ -6,13 +6,19 @@ import {
   Save,
   X,
   Trash2,
-  Loader2,
   IdCard,
   GraduationCap,
   CreditCard,
   Camera,
   Upload,
   FileDown,
+  AlertCircle,
+  ClipboardList,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  LogOut,
+  UserX,
 } from 'lucide-react'
 import {
   useTeacherDetail,
@@ -23,23 +29,20 @@ import {
   downloadTeacherPhoto,
   downloadTeacherSchedule,
 } from '@/api/hooks/useTeachers'
-import { LoadingPage } from '@/components/shared/LoadingSpinner'
 import { WhatsAppConsentCard } from '@/components/teachers/WhatsAppConsentCard'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
 import { DataTable } from '@/components/shared/DataTable'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectItem,
@@ -49,6 +52,7 @@ import {
 } from '@/components/ui/select'
 import type { ScheduleSlot, TeacherDetail, TeacherWorkload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
+import { apiErrorMessage } from '@/lib/userCredentials'
 
 const GENDER_ITEMS = [
   { value: 'M', label: 'Masculino' },
@@ -74,7 +78,7 @@ const designationColumns: Column<TeacherWorkload>[] = [
   {
     key: 'subject',
     header: 'Materia',
-    render: (item) => <span className="font-medium">{item.subject}</span>,
+    render: (item) => <span className="font-medium text-foreground">{item.subject}</span>,
   },
   { key: 'semester', header: 'Semestre' },
   { key: 'group_code', header: 'Grupo' },
@@ -87,12 +91,13 @@ const designationColumns: Column<TeacherWorkload>[] = [
     key: 'schedule_json',
     header: 'Horario',
     render: (item) => (
-      <span className="text-xs text-gray-600">{formatSchedule(item.schedule_json)}</span>
+      <span className="text-xs text-muted-foreground">{formatSchedule(item.schedule_json)}</span>
     ),
   },
   {
     key: 'weekly_hours',
     header: 'Hs Semanales',
+    align: 'right',
     render: (item) => {
       return `${item.weekly_hours}h`
     },
@@ -100,6 +105,7 @@ const designationColumns: Column<TeacherWorkload>[] = [
   {
     key: 'monthly_hours',
     header: 'Hs Mensuales',
+    align: 'right',
     render: (item) => (item.monthly_hours != null ? `${item.monthly_hours}h` : '—'),
   },
 ]
@@ -107,8 +113,8 @@ const designationColumns: Column<TeacherWorkload>[] = [
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-gray-400 uppercase tracking-wide">{label}</dt>
-      <dd className="mt-0.5 text-sm text-gray-800 font-medium">{value ?? '—'}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium text-foreground">{value ?? '—'}</dd>
     </div>
   )
 }
@@ -131,85 +137,8 @@ function toEditForm(teacher: TeacherDetail): Record<string, string> {
   }
 }
 
-// ─── Delete Confirmation Dialog ───────────────────────────────────────────────
-function DeleteConfirmDialog({
-  ci,
-  name,
-  open,
-  onClose,
-}: {
-  ci: string
-  name: string
-  open: boolean
-  onClose: () => void
-}) {
-  const deleteTeacher = useDeleteTeacher()
-  const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
-
-  const handleDelete = async () => {
-    setError(null)
-    try {
-      await deleteTeacher.mutateAsync(ci)
-      navigate('/teachers')
-    } catch {
-      setError('No se pudo eliminar el docente. Intentá nuevamente.')
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogPopup className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-destructive-foreground flex items-center gap-2">
-            <Trash2 size={18} />
-            Eliminar Docente
-          </DialogTitle>
-        </DialogHeader>
-        <DialogPanel className="space-y-4">
-          <p className="text-sm text-gray-600">
-            ¿Estás seguro de que querés eliminar a{' '}
-            <strong className="text-gray-800">{name}</strong>{' '}
-            (CI: {ci})?
-            <br />
-            <span className="text-red-500 text-xs mt-1 block">
-              Esta acción eliminará también todas sus designaciones y registros de asistencia.
-            </span>
-          </p>
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-        </DialogPanel>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={deleteTeacher.isPending}
-          >
-            {deleteTeacher.isPending ? (
-              <>
-                <Loader2 size={14} className="animate-spin mr-2" />
-                Eliminando...
-              </>
-            ) : (
-              <>
-                <Trash2 size={14} className="mr-2" />
-                Eliminar
-              </>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
-  )
-}
-
 function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
+  const [confirmDeletePhoto, setConfirmDeletePhoto] = useState(false)
   const uploadPhoto = useUploadTeacherPhoto()
   const deletePhoto = useDeleteTeacherPhoto()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -234,8 +163,7 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
       setImageError(false)
       setMessage('Foto actualizada para este docente.')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setError(axiosErr?.response?.data?.detail ?? 'No se pudo actualizar la foto del docente.')
+      setError(apiErrorMessage(err, 'No se pudo actualizar la foto del docente.'))
     } finally {
       if (inputRef.current) inputRef.current.value = ''
     }
@@ -249,8 +177,9 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
       setImageError(false)
       setMessage('Foto eliminada. El docente verá sus iniciales como avatar.')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setError(axiosErr?.response?.data?.detail ?? 'No se pudo eliminar la foto del docente.')
+      setError(apiErrorMessage(err, 'No se pudo eliminar la foto del docente.'))
+    } finally {
+      setConfirmDeletePhoto(false)
     }
   }
 
@@ -268,9 +197,9 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
   }
 
   return (
-    <section aria-label="Foto institucional" className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+    <section aria-label="Foto institucional">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="h-32 w-32 shrink-0 overflow-hidden rounded-2xl bg-white/20 flex items-center justify-center text-4xl font-black text-white ring-2 ring-white/30">
+        <div className="flex size-32 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary/10 text-4xl font-black text-primary ring-1 ring-border">
           {showImage ? (
             <img
               src={teacher.avatar_url ?? undefined}
@@ -283,52 +212,70 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-white">
-            <Camera size={15} />
+          <div className="flex items-center gap-2 text-foreground">
+            <Camera size={15} aria-hidden="true" />
             <p className="text-sm font-semibold">Foto institucional</p>
           </div>
-          <p className="mt-1 text-xs text-white/70">JPG, PNG o WEBP hasta 2 MB. El cambio impacta el portal y el encabezado del docente.</p>
-          {message && <p role="status" aria-live="polite" className="mt-2 text-xs font-medium text-green-100">{message}</p>}
-          {error && <p role="alert" className="mt-2 text-xs font-medium text-red-100">{error}</p>}
+          <p className="mt-1 text-xs text-muted-foreground">JPG, PNG o WEBP hasta 2 MB. El cambio impacta el portal y el encabezado del docente.</p>
+          {message && <p role="status" aria-live="polite" className="mt-2 text-xs font-medium text-success-foreground">{message}</p>}
+          {error && <p role="alert" className="mt-2 text-xs font-medium text-destructive-foreground">{error}</p>}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleUpload(file)
+            }}
+            disabled={busy}
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy}>
+              <Upload aria-hidden="true" />
+              {uploadPhoto.isPending ? 'Subiendo...' : teacher.avatar_url ? 'Cambiar foto' : 'Subir foto'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleDownload()}
+              disabled={busy || !teacher.avatar_url}
+            >
+              <FileDown aria-hidden="true" />
+              {isDownloading ? 'Descargando...' : 'Descargar foto'}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive-outline"
+              onClick={() => setConfirmDeletePhoto(true)}
+              disabled={busy || !teacher.avatar_url}
+            >
+              <Trash2 aria-hidden="true" />
+              Eliminar foto
+            </Button>
+          </div>
         </div>
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) void handleUpload(file)
-        }}
-        disabled={busy}
+
+      <ConfirmAlertDialog
+        summary={
+          confirmDeletePhoto
+            ? {
+                title: 'Eliminar foto institucional',
+                confirmLabel: 'Eliminar foto',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Docente', value: teacher.full_name },
+                  { label: 'C.I.', value: teacher.ci },
+                ],
+                consequence: 'El portal y el encabezado del docente volverán a mostrar sus iniciales.',
+              }
+            : null
+        }
+        pending={deletePhoto.isPending}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmDeletePhoto(false)}
       />
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} className="gap-2">
-          <Upload size={14} />
-          {uploadPhoto.isPending ? 'Subiendo...' : teacher.avatar_url ? 'Cambiar foto' : 'Subir foto'}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void handleDownload()}
-          disabled={busy || !teacher.avatar_url}
-          className="gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20"
-        >
-          <FileDown size={14} />
-          {isDownloading ? 'Descargando...' : 'Descargar foto'}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void handleDelete()}
-          disabled={busy || !teacher.avatar_url}
-          className="gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20"
-        >
-          <Trash2 size={14} />
-          Eliminar foto
-        </Button>
-      </div>
     </section>
   )
 }
@@ -350,15 +297,15 @@ function EditField({
   placeholder?: string
 }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-sm">{label}</Label>
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
       <Input
         type={type}
         value={value}
         onChange={(e) => onChange(field, e.target.value)}
         placeholder={placeholder}
       />
-    </div>
+    </Field>
   )
 }
 
@@ -368,11 +315,13 @@ export function TeacherDetailPage() {
   const navigate = useNavigate()
   const { data: teacher, isLoading, error } = useTeacherDetail(ci)
   const updateTeacher = useUpdateTeacher()
+  const deleteTeacher = useDeleteTeacher()
 
   const [editMode, setEditMode] = useState(false)
   const [editFormOverride, setEditFormOverride] = useState<Record<string, string> | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [scheduleDownloading, setScheduleDownloading] = useState(false)
   const [scheduleDownloadError, setScheduleDownloadError] = useState<string | null>(null)
   const editForm = teacher ? (editFormOverride ?? toEditForm(teacher)) : {}
@@ -398,8 +347,18 @@ export function TeacherDetailPage() {
         navigate(`/teachers/${editForm.ci}`, { replace: true })
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setEditError(axiosErr?.response?.data?.detail ?? 'No se pudo actualizar el docente.')
+      setEditError(apiErrorMessage(err, 'No se pudo actualizar el docente.'))
+    }
+  }
+
+  const handleDeleteTeacher = async () => {
+    if (!teacher) return
+    setDeleteError(null)
+    try {
+      await deleteTeacher.mutateAsync(teacher.ci)
+      navigate('/teachers')
+    } catch {
+      setDeleteError('No se pudo eliminar el docente. Intentá nuevamente.')
     }
   }
 
@@ -422,59 +381,67 @@ export function TeacherDetailPage() {
     }
   }
 
-  if (isLoading) return <LoadingPage />
-
-  if (error || !teacher) {
+  if (isLoading) {
     return (
-      <div className="text-center py-20">
-        <p className="text-gray-400 font-medium">No se encontró el docente con C.I.: {ci}</p>
-        <Button
-          variant="outline"
-          className="mt-4"
-          onClick={() => navigate('/teachers')}
-        >
-          <ArrowLeft size={14} className="mr-2" />
-          Volver a Docentes
-        </Button>
+      <div role="status" aria-live="polite" aria-label="Cargando docente" className="space-y-6">
+        <Skeleton className="h-16 w-full max-w-md" />
+        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-48 rounded-2xl" />
       </div>
     )
   }
 
+  if (error || !teacher) {
+    return (
+      <Card>
+        <EmptyState
+          icon={UserX}
+          title={`No se encontró el docente con C.I.: ${ci}`}
+          action={
+            <Button variant="outline" onClick={() => navigate('/teachers')}>
+              <ArrowLeft aria-hidden="true" />
+              Volver a Docentes
+            </Button>
+          }
+        />
+      </Card>
+    )
+  }
+
+  const attendance = teacher.attendance_summary
+
   return (
     <div className="space-y-6">
-      <WhatsAppConsentCard ci={teacher.ci} />
-      {/* Header actions */}
-      <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={() => navigate('/teachers')} className="gap-2">
-          <ArrowLeft size={14} />
-          Volver a Docentes
-        </Button>
-
-        <div className="flex items-center gap-2">
-          {editMode ? (
+      <PageHeader
+        breadcrumb={
+          <Button variant="ghost" size="sm" onClick={() => navigate('/teachers')} className="-ml-2">
+            <ArrowLeft aria-hidden="true" />
+            Volver a Docentes
+          </Button>
+        }
+        title={editMode ? editForm.full_name || teacher.full_name : teacher.full_name}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>C.I.: {teacher.ci}</span>
+            {!editMode && teacher.external_permanent && (
+              <StatusBadge tone="info">{teacherTypeLabel(teacher.external_permanent)}</StatusBadge>
+            )}
+            {!editMode && teacher.gender && <StatusBadge>{teacher.gender}</StatusBadge>}
+          </span>
+        }
+        actions={
+          editMode ? (
             <>
-              <Button
-                variant="outline"
-                onClick={handleCancelEdit}
-                className="gap-2 text-gray-600"
-              >
-                <X size={14} />
+              <Button variant="outline" onClick={handleCancelEdit}>
+                <X aria-hidden="true" />
                 Cancelar
               </Button>
-              <Button
-                onClick={handleSave}
-                disabled={updateTeacher.isPending}
-                style={{ backgroundColor: '#003366' }}
-                className="gap-2 text-white"
-              >
+              <Button onClick={handleSave} loading={updateTeacher.isPending}>
                 {updateTeacher.isPending ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    Guardando...
-                  </>
+                  'Guardando...'
                 ) : (
                   <>
-                    <Save size={14} />
+                    <Save aria-hidden="true" />
                     Guardar Cambios
                   </>
                 )}
@@ -482,76 +449,44 @@ export function TeacherDetailPage() {
             </>
           ) : (
             <>
-              <Button
-                variant="outline"
-                onClick={() => void handleScheduleDownload()}
-                disabled={scheduleDownloading}
-                className="gap-2"
-              >
-                <FileDown size={14} />
+              <Button variant="outline" onClick={() => void handleScheduleDownload()} disabled={scheduleDownloading}>
+                <FileDown aria-hidden="true" />
                 {scheduleDownloading ? 'Generando...' : 'Descargar horario'}
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setEditMode(true)}
-                className="gap-2"
-              >
-                <Pencil size={14} />
+              <Button variant="outline" onClick={() => setEditMode(true)}>
+                <Pencil aria-hidden="true" />
                 Editar
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDeleteOpen(true)}
-                className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
-              >
-                <Trash2 size={14} />
+              <Button variant="destructive-outline" onClick={() => setDeleteOpen(true)}>
+                <Trash2 aria-hidden="true" />
                 Eliminar
               </Button>
             </>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {scheduleDownloadError && (
-        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {scheduleDownloadError}
-        </p>
+        <Alert variant="error">
+          <AlertCircle aria-hidden="true" />
+          <AlertDescription>{scheduleDownloadError}</AlertDescription>
+        </Alert>
       )}
 
       {/* Teacher Info Card */}
-      <div className="card-3d-static overflow-hidden animate-fade-in-up stagger-1">
-        {/* Gradient header strip */}
-        <div className="gradient-navy px-6 py-4">
-          <div className="grid gap-5 lg:grid-cols-[minmax(340px,520px)_1fr] lg:items-center">
-            {!editMode && <TeacherPhotoControl teacher={teacher} />}
-            <div className="flex items-center gap-4">
-              <div>
-              <h2 className="text-xl font-semibold text-white">
-                {editMode ? editForm.full_name || teacher.full_name : teacher.full_name}
-              </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-white/70 text-sm">C.I.: {teacher.ci}</span>
-                {!editMode && teacher.external_permanent && (
-                  <Badge className="bg-white/20 text-white border-white/30 text-xs">
-                    {teacherTypeLabel(teacher.external_permanent)}
-                  </Badge>
-                )}
-                {!editMode && teacher.gender && (
-                  <Badge className="bg-white/20 text-white border-white/30 text-xs">
-                    {teacher.gender}
-                  </Badge>
-                )}
-              </div>
-              </div>
-            </div>
+      <Card className="divide-y">
+        {!editMode && (
+          <div className="p-6">
+            <TeacherPhotoControl teacher={teacher} />
           </div>
-        </div>
+        )}
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="space-y-6 p-6">
           {editError && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {editError}
-            </p>
+            <Alert variant="error">
+              <AlertCircle aria-hidden="true" />
+              <AlertDescription>{editError}</AlertDescription>
+            </Alert>
           )}
 
           {editMode ? (
@@ -559,17 +494,20 @@ export function TeacherDetailPage() {
               {/* Edit: Identificación */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <IdCard size={14} className="text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <IdCard size={14} className="text-muted-foreground" />
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Identificación
                   </p>
                 </div>
                 {editForm.ci && editForm.ci !== ci && (
-                  <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    Al guardar, el docente ingresará al portal con el C.I. {editForm.ci}. Su contraseña no cambia.
-                  </p>
+                  <Alert variant="warning" className="mb-3">
+                    <AlertCircle aria-hidden="true" />
+                    <AlertDescription>
+                      Al guardar, el docente ingresará al portal con el C.I. {editForm.ci}. Su contraseña no cambia.
+                    </AlertDescription>
+                  </Alert>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                   <EditField
                     label="C.I. *"
                     field="ci"
@@ -590,12 +528,12 @@ export function TeacherDetailPage() {
               {/* Edit: Datos Personales */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <IdCard size={14} className="text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <IdCard size={14} className="text-muted-foreground" />
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Datos Personales
                   </p>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                   <EditField
                     label="Email"
                     field="email"
@@ -611,8 +549,8 @@ export function TeacherDetailPage() {
                     onChange={handleFieldChange}
                     placeholder="70012345"
                   />
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Género</Label>
+                  <Field>
+                    <FieldLabel>Género</FieldLabel>
                     <Select
                       value={editForm.gender || null}
                       items={GENDER_ITEMS}
@@ -626,9 +564,9 @@ export function TeacherDetailPage() {
                         <SelectItem value="F">Femenino</SelectItem>
                       </SelectPopup>
                     </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Tipo</Label>
+                  </Field>
+                  <Field>
+                    <FieldLabel>Tipo</FieldLabel>
                     <Select
                       value={editForm.external_permanent || null}
                       items={TEACHER_TYPE_OPTIONS}
@@ -643,21 +581,21 @@ export function TeacherDetailPage() {
                         ))}
                       </SelectPopup>
                     </Select>
-                  </div>
+                  </Field>
                 </div>
               </div>
 
               {/* Edit: Datos Académicos */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <GraduationCap size={14} className="text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <GraduationCap size={14} className="text-muted-foreground" />
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Datos Académicos
                   </p>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Nivel Académico</Label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  <Field>
+                    <FieldLabel>Nivel Académico</FieldLabel>
                     <Select
                       value={editForm.academic_level || null}
                       onValueChange={(v) => handleFieldChange('academic_level', v ?? '')}
@@ -673,7 +611,7 @@ export function TeacherDetailPage() {
                         <SelectItem value="Técnico Superior">Técnico Superior</SelectItem>
                       </SelectPopup>
                     </Select>
-                  </div>
+                  </Field>
                   <EditField
                     label="Profesión"
                     field="profession"
@@ -701,12 +639,12 @@ export function TeacherDetailPage() {
               {/* Edit: Datos Bancarios */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <CreditCard size={14} className="text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <CreditCard size={14} className="text-muted-foreground" />
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Datos Bancarios
                   </p>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                   <EditField
                     label="Banco"
                     field="bank"
@@ -733,7 +671,7 @@ export function TeacherDetailPage() {
             </>
           ) : (
             /* Read-only view */
-            <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <dl className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
               <InfoRow label="Correo Electrónico" value={teacher.email} />
               <InfoRow label="Teléfono de contacto (no es consentimiento de WhatsApp)" value={teacher.phone} />
               <InfoRow label="Género" value={teacher.gender} />
@@ -748,87 +686,63 @@ export function TeacherDetailPage() {
             </dl>
           )}
         </div>
-      </div>
+      </Card>
+
+      <WhatsAppConsentCard ci={teacher.ci} />
 
       {/* Attendance Summary */}
-      {teacher.attendance_summary && (
-        <Card className="animate-fade-in-up stagger-2">
-          <CardHeader>
-            <CardTitle className="text-base" style={{ color: '#003366' }}>
-              Resumen de Asistencia
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <p className="text-2xl font-bold text-gray-800">
-                  {teacher.attendance_summary.total_records}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">Total Registros</p>
-              </div>
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-700">
-                  {teacher.attendance_summary.attended}
-                </p>
-                <p className="text-xs text-green-500 mt-0.5">Asistencias</p>
-              </div>
-              <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                <p className="text-2xl font-bold text-yellow-700">
-                  {teacher.attendance_summary.late}
-                </p>
-                <p className="text-xs text-yellow-500 mt-0.5">Tardanzas</p>
-              </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
-                <p className="text-2xl font-bold text-red-700">
-                  {teacher.attendance_summary.absent}
-                </p>
-                <p className="text-xs text-red-500 mt-0.5">Ausencias</p>
-              </div>
-              <div className="text-center p-3 bg-orange-50 rounded-lg">
-                <p className="text-2xl font-bold text-orange-700">
-                  {teacher.attendance_summary.no_exit}
-                </p>
-                <p className="text-xs text-orange-500 mt-0.5">Sin Salida</p>
-              </div>
-            </div>
-            {teacher.attendance_summary.total_academic_hours > 0 && (
-              <p className="text-sm text-gray-500 mt-3">
-                Total horas académicas:{' '}
-                <strong>{teacher.attendance_summary.total_academic_hours}h</strong>
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      {attendance && (
+        <section aria-label="Resumen de Asistencia" className="space-y-3">
+          <h3 className="text-base font-semibold text-foreground">Resumen de Asistencia</h3>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-5">
+            <StatCard icon={ClipboardList} title="Total Registros" value={attendance.total_records} tone="primary" />
+            <StatCard icon={CheckCircle2} title="Asistencias" value={attendance.attended} tone="success" />
+            <StatCard icon={Clock} title="Tardanzas" value={attendance.late} tone="warning" />
+            <StatCard icon={XCircle} title="Ausencias" value={attendance.absent} tone="destructive" />
+            <StatCard icon={LogOut} title="Sin Salida" value={attendance.no_exit} tone="neutral" />
+          </div>
+          {attendance.total_academic_hours > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Total horas académicas: <strong className="tabular-nums text-foreground">{attendance.total_academic_hours}h</strong>
+            </p>
+          )}
+        </section>
       )}
 
       {/* Designations */}
-      <Card className="animate-fade-in-up stagger-3">
-        <CardHeader>
-          <CardTitle className="text-base" style={{ color: '#003366' }}>
-            Designaciones ({teacher.designations.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {teacher.designations.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-8">
-              Este docente no tiene designaciones registradas
-            </p>
-          ) : (
-            <DataTable
-              columns={designationColumns}
-              data={teacher.designations}
-              emptyMessage="Sin designaciones"
-            />
-          )}
-        </CardContent>
-      </Card>
+      <section aria-label="Designaciones" className="space-y-3">
+        <h3 className="text-base font-semibold text-foreground">Designaciones ({teacher.designations.length})</h3>
+        <DataTable
+          columns={designationColumns}
+          data={teacher.designations}
+          emptyMessage="Este docente no tiene designaciones registradas"
+        />
+      </section>
 
-      {/* Delete confirmation dialog */}
-      <DeleteConfirmDialog
-        ci={teacher.ci}
-        name={teacher.full_name}
-        open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
+      <ConfirmAlertDialog
+        summary={
+          deleteOpen
+            ? {
+                title: 'Eliminar Docente',
+                confirmLabel: 'Eliminar',
+                tone: 'destructive',
+                rows: [
+                  { label: 'Docente', value: teacher.full_name },
+                  { label: 'C.I.', value: teacher.ci },
+                  { label: 'Designaciones', value: String(teacher.designations.length) },
+                ],
+                warning: 'Esta acción eliminará también todas sus designaciones y registros de asistencia.',
+                consequence: 'No se puede deshacer.',
+              }
+            : null
+        }
+        pending={deleteTeacher.isPending}
+        description={deleteError ?? '¿Estás seguro de que querés eliminar a este docente?'}
+        onConfirm={() => void handleDeleteTeacher()}
+        onCancel={() => {
+          setDeleteOpen(false)
+          setDeleteError(null)
+        }}
       />
     </div>
   )

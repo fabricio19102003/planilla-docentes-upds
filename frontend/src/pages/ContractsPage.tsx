@@ -2,14 +2,24 @@ import { useState } from 'react'
 import {
   FileSignature,
   Download,
-  Loader2,
   CheckCircle,
+  AlertCircle,
   Users,
   Search,
   FileText,
   ArchiveIcon,
 } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardPanel, CardTitle, CardDescription } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { useTeachers } from '@/api/hooks/useTeachers'
 import { useAppSettings } from '@/api/hooks/useAppSettings'
 import {
@@ -138,145 +148,130 @@ export function ContractsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold" style={{ color: '#003366' }}>
-          Contratos Docentes
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Emití y consultá contratos consolidados y sus enmiendas inmutables
-        </p>
-      </div>
+      <PageHeader
+        title="Contratos Docentes"
+        description="Emití y consultá contratos consolidados y sus enmiendas inmutables"
+      />
 
       {/* Config card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
+      <Card>
+        <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-              <FileSignature size={16} className="text-white" />
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <FileSignature size={16} aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Configuración de Emisión
-              </h2>
-              <p className="text-xs text-gray-500">
-                Parámetros que se aplicarán a todos los contratos generados
-              </p>
+              <CardTitle className="text-base">Configuración de Emisión</CardTitle>
+              <CardDescription>Parámetros que se aplicarán a todos los contratos generados</CardDescription>
             </div>
           </div>
-        </div>
-        <div className="px-6 py-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        </CardHeader>
+        <CardPanel>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {/* Department */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Departamento
-              </label>
-              <select
+            <Field>
+              <FieldLabel htmlFor="contract-department">Departamento</FieldLabel>
+              <Select
                 value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                items={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+                onValueChange={(value) => setDepartment(value ?? department)}
               >
-                {DEPARTMENTS.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
+                <SelectTrigger id="contract-department">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {DEPARTMENTS.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
 
-            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 lg:col-span-3">
-              La carga y vigencia se toman del horario publicado o de la fuente legacy efectiva, sin modificar designaciones históricas. Tarifas: prácticas Bs {settings?.practice_hourly_rate ?? '—'}; teoría Bs {settings?.hourly_rate ?? '—'}.
-            </div>
+            <Alert variant="info" className="lg:col-span-3">
+              <AlertDescription>
+                La carga y vigencia se toman del horario publicado o de la fuente legacy efectiva, sin modificar designaciones históricas. Tarifas: prácticas Bs {settings?.practice_hourly_rate ?? '—'}; teoría Bs {settings?.hourly_rate ?? '—'}.
+              </AlertDescription>
+            </Alert>
           </div>
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
       {/* Teacher selection card */}
-      <div className="card-3d-static overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100">
+      <Card>
+        <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg gradient-stat-navy flex items-center justify-center">
-              <Users size={16} className="text-white" />
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Users size={16} aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-semibold" style={{ color: '#003366' }}>
-                Selección de Docentes
-              </h2>
-              <p className="text-xs text-gray-500">
-                Elegí para quiénes generar contratos
-              </p>
+              <CardTitle className="text-base">Selección de Docentes</CardTitle>
+              <CardDescription>Elegí para quiénes generar contratos</CardDescription>
             </div>
           </div>
-        </div>
-        <div className="px-6 py-5 space-y-4">
+        </CardHeader>
+        <CardPanel className="space-y-4">
           {/* Toggle all/select */}
-          <div className="flex gap-2">
-            <button
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={selectMode === 'all' ? 'default' : 'outline'}
+              aria-pressed={selectMode === 'all'}
               onClick={() => setSelectMode('all')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                selectMode === 'all'
-                  ? 'bg-[#003366] text-white border-[#003366]'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-[#003366]'
-              }`}
             >
               Todos los docentes
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant={selectMode === 'select' ? 'default' : 'outline'}
+              aria-pressed={selectMode === 'select'}
               onClick={() => setSelectMode('select')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                selectMode === 'select'
-                  ? 'bg-[#003366] text-white border-[#003366]'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-[#003366]'
-              }`}
             >
               Seleccionar docentes
-            </button>
+            </Button>
           </div>
 
           {selectMode === 'select' && (
             <>
               {/* Search */}
               <div className="relative max-w-sm">
-                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
+                <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  aria-label="Buscar docentes"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Buscar por nombre o CI..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0066CC] bg-gray-50/50"
+                  inputClassName="pl-9"
                 />
               </div>
 
               {/* Counter */}
               {selectedCis.size > 0 && (
-                <p className="text-sm font-medium text-[#003366]">
+                <p className="text-sm font-medium text-primary">
                   {selectedCis.size} docente{selectedCis.size !== 1 ? 's' : ''} seleccionado{selectedCis.size !== 1 ? 's' : ''}
                 </p>
               )}
 
               {/* Teacher list */}
-              <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+              <div className="max-h-72 divide-y overflow-y-auto rounded-lg border">
                 {filteredTeachers.length === 0 ? (
-                  <p className="text-center text-gray-400 text-sm py-6">
-                    No se encontraron docentes
-                  </p>
+                  <p className="py-6 text-center text-sm text-muted-foreground">No se encontraron docentes</p>
                 ) : (
                   filteredTeachers.map((teacher) => (
                     <label
                       key={teacher.ci}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50/50 cursor-pointer"
+                      className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-accent/50"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedCis.has(teacher.ci)}
-                        onChange={() => toggleTeacher(teacher.ci)}
-                        className="rounded border-gray-300 text-[#003366] focus:ring-[#0066CC]"
+                        onCheckedChange={() => toggleTeacher(teacher.ci)}
                       />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{teacher.full_name}</p>
-                        <p className="text-xs text-gray-500">CI: {teacher.ci}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{teacher.full_name}</p>
+                        <p className="text-xs text-muted-foreground">CI: {teacher.ci}</p>
                       </div>
                       {selectedCis.has(teacher.ci) && (
-                        <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                        <CheckCircle size={16} className="shrink-0 text-success" aria-hidden="true" />
                       )}
                     </label>
                   ))
@@ -286,35 +281,27 @@ export function ContractsPage() {
           )}
 
           {selectMode === 'all' && (
-            <p className="text-sm text-gray-500">
-              Se generarán contratos para <span className="font-medium text-gray-700">{teachers.length}</span> docentes con designaciones.
+            <p className="text-sm text-muted-foreground">
+              Se generarán contratos para <span className="font-medium text-foreground">{teachers.length}</span> docentes con designaciones.
             </p>
           )}
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
       {/* Generate button */}
-      <div className="flex items-center gap-4">
-        <Button
-          onClick={handleGenerate}
-          disabled={!canGenerate || generateBatch.isPending}
-          className="gap-2 text-white"
-          style={{ backgroundColor: '#003366' }}
-        >
+      <div className="flex flex-wrap items-center gap-4">
+        <Button onClick={handleGenerate} disabled={!canGenerate} loading={generateBatch.isPending}>
           {generateBatch.isPending ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Emitiendo contratos...
-            </>
+            'Emitiendo contratos...'
           ) : (
             <>
-              <FileSignature size={16} />
+              <FileSignature aria-hidden="true" />
               Emitir o Recuperar Contratos
             </>
           )}
         </Button>
         {!canGenerate && !generateBatch.isPending && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-muted-foreground">
             {!isConfigValid
               ? 'Completá el departamento'
               : 'Seleccioná al menos un docente'}
@@ -324,123 +311,117 @@ export function ContractsPage() {
 
       {/* Error state */}
       {generateBatch.isError && (
-        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-600">
-            {getContractErrorMessage(generateBatch.error)}
-          </p>
-        </div>
+        <Alert variant="error" role="alert">
+          <AlertCircle aria-hidden="true" />
+          <AlertDescription>{getContractErrorMessage(generateBatch.error)}</AlertDescription>
+        </Alert>
       )}
 
       {generationErrors.length > 0 && (
-        <div role="status" aria-live="polite" className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm font-medium text-amber-800">Algunos docentes se omitieron:</p>
-          <ul className="mt-2 list-disc pl-5 text-xs text-amber-700 space-y-1">
-            {generationErrors.map((error) => (
-              <li key={error}>{error}</li>
-            ))}
-          </ul>
-        </div>
+        <Alert variant="warning" role="status" aria-live="polite">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>Algunos docentes se omitieron:</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-5 text-xs">
+              {generationErrors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Results card */}
       {generatedContracts.length > 0 && (
-        <div role="status" aria-live="polite" className="card-3d-static overflow-hidden border-l-4" style={{ borderLeftColor: '#16a34a' }}>
-          <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CheckCircle size={20} className="text-green-600" />
-              <div>
-                <h3 className="text-base font-semibold text-green-700">
-                  {generatedContracts.length} contrato{generatedContracts.length !== 1 ? 's' : ''} emitido{generatedContracts.length !== 1 ? 's' : ''} o recuperado{generatedContracts.length !== 1 ? 's' : ''}
-                </h3>
-                <p className="text-xs text-gray-500">Listos para descargar</p>
+        <Card role="status" aria-live="polite">
+          <CardHeader className="border-b">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <CheckCircle size={20} className="text-success" aria-hidden="true" />
+                <div>
+                  <CardTitle className="text-base text-success-foreground">
+                    {generatedContracts.length} contrato{generatedContracts.length !== 1 ? 's' : ''} emitido{generatedContracts.length !== 1 ? 's' : ''} o recuperado{generatedContracts.length !== 1 ? 's' : ''}
+                  </CardTitle>
+                  <CardDescription>Listos para descargar</CardDescription>
+                </div>
               </div>
+              <Button variant="outline" onClick={() => void handleDownloadAll()} loading={downloadingZip}>
+                <ArchiveIcon aria-hidden="true" />
+                Descargar Todos (.zip)
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              className="gap-2 border-[#003366] text-[#003366] hover:bg-blue-50"
-              onClick={() => void handleDownloadAll()}
-              disabled={downloadingZip}
-            >
-              {downloadingZip ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <ArchiveIcon size={14} />
-              )}
-              Descargar Todos (.zip)
-            </Button>
-          </div>
-          <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+          </CardHeader>
+          <div className="max-h-96 divide-y overflow-y-auto">
             {generatedContracts.map((contract) => (
-              <div
-                key={contract.filename}
-                className="flex items-center justify-between px-6 py-3 hover:bg-gray-50/50"
-              >
-                <div className="flex items-center gap-3">
-                  <FileText size={16} className="text-[#003366] flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{contract.teacher_name}</p>
-                    <p className="text-xs text-gray-500">
+              <div key={contract.filename} className="flex items-center justify-between gap-3 px-6 py-3 hover:bg-accent/50">
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText size={16} className="shrink-0 text-primary" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{contract.teacher_name}</p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
                       CI: {contract.teacher_ci} · {formatBytes(contract.file_size)}
                     </p>
                   </div>
                 </div>
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-primary"
                   onClick={() => void handleDownloadOne(contract)}
-                  disabled={downloadingFile === (contract.public_id ?? contract.filename)}
-                  className="inline-flex items-center gap-1.5 text-[#0066CC] hover:underline text-sm font-medium disabled:opacity-50"
+                  loading={downloadingFile === (contract.public_id ?? contract.filename)}
                 >
-                  {downloadingFile === (contract.public_id ?? contract.filename) ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Download size={14} />
-                  )}
+                  <Download aria-hidden="true" />
                   PDF
-                </button>
+                </Button>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
-      <section aria-labelledby="contract-history-heading" className="card-3d-static overflow-hidden">
-        <div className="border-b border-gray-100 px-6 py-5">
-          <h2 id="contract-history-heading" className="text-base font-semibold text-[#003366]">
+      <Card render={<section aria-labelledby="contract-history-heading" />}>
+        <CardHeader className="border-b">
+          <CardTitle id="contract-history-heading" className="text-base">
             Historial Inmutable
-          </h2>
-          <p className="mt-1 text-xs text-gray-500">Originales y enmiendas ordenados por docente y versión.</p>
-        </div>
+          </CardTitle>
+          <CardDescription>Originales y enmiendas ordenados por docente y versión.</CardDescription>
+        </CardHeader>
         {contractHistory.isLoading && (
-          <p role="status" aria-live="polite" aria-busy="true" className="px-6 py-8 text-sm text-gray-500">
-            Cargando historial de contratos…
-          </p>
+          <div role="status" aria-live="polite" aria-busy="true" className="space-y-3 p-6">
+            <span className="sr-only">Cargando historial de contratos…</span>
+            <Skeleton className="h-5 w-1/3" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         )}
         {contractHistory.isError && (
-          <p role="alert" className="m-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            No se pudo cargar el historial de contratos.
-          </p>
+          <Alert variant="error" className="m-6 w-auto">
+            <AlertCircle aria-hidden="true" />
+            <AlertDescription>No se pudo cargar el historial de contratos.</AlertDescription>
+          </Alert>
         )}
         {contractHistory.isSuccess && contractHistory.data.length === 0 && (
-          <p className="px-6 py-8 text-sm text-gray-500">Todavía no se emitieron contratos inmutables.</p>
+          <EmptyState icon={FileText} title="Todavía no se emitieron contratos inmutables." />
         )}
         {contractHistory.isSuccess && contractHistory.data.length > 0 && (
-          <ol className="divide-y divide-gray-100">
+          <ol className="divide-y">
             {contractHistory.data.map((document) => (
               <li key={document.public_id} className="px-6 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{document.teacher_name}</h3>
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
+                      <h3 className="text-sm font-semibold text-foreground">{document.teacher_name}</h3>
+                      <StatusBadge tone={document.document_kind === 'original' ? 'success' : 'info'}>
                         {document.document_kind === 'original' ? 'Original' : `Enmienda ${document.amendment_sequence}`}
-                      </span>
+                      </StatusBadge>
                     </div>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {document.academic_period} · efectiva {formatDate(document.effective_date)} · emitida {formatDate(document.issued_at)}
                     </p>
-                    <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                       {document.lines.map((line) => (
                         <li key={`${document.public_id}-${line.line_number}`}>
-                          <span className="font-medium">{line.activity_kind === 'theory' ? 'Teoría' : 'Práctica'}:</span>{' '}
+                          <span className="font-medium text-foreground">{line.activity_kind === 'theory' ? 'Teoría' : 'Práctica'}:</span>{' '}
                           {line.subject_label} ({line.group_label}) · {line.hours}h · Bs {line.hourly_rate}
                           {line.change_kind !== 'full' ? ` · ${line.change_kind}` : ''}
                         </li>
@@ -450,12 +431,12 @@ export function ContractsPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    className="gap-2 self-start"
+                    className="self-start"
                     onClick={() => void handleHistoryDownload(document)}
-                    disabled={downloadingFile === document.public_id}
+                    loading={downloadingFile === document.public_id}
                     aria-label={`Descargar ${document.document_kind === 'original' ? 'contrato original' : `enmienda ${document.amendment_sequence}`} de ${document.teacher_name}`}
                   >
-                    {downloadingFile === document.public_id ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+                    <Download aria-hidden="true" />
                     Descargar PDF
                   </Button>
                 </div>
@@ -463,15 +444,17 @@ export function ContractsPage() {
             ))}
           </ol>
         )}
-      </section>
+      </Card>
 
       {/* Empty state after successful generation with 0 results */}
       {generateBatch.isSuccess && generatedContracts.length === 0 && (
-        <div className="card-3d-static p-8 text-center">
-          <p className="text-gray-400 text-sm">
-            No se emitieron contratos. Revisá que los docentes tengan carga efectiva y tarifas completas.
-          </p>
-        </div>
+        <Card>
+          <EmptyState
+            icon={FileSignature}
+            title="No se emitieron contratos."
+            description="Revisá que los docentes tengan carga efectiva y tarifas completas."
+          />
+        </Card>
       )}
     </div>
   )

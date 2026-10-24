@@ -35,6 +35,7 @@ import type {
 import { useAppSettings } from '@/api/hooks/useAppSettings'
 import { DesignationBootstrapDialog } from '@/components/academic-management/DesignationBootstrapDialog'
 import { TeacherCombobox } from '@/components/academic-management/TeacherCombobox'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -90,20 +91,20 @@ function OfferingCard({
     disabled,
   })
   return (
-    <article className={`rounded-lg border bg-white p-3 ${isDragging ? 'opacity-40' : ''}`}>
+    <article className={`rounded-lg border bg-card p-3 ${isDragging ? 'opacity-40' : ''}`}>
       <div className="flex items-start gap-2">
         <button
           ref={ref}
           type="button"
           disabled={disabled}
-          className="mt-0.5 rounded p-1 text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-0.5 rounded p-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={`Arrastrar ${label} al horario`}
         >
           <GripVertical aria-hidden="true" size={18} />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{offering.subject.name}</p>
-          <p className="text-xs text-slate-500">{label} · Semestre {offering.semester}</p>
+          <p className="truncate text-sm font-semibold text-foreground">{offering.subject.name}</p>
+          <p className="text-xs text-muted-foreground">{label} · Semestre {offering.semester}</p>
         </div>
       </div>
       <Button type="button" variant="outline" size="sm" className="mt-3 w-full" disabled={disabled} onClick={onAdd}>
@@ -138,27 +139,27 @@ function ScheduleCell({
   return (
     <td
       ref={ref}
-      className={`h-16 min-w-40 border-l border-t p-1 align-top transition-colors ${isDropTarget ? 'bg-sky-100 ring-2 ring-inset ring-sky-600' : 'bg-white'}`}
+      className={`h-16 min-w-40 border-l border-t p-1 align-top transition-colors ${isDropTarget ? 'bg-info/8 ring-2 ring-inset ring-info/32' : 'bg-card'}`}
       aria-label={`${SCHEDULE_WEEKDAYS.find((day) => day.value === weekday)?.label}, ${time}`}
     >
       {blocks.map((block) => (
-        <div key={block.id} className="rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-slate-800">
+        <div key={block.id} className="rounded-md border border-info/32 bg-info/4 p-2 text-xs text-foreground">
           <p className="font-semibold">{block.offering.subject.code} · {block.group.code}</p>
           <p>{block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom.code} · {block.paid_hours} h</p>
-          <p className="mt-1 font-medium text-sky-900">
+          <p className="mt-1 font-medium text-info-foreground">
             {currentAssignments[block.id]?.teacher_name ?? 'Sin docente asignado'}
           </p>
           <div className="mt-1 flex flex-wrap gap-1">
-            <button type="button" onClick={() => onAssign(block)} disabled={disabled} className="rounded border border-sky-300 px-1.5 py-1 font-medium hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+            <button type="button" onClick={() => onAssign(block)} disabled={disabled} className="rounded border border-info/32 px-1.5 py-1 font-medium hover:bg-info/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
               {currentAssignments[block.id] ? 'Reemplazar' : 'Asignar'}
             </button>
-            <button type="button" onClick={() => onHistory(block)} className="rounded border border-slate-300 px-1.5 py-1 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+            <button type="button" onClick={() => onHistory(block)} className="rounded border border-border px-1.5 py-1 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
               Historial
             </button>
-            <button type="button" onClick={() => onEdit(block)} disabled={disabled} className="rounded p-1 hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600" aria-label={`Editar bloque ${block.offering.subject.code}`}>
+            <button type="button" onClick={() => onEdit(block)} disabled={disabled} className="rounded p-1 hover:bg-info/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32" aria-label={`Editar bloque ${block.offering.subject.code}`}>
               <Pencil aria-hidden="true" size={14} />
             </button>
-            <button type="button" onClick={() => onDelete(block)} disabled={disabled} className="rounded p-1 text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600" aria-label={`Eliminar bloque ${block.offering.subject.code}`}>
+            <button type="button" onClick={() => onDelete(block)} disabled={disabled} className="rounded p-1 text-destructive-foreground hover:bg-destructive/4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/32" aria-label={`Eliminar bloque ${block.offering.subject.code}`}>
               <Trash2 aria-hidden="true" size={14} />
             </button>
           </div>
@@ -415,43 +416,44 @@ export function SchedulePlannerPage() {
 
   return (
     <DragDropProvider onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <main className="flex flex-col gap-6 p-4 sm:p-6" aria-labelledby="schedule-planner-title">
+      <div className="flex flex-col gap-6">
         <span className="sr-only" aria-live="assertive">{announcement}</span>
-        <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-sky-700"><CalendarDays size={17} />Gestión académica</div>
-            <h1 id="schedule-planner-title" className="text-2xl font-bold text-slate-950">Planificador de horarios</h1>
-            <p className="mt-1 text-sm text-slate-600">Organice borradores semanales de lunes a sábado, entre 06:00 y 23:30, con clases de cualquier duración.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <DesignationBootstrapDialog
-              programs={programs.data ?? []}
-              onContinue={(draftId) => setSelectedDraftId(draftId)}
-            />
-            <Button variant="outline" onClick={() => { setError(null); setPublicationHistoryOpen(true) }}>
-              Historial de publicaciones
-            </Button>
-            {editable && <Button variant="outline" onClick={openPublicationReview}>Revisar publicación</Button>}
-            <Button onClick={() => { setEditingDraftId(null); setDraftForm({ program_id: '', academic_period: '', name: '' }); setError(null); setDraftOpen(true) }}>
-              <Plus aria-hidden="true" />Nuevo borrador
-            </Button>
-          </div>
-        </header>
+        <PageHeader
+          breadcrumb={<span className="flex items-center gap-2 font-medium text-info-foreground"><CalendarDays size={17} aria-hidden="true" />Gestión académica</span>}
+          title="Planificador de horarios"
+          description="Organice borradores semanales de lunes a sábado, entre 06:00 y 23:30, con clases de cualquier duración."
+          className="mb-0"
+          actions={
+            <>
+              <DesignationBootstrapDialog
+                programs={programs.data ?? []}
+                onContinue={(draftId) => setSelectedDraftId(draftId)}
+              />
+              <Button variant="outline" onClick={() => { setError(null); setPublicationHistoryOpen(true) }}>
+                Historial de publicaciones
+              </Button>
+              {editable && <Button variant="outline" onClick={openPublicationReview}>Revisar publicación</Button>}
+              <Button onClick={() => { setEditingDraftId(null); setDraftForm({ program_id: '', academic_period: '', name: '' }); setError(null); setDraftOpen(true) }}>
+                <Plus aria-hidden="true" />Nuevo borrador
+              </Button>
+            </>
+          }
+        />
 
-        <div role="note" className="rounded-md border-2 border-amber-400 bg-amber-50 p-4 text-sm font-medium text-amber-950">
+        <div role="note" className="rounded-md border-2 border-warning/32 bg-warning/4 p-4 text-sm font-medium text-warning-foreground">
           Publicar un borrador cambia lo que se paga desde su fecha efectiva: sus bloques reemplazan a las designaciones de la misma materia, grupo y semestre en la planilla y la asistencia. Revise la vista previa antes de publicar; la teoría se bloquea si cambiaría lo que pagan las designaciones.
         </div>
 
-        {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        {loading && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Cargando planificador…</p>}
-        {queryError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo cargar la información del planificador.</p>}
+        {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
+        {loading && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">Cargando planificador…</p>}
+        {queryError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">No se pudo cargar la información del planificador.</p>}
 
         {!loading && !queryError && (
           <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
             <aside className="flex flex-col gap-4">
-              <div className="rounded-xl border bg-white p-4">
+              <div className="rounded-xl border bg-card p-4">
                 <Label htmlFor="schedule-draft">Borrador activo</Label>
-                <select id="schedule-draft" value={effectiveDraftId ?? ''} onChange={(event) => setSelectedDraftId(event.target.value ? Number(event.target.value) : null)} className="mt-2 h-10 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+                <select id="schedule-draft" value={effectiveDraftId ?? ''} onChange={(event) => setSelectedDraftId(event.target.value ? Number(event.target.value) : null)} className="mt-2 h-10 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
                   <option value="">Seleccione un borrador</option>
                   {drafts.data?.map((draft) => <option key={draft.id} value={draft.id}>{draft.name} · {draft.academic_period}</option>)}
                 </select>
@@ -464,7 +466,7 @@ export function SchedulePlannerPage() {
                   </div>
                 )}
               </div>
-              <div className="rounded-xl border bg-white p-4">
+              <div className="rounded-xl border bg-card p-4">
                 <Label htmlFor="schedule-reference-date">Fecha de referencia</Label>
                 <Input
                   id="schedule-reference-date"
@@ -473,29 +475,29 @@ export function SchedulePlannerPage() {
                   onChange={(event) => setReferenceDate(event.target.value)}
                   className="mt-2"
                 />
-                <p className="mt-2 text-xs text-slate-500">Define qué docente y carga semanal se muestran.</p>
-                {assignmentHistories.isLoading && <p role="status" className="mt-2 text-xs text-slate-500">Cargando asignaciones…</p>}
+                <p className="mt-2 text-xs text-muted-foreground">Define qué docente y carga semanal se muestran.</p>
+                {assignmentHistories.isLoading && <p role="status" className="mt-2 text-xs text-muted-foreground">Cargando asignaciones…</p>}
               </div>
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <h2 className="font-semibold text-slate-900">Actividades disponibles</h2>
-                <p className="mb-3 mt-1 text-xs text-slate-500">Arrastre una actividad o use “Agregar al horario”.</p>
+              <div className="rounded-xl border bg-muted/40 p-4">
+                <h2 className="font-semibold text-foreground">Actividades disponibles</h2>
+                <p className="mb-3 mt-1 text-xs text-muted-foreground">Arrastre una actividad o use “Agregar al horario”.</p>
                 <div className="flex flex-col gap-2">
                   {scopedOfferings.flatMap((offering) => (['theory', 'practice'] as const)
                     .filter((type) => (type === 'theory' ? offering.theory_hours : offering.practice_hours) > 0)
                     .map((type) => <OfferingCard key={`${offering.id}-${type}`} offering={offering} activityType={type} disabled={!editable} onAdd={() => openBlockForm(offering.id, type)} />))}
-                  {selectedDraft && !scopedOfferings.length && <p className="text-sm text-slate-500">No hay ofertas activas para este programa y período.</p>}
-                  {!selectedDraft && <p className="text-sm text-slate-500">Seleccione o cree un borrador para comenzar.</p>}
+                  {selectedDraft && !scopedOfferings.length && <p className="text-sm text-muted-foreground">No hay ofertas activas para este programa y período.</p>}
+                  {!selectedDraft && <p className="text-sm text-muted-foreground">Seleccione o cree un borrador para comenzar.</p>}
                 </div>
               </div>
-              <div className="rounded-xl border bg-white p-4" aria-labelledby="workload-title">
-                <h2 id="workload-title" className="font-semibold text-slate-900">Carga docente semanal</h2>
-                {workload.isLoading && <p role="status" className="mt-2 text-sm text-slate-500">Cargando carga docente…</p>}
-                {workload.isError && <p role="alert" className="mt-2 text-sm text-red-700">No se pudo cargar la vista previa.</p>}
-                {!workload.isLoading && !workload.isError && !workload.data?.items.length && <p className="mt-2 text-sm text-slate-500">No hay asignaciones vigentes en esta fecha.</p>}
+              <div className="rounded-xl border bg-card p-4" aria-labelledby="workload-title">
+                <h2 id="workload-title" className="font-semibold text-foreground">Carga docente semanal</h2>
+                {workload.isLoading && <p role="status" className="mt-2 text-sm text-muted-foreground">Cargando carga docente…</p>}
+                {workload.isError && <p role="alert" className="mt-2 text-sm text-destructive-foreground">No se pudo cargar la vista previa.</p>}
+                {!workload.isLoading && !workload.isError && !workload.data?.items.length && <p className="mt-2 text-sm text-muted-foreground">No hay asignaciones vigentes en esta fecha.</p>}
                 <ul className="mt-3 flex flex-col gap-2">
-                  {workload.data?.items.map((item) => <li key={item.teacher_ci} className="rounded-md bg-slate-50 p-2 text-xs">
-                    <p className="font-semibold text-slate-800">{item.teacher_name}</p>
-                    <p className="text-slate-600">Teoría {formatHours(item.theory_minutes_week / 60)} · Práctica {formatHours(item.practice_minutes_week / 60)} · Total {formatHours(item.total_minutes_week / 60)}</p>
+                  {workload.data?.items.map((item) => <li key={item.teacher_ci} className="rounded-md bg-muted/40 p-2 text-xs">
+                    <p className="font-semibold text-foreground">{item.teacher_name}</p>
+                    <p className="text-muted-foreground">Teoría {formatHours(item.theory_minutes_week / 60)} · Práctica {formatHours(item.practice_minutes_week / 60)} · Total {formatHours(item.total_minutes_week / 60)}</p>
                   </li>)}
                 </ul>
               </div>
@@ -503,22 +505,22 @@ export function SchedulePlannerPage() {
 
             <section aria-labelledby="weekly-grid-title" className="min-w-0">
               <h2 id="weekly-grid-title" className="sr-only">Horario semanal</h2>
-              {blocks.isLoading && <p role="status" className="rounded-md border bg-slate-50 p-3 text-sm text-slate-600">Cargando bloques…</p>}
+              {blocks.isLoading && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">Cargando bloques…</p>}
               {selectedDraft && !blocks.isLoading ? (
-                <div className="max-h-[70vh] overflow-auto rounded-xl border bg-white">
+                <div className="max-h-[70vh] overflow-auto rounded-xl border bg-card">
                   <table className="w-full border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-10 bg-slate-100 text-slate-700">
+                    <thead className="sticky top-0 z-10 bg-muted text-foreground">
                       <tr><th scope="col" className="min-w-20 p-3">Hora</th>{SCHEDULE_WEEKDAYS.map((day) => <th key={day.value} scope="col" className="min-w-40 border-l p-3">{day.label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {SCHEDULE_TIMES.map((time) => <tr key={time}>
-                        <th scope="row" className="border-t bg-slate-50 p-2 align-top font-medium text-slate-600">{time}</th>
+                        <th scope="row" className="border-t bg-muted/40 p-2 align-top font-medium text-muted-foreground">{time}</th>
                         {SCHEDULE_WEEKDAYS.map((day) => <ScheduleCell key={day.value} weekday={day.value} time={time} disabled={!editable} blocks={blocks.data?.filter((block) => block.weekday === day.value && cellForStart(block.start_time.slice(0, 5)) === time) ?? []} currentAssignments={currentAssignments} onAssign={openAssignment} onHistory={openHistory} onEdit={editBlock} onDelete={(block) => void removeBlock(block)} />)}
                       </tr>)}
                     </tbody>
                   </table>
                 </div>
-              ) : !blocks.isLoading && <div className="rounded-xl border border-dashed bg-white p-12 text-center text-sm text-slate-500">Seleccione un borrador para ver la semana.</div>}
+              ) : !blocks.isLoading && <div className="rounded-xl border border-dashed bg-card p-12 text-center text-sm text-muted-foreground">Seleccione un borrador para ver la semana.</div>}
             </section>
           </section>
         )}
@@ -531,7 +533,7 @@ export function SchedulePlannerPage() {
                 <div><Label htmlFor="draft-program">Programa</Label><select id="draft-program" required value={draftForm.program_id} onChange={(event) => setDraftForm((value) => ({ ...value, program_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{programs.data?.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></div>
                 <div><Label htmlFor="draft-period">Período académico</Label><Input id="draft-period" required maxLength={30} value={draftForm.academic_period} onChange={(event) => setDraftForm((value) => ({ ...value, academic_period: event.target.value }))} /></div>
                 <div><Label htmlFor="draft-name">Nombre</Label><Input id="draft-name" required maxLength={120} value={draftForm.name} onChange={(event) => setDraftForm((value) => ({ ...value, name: event.target.value }))} /></div>
-                {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                {error && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
                 <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setDraftOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveDraft.isPending}>{saveDraft.isPending ? 'Guardando…' : editingDraftId ? 'Guardar cambios' : 'Crear borrador'}</Button></div>
               </form>
             </DialogPanel>
@@ -551,14 +553,14 @@ export function SchedulePlannerPage() {
                 <div><Label htmlFor="block-start">Inicio</Label><Input id="block-start" type="time" step={300} min="06:00" max="23:30" required value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1" /></div>
                 <div><Label htmlFor="block-end">Fin</Label><Input id="block-end" type="time" step={300} min="06:00" max="23:30" required value={blockForm.end_time} aria-invalid={Boolean(blockFormError)} aria-describedby="block-time-help" onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1" /></div>
                 <div className="sm:col-span-2 flex flex-wrap items-center gap-2" role="group" aria-label="Duración rápida">
-                  <span className="text-sm text-slate-600">Duración:</span>
+                  <span className="text-sm text-muted-foreground">Duración:</span>
                   {BLOCK_DURATION_PRESETS.map((minutes) => (
                     <Button key={minutes} type="button" size="sm" variant="outline" onClick={() => setBlockForm((value) => ({ ...value, end_time: addMinutes(value.start_time, minutes) }))}>{minutes} min</Button>
                   ))}
                 </div>
-                <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-red-700' : 'text-slate-500'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
+                <p id="block-time-help" className={`sm:col-span-2 text-xs ${blockFormError ? 'text-destructive-foreground' : 'text-muted-foreground'}`}>{blockFormError || `Duración: ${blockDurationMinutes(blockForm.start_time, blockForm.end_time)} minutos.`}</p>
                 <div className="sm:col-span-2"><Label htmlFor="block-hours">Horas académicas que se pagan</Label><Input id="block-hours" type="number" min={1} max={12} step={1} placeholder={prefilledHours ? String(prefilledHours) : ''} value={blockForm.academic_hours} onChange={(event) => setBlockForm((value) => ({ ...value, academic_hours: event.target.value }))} aria-describedby="block-hours-help" className="mt-1" />
-                  <p id="block-hours-help" className="mt-1 text-xs text-slate-500">
+                  <p id="block-hours-help" className="mt-1 text-xs text-muted-foreground">
                     {blockForm.academic_hours.trim()
                       ? `Se pagarán ${blockForm.academic_hours} hora(s) académica(s) por clase.`
                       : prefilledHours && keepsLegacyHours
@@ -568,7 +570,7 @@ export function SchedulePlannerPage() {
                         : 'Se calculan a partir de la duración.'}
                   </p>
                 </div>
-                {error && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                {error && <p role="alert" className="sm:col-span-2 rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
                 <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setBlockOpen(false)}>Cancelar</Button><Button type="submit" disabled={saveBlock.isPending}>{saveBlock.isPending ? 'Guardando…' : 'Guardar bloque'}</Button></div>
               </form>
             </DialogPanel>
@@ -612,7 +614,7 @@ export function SchedulePlannerPage() {
                   </div>
                 </div>
                 {assignmentAtEffectiveDate && (
-                  <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="rounded-md border border-warning/32 bg-warning/4 p-3 text-sm text-warning-foreground">
                     Reemplazará a {assignmentAtEffectiveDate.teacher_name}. {replacementWarning(assignmentForm.effective_from)}
                   </p>
                 )}
@@ -633,11 +635,11 @@ export function SchedulePlannerPage() {
                     invalid={Boolean(error)}
                     describedBy={error ? 'assignment-error' : 'assignment-teacher-help'}
                   />
-                  <p id="assignment-teacher-help" className="mt-1 text-xs text-slate-500">Solo se listan docentes con disponibilidad completa y sin cruces en este bloque.</p>
+                  <p id="assignment-teacher-help" className="mt-1 text-xs text-muted-foreground">Solo se listan docentes con disponibilidad completa y sin cruces en este bloque.</p>
                 </div>
-                {compatibleTeachers.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudieron consultar los docentes compatibles.</p>}
+                {compatibleTeachers.isError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">No se pudieron consultar los docentes compatibles.</p>}
                 {compatibleTeachers.isLoading && <p role="status" className="sr-only">Buscando docentes con disponibilidad…</p>}
-                {error && <p id="assignment-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                {error && <p id="assignment-error" role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setAssignmentOpen(false)}>Cancelar</Button>
                   <Button type="submit" disabled={saveAssignment.isPending || !assignmentForm.teacher_ci || compatibleTeachers.isLoading}>
@@ -659,14 +661,14 @@ export function SchedulePlannerPage() {
             </DialogHeader>
             <DialogPanel>
               {assignmentHistories.isLoading ? (
-                <p role="status" className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Cargando historial…</p>
+                <p role="status" className="rounded-md bg-muted/40 p-4 text-sm text-muted-foreground">Cargando historial…</p>
               ) : !selectedHistory.length ? (
-                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Este bloque todavía no tiene asignaciones.</p>
+                <p className="rounded-md bg-muted/40 p-4 text-sm text-muted-foreground">Este bloque todavía no tiene asignaciones.</p>
               ) : (
                 <ol className="flex flex-col gap-2">
                   {selectedHistory.map((assignment) => <li key={assignment.id} className="rounded-md border p-3 text-sm">
-                    <p className="font-semibold text-slate-900">{assignment.teacher_name}</p>
-                    <p className="text-slate-600">{assignment.effective_from} — {assignment.effective_to ?? 'Sin fecha final'}</p>
+                    <p className="font-semibold text-foreground">{assignment.teacher_name}</p>
+                    <p className="text-muted-foreground">{assignment.effective_from} — {assignment.effective_to ?? 'Sin fecha final'}</p>
                   </li>)}
                 </ol>
               )}
@@ -709,22 +711,22 @@ export function SchedulePlannerPage() {
                       previewPublication.reset()
                     }}
                   />
-                  <p id="publication-effective-help" className="mt-1 text-xs text-slate-500">
+                  <p id="publication-effective-help" className="mt-1 text-xs text-muted-foreground">
                     Las fechas retroactivas se bloquean cuando ya existen datos operativos afectados.
                   </p>
                 </div>
                 <Button type="submit" variant="outline" disabled={previewPublication.isPending || !publicationEffectiveFrom}>
                   {previewPublication.isPending ? 'Validando…' : 'Generar vista previa vinculante'}
                 </Button>
-                {previewPublication.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo generar la vista previa.</p>}
+                {previewPublication.isError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">No se pudo generar la vista previa.</p>}
                 {previewPublication.data && (
                   <section aria-labelledby="publication-preview-title" className="flex flex-col gap-4 rounded-lg border p-4">
                     <div>
-                      <h3 id="publication-preview-title" className="font-semibold text-slate-950">Resumen sellado</h3>
-                      <p className="text-sm text-slate-600">
+                      <h3 id="publication-preview-title" className="font-semibold text-foreground">Resumen sellado</h3>
+                      <p className="text-sm text-muted-foreground">
                         Secuencia {previewPublication.data.sequence} · {previewPublication.data.block_count} bloques · {previewPublication.data.assignment_count} intervalos docentes
                       </p>
-                      <p className="mt-1 break-all font-mono text-xs text-slate-500">Digest: {previewPublication.data.digest}</p>
+                      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">Digest: {previewPublication.data.digest}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                       {publicationDiffItems(previewPublication.data.diff).map((item) => (
@@ -744,7 +746,7 @@ export function SchedulePlannerPage() {
                       </div>
                     )}
                     {previewPublication.data.blockers.length > 0 && (
-                      <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                      <div role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">
                         <h4 className="font-semibold">Publicación bloqueada</h4>
                         <ul className="mt-2 list-disc pl-5">
                           {previewPublication.data.blockers.map((blocker) => <li key={`${blocker.category}-${blocker.message}`}>
@@ -753,7 +755,7 @@ export function SchedulePlannerPage() {
                         </ul>
                       </div>
                     )}
-                    <div role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                    <div role="note" className="rounded-md border border-warning/32 bg-warning/4 p-3 text-sm text-warning-foreground">
                       <h4 className="font-semibold">Límite operativo</h4>
                       <ul className="mt-2 list-disc pl-5">
                         {previewPublication.data.warnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -763,7 +765,7 @@ export function SchedulePlannerPage() {
                 )}
                 <section aria-labelledby="payroll-simulation-title" className="flex flex-col gap-2 rounded-lg border p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 id="payroll-simulation-title" className="font-semibold text-slate-950">Simulador de planilla</h3>
+                    <h3 id="payroll-simulation-title" className="font-semibold text-foreground">Simulador de planilla</h3>
                     <Button
                       type="button"
                       variant="outline"
@@ -776,16 +778,16 @@ export function SchedulePlannerPage() {
                       {simulatePayroll.isPending ? 'Simulando…' : 'Simular planilla'}
                     </Button>
                   </div>
-                  <p className="text-sm text-slate-600">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
-                  {simulatePayroll.isError && <p role="alert" className="text-sm text-red-700">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
+                  <p className="text-sm text-muted-foreground">Calcula cuánto cobraría cada docente en el mes de la fecha efectiva si publicás este borrador. No publica nada.</p>
+                  {simulatePayroll.isError && <p role="alert" className="text-sm text-destructive-foreground">{apiErrorText(simulatePayroll.error, 'No se pudo simular la planilla.')}</p>}
                   {simulatePayroll.data && simulatePayroll.data.effective_from === publicationEffectiveFrom && (
                     <>
-                      <p className="text-sm text-slate-600">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
+                      <p className="text-sm text-muted-foreground">Pago base de {simulatePayroll.data.month}/{simulatePayroll.data.year} (antes de descuentos por asistencia), publicando desde {simulatePayroll.data.effective_from}.</p>
                       <ImpactTable teachers={simulatePayroll.data.teachers} caption="Simulación de planilla por docente" />
                     </>
                   )}
                 </section>
-                {error && <p id="publication-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                {error && <p id="publication-error" role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setPublicationOpen(false)}>Cancelar</Button>
                   {previewPublication.data?.can_publish && (
@@ -811,10 +813,10 @@ export function SchedulePlannerPage() {
               <DialogDescription>Las revisiones publicadas son inmutables.</DialogDescription>
             </DialogHeader>
             <DialogPanel>
-              {publications.isLoading && <p role="status" className="rounded-md bg-slate-50 p-3 text-sm">Cargando publicaciones…</p>}
-              {publications.isError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">No se pudo cargar el historial.</p>}
+              {publications.isLoading && <p role="status" className="rounded-md bg-muted/40 p-3 text-sm">Cargando publicaciones…</p>}
+              {publications.isError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">No se pudo cargar el historial.</p>}
               {!publications.isLoading && !publications.isError && !publications.data?.length && (
-                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">Todavía no existen publicaciones.</p>
+                <p className="rounded-md bg-muted/40 p-4 text-sm text-muted-foreground">Todavía no existen publicaciones.</p>
               )}
               {publications.data && publications.data.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -825,10 +827,10 @@ export function SchedulePlannerPage() {
                           type="button"
                           aria-pressed={selectedPublication?.id === publication.id}
                           onClick={() => setSelectedPublicationId(publication.id)}
-                          className="w-full rounded-md border p-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 aria-pressed:border-sky-500 aria-pressed:bg-sky-50"
+                          className="w-full rounded-md border p-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32 aria-pressed:border-info/32 aria-pressed:bg-info/4"
                         >
                           <span className="block font-semibold">{publication.academic_period}</span>
-                          <span className="text-slate-600">{publication.effective_from} · Rev. {publication.sequence}</span>
+                          <span className="text-muted-foreground">{publication.effective_from} · Rev. {publication.sequence}</span>
                         </button>
                       </li>)}
                     </ul>
@@ -836,13 +838,13 @@ export function SchedulePlannerPage() {
                   {selectedPublication && (
                     <section aria-labelledby="publication-detail-title" className="rounded-lg border p-4">
                       <h3 id="publication-detail-title" className="font-semibold">Detalle inmutable</h3>
-                      <p className="mt-1 text-sm text-slate-600">{selectedPublication.blocks.length} bloques · Fuente #{selectedPublication.source_draft_id}</p>
-                      <p className="mt-1 break-all font-mono text-xs text-slate-500">{selectedPublication.content_digest}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{selectedPublication.blocks.length} bloques · Fuente #{selectedPublication.source_draft_id}</p>
+                      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{selectedPublication.content_digest}</p>
                       <ul className="mt-4 flex max-h-56 flex-col gap-2 overflow-y-auto">
-                        {selectedPublication.blocks.map((block) => <li key={block.id} className="rounded-md bg-slate-50 p-3 text-sm">
+                        {selectedPublication.blocks.map((block) => <li key={block.id} className="rounded-md bg-muted/40 p-3 text-sm">
                           <p className="font-semibold">{block.subject_code} · {block.group_code}</p>
                           <p>{block.weekday} {block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom_code}</p>
-                          <p className="text-slate-600">{block.assignments.map((item) => item.teacher_name).join(' → ')}</p>
+                          <p className="text-muted-foreground">{block.assignments.map((item) => item.teacher_name).join(' → ')}</p>
                         </li>)}
                       </ul>
                       <div className="mt-4">
@@ -856,7 +858,7 @@ export function SchedulePlannerPage() {
                           aria-describedby={error ? 'clone-error' : undefined}
                           onChange={(event) => setCloneName(event.target.value)}
                         />
-                        {error && <p id="clone-error" role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+                        {error && <p id="clone-error" role="alert" className="mt-2 text-sm text-destructive-foreground">{error}</p>}
                         <Button className="mt-3" type="button" disabled={!cloneName.trim() || clonePublication.isPending} onClick={() => void cloneSelectedPublication()}>
                           {clonePublication.isPending ? 'Clonando…' : 'Clonar como borrador editable'}
                         </Button>
@@ -868,8 +870,8 @@ export function SchedulePlannerPage() {
             </DialogPanel>
           </DialogPopup>
         </Dialog>
-      </main>
-      <DragOverlay>{dragLabel ? <div className="rounded-lg border border-sky-300 bg-white px-4 py-3 text-sm font-semibold shadow-lg">{dragLabel}</div> : null}</DragOverlay>
+      </div>
+      <DragOverlay>{dragLabel ? <div className="rounded-lg border border-info/32 bg-card px-4 py-3 text-sm font-semibold shadow-lg">{dragLabel}</div> : null}</DragOverlay>
     </DragDropProvider>
   )
 }

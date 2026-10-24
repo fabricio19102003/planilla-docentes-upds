@@ -236,10 +236,10 @@ export function DesignationBootstrapDialog({ programs, onContinue }: Designation
           <p role="status" aria-live="polite" className="sr-only">{busyStatus}</p>
 
           {result ? (
-            <section role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
-              <FileCheck2 aria-hidden="true" className="size-7 text-emerald-700" />
-              <h3 className="mt-3 text-lg font-semibold text-emerald-950">Importación aplicada correctamente</h3>
-              <p className="mt-1 text-sm leading-5 text-emerald-900">
+            <section role="status" className="rounded-lg border border-success/32 bg-success/4 p-5">
+              <FileCheck2 aria-hidden="true" className="size-7 text-success-foreground" />
+              <h3 className="mt-3 text-lg font-semibold text-success-foreground">Importación aplicada correctamente</h3>
+              <p className="mt-1 text-sm leading-5 text-success-foreground">
                 Se creó el borrador con {result.theory_block_count + result.practice_block_count} bloques y {result.theory_assignment_count + result.practice_assignment_count} asignaciones. Todavía no se publicó ninguna revisión.
               </p>
               <Button className="mt-4 w-full sm:w-auto" onClick={() => {
@@ -264,8 +264,8 @@ export function DesignationBootstrapDialog({ programs, onContinue }: Designation
                 onFileChange={updateFile}
               />
 
-              {requestError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{requestError}</p>}
-              {previewMutation.isPending && <p role="status" aria-busy="true" className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">Analizando ambos libros, el catálogo y la disponibilidad…</p>}
+              {requestError && <p role="alert" className="rounded-lg border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{requestError}</p>}
+              {previewMutation.isPending && <p role="status" aria-busy="true" className="rounded-lg border bg-muted/40 p-3 text-sm text-foreground">Analizando ambos libros, el catálogo y la disponibilidad…</p>}
               {preview && !resolutionContext && (
                 <DesignationBootstrapPreview
                   preview={preview}
@@ -284,12 +284,12 @@ export function DesignationBootstrapDialog({ programs, onContinue }: Designation
               )}
 
               {preview?.can_apply && !resolutionContext && (
-                <section aria-labelledby="bootstrap-confirm-title" className="rounded-lg border-2 border-sky-300 bg-sky-50 p-4">
-                  <h3 id="bootstrap-confirm-title" className="font-semibold text-sky-950">Confirmación final</h3>
-                  <p className="mt-1 text-sm leading-5 text-sky-900">
+                <section aria-labelledby="bootstrap-confirm-title" className="rounded-lg border-2 border-info/32 bg-info/4 p-4">
+                  <h3 id="bootstrap-confirm-title" className="font-semibold text-info-foreground">Confirmación final</h3>
+                  <p className="mt-1 text-sm leading-5 text-info-foreground">
                     Se aplicarán {preview.planned.theory_block_count + preview.planned.practice_block_count} bloques y {preview.planned.theory_assignment_count + preview.planned.practice_assignment_count} asignaciones, vigentes desde el 21 de agosto de 2026.
                   </p>
-                  <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-sky-200 bg-white p-3 text-sm text-slate-900 focus-within:ring-3 focus-within:ring-sky-600/30">
+                  <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-info/32 bg-card p-3 text-sm text-foreground focus-within:ring-3 focus-within:ring-info/30">
                     <input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 size-5 shrink-0 accent-sky-700" />
                     <span>Confirmo la fecha efectiva y los conteos anteriores. Entiendo que se creará un borrador editable y no se publicará automáticamente.</span>
                   </label>
