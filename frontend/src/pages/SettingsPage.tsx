@@ -8,6 +8,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ContractComitenteCard } from '@/components/contracts/ContractComitenteCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn } from '@/lib/utils'
 import { useAppSettings, useUpdateAppSettings } from '@/api/hooks/useAppSettings'
@@ -425,6 +426,8 @@ export function SettingsPage() {
           </form>
         )}
       </Card>
+
+      {settings && <ContractComitenteCard settings={settings} />}
     </div>
   )
 }

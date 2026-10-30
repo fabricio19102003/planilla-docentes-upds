@@ -185,8 +185,17 @@ def _legal_contract_elements(
     start_date: str,
     end_date: str,
     rate_html: str,
+    signature_date: str | None = None,
+    comitente: dict[str, str] | None = None,
 ) -> list:
     """Build the UPDS contract clauses shared by every contract renderer."""
+    comitente = _resolved_comitente(comitente)
+    rep_name = escape(comitente["representative_name"])
+    rep_ci = escape(comitente["representative_ci"])
+    power_number = escape(comitente["power_number"])
+    power_date = _format_power_date(comitente["power_date"])
+    notary_office = escape(comitente["notary_office"])
+    notary_name = escape(comitente["notary_name"])
     elements: list = []
 
     # ── TITLE ──────────────────────────────────────────────────────────
@@ -222,11 +231,11 @@ def _legal_contract_elements(
             "Nº 00207595, otorgada por el Registro de Comercio concesionario FUNDEMPRESA, "
             "con NIT 456850023, con Registro Obligatorio de Empleadores R.O.E. Nº456850023-1 "
             "domiciliada en la Avenida 16 de julio N° 128 Barrio Central de esta Ciudad de "
-            "Cobija, representada legalmente en este acto por el señor Luis Michel Bravo Alencar "
-            "con CI. N.º 1750986 Pando Boliviano, mayor de edad, hábil por ley, domiciliado en "
+            f"Cobija, representada legalmente en este acto por el señor {rep_name} "
+            f"con CI. N.º {rep_ci} Boliviano, mayor de edad, hábil por ley, domiciliado en "
             "esta Ciudad Cobija, en virtud al Poder Especial, amplio y suficiente según consta en "
-            "el Testimonio N. º1818/2024, de fecha 4 de septiembre de 2024, otorgado ante la "
-            "Notaría de Fe Pública N.º 10, a cargo del Notario Jaime David Canedo Encinas, quien "
+            f"el Testimonio N. º{power_number}, de fecha {power_date}, otorgado ante la "
+            f"Notaría de Fe Pública N.º {notary_office}, a cargo del Notario {notary_name}, quien "
             'en adelante y para los efectos del presente contrato se denominará "COMITENTE".'
         ),
         (
@@ -725,7 +734,7 @@ def _legal_contract_elements(
 
     # ── DATE — right-aligned ─────────────────────────────────────────
     elements.append(Paragraph(
-        f"Cobija, {start_date}.",
+        f"{escape(comitente['city'])}, {signature_date or start_date}.",
         styles["right"],
     ))
 
@@ -876,6 +885,21 @@ def _format_contract_rate(rate) -> tuple[str, str]:
     currency = "boliviano" if integer_part == 1 else "bolivianos"
     literal = f"{_number_to_spanish(integer_part).capitalize()} {currency} {cents:02d}/100"
     return numeric, literal
+
+
+def _resolved_comitente(comitente: dict[str, str] | None) -> dict[str, str]:
+    from app.services.app_settings_service import default_contract_comitente
+
+    return {**default_contract_comitente(), **(comitente or {})}
+
+
+def _format_power_date(value: str) -> str:
+    """Power-of-attorney date as the template writes it: '4 de septiembre de 2024'."""
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return escape(value)
+    return f"{parsed.day} de {_MONTH_NAMES[parsed.month]} de {parsed.year}"
 
 
 def _format_spanish_date(value: date) -> str:
@@ -1050,7 +1074,8 @@ def _amendment_elements(styles: dict, document: dict) -> list:
         styles["justify"],
     ))
     elements.append(Spacer(1, 6 * mm))
-    elements.append(Paragraph(f"Cobija, {effective}.", styles["right"]))
+    city = escape(_resolved_comitente(document.get("comitente"))["city"])
+    elements.append(Paragraph(f"{city}, {effective}.", styles["right"]))
     elements.extend(_signature_elements(styles))
     return elements
 
@@ -1077,7 +1102,11 @@ def render_contract_document_pdf(document: dict) -> bytes:
     lines = document["lines"]
     if document["document_kind"] == "original" or document.get("reissue"):
         teacher = document["teacher"]
+        terms = document.get("contract_terms") or {}
         start, end = _contract_term(lines)
+        start = date.fromisoformat(terms["start"]) if terms.get("start") else start
+        end = date.fromisoformat(terms["end"]) if terms.get("end") else end
+        signature = terms.get("signature")
         elements = _legal_contract_elements(
             styles,
             teacher_name=str(teacher["full_name"]),
@@ -1090,6 +1119,8 @@ def render_contract_document_pdf(document: dict) -> bytes:
             start_date=_format_spanish_date(start),
             end_date=_format_spanish_date(end),
             rate_html=_rate_html(lines),
+            signature_date=_format_spanish_date(date.fromisoformat(signature)) if signature else None,
+            comitente=document.get("comitente"),
         )
     else:
         elements = _amendment_elements(styles, document)

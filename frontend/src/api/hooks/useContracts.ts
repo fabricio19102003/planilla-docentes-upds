@@ -5,6 +5,27 @@ import { api } from '@/api/client'
 
 export interface ContractRequest {
   department: string
+  academic_period?: string
+}
+
+/** Single-teacher issue: any date sent replaces the teacher's custom dates. */
+export interface IssueContractRequest extends ContractRequest {
+  contract_start_date?: string
+  contract_end_date?: string
+  signature_date?: string
+  clear_custom_terms?: boolean
+}
+
+/** Default dates from the teacher's load and the custom dates in effect (ISO dates). */
+export interface ContractTerms {
+  academic_period: string
+  period_start: string
+  period_end: string
+  default_start: string | null
+  default_end: string | null
+  contract_start_date: string | null
+  contract_end_date: string | null
+  signature_date: string | null
 }
 
 export interface BatchContractRequest extends ContractRequest {
@@ -102,6 +123,39 @@ export function useGenerateContract() {
       link.click()
       link.remove()
       window.URL.revokeObjectURL(url)
+    },
+  })
+}
+
+export function useContractTerms(teacherCi: string | null, academicPeriod: string | undefined) {
+  return useQuery({
+    queryKey: ['contract-terms', teacherCi, academicPeriod],
+    enabled: Boolean(teacherCi && academicPeriod),
+    queryFn: async (): Promise<ContractTerms> => {
+      const response = await api.get<ContractTerms>(`/contracts/terms/${teacherCi}`, {
+        params: { academic_period: academicPeriod },
+      })
+      return response.data
+    },
+  })
+}
+
+export function useIssueContract() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      teacherCi,
+      payload,
+    }: {
+      teacherCi: string
+      payload: IssueContractRequest
+    }): Promise<ContractDocument> => {
+      const response = await api.post<ContractDocument>(`/contracts/issue/${teacherCi}`, payload)
+      return response.data
+    },
+    onSuccess: (_document, { teacherCi }) => {
+      void queryClient.invalidateQueries({ queryKey: ['contract-history'] })
+      void queryClient.invalidateQueries({ queryKey: ['contract-terms', teacherCi] })
     },
   })
 }

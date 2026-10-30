@@ -124,3 +124,49 @@ def test_academic_hour_minutes_rejects_values_outside_5_to_120(client, db_sessio
         response = client.put("/api/admin/settings", json={"academic_hour_minutes": value})
         assert response.status_code == 422
     assert app_settings_service.get_academic_hour_minutes(db_session) == 45
+
+
+CONTRACT_DEFAULTS = {
+    "contract_representative_name": "Luis Michel Bravo Alencar",
+    "contract_representative_ci": "1750986 Pando",
+    "contract_power_number": "1818/2024",
+    "contract_power_date": "2024-09-04",
+    "contract_notary_office": "10",
+    "contract_notary_name": "Jaime David Canedo Encinas",
+    "contract_city": "Cobija",
+}
+
+
+def test_contract_comitente_settings_default_and_update(client, db_session):
+    initial = client.get("/api/admin/settings")
+    assert initial.status_code == 200
+    assert {key: initial.json()[key] for key in CONTRACT_DEFAULTS} == CONTRACT_DEFAULTS
+
+    updated = client.put(
+        "/api/admin/settings",
+        json={
+            "contract_representative_name": "  Ana María Suárez Vaca ",
+            "contract_power_date": "2026-01-15",
+            "contract_city": "Riberalta",
+        },
+    )
+
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["contract_representative_name"] == "Ana María Suárez Vaca"
+    assert body["contract_power_date"] == "2026-01-15"
+    assert body["contract_city"] == "Riberalta"
+    assert body["contract_notary_name"] == "Jaime David Canedo Encinas"
+    assert body["hourly_rate"] == initial.json()["hourly_rate"]
+
+
+def test_contract_comitente_settings_reject_blank_and_bad_dates(client, db_session):
+    for payload in (
+        {"contract_representative_name": "   "},
+        {"contract_power_date": "15/01/2026"},
+        {"contract_city": ""},
+    ):
+        response = client.put("/api/admin/settings", json=payload)
+        assert response.status_code == 422, payload
+    assert db_session.get(AppSetting, app_settings_service.KEY_CONTRACT_REPRESENTATIVE_NAME) is None
+    assert db_session.get(AppSetting, app_settings_service.KEY_CONTRACT_CITY) is None

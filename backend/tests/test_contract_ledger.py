@@ -575,3 +575,223 @@ def test_mutable_contract_date_route_is_retired(client, contract_sources):
         json={"contract_start_date": "2026-01-01", "contract_end_date": "2026-06-30"},
     )
     assert response.status_code == 410
+
+
+def _issue(db_session, teacher, **kwargs):
+    return ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando", **kwargs
+    )
+
+
+def test_default_contract_states_the_built_in_comitente_text(db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    text = _pdf_text(bytes(_issue(db_session, teacher).artifact_content))
+
+    assert (
+        "representada legalmente en este acto por el señor Luis Michel Bravo Alencar con CI. N.º "
+        "1750986 Pando Boliviano"
+    ) in text
+    assert (
+        "según consta en el Testimonio N. º1818/2024, de fecha 4 de septiembre de 2024, otorgado "
+        "ante la Notaría de Fe Pública N.º 10, a cargo del Notario Jaime David Canedo Encinas"
+    ) in text
+    assert "Cobija, 02 de febrero de 2026." in text
+
+
+def test_custom_terms_render_persist_and_reissue_full_contract(db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    custom = _issue(
+        db_session,
+        teacher,
+        terms={"start": date(2026, 3, 1), "end": date(2026, 5, 31), "signature": date(2026, 2, 25)},
+    )
+    custom_bytes = bytes(custom.artifact_content)
+    text = _pdf_text(custom_bytes)
+
+    assert custom.document_kind == "original"
+    assert (
+        "una duración de 2 meses y 30 días computables desde el 01 de marzo de 2026 al "
+        "31 de mayo de 2026"
+    ) in text
+    assert "Cobija, 25 de febrero de 2026." in text
+    assert custom.full_snapshot["contract_terms"] == {
+        "start": "2026-03-01", "end": "2026-05-31", "signature": "2026-02-25",
+    }
+
+    inherited = _issue(db_session, teacher)
+    assert inherited.id == custom.id
+
+    cleared = _issue(db_session, teacher, terms={})
+    cleared_text = _pdf_text(bytes(cleared.artifact_content))
+    assert cleared.id != custom.id
+    assert cleared.document_kind == "amendment"
+    assert cleared.amendment_sequence == 1
+    assert [line.change_kind for line in cleared.lines] == ["full", "full"]
+    assert "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in cleared_text
+    assert "ADENDA" not in cleared_text
+    assert "desde el 02 de febrero de 2026 al 27 de junio de 2026" in cleared_text
+    assert "contract_terms" not in cleared.full_snapshot
+    db_session.refresh(custom)
+    assert bytes(custom.artifact_content) == custom_bytes
+    assert db_session.query(ContractDocument).count() == 2
+
+
+def test_explicit_empty_terms_keep_the_default_contract(db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    original = _issue(db_session, teacher)
+    again = _issue(db_session, teacher, terms={})
+
+    assert again.id == original.id
+    assert "contract_terms" not in original.full_snapshot
+    assert "comitente" not in original.full_snapshot
+    assert db_session.query(ContractDocument).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("terms", "message"),
+    [
+        (
+            {"start": date(2026, 5, 1), "end": date(2026, 4, 30)},
+            "La fecha de inicio del contrato no puede ser posterior a la fecha de fin.",
+        ),
+        (
+            {"start": date(2025, 12, 31)},
+            "Las fechas del contrato deben estar dentro del período I/2026 "
+            "(01 de enero de 2026 al 30 de junio de 2026).",
+        ),
+        (
+            {"end": date(2026, 7, 1)},
+            "Las fechas del contrato deben estar dentro del período I/2026 "
+            "(01 de enero de 2026 al 30 de junio de 2026).",
+        ),
+        (
+            {"start": date(2026, 6, 28)},
+            "La fecha de inicio del contrato no puede ser posterior a la fecha de fin.",
+        ),
+    ],
+)
+def test_invalid_terms_are_refused_without_issuing(db_session, contract_sources, terms, message):
+    teacher, _theory, _practice, _state = contract_sources
+    with pytest.raises(ledger.ContractIssuanceError) as excinfo:
+        _issue(db_session, teacher, terms=terms)
+
+    assert str(excinfo.value) == message
+    assert db_session.query(ContractDocument).count() == 0
+
+
+def test_comitente_settings_render_and_reissue_full_contract(db_session, contract_sources):
+    from app.services import app_settings_service as settings
+
+    teacher, _theory, _practice, _state = contract_sources
+    original = _issue(db_session, teacher)
+    for key, value in (
+        (settings.KEY_CONTRACT_REPRESENTATIVE_NAME, "Ana María Suárez Vaca"),
+        (settings.KEY_CONTRACT_REPRESENTATIVE_CI, "4455667 Beni"),
+        (settings.KEY_CONTRACT_POWER_NUMBER, "2020/2026"),
+        (settings.KEY_CONTRACT_POWER_DATE, "2026-01-15"),
+        (settings.KEY_CONTRACT_NOTARY_OFFICE, "3"),
+        (settings.KEY_CONTRACT_NOTARY_NAME, "Carla Rivero Paz"),
+        (settings.KEY_CONTRACT_CITY, "Riberalta"),
+    ):
+        settings.update_setting(db_session, key, value)
+    db_session.flush()
+
+    reissue = _issue(db_session, teacher)
+    text = _pdf_text(bytes(reissue.artifact_content))
+
+    assert reissue.id != original.id
+    assert reissue.document_kind == "amendment"
+    assert [line.change_kind for line in reissue.lines] == ["full", "full"]
+    assert (
+        "representada legalmente en este acto por el señor Ana María Suárez Vaca con CI. N.º "
+        "4455667 Beni Boliviano"
+    ) in text
+    assert (
+        "según consta en el Testimonio N. º2020/2026, de fecha 15 de enero de 2026, otorgado "
+        "ante la Notaría de Fe Pública N.º 3, a cargo del Notario Carla Rivero Paz"
+    ) in text
+    assert "Riberalta, 02 de febrero de 2026." in text
+    assert "Luis Michel Bravo Alencar" not in text
+    assert _issue(db_session, teacher).id == reissue.id
+
+
+def test_issue_route_accepts_terms_and_reports_them(client, db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    before = client.get(f"/api/contracts/terms/{teacher.ci}?academic_period=I/2026")
+    issue = client.post(
+        f"/api/contracts/issue/{teacher.ci}",
+        json={
+            "department": "Pando",
+            "academic_period": "I/2026",
+            "contract_start_date": "2026-03-01",
+            "contract_end_date": "2026-05-31",
+            "signature_date": "2026-02-25",
+        },
+    )
+    after = client.get(f"/api/contracts/terms/{teacher.ci}?academic_period=I/2026")
+
+    assert before.status_code == 200
+    assert before.json() == {
+        "academic_period": "I/2026",
+        "period_start": "2026-01-01",
+        "period_end": "2026-06-30",
+        "default_start": "2026-02-02",
+        "default_end": "2026-06-27",
+        "contract_start_date": None,
+        "contract_end_date": None,
+        "signature_date": None,
+    }
+    assert issue.status_code == 200
+    assert after.json()["contract_start_date"] == "2026-03-01"
+    assert after.json()["contract_end_date"] == "2026-05-31"
+    assert after.json()["signature_date"] == "2026-02-25"
+
+    cleared = client.post(
+        f"/api/contracts/issue/{teacher.ci}",
+        json={"department": "Pando", "academic_period": "I/2026", "clear_custom_terms": True},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["public_id"] != issue.json()["public_id"]
+    assert client.get(
+        f"/api/contracts/terms/{teacher.ci}?academic_period=I/2026"
+    ).json()["contract_start_date"] is None
+
+
+def test_issue_route_rejects_invalid_terms_with_a_clear_message(client, db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    response = client.post(
+        f"/api/contracts/issue/{teacher.ci}",
+        json={
+            "department": "Pando",
+            "academic_period": "I/2026",
+            "contract_start_date": "2026-05-01",
+            "contract_end_date": "2026-04-30",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "La fecha de inicio del contrato no puede ser posterior a la fecha de fin."
+    )
+    assert db_session.query(ContractDocument).count() == 0
+
+
+def test_batch_route_ignores_custom_dates(client, db_session, contract_sources):
+    teacher, _theory, _practice, _state = contract_sources
+    response = client.post(
+        "/api/contracts/generate-batch",
+        json={
+            "department": "Pando",
+            "academic_period": "I/2026",
+            "teacher_cis": [teacher.ci],
+            "contract_start_date": "2026-03-01",
+            "contract_end_date": "2026-05-31",
+        },
+    )
+
+    assert response.status_code == 200
+    document = db_session.query(ContractDocument).one()
+    assert "contract_terms" not in document.full_snapshot
+    assert "desde el 02 de febrero de 2026 al 27 de junio de 2026" in _pdf_text(
+        bytes(document.artifact_content)
+    )
