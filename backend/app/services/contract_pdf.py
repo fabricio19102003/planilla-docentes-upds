@@ -11,7 +11,9 @@ from __future__ import annotations
 import logging
 import io
 from collections import defaultdict
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -127,50 +129,64 @@ def _subject_table_column_widths() -> tuple[float, float, float, float]:
         for weight in _LEGACY_SUBJECT_TABLE_COLUMN_WEIGHTS
     )
 
+def _contract_table(table_data: list, col_widths) -> Table:
+    table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (1, 1), (1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#F2F2F2")),
+    ]))
+    return table
 
-def generate_contract_pdf(
-    teacher: "Teacher",
-    designations: list["Designation"],
+
+def _signature_elements(styles: dict) -> list:
+    """Signature block — labels only, no names."""
+    elements: list = [Spacer(1, 35 * mm)]
+
+    sig_data = [
+        [
+            Paragraph("___________________________", styles["center"]),
+            Paragraph("", styles["center"]),
+            Paragraph("___________________________", styles["center"]),
+        ],
+        [
+            Paragraph("<b>EL COMITENTE</b>", styles["bold_center"]),
+            Paragraph("", styles["center"]),
+            Paragraph("<b>EL CONTRATISTA</b>", styles["bold_center"]),
+        ],
+    ]
+
+    sig_table = Table(sig_data, colWidths=[6.5 * cm, 3.0 * cm, 6.5 * cm])
+    sig_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(sig_table)
+    return elements
+
+
+def _legal_contract_elements(
+    styles: dict,
+    *,
+    teacher_name: str,
+    teacher_ci: str,
     department: str,
+    subject_sections: list[tuple[str | None, list[tuple[str, str, str]]]],
     duration_text: str,
     start_date: str,
     end_date: str,
-    hourly_rate: str = "70,00",
-    hourly_rate_literal: str = "Setenta bolivianos 00/100",
-) -> str:
-    """
-    Generate a formal employment contract PDF for a single teacher.
-
-    Args:
-        teacher: Teacher ORM instance
-        designations: List of Designation ORM instances for this teacher
-        department: Department of Bolivia for the CI (e.g. "Pando", "La Paz")
-        duration_text: Contract duration in text (e.g. "4 meses y 13 días")
-        start_date: Contract start date in Spanish text (e.g. "05 de marzo de 2026")
-        end_date: Contract end date in Spanish text (e.g. "18 de julio de 2026")
-        hourly_rate: Hourly rate as string with comma separator (e.g. "70,00")
-        hourly_rate_literal: Hourly rate in words (e.g. "Setenta bolivianos 00/100")
-
-    Returns:
-        Absolute path to the generated PDF file.
-    """
-    now = datetime.now()
-    styles = _make_styles()
-
-    safe_name = teacher.full_name.replace(" ", "_").replace("/", "-")
-    date_str = now.strftime("%Y%m%d_%H%M%S")
-    filename = f"Contrato_{safe_name}_{date_str}.pdf"
-    filepath = _output_dir() / filename
-
-    doc = SimpleDocTemplate(
-        str(filepath),
-        pagesize=CONTRACT_PAGE_SIZE,
-        leftMargin=3.0 * cm,
-        rightMargin=2.5 * cm,
-        topMargin=2.5 * cm,
-        bottomMargin=2.5 * cm,
-    )
-
+    rate_html: str,
+) -> list:
+    """Build the UPDS contract clauses shared by every contract renderer."""
     elements: list = []
 
     # ── TITLE ──────────────────────────────────────────────────────────
@@ -214,8 +230,8 @@ def generate_contract_pdf(
             'en adelante y para los efectos del presente contrato se denominará "COMITENTE".'
         ),
         (
-            f'Por otra, el señor(a) <b>{teacher.full_name}</b> hábil por ley, con C.I. '
-            f'<b>{teacher.ci} {department}</b>, con domicilio en la Ciudad de Cobija, a quien '
+            f'Por otra, el señor(a) <b>{escape(teacher_name)}</b> hábil por ley, con C.I. '
+            f'<b>{escape(teacher_ci)} {escape(department)}</b>, con domicilio en la Ciudad de Cobija, a quien '
             'se denominará en adelante para fines de este contrato como CONTRATISTA.'
         ),
         (
@@ -240,41 +256,17 @@ def generate_contract_pdf(
     ))
     elements.append(Spacer(1, 3 * mm))
 
-    # ── Subjects table — deduplicated by subject, hours summed ─────────
-    subject_map: dict = defaultdict(lambda: {"semester": "", "total_hours": 0})
-    for d in designations:
-        key = d.subject
-        subject_map[key]["semester"] = d.semester
-        subject_map[key]["total_hours"] += (d.semester_hours or 0)
-
-    subjects_list = sorted(subject_map.items())
-    table_data = [["Nº", "Materia", "Semestre", "Total Horas"]]
-    for idx, (subject, info) in enumerate(subjects_list, start=1):
-        table_data.append([
-            str(idx),
-            subject,
-            info["semester"],
-            str(info["total_hours"]),
-        ])
-
+    # ── Subjects tables — one per activity when the contract is mixed ─
     col_widths = _subject_table_column_widths()
-
-    subjects_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    subjects_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("ALIGN", (1, 1), (1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#F2F2F2")),
-    ]))
-    elements.append(subjects_table)
-    elements.append(Spacer(1, 3 * mm))
-
+    for subtitle, rows in subject_sections:
+        if subtitle:
+            elements.append(Paragraph(f"<b>{escape(subtitle)}:</b>", styles["justify"]))
+            elements.append(Spacer(1, 2 * mm))
+        table_data = [["Nº", "Materia", "Semestre", "Total Horas"]]
+        for idx, (subject, semester, total_hours) in enumerate(rows, start=1):
+            table_data.append([str(idx), subject, semester, total_hours])
+        elements.append(_contract_table(table_data, col_widths))
+        elements.append(Spacer(1, 3 * mm))
     elements.append(Paragraph(
         "Su ejecución, desarrollo y aplicación será realizado mediante el uso de Plataformas "
         "Virtuales, dirigido a estudiantes de la UNIVERSIDAD bajo el Modelo Educativo por "
@@ -500,7 +492,7 @@ def generate_contract_pdf(
     elements.append(Paragraph(
         f"<b>8.2</b> El precio a ser cancelado de forma parcial conforme a las horas de trabajo "
         f"ejecutadas en cada mes, tomando en cuenta que el valor de la hora del servicio es de "
-        f"<b>Bs. {hourly_rate} ({hourly_rate_literal})</b>.<br/>"
+        f"{rate_html}.<br/>"
         "La forma de pago es la siguiente:",
         styles["justify"],
     ))
@@ -737,30 +729,72 @@ def generate_contract_pdf(
         styles["right"],
     ))
 
-    # ── SIGNATURES — labels only, no names ─────────────────────────────
-    elements.append(Spacer(1, 35 * mm))
+    elements.extend(_signature_elements(styles))
+    return elements
 
-    sig_data = [
-        [
-            Paragraph("___________________________", styles["center"]),
-            Paragraph("", styles["center"]),
-            Paragraph("___________________________", styles["center"]),
-        ],
-        [
-            Paragraph("<b>EL COMITENTE</b>", styles["bold_center"]),
-            Paragraph("", styles["center"]),
-            Paragraph("<b>EL CONTRATISTA</b>", styles["bold_center"]),
-        ],
+
+def generate_contract_pdf(
+    teacher: "Teacher",
+    designations: list["Designation"],
+    department: str,
+    duration_text: str,
+    start_date: str,
+    end_date: str,
+    hourly_rate: str = "70,00",
+    hourly_rate_literal: str = "Setenta bolivianos 00/100",
+) -> str:
+    """
+    Generate a formal employment contract PDF for a single teacher.
+
+    Args:
+        teacher: Teacher ORM instance
+        designations: List of Designation ORM instances for this teacher
+        department: Department of Bolivia for the CI (e.g. "Pando", "La Paz")
+        duration_text: Contract duration in text (e.g. "4 meses y 13 días")
+        start_date: Contract start date in Spanish text (e.g. "05 de marzo de 2026")
+        end_date: Contract end date in Spanish text (e.g. "18 de julio de 2026")
+        hourly_rate: Hourly rate as string with comma separator (e.g. "70,00")
+        hourly_rate_literal: Hourly rate in words (e.g. "Setenta bolivianos 00/100")
+
+    Returns:
+        Absolute path to the generated PDF file.
+    """
+    now = datetime.now()
+    styles = _make_styles()
+
+    safe_name = teacher.full_name.replace(" ", "_").replace("/", "-")
+    date_str = now.strftime("%Y%m%d_%H%M%S")
+    filename = f"Contrato_{safe_name}_{date_str}.pdf"
+    filepath = _output_dir() / filename
+
+    doc = SimpleDocTemplate(
+        str(filepath),
+        pagesize=CONTRACT_PAGE_SIZE,
+        leftMargin=3.0 * cm,
+        rightMargin=2.5 * cm,
+        topMargin=2.5 * cm,
+        bottomMargin=2.5 * cm,
+    )
+
+    subject_map: dict = defaultdict(lambda: {"semester": "", "total_hours": 0})
+    for d in designations:
+        subject_map[d.subject]["semester"] = d.semester
+        subject_map[d.subject]["total_hours"] += (d.semester_hours or 0)
+    rows = [
+        (subject, info["semester"], str(info["total_hours"]))
+        for subject, info in sorted(subject_map.items())
     ]
-
-    sig_table = Table(sig_data, colWidths=[6.5 * cm, 3.0 * cm, 6.5 * cm])
-    sig_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(sig_table)
+    elements = _legal_contract_elements(
+        styles,
+        teacher_name=teacher.full_name,
+        teacher_ci=teacher.ci,
+        department=department,
+        subject_sections=[(None, rows)],
+        duration_text=duration_text,
+        start_date=start_date,
+        end_date=end_date,
+        rate_html=f"<b>Bs. {hourly_rate} ({hourly_rate_literal})</b>",
+    )
 
     # Build PDF with page numbers
     doc.build(elements, onFirstPage=_page_number_canvas, onLaterPages=_page_number_canvas)
@@ -769,158 +803,296 @@ def generate_contract_pdf(
     return str(filepath)
 
 
+_MONTH_NAMES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+_ORDINAL_CLAUSES = (
+    "PRIMERA", "SEGUNDA", "TERCERA", "CUARTA", "QUINTA", "SEXTA",
+)
+
+_ACTIVITY_SECTIONS = (
+    ("theory", "Materias de teoría", "las materias de teoría"),
+    ("practice", "Materias de práctica", "las materias de práctica"),
+)
+
+_CHANGE_LABELS = {"added": "Alta", "removed": "Retiro", "changed": "Cambio", "full": "Vigente"}
+
+
+def _number_to_spanish(value: int) -> str:
+    """Return a compact Spanish literal for integers from 0 to 10000."""
+    if value < 0 or value > 10000:
+        raise ValueError("Solo se soportan montos entre 0 y 10000")
+    units = {
+        0: "cero", 1: "un", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
+        6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez",
+        11: "once", 12: "doce", 13: "trece", 14: "catorce", 15: "quince",
+        16: "dieciséis", 17: "diecisiete", 18: "dieciocho", 19: "diecinueve",
+        20: "veinte", 21: "veintiún", 22: "veintidós", 23: "veintitrés",
+        24: "veinticuatro", 25: "veinticinco", 26: "veintiséis", 27: "veintisiete",
+        28: "veintiocho", 29: "veintinueve",
+    }
+    tens = {
+        30: "treinta", 40: "cuarenta", 50: "cincuenta", 60: "sesenta",
+        70: "setenta", 80: "ochenta", 90: "noventa",
+    }
+    hundreds = {
+        100: "cien", 200: "doscientos", 300: "trescientos", 400: "cuatrocientos",
+        500: "quinientos", 600: "seiscientos", 700: "setecientos", 800: "ochocientos",
+        900: "novecientos",
+    }
+    if value < 30:
+        return units[value]
+    if value < 100:
+        ten = (value // 10) * 10
+        rest = value % 10
+        return tens[ten] if rest == 0 else f"{tens[ten]} y {units[rest]}"
+    if value < 1000:
+        hundred = (value // 100) * 100
+        rest = value % 100
+        if rest == 0:
+            return hundreds[hundred]
+        prefix = "ciento" if hundred == 100 else hundreds[hundred]
+        return f"{prefix} {_number_to_spanish(rest)}"
+    if value == 1000:
+        return "mil"
+    if value < 10000:
+        thousands = value // 1000
+        rest = value % 1000
+        prefix = "mil" if thousands == 1 else f"{_number_to_spanish(thousands)} mil"
+        return prefix if rest == 0 else f"{prefix} {_number_to_spanish(rest)}"
+    return "diez mil"
+
+
+def _format_contract_rate(rate) -> tuple[str, str]:
+    amount = Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount < 0 or amount > Decimal("10000.00"):
+        raise ValueError("La tarifa por hora debe estar entre 0 y 10000 Bs")
+    integer_part = int(amount)
+    cents = int((amount - Decimal(integer_part)) * 100)
+    numeric = f"{integer_part},{cents:02d}"
+    currency = "boliviano" if integer_part == 1 else "bolivianos"
+    literal = f"{_number_to_spanish(integer_part).capitalize()} {currency} {cents:02d}/100"
+    return numeric, literal
+
+
+def _format_spanish_date(value: date) -> str:
+    return f"{value.day:02d} de {_MONTH_NAMES[value.month]} de {value.year}"
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _format_duration_text(start: date, end: date) -> str:
+    if end < start:
+        raise ValueError("La fecha de fin del contrato no puede ser anterior a la fecha de inicio")
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    days = (end - _add_months(start, months)).days
+    parts: list[str] = []
+    if months:
+        parts.append(f"{months} mes{'es' if months != 1 else ''}")
+    if days:
+        parts.append(f"{days} día{'s' if days != 1 else ''}")
+    return " y ".join(parts) if parts else "0 días"
+
+
+def _hours_text(value) -> str:
+    amount = Decimal(str(value)).normalize()
+    return format(amount.quantize(Decimal(1)) if amount == amount.to_integral() else amount, "f")
+
+
+def _line_term_hours(line: dict) -> Decimal:
+    return Decimal(str(line.get("term_hours") or line["hours"]))
+
+
+def _rate_html(lines: list[dict]) -> str:
+    """Bold hourly-rate fragment; mixed contracts name each activity's rate."""
+    parts = []
+    for activity, _subtitle, scope in _ACTIVITY_SECTIONS:
+        rates = {line["hourly_rate"] for line in lines if line["activity_kind"] == activity}
+        if len(rates) > 1:
+            raise ValueError(f"El contrato tiene más de una tarifa para {scope}.")
+        if rates:
+            numeric, literal = _format_contract_rate(rates.pop())
+            parts.append((f"<b>Bs. {numeric} ({literal})</b>", scope))
+    if len(parts) == 1:
+        return parts[0][0]
+    return " y de ".join(f"{amount} para {scope}" for amount, scope in parts)
+
+
+def _activity_groups(lines: list[dict]) -> list[tuple[str | None, list[dict]]]:
+    groups = [
+        (subtitle, [line for line in lines if line["activity_kind"] == activity])
+        for activity, subtitle, _scope in _ACTIVITY_SECTIONS
+    ]
+    groups = [(subtitle, items) for subtitle, items in groups if items]
+    if len(groups) == 1:
+        return [(None, groups[0][1])]
+    return groups
+
+
+def _subject_rows(lines: list[dict]) -> list[tuple[str, str, str]]:
+    subject_map: dict = defaultdict(lambda: {"semester": "", "total_hours": Decimal(0)})
+    for line in lines:
+        info = subject_map[line["subject_label"]]
+        info["semester"] = line["semester_label"]
+        info["total_hours"] += _line_term_hours(line)
+    return [
+        (subject, info["semester"], _hours_text(info["total_hours"]))
+        for subject, info in sorted(subject_map.items())
+    ]
+
+
+def _contract_term(lines: list[dict]) -> tuple[date, date]:
+    start = min(date.fromisoformat(line.get("contract_from") or line["effective_from"]) for line in lines)
+    end = max(date.fromisoformat(line.get("contract_to") or line["effective_to"]) for line in lines)
+    return start, end
+
+
+def _amendment_hours(line: dict) -> str:
+    current = _hours_text(_line_term_hours(line))
+    previous = line.get("previous_term_hours") or line.get("previous_hours")
+    return current if previous is None else f"{_hours_text(previous)} → {current}"
+
+
+def _amendment_elements(styles: dict, document: dict) -> list:
+    teacher = document["teacher"]
+    sequence = int(document["amendment_sequence"])
+    effective = _format_spanish_date(date.fromisoformat(str(document["effective_date"])))
+    lines = document["lines"]
+    metadata_changes = document.get("metadata_changes", [])
+    elements: list = [
+        Paragraph(
+            f"ADENDA N.º {sequence} AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+            styles["title_main"],
+        ),
+        Spacer(1, 6 * mm),
+        Paragraph(
+            f"Conste por el presente documento, la ADENDA N.º {sequence} al CONTRATO PRIVADO DE "
+            "PRESTACIÓN DE SERVICIOS PROFESIONALES suscrito entre UNIPANDO S.R.L., en adelante el "
+            f"COMITENTE, y el señor(a) <b>{escape(str(teacher['full_name']))}</b> con C.I. "
+            f"<b>{escape(str(teacher['ci']))} {escape(str(document['department']))}</b>, en adelante "
+            "el CONTRATISTA, conforme a la cláusula SEXTA del contrato, al tenor de las cláusulas "
+            "siguientes:",
+            styles["justify"],
+        ),
+        Spacer(1, 4 * mm),
+    ]
+    clauses = iter(_ORDINAL_CLAUSES)
+
+    if lines:
+        elements.append(Paragraph(
+            f"<b>{next(clauses)}: (MODIFICACIÓN DE LA CARGA HORARIA).-</b><br/>"
+            f"La presente adenda modifica, con efecto desde el {effective}, la carga horaria del "
+            "contrato conforme al siguiente detalle:",
+            styles["justify"],
+        ))
+        elements.append(Spacer(1, 3 * mm))
+        usable_width = CONTRACT_PAGE_SIZE[0] - 3.0 * cm - 2.5 * cm
+        col_widths = [usable_width * weight / 15.5 for weight in (1.0, 7.0, 2.5, 2.5, 2.5)]
+        for subtitle, items in _activity_groups(lines):
+            if subtitle:
+                elements.append(Paragraph(f"<b>{escape(subtitle)}:</b>", styles["justify"]))
+                elements.append(Spacer(1, 2 * mm))
+            table_data = [["Nº", "Materia", "Semestre", "Modificación", "Total Horas"]]
+            ordered = sorted(items, key=lambda line: (line["subject_label"], line["group_label"]))
+            for idx, line in enumerate(ordered, start=1):
+                table_data.append([
+                    str(idx),
+                    line["subject_label"],
+                    line["semester_label"],
+                    _CHANGE_LABELS[line["change_kind"]],
+                    _amendment_hours(line),
+                ])
+            elements.append(_contract_table(table_data, col_widths))
+            elements.append(Spacer(1, 3 * mm))
+        elements.append(Paragraph(
+            f"El valor de la hora del servicio aplicable es de {_rate_html(lines)}.",
+            styles["justify"],
+        ))
+        elements.append(Spacer(1, 4 * mm))
+
+    if metadata_changes:
+        elements.append(Paragraph(
+            f"<b>{next(clauses)}: (CORRECCIÓN DE DATOS).-</b><br/>"
+            "La presente adenda corrige los datos de identificación del contrato conforme al "
+            "siguiente detalle:",
+            styles["justify"],
+        ))
+        elements.append(Spacer(1, 3 * mm))
+        usable_width = CONTRACT_PAGE_SIZE[0] - 3.0 * cm - 2.5 * cm
+        table_data = [["Dato", "Anterior", "Actual"]] + [
+            [str(change["label"]), str(change["previous"]), str(change["current"])]
+            for change in metadata_changes
+        ]
+        elements.append(_contract_table(table_data, [usable_width / 3] * 3))
+        elements.append(Spacer(1, 4 * mm))
+
+    elements.append(Paragraph(
+        f"<b>{next(clauses)}: (VIGENCIA DEL CONTRATO).-</b> Todas las demás cláusulas del "
+        "contrato original permanecen vigentes e inalteradas.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 4 * mm))
+    elements.append(Paragraph(
+        f"<b>{next(clauses)}: (CONFORMIDAD).-</b> Ambas PARTES como señal de conformidad y sin "
+        "que medie ningún vicio del consentimiento, firmamos la presente adenda en doble "
+        "ejemplar de un solo tenor y para un solo efecto.",
+        styles["justify"],
+    ))
+    elements.append(Spacer(1, 6 * mm))
+    elements.append(Paragraph(f"Cobija, {effective}.", styles["right"]))
+    elements.extend(_signature_elements(styles))
+    return elements
+
+
 def render_contract_document_pdf(document: dict) -> bytes:
-    """Render an immutable ledger DTO without consulting live ORM objects."""
+    """Render an immutable ledger DTO with the UPDS legal template.
+
+    Originals and full re-issues carry the complete contract; other amendments
+    render as a formal adenda. Ledger identifiers stay out of the body text.
+    """
     styles = _make_styles()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=CONTRACT_PAGE_SIZE,
-        leftMargin=2.0 * cm,
-        rightMargin=2.0 * cm,
-        topMargin=2.0 * cm,
-        bottomMargin=2.0 * cm,
+        leftMargin=3.0 * cm,
+        rightMargin=2.5 * cm,
+        topMargin=2.5 * cm,
+        bottomMargin=2.5 * cm,
         title=f"Contrato {document['public_id']}",
         author="UPDS",
         subject="Contrato docente inmutable",
     )
-    kind = document["document_kind"]
-    teacher = document["teacher"]
-    period = document["academic_period"]
-    elements: list = [
-        Paragraph(
-            "ADENDA AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES"
-            if kind == "amendment"
-            else "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
-            styles["title_main"],
-        ),
-        Spacer(1, 4 * mm),
-        Paragraph(
-            f"<b>Documento:</b> {escape(str(document['public_id']))}<br/>"
-            f"<b>Docente:</b> {escape(str(teacher['full_name']))} — CI {escape(str(teacher['ci']))} "
-            f"{escape(str(document['department']))}<br/>"
-            f"<b>Período académico:</b> {escape(str(period['identity']))} "
-            f"({escape(str(period['start']))} al {escape(str(period['end']))})<br/>"
-            f"<b>Versión de plantilla:</b> {escape(str(document['template_version']))}<br/>"
-            f"<b>Fecha efectiva:</b> {escape(str(document['effective_date']))}<br/>"
-            f"<b>Fecha de emisión:</b> {escape(str(document['issued_at']))}",
-            styles["normal"],
-        ),
-        Spacer(1, 4 * mm),
-    ]
-    if kind == "amendment":
-        elements.extend([
-            Paragraph(
-                f"Esta adenda N.º {int(document['amendment_sequence'])} modifica desde la fecha "
-                f"efectiva indicada el contrato original {escape(str(document['root_public_id']))}. "
-                "El documento original y las adendas anteriores permanecen inalterados.",
-                styles["justify"],
-            ),
-            Spacer(1, 4 * mm),
-        ])
-
-    metadata_changes = document.get("metadata_changes", [])
-    if metadata_changes:
-        elements.append(Paragraph("Cambios de identificación contractual", styles["clause_title"]))
-        metadata_table = Table(
-            [["Dato", "Anterior", "Actual"]] + [
-                [
-                    escape(str(change["label"])),
-                    escape(str(change["previous"])),
-                    escape(str(change["current"])),
-                ]
-                for change in metadata_changes
+    lines = document["lines"]
+    if document["document_kind"] == "original" or document.get("reissue"):
+        teacher = document["teacher"]
+        start, end = _contract_term(lines)
+        elements = _legal_contract_elements(
+            styles,
+            teacher_name=str(teacher["full_name"]),
+            teacher_ci=str(teacher["ci"]),
+            department=str(document["department"]),
+            subject_sections=[
+                (subtitle, _subject_rows(items)) for subtitle, items in _activity_groups(lines)
             ],
-            colWidths=[5.0 * cm, 6.0 * cm, 6.0 * cm],
-            repeatRows=1,
+            duration_text=_format_duration_text(start, end),
+            start_date=_format_spanish_date(start),
+            end_date=_format_spanish_date(end),
+            rate_html=_rate_html(lines),
         )
-        metadata_table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
-            ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#EAF1F8")),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        elements.extend([metadata_table, Spacer(1, 4 * mm)])
-
-    labels = {"theory": "Carga de teoría", "practice": "Carga de práctica"}
-    changes = {
-        "full": "Vigente", "added": "Alta", "removed": "Retiro", "changed": "Cambio",
-    }
-    for activity in ("theory", "practice"):
-        lines = [line for line in document["lines"] if line["activity_kind"] == activity]
-        if not lines:
-            continue
-        elements.append(Paragraph(labels[activity], styles["clause_title"]))
-        table_data = [["Cambio", "Materia / grupo", "Horario", "Horas", "Tarifa", "Vigencia"]]
-        for line in lines:
-            previous = ""
-            if line.get("previous_hours") is not None:
-                previous = f" (antes {line['previous_hours']}h"
-                if line.get("previous_hourly_rate") != line.get("hourly_rate"):
-                    previous += f" / Bs {line['previous_hourly_rate']}"
-                if line.get("previous_source_key"):
-                    previous += f" / fuente {line['previous_source_key']}"
-                previous += ")"
-            if line["source_kind"] == "published":
-                provenance = (
-                    f"Fuente publicada #{line['source_id']} · publicación #{line['publication_id']} "
-                    f"rev. {line['publication_sequence']} · programa #{line['publication_program_id']} · "
-                    f"autoridad {line['authority_effective_from']} · bloque #{line['published_block_id']} · "
-                    f"asignación #{line['published_assignment_id']}"
-                )
-            else:
-                provenance = (
-                    f"Fuente heredada #{line['source_id']} · designación #{line['designation_id']} · "
-                    f"autoridad {line['authority_effective_from']}"
-                )
-            table_data.append([
-                changes[line["change_kind"]],
-                Paragraph(
-                    f"{escape(str(line['subject_label']))}<br/>"
-                    f"{escape(str(line['group_label']))} · {escape(str(line['semester_label']))}<br/>"
-                    f"<font size='6'>{escape(provenance)}</font>",
-                    styles["normal"],
-                ),
-                Paragraph(escape(str(line["schedule_label"])), styles["normal"]),
-                f"{line['hours']} {line['hour_basis']}{previous}",
-                f"Bs {line['hourly_rate']}\n{line['rate_class']}",
-                f"{line['effective_from']}\n{line['effective_to']}",
-            ])
-        table = Table(
-            table_data,
-            colWidths=[1.4 * cm, 3.3 * cm, 4.7 * cm, 2.6 * cm, 1.8 * cm, 2.8 * cm],
-            repeatRows=1,
-        )
-        table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
-            ("FONTNAME", (0, 1), (-1, -1), "Times-Roman"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#EAF1F8")),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ]))
-        elements.extend([table, Spacer(1, 4 * mm)])
-
-    elements.extend([
-        Paragraph(
-            "Las tarifas de teoría y práctica se aplican separadamente conforme a las líneas "
-            "precedentes. Este ejemplar corresponde al snapshot inmutable identificado arriba.",
-            styles["justify"],
-        ),
-        Spacer(1, 25 * mm),
-        Table(
-            [["___________________________", "___________________________"],
-             ["EL COMITENTE", "EL CONTRATISTA"]],
-            colWidths=[9.0 * cm, 9.0 * cm],
-            style=[("ALIGN", (0, 0), (-1, -1), "CENTER")],
-        ),
-    ])
+    else:
+        elements = _amendment_elements(styles, document)
     doc.build(
         elements,
         onFirstPage=_page_number_canvas,

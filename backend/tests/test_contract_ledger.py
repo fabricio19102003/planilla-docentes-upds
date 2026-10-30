@@ -64,6 +64,9 @@ def contract_sources(db_session, monkeypatch):
         academic_period="I/2026",
         designation_type="regular",
         schedule_json=[],
+        semester_hours=80,
+        contract_start_date=date(2026, 2, 2),
+        contract_end_date=date(2026, 6, 20),
     )
     practice = Designation(
         teacher_ci=teacher.ci,
@@ -73,6 +76,9 @@ def contract_sources(db_session, monkeypatch):
         academic_period="I/2026",
         designation_type="practice",
         schedule_json=[],
+        semester_hours=96,
+        contract_start_date=date(2026, 2, 9),
+        contract_end_date=date(2026, 6, 27),
     )
     db_session.add_all([theory, practice])
     db_session.flush()
@@ -117,6 +123,112 @@ def test_mixed_original_has_separate_theory_and_practice_rates_and_is_idempotent
     assert bytes(replay.artifact_content) == first_bytes
     assert replay.artifact_sha256 == sha256(first_bytes).hexdigest()
     assert db_session.query(ContractDocument).count() == 1
+
+
+def _pdf_text(content: bytes) -> str:
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages)
+    return " ".join(text.split())
+
+
+def test_original_contract_uses_the_legal_template_with_separate_rates(
+    db_session, contract_sources
+):
+    teacher, _theory, _practice, _state = contract_sources
+    original = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    content = bytes(original.artifact_content)
+    text = _pdf_text(content)
+
+    assert original.template_version == "contract-ledger-v2"
+    for expected in (
+        "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+        "artículo 1297 del Código Civil",
+        "PRIMERA: (DE LAS PARTES)",
+        "UNIPANDO S.R.L",
+        "Por otra, el señor(a) Docente Contrato hábil por ley, con C.I. CONTRACT-1 Pando",
+        "SEGUNDA: (OBJETO)",
+        "Proyecto Formativo de Aula",
+        "Nº Materia Semestre Total Horas",
+        "Materias de teoría",
+        "1 Anatomía I 80",
+        "Materias de práctica",
+        "1 Clínica I 96",
+        "QUINTA: (OBLIGACIONES DEL CONTRATISTA y PRODUCTOS REQUERIDOS)",
+        "OCTAVA: (DURACIÓN, PRECIO, FORMA DE PAGO E IMPUESTOS)",
+        "una duración de 4 meses y 25 días computables desde el 02 de febrero de 2026 al "
+        "27 de junio de 2026",
+        "Bs. 70,00 (Setenta bolivianos 00/100) para las materias de teoría",
+        "Bs. 85,00 (Ochenta y cinco bolivianos 00/100) para las materias de práctica",
+        "DÉCIMA SÉPTIMA: (CONFORMIDAD)",
+        "Cobija, 02 de febrero de 2026.",
+        "EL COMITENTE",
+        "EL CONTRATISTA",
+    ):
+        assert expected in text
+    for internal in (original.public_id, "contract-ledger", "designación #", "Fuente heredada", "2026-02-02"):
+        assert internal not in text
+    pages = PdfReader(io.BytesIO(content)).pages
+    assert all(
+        (float(page.mediabox.width), float(page.mediabox.height)) == (612.0, 936.0)
+        for page in pages
+    )
+
+
+def test_single_activity_contract_keeps_the_original_rate_sentence(db_session, contract_sources):
+    teacher, _theory, _practice, state = contract_sources
+    state["practice"] = []
+    original = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    text = _pdf_text(bytes(original.artifact_content))
+
+    assert "el valor de la hora del servicio es de Bs. 70,00 (Setenta bolivianos 00/100). " in text
+    assert "1 Anatomía I 80" in text
+    assert "Materias de teoría" not in text
+    assert "Clínica" not in text
+    assert "desde el 02 de febrero de 2026 al 20 de junio de 2026" in text
+
+
+def test_v1_contract_is_reissued_once_as_full_v2_contract_preserving_history(
+    db_session, contract_sources, monkeypatch
+):
+    teacher, _theory, _practice, _state = contract_sources
+    with monkeypatch.context() as legacy:
+        legacy.setattr(ledger, "TEMPLATE_VERSION", "contract-ledger-v1")
+        original = ledger.issue_contract(
+            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+        )
+    original_bytes = bytes(original.artifact_content)
+
+    reissue = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    replay = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+
+    assert original.template_version == "contract-ledger-v1"
+    assert reissue.id != original.id
+    assert reissue.template_version == "contract-ledger-v2"
+    assert reissue.document_kind == "amendment"
+    assert reissue.amendment_sequence == 1
+    assert reissue.root_contract_id == original.id
+    assert reissue.predecessor_contract_id == original.id
+    assert reissue.effective_date == date(2026, 1, 1)
+    assert [(line.activity_kind, line.change_kind, float(line.hours)) for line in reissue.lines] == [
+        ("practice", "full", 6.0),
+        ("theory", "full", 4.0),
+    ]
+    text = _pdf_text(bytes(reissue.artifact_content))
+    assert "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in text
+    assert "DÉCIMA SÉPTIMA: (CONFORMIDAD)" in text
+    assert "ADENDA" not in text
+    assert "Versión de plantilla" not in text
+    assert replay.id == reissue.id
+    assert db_session.query(ContractDocument).count() == 2
+    db_session.refresh(original)
+    assert bytes(original.artifact_content) == original_bytes
 
 
 def test_changed_load_appends_amendment_and_preserves_original_bytes(
@@ -219,11 +331,20 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
     second = render_contract_document_pdf(payload)
     assert first == second
     assert b"%PDF" in first[:8]
-    text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(first)).pages)
-    assert "Docente Prueba" in text
-    assert "CI 123 Pando" in text
-    assert ledger.TEMPLATE_VERSION in text
-    assert "designación #7" in text
+    text = _pdf_text(first)
+    for expected in (
+        "ADENDA N.º 2 AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+        "el señor(a) Docente Prueba con C.I. 123 Pando",
+        "con efecto desde el 16 de marzo de 2026",
+        "Anatomía I Cambio 4 → 2",
+        "Bs. 70,00 (Setenta bolivianos 00/100)",
+        "permanecen vigentes e inalteradas",
+        "Cobija, 16 de marzo de 2026.",
+        "EL CONTRATISTA",
+    ):
+        assert expected in text
+    for internal in ("fixed-contract-id", "root-contract-id", ledger.TEMPLATE_VERSION, "designación #7"):
+        assert internal not in text
 
 
 def test_non_contractual_profile_change_is_idempotent_and_legal_name_change_is_metadata_amendment(
@@ -258,7 +379,9 @@ def test_non_contractual_profile_change_is_idempotent_and_legal_name_change_is_m
         page.extract_text() or ""
         for page in PdfReader(io.BytesIO(bytes(amendment.artifact_content))).pages
     )
-    assert "Cambios de identificación contractual" in text
+    text = " ".join(text.split())
+    assert "ADENDA N.º 1 AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in text
+    assert "Nombre del docente Docente Contrato Docente Contrato Corregido" in text
     assert "Docente Contrato Corregido" in text
     db_session.refresh(original)
     assert original.artifact_sha256 == original_hash

@@ -26,7 +26,7 @@ from app.services.payroll_schedule_source_service import (
     payroll_schedule_sources,
 )
 
-TEMPLATE_VERSION = "contract-ledger-v1"
+TEMPLATE_VERSION = "contract-ledger-v2"
 
 
 class ContractIssuanceError(ValueError):
@@ -55,10 +55,22 @@ class ContractSnapshotLine:
     authority_effective_from: str
     published_block_id: int | None
     published_assignment_id: int | None
+    contract_from: str
+    contract_to: str
+    term_hours: str
 
     @property
     def source_key(self) -> str:
         return f"{self.source_kind}:{self.source_id}"
+
+
+@dataclass(frozen=True)
+class ContractTerm:
+    """Contract bounds and total hours the legal template states for one source."""
+
+    start: date
+    end: date
+    hours: int | None
 
 
 @dataclass(frozen=True)
@@ -126,6 +138,7 @@ def _snapshot_line(
     source: PayrollScheduleSource,
     rate: Decimal,
     publication: dict[str, Any] | None,
+    term: ContractTerm,
 ) -> ContractSnapshotLine:
     weekly_hours = sum(int(item.get("horas_academicas", 0) or 0) for item in source.schedule)
     if weekly_hours > 0:
@@ -167,7 +180,72 @@ def _snapshot_line(
         ),
         published_block_id=source.published_block_id,
         published_assignment_id=source.published_assignment_id,
+        contract_from=term.start.isoformat(),
+        contract_to=term.end.isoformat(),
+        term_hours=_decimal_text(term.hours if term.hours else hours),
     )
+
+
+def _contract_terms(
+    db: Session,
+    sources: list[PayrollScheduleSource],
+    publications: dict[int, dict[str, Any]],
+    period_start: date,
+    period_end: date,
+) -> dict[str, ContractTerm]:
+    """Resolve each source's contract dates and term hours as the legal template states them."""
+    designation_ids = {
+        source.designation_id for source in sources
+        if source.source_kind == "legacy" and source.designation_id is not None
+    }
+    designations = {
+        row.id: row
+        for row in db.query(
+            Designation.id,
+            Designation.contract_start_date,
+            Designation.contract_end_date,
+            Designation.semester_hours,
+        ).filter(Designation.id.in_(designation_ids)).all()
+    } if designation_ids else {}
+    assignment_ids = {
+        source.published_assignment_id for source in sources
+        if source.source_kind == "published" and source.published_assignment_id is not None
+    }
+    assignments = {
+        row.id: row
+        for row in db.query(
+            AcademicSchedulePublishedAssignment.id,
+            AcademicSchedulePublishedAssignment.effective_from,
+            AcademicSchedulePublishedAssignment.effective_to,
+        ).filter(AcademicSchedulePublishedAssignment.id.in_(assignment_ids)).all()
+    } if assignment_ids else {}
+
+    terms: dict[str, ContractTerm] = {}
+    for source in sources:
+        start, end = source.effective_from, source.effective_to
+        slot_hours = sum(int(slot.academic_hours or 0) for slot in source.payable_slots)
+        hours = slot_hours or None
+        if source.source_kind == "legacy":
+            designation = designations.get(source.designation_id)
+            if designation is not None:
+                start = designation.contract_start_date or start
+                end = designation.contract_end_date or end
+                if designation.semester_hours and designation.semester_hours > 0:
+                    hours = int(designation.semester_hours)
+        else:
+            assignment = assignments.get(source.published_assignment_id)
+            publication = publications.get(source.publication_id)
+            if assignment is not None:
+                start = assignment.effective_from
+                if publication is not None:
+                    start = max(start, publication["effective_from"])
+                end = assignment.effective_to or end
+        start = max(start, period_start)
+        end = min(end, period_end)
+        if end < start:
+            start, end = source.effective_from, source.effective_to
+        terms[source.source_key] = ContractTerm(start=start, end=end, hours=hours)
+    return terms
 
 
 def build_contract_snapshot(
@@ -237,12 +315,14 @@ def build_contract_snapshot(
             f"Falta procedencia de revisión publicada para las publicaciones {missing_publications}."
         )
 
+    terms = _contract_terms(db, teacher_sources, publications, period_start, period_end)
     lines = tuple(sorted(
         (
             _snapshot_line(
                 source,
                 practice_rate if source.rate_class == "practice" else regular_rate,
                 publications.get(source.publication_id),
+                terms[source.source_key],
             )
             for source in teacher_sources
         ),
@@ -484,6 +564,8 @@ def _delta_lines(
                 previous_source_key=key,
                 hours="0.00",
             )
+            if old.get("term_hours") is not None:
+                removed.update(previous_term_hours=old["term_hours"], term_hours="0.00")
             delta.append(removed)
             effective_candidates.append(_removal_effective_date(old, previous, current))
         elif old != new and old is not None and new is not None:
@@ -494,6 +576,8 @@ def _delta_lines(
                 previous_hourly_rate=old["hourly_rate"],
                 previous_source_key=key,
             )
+            if old.get("term_hours") is not None:
+                changed["previous_term_hours"] = old["term_hours"]
             delta.append(changed)
             old_end = date.fromisoformat(old["effective_to"])
             new_end = date.fromisoformat(new["effective_to"])
@@ -581,11 +665,23 @@ def issue_contract(
         return existing
 
     issued_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    delta_lines, effective_date, metadata_changes = _delta_lines(
-        predecessor.full_snapshot if predecessor is not None else None,
-        snapshot,
-        issuance_date=issued_at.date(),
+    # A document issued with an older template is superseded by a complete
+    # contract in the current template; earlier documents stay untouched.
+    reissue = (
+        predecessor is not None
+        and predecessor.template_version != TEMPLATE_VERSION
+        and bool(snapshot.lines)
     )
+    if reissue:
+        delta_lines = [dict(asdict(line), change_kind="full") for line in snapshot.lines]
+        effective_date = min(date.fromisoformat(line.effective_from) for line in snapshot.lines)
+        metadata_changes: list[dict[str, str]] = []
+    else:
+        delta_lines, effective_date, metadata_changes = _delta_lines(
+            predecessor.full_snapshot if predecessor is not None else None,
+            snapshot,
+            issuance_date=issued_at.date(),
+        )
     sequence = 0 if predecessor is None else predecessor.amendment_sequence + 1
     kind = "original" if predecessor is None else "amendment"
     root = None if predecessor is None else (predecessor.root_contract_id or predecessor.id)
@@ -600,6 +696,7 @@ def issue_contract(
         "root_public_id": history[0].public_id if history else None,
         "lines": delta_lines,
         "metadata_changes": metadata_changes,
+        "reissue": reissue,
     }
     pdf_bytes = render_contract_document_pdf(render_payload)
     artifact_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
