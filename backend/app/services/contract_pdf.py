@@ -240,7 +240,7 @@ def _legal_contract_elements(
         ),
         (
             f'Por otra, el señor(a) <b>{escape(teacher_name)}</b> hábil por ley, con C.I. '
-            f'<b>{escape(teacher_ci)} {escape(department)}</b>, con domicilio en la Ciudad de Cobija, a quien '
+            f'<b>{escape(teacher_ci)}</b>, con domicilio en la Ciudad de Cobija, a quien '
             'se denominará en adelante para fines de este contrato como CONTRATISTA.'
         ),
         (
@@ -1004,7 +1004,7 @@ def _amendment_elements(styles: dict, document: dict) -> list:
             f"Conste por el presente documento, la ADENDA N.º {sequence} al CONTRATO PRIVADO DE "
             "PRESTACIÓN DE SERVICIOS PROFESIONALES suscrito entre UNIPANDO S.R.L., en adelante el "
             f"COMITENTE, y el señor(a) <b>{escape(str(teacher['full_name']))}</b> con C.I. "
-            f"<b>{escape(str(teacher['ci']))} {escape(str(document['department']))}</b>, en adelante "
+            f"<b>{escape(str(teacher['ci']))}</b>, en adelante "
             "el CONTRATISTA, conforme a la cláusula SEXTA del contrato, al tenor de las cláusulas "
             "siguientes:",
             styles["justify"],

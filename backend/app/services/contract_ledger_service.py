@@ -26,7 +26,7 @@ from app.services.payroll_schedule_source_service import (
     payroll_schedule_sources,
 )
 
-TEMPLATE_VERSION = "contract-ledger-v2"
+TEMPLATE_VERSION = "contract-ledger-v3"
 
 
 class ContractIssuanceError(ValueError):
