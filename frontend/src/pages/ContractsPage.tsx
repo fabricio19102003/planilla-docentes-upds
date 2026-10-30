@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { IndividualContractCard } from '@/components/contracts/IndividualContractCard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { useTeachers } from '@/api/hooks/useTeachers'
@@ -195,6 +196,12 @@ export function ContractsPage() {
           </div>
         </CardPanel>
       </Card>
+
+      <IndividualContractCard
+        teachers={teachers}
+        department={department}
+        academicPeriod={settings?.active_academic_period}
+      />
 
       {/* Teacher selection card */}
       <Card>

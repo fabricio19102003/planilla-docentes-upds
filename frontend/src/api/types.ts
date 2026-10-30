@@ -1101,6 +1101,13 @@ export interface AppSettings {
   docente_can_edit_profile: boolean
   docente_can_edit_photo: boolean
   whatsapp_billing_delivery: WhatsAppBillingDeliveryStatus
+  contract_representative_name: string
+  contract_representative_ci: string
+  contract_power_number: string
+  contract_power_date: string
+  contract_notary_office: string
+  contract_notary_name: string
+  contract_city: string
 }
 
 export interface WhatsAppBillingDeliveryStatus {
@@ -1149,6 +1156,13 @@ export interface AppSettingsUpdate {
   docente_can_edit_profile?: boolean
   docente_can_edit_photo?: boolean
   whatsapp_billing_requested_enabled?: boolean
+  contract_representative_name?: string
+  contract_representative_ci?: string
+  contract_power_number?: string
+  contract_power_date?: string
+  contract_notary_office?: string
+  contract_notary_name?: string
+  contract_city?: string
 }
 
 // ─── Teacher change ("Cambiar docente") and payroll simulation ──────────────
