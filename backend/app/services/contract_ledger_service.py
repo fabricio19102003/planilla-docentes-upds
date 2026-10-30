@@ -191,7 +191,7 @@ def _snapshot_line(
         published_assignment_id=source.published_assignment_id,
         contract_from=term.start.isoformat(),
         contract_to=term.end.isoformat(),
-        term_hours=_decimal_text(term.hours if term.hours else hours),
+        term_hours=_decimal_text(term.hours if term.hours is not None else hours),
     )
 
 
@@ -214,8 +214,16 @@ def _contract_terms(
             Designation.contract_start_date,
             Designation.contract_end_date,
             Designation.semester_hours,
+            Designation.subject,
+            Designation.semester,
         ).filter(Designation.id.in_(designation_ids)).all()
     } if designation_ids else {}
+    # Start dates of designations with official semester hours, per subject.
+    official_starts: dict[tuple[str, str], list[date]] = {}
+    for row in designations.values():
+        if row.semester_hours and row.semester_hours > 0 and row.contract_start_date:
+            key = (row.subject.casefold().strip(), str(row.semester).casefold().strip())
+            official_starts.setdefault(key, []).append(row.contract_start_date)
     assignment_ids = {
         source.published_assignment_id for source in sources
         if source.source_kind == "published" and source.published_assignment_id is not None
@@ -241,6 +249,18 @@ def _contract_terms(
                 end = designation.contract_end_date or end
                 if designation.semester_hours and designation.semester_hours > 0:
                     hours = int(designation.semester_hours)
+                elif any(
+                    later > end
+                    for later in official_starts.get(
+                        (designation.subject.casefold().strip(),
+                         str(designation.semester).casefold().strip()),
+                        (),
+                    )
+                ):
+                    # A group closed and continued under another designation (a
+                    # renamed group): the official semester hours of the
+                    # continuation already cover the whole semester.
+                    hours = 0
         else:
             assignment = assignments.get(source.published_assignment_id)
             publication = publications.get(source.publication_id)

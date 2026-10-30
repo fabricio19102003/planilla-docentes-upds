@@ -797,3 +797,75 @@ def test_batch_route_ignores_custom_dates(client, db_session, contract_sources):
     assert "desde el 02 de febrero de 2026 al 27 de junio de 2026" in _pdf_text(
         bytes(document.artifact_content)
     )
+
+
+def _designation(db_session, teacher, *, group, start, end, semester_hours):
+    designation = Designation(
+        teacher_ci=teacher.ci,
+        subject="Histología I",
+        semester="I",
+        group_code=group,
+        academic_period="I/2026",
+        designation_type="regular",
+        schedule_json=[],
+        semester_hours=semester_hours,
+        contract_start_date=start,
+        contract_end_date=end,
+    )
+    db_session.add(designation)
+    db_session.flush()
+    return designation
+
+
+def test_renamed_group_does_not_add_the_closed_group_hours(db_session, contract_sources):
+    teacher, _theory, _practice, state = contract_sources
+    closed = _designation(
+        db_session, teacher, group="EXTRA",
+        start=date(2026, 2, 2), end=date(2026, 3, 15), semester_hours=None,
+    )
+    renamed = _designation(
+        db_session, teacher, group="T-2",
+        start=date(2026, 3, 16), end=date(2026, 6, 20), semester_hours=100,
+    )
+    state["theory"] = [
+        _source(closed, activity="theory", hours=5,
+                effective_from=date(2026, 2, 2), effective_to=date(2026, 3, 15)),
+        _source(renamed, activity="theory", hours=5,
+                effective_from=date(2026, 3, 16), effective_to=date(2026, 6, 20)),
+    ]
+    state["practice"] = []
+
+    document = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    text = _pdf_text(bytes(document.artifact_content))
+
+    assert "1 Histología I I 100" in text
+    assert "Histología I I 105" not in text
+    assert "desde el 02 de febrero de 2026 al 20 de junio de 2026" in text
+    assert [line["term_hours"] for line in document.full_snapshot["lines"]] == ["0.00", "100.00"]
+
+
+def test_parallel_group_without_official_hours_keeps_its_hours(db_session, contract_sources):
+    teacher, _theory, _practice, state = contract_sources
+    parallel = _designation(
+        db_session, teacher, group="EXTRA",
+        start=date(2026, 2, 2), end=date(2026, 3, 15), semester_hours=None,
+    )
+    official = _designation(
+        db_session, teacher, group="T-1",
+        start=date(2026, 2, 2), end=date(2026, 6, 20), semester_hours=100,
+    )
+    state["theory"] = [
+        _source(parallel, activity="theory", hours=5,
+                effective_from=date(2026, 2, 2), effective_to=date(2026, 3, 15)),
+        _source(official, activity="theory", hours=5,
+                effective_from=date(2026, 2, 2), effective_to=date(2026, 6, 20)),
+    ]
+    state["practice"] = []
+
+    document = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+
+    assert "1 Histología I I 105" in _pdf_text(bytes(document.artifact_content))
