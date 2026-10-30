@@ -140,7 +140,7 @@ def test_original_contract_uses_the_legal_template_with_separate_rates(
     content = bytes(original.artifact_content)
     text = _pdf_text(content)
 
-    assert original.template_version == "contract-ledger-v3"
+    assert original.template_version == "contract-ledger-v4"
     assert "CONTRACT-1 Pando" not in text
     for expected in (
         "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
@@ -212,7 +212,7 @@ def test_v1_contract_is_reissued_once_as_full_v2_contract_preserving_history(
 
     assert original.template_version == "contract-ledger-v1"
     assert reissue.id != original.id
-    assert reissue.template_version == "contract-ledger-v3"
+    assert reissue.template_version == "contract-ledger-v4"
     assert reissue.document_kind == "amendment"
     assert reissue.amendment_sequence == 1
     assert reissue.root_contract_id == original.id
@@ -842,8 +842,10 @@ def test_renamed_group_does_not_add_the_closed_group_hours(db_session, contract_
 
     assert "1 Histología I I 100" in text
     assert "Histología I I 105" not in text
-    assert "desde el 02 de febrero de 2026 al 20 de junio de 2026" in text
-    assert [line["term_hours"] for line in document.full_snapshot["lines"]] == ["0.00", "100.00"]
+    assert "desde el 16 de marzo de 2026 al 20 de junio de 2026" in text
+    assert [
+        (line["group_label"], line["term_hours"]) for line in document.full_snapshot["lines"]
+    ] == [("T-2", "100.00")]
 
 
 def test_parallel_group_without_official_hours_keeps_its_hours(db_session, contract_sources):
@@ -869,3 +871,66 @@ def test_parallel_group_without_official_hours_keeps_its_hours(db_session, contr
     )
 
     assert "1 Histología I I 105" in _pdf_text(bytes(document.artifact_content))
+
+
+def _other_teacher_designation_from(db_session, start):
+    """Another teacher's designation whose start marks the latest designation update."""
+    other = Teacher(ci="CONTRACT-2", full_name="Otro Docente")
+    db_session.add(other)
+    db_session.flush()
+    db_session.add(Designation(
+        teacher_ci=other.ci, subject="Farmacología I", semester="III", group_code="T-2",
+        academic_period="I/2026", designation_type="regular", schedule_json=[],
+        semester_hours=140, contract_start_date=start, contract_end_date=date(2026, 6, 20),
+    ))
+    db_session.flush()
+
+
+def _lost_group(db_session, teacher):
+    lost = Designation(
+        teacher_ci=teacher.ci, subject="Farmacología I", semester="III", group_code="T-2",
+        academic_period="I/2026", designation_type="regular", schedule_json=[],
+        semester_hours=140, contract_start_date=date(2026, 2, 2),
+        contract_end_date=date(2026, 3, 15),
+    )
+    db_session.add(lost)
+    db_session.flush()
+    return _source(lost, activity="theory", hours=7,
+                   effective_from=date(2026, 2, 2), effective_to=date(2026, 3, 15))
+
+
+def test_contract_leaves_out_designations_ended_before_the_latest_update(
+    db_session, contract_sources
+):
+    teacher, _theory, _practice, state = contract_sources
+    state["theory"] = [*state["theory"], _lost_group(db_session, teacher)]
+    _other_teacher_designation_from(db_session, date(2026, 3, 16))
+
+    document = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    text = _pdf_text(bytes(document.artifact_content))
+
+    assert "Farmacología" not in text
+    assert "1 Anatomía I 80" in text
+    assert "desde el 02 de febrero de 2026 al 27 de junio de 2026" in text
+    assert sorted(line["subject_label"] for line in document.full_snapshot["lines"]) == [
+        "Anatomía", "Clínica",
+    ]
+
+
+def test_teacher_without_current_designations_keeps_the_latest_ones(
+    db_session, contract_sources
+):
+    teacher, _theory, _practice, state = contract_sources
+    state["theory"] = [_lost_group(db_session, teacher)]
+    state["practice"] = []
+    _other_teacher_designation_from(db_session, date(2026, 3, 16))
+
+    document = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    text = _pdf_text(bytes(document.artifact_content))
+
+    assert "1 Farmacología I III 140" in text
+    assert "desde el 02 de febrero de 2026 al 15 de marzo de 2026" in text
