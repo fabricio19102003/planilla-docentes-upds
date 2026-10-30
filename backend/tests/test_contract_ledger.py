@@ -140,13 +140,15 @@ def test_original_contract_uses_the_legal_template_with_separate_rates(
     content = bytes(original.artifact_content)
     text = _pdf_text(content)
 
-    assert original.template_version == "contract-ledger-v2"
+    assert original.template_version == "contract-ledger-v3"
+    assert "CONTRACT-1 Pando" not in text
     for expected in (
         "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
         "artículo 1297 del Código Civil",
         "PRIMERA: (DE LAS PARTES)",
         "UNIPANDO S.R.L",
-        "Por otra, el señor(a) Docente Contrato hábil por ley, con C.I. CONTRACT-1 Pando",
+        "Por otra, el señor(a) Docente Contrato hábil por ley, con C.I. CONTRACT-1, con domicilio en la "
+        "Ciudad de Cobija",
         "SEGUNDA: (OBJETO)",
         "Proyecto Formativo de Aula",
         "Nº Materia Semestre Total Horas",
@@ -210,7 +212,7 @@ def test_v1_contract_is_reissued_once_as_full_v2_contract_preserving_history(
 
     assert original.template_version == "contract-ledger-v1"
     assert reissue.id != original.id
-    assert reissue.template_version == "contract-ledger-v2"
+    assert reissue.template_version == "contract-ledger-v3"
     assert reissue.document_kind == "amendment"
     assert reissue.amendment_sequence == 1
     assert reissue.root_contract_id == original.id
@@ -334,7 +336,7 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
     text = _pdf_text(first)
     for expected in (
         "ADENDA N.º 2 AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
-        "el señor(a) Docente Prueba con C.I. 123 Pando",
+        "el señor(a) Docente Prueba con C.I. 123, en adelante el CONTRATISTA",
         "con efecto desde el 16 de marzo de 2026",
         "Anatomía I Cambio 4 → 2",
         "Bs. 70,00 (Setenta bolivianos 00/100)",
