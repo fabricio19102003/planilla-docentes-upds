@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import uuid4
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -26,7 +27,7 @@ from app.services.payroll_schedule_source_service import (
     payroll_schedule_sources,
 )
 
-TEMPLATE_VERSION = "contract-ledger-v3"
+TEMPLATE_VERSION = "contract-ledger-v4"
 
 
 class ContractIssuanceError(ValueError):
@@ -71,6 +72,8 @@ class ContractTerm:
     start: date
     end: date
     hours: int | None
+    # Last day of the designation or assignment; None when it is open-ended.
+    load_end: date | None = None
 
 
 @dataclass(frozen=True)
@@ -240,6 +243,7 @@ def _contract_terms(
     terms: dict[str, ContractTerm] = {}
     for source in sources:
         start, end = source.effective_from, source.effective_to
+        load_end: date | None = source.effective_to
         slot_hours = sum(int(slot.academic_hours or 0) for slot in source.payable_slots)
         hours = slot_hours or None
         if source.source_kind == "legacy":
@@ -247,6 +251,7 @@ def _contract_terms(
             if designation is not None:
                 start = designation.contract_start_date or start
                 end = designation.contract_end_date or end
+                load_end = designation.contract_end_date
                 if designation.semester_hours and designation.semester_hours > 0:
                     hours = int(designation.semester_hours)
                 elif any(
@@ -269,12 +274,62 @@ def _contract_terms(
                 if publication is not None:
                     start = max(start, publication["effective_from"])
                 end = assignment.effective_to or end
+                load_end = assignment.effective_to
         start = max(start, period_start)
         end = min(end, period_end)
         if end < start:
             start, end = source.effective_from, source.effective_to
-        terms[source.source_key] = ContractTerm(start=start, end=end, hours=hours)
+        terms[source.source_key] = ContractTerm(
+            start=start, end=end, hours=hours, load_end=load_end,
+        )
     return terms
+
+
+def _latest_designation_update(
+    db: Session, academic_period: str, period_start: date, period_end: date,
+) -> date:
+    """Start date of the most recent designation or assignment loaded for the period."""
+    candidates = [
+        db.query(func.max(Designation.contract_start_date))
+        .filter(Designation.academic_period == academic_period)
+        .scalar(),
+        db.query(func.max(AcademicSchedulePublishedAssignment.effective_from))
+        .join(
+            AcademicSchedulePublishedBlock,
+            AcademicSchedulePublishedAssignment.publication_block_id
+            == AcademicSchedulePublishedBlock.id,
+        )
+        .join(
+            AcademicSchedulePublication,
+            AcademicSchedulePublishedBlock.publication_id == AcademicSchedulePublication.id,
+        )
+        .filter(AcademicSchedulePublication.academic_period == academic_period)
+        .scalar(),
+    ]
+    latest = max((value for value in candidates if value is not None), default=period_start)
+    return min(max(latest, period_start), period_end)
+
+
+def _current_sources(
+    sources: list[PayrollScheduleSource],
+    terms: dict[str, ContractTerm],
+    reference: date,
+) -> list[PayrollScheduleSource]:
+    """Keep the teacher's most recent designations.
+
+    Designations that ended before the latest designation update were replaced
+    (renamed groups, groups handed to another teacher) and are left out. A
+    teacher with no designation left keeps the ones that ended last.
+    """
+    current = [
+        source for source in sources
+        if terms[source.source_key].load_end is None
+        or terms[source.source_key].load_end >= reference
+    ]
+    if current or not sources:
+        return current
+    last_end = max(terms[source.source_key].load_end for source in sources)
+    return [source for source in sources if terms[source.source_key].load_end == last_end]
 
 
 def build_contract_snapshot(
@@ -346,6 +401,11 @@ def build_contract_snapshot(
         )
 
     line_terms = _contract_terms(db, teacher_sources, publications, period_start, period_end)
+    teacher_sources = _current_sources(
+        teacher_sources,
+        line_terms,
+        _latest_designation_update(db, academic_period, period_start, period_end),
+    )
     lines = tuple(sorted(
         (
             _snapshot_line(
