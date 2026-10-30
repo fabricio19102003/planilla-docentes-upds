@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import io
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -18,7 +18,14 @@ from app.models.teacher import Teacher
 from app.models.user import User
 from app.services import app_settings_service
 from app.services.activity_logger import log_activity
-from app.services.contract_ledger_service import ContractIssuanceError, issue_contract
+from app.services.contract_ledger_service import (
+    ContractIssuanceError,
+    academic_period_bounds,
+    build_contract_snapshot,
+    default_contract_dates,
+    issue_contract,
+    stored_contract_terms,
+)
 from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -32,6 +39,38 @@ DEPARTMENTS = [
 class ContractRequest(BaseModel):
     department: str = "Pando"
     academic_period: Optional[str] = None
+
+
+class IssueContractRequest(ContractRequest):
+    """Single-teacher issue; any date sent replaces the teacher's custom dates."""
+
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
+    signature_date: Optional[date] = None
+    clear_custom_terms: bool = False
+
+    def terms(self) -> Optional[dict[str, date]]:
+        if self.clear_custom_terms:
+            return {}
+        values = {
+            "start": self.contract_start_date,
+            "end": self.contract_end_date,
+            "signature": self.signature_date,
+        }
+        if all(value is None for value in values.values()):
+            return None
+        return {key: value for key, value in values.items() if value is not None}
+
+
+class ContractTermsResponse(BaseModel):
+    academic_period: str
+    period_start: date
+    period_end: date
+    default_start: Optional[date]
+    default_end: Optional[date]
+    contract_start_date: Optional[date]
+    contract_end_date: Optional[date]
+    signature_date: Optional[date]
 
 
 class BatchContractRequest(ContractRequest):
@@ -169,7 +208,12 @@ def _get_document(db: Session, public_id: str) -> ContractDocument:
     return document
 
 
-def _issue(db: Session, teacher_ci: str, payload: ContractRequest) -> ContractDocument:
+def _issue(
+    db: Session,
+    teacher_ci: str,
+    payload: ContractRequest,
+    terms: Optional[dict[str, date]] = None,
+) -> ContractDocument:
     _validate_department(payload.department)
     academic_period = payload.academic_period or app_settings_service.get_active_academic_period(db)
     try:
@@ -178,20 +222,61 @@ def _issue(db: Session, teacher_ci: str, payload: ContractRequest) -> ContractDo
             teacher_ci=teacher_ci,
             academic_period=academic_period,
             department=payload.department,
+            terms=terms,
         )
     except ContractIssuanceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/terms/{teacher_ci}", response_model=ContractTermsResponse)
+def get_contract_terms(
+    teacher_ci: str,
+    academic_period: Optional[str] = None,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ContractTermsResponse:
+    """Default dates from the teacher's load and the custom dates currently in effect."""
+    period = academic_period or app_settings_service.get_active_academic_period(db)
+    try:
+        period_start, period_end = academic_period_bounds(period)
+        snapshot = build_contract_snapshot(
+            db, teacher_ci=teacher_ci, academic_period=period, department="Pando",
+            allow_empty=True, terms={},
+        )
+    except ContractIssuanceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    latest = (
+        db.query(ContractDocument)
+        .filter(
+            ContractDocument.teacher_ci == teacher_ci,
+            ContractDocument.academic_period == period,
+        )
+        .order_by(ContractDocument.amendment_sequence.desc())
+        .first()
+    )
+    custom = stored_contract_terms(latest.full_snapshot if latest else None)
+    defaults = default_contract_dates(snapshot.lines)
+    return ContractTermsResponse(
+        academic_period=period,
+        period_start=period_start,
+        period_end=period_end,
+        default_start=defaults[0] if defaults else None,
+        default_end=defaults[1] if defaults else None,
+        contract_start_date=custom.get("start"),
+        contract_end_date=custom.get("end"),
+        signature_date=custom.get("signature"),
+    )
+
+
 @router.post("/issue/{teacher_ci}", response_model=ContractDocumentResponse)
 def issue_teacher_contract(
     teacher_ci: str,
-    payload: ContractRequest,
+    payload: IssueContractRequest,
     request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> ContractDocumentResponse:
-    document = _issue(db, teacher_ci, payload)
+    document = _issue(db, teacher_ci, payload, payload.terms())
     log_activity(
         db,
         "issue_contract",

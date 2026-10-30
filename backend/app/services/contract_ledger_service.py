@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
@@ -81,15 +81,24 @@ class ContractSnapshot:
     template_version: str
     lines: tuple[ContractSnapshotLine, ...]
     authority_transitions: tuple[dict[str, Any], ...] = ()
+    contract_terms: dict[str, str] = field(default_factory=dict)
+    comitente: dict[str, str] = field(default_factory=app_settings_service.default_contract_comitente)
 
     def canonical_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "teacher": self.teacher,
             "academic_period": self.academic_period,
             "department": self.department,
             "template_version": self.template_version,
             "lines": [asdict(line) for line in self.lines],
         }
+        # Default-valued sections are omitted so contracts issued before they
+        # existed keep their digest and are not re-issued without a change.
+        if self.contract_terms:
+            payload["contract_terms"] = dict(self.contract_terms)
+        if self.comitente != app_settings_service.default_contract_comitente():
+            payload["comitente"] = dict(self.comitente)
+        return payload
 
     def storage_payload(self) -> dict[str, Any]:
         return {
@@ -256,6 +265,7 @@ def build_contract_snapshot(
     department: str,
     allow_empty: bool = False,
     tracked_program_ids: set[int] | None = None,
+    terms: dict[str, date] | None = None,
 ) -> ContractSnapshot:
     teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
     if teacher is None:
@@ -315,14 +325,14 @@ def build_contract_snapshot(
             f"Falta procedencia de revisión publicada para las publicaciones {missing_publications}."
         )
 
-    terms = _contract_terms(db, teacher_sources, publications, period_start, period_end)
+    line_terms = _contract_terms(db, teacher_sources, publications, period_start, period_end)
     lines = tuple(sorted(
         (
             _snapshot_line(
                 source,
                 practice_rate if source.rate_class == "practice" else regular_rate,
                 publications.get(source.publication_id),
-                terms[source.source_key],
+                line_terms[source.source_key],
             )
             for source in teacher_sources
         ),
@@ -381,6 +391,8 @@ def build_contract_snapshot(
         department=department,
         template_version=TEMPLATE_VERSION,
         lines=lines,
+        contract_terms=_validated_terms(terms or {}, lines, academic_period, period_start, period_end),
+        comitente=app_settings_service.get_contract_comitente(db),
         authority_transitions=tuple({
             "publication_id": row.id,
             "program_id": row.program_id,
@@ -388,6 +400,52 @@ def build_contract_snapshot(
             "effective_from": row.effective_from.isoformat(),
         } for row in transition_rows),
     )
+
+
+def default_contract_dates(lines: tuple[ContractSnapshotLine, ...]) -> tuple[date, date] | None:
+    """Contract start and end the load implies when no custom dates are set."""
+    if not lines:
+        return None
+    return (
+        min(date.fromisoformat(line.contract_from) for line in lines),
+        max(date.fromisoformat(line.contract_to) for line in lines),
+    )
+
+
+def _validated_terms(
+    terms: dict[str, date],
+    lines: tuple[ContractSnapshotLine, ...],
+    academic_period: str,
+    period_start: date,
+    period_end: date,
+) -> dict[str, str]:
+    """Check custom contract dates and return them as ISO text for the snapshot."""
+    from app.services.contract_pdf import _format_spanish_date
+
+    unknown = set(terms) - {"start", "end", "signature"}
+    if unknown:
+        raise ContractIssuanceError(f"Datos de contrato desconocidos: {sorted(unknown)}.")
+    for key in ("start", "end"):
+        value = terms.get(key)
+        if value is not None and not period_start <= value <= period_end:
+            raise ContractIssuanceError(
+                f"Las fechas del contrato deben estar dentro del período {academic_period} "
+                f"({_format_spanish_date(period_start)} al {_format_spanish_date(period_end)})."
+            )
+    defaults = default_contract_dates(lines)
+    start = terms.get("start") or (defaults[0] if defaults else None)
+    end = terms.get("end") or (defaults[1] if defaults else None)
+    if start is not None and end is not None and start > end:
+        raise ContractIssuanceError(
+            "La fecha de inicio del contrato no puede ser posterior a la fecha de fin."
+        )
+    return {key: value.isoformat() for key, value in sorted(terms.items()) if value is not None}
+
+
+def stored_contract_terms(snapshot: dict[str, Any] | None) -> dict[str, date]:
+    """Custom dates recorded in an issued snapshot, as dates."""
+    stored = (snapshot or {}).get("contract_terms") or {}
+    return {key: date.fromisoformat(value) for key, value in stored.items()}
 
 
 def _validate_snapshot_provenance(
@@ -635,8 +693,13 @@ def issue_contract(
     teacher_ci: str,
     academic_period: str,
     department: str,
+    terms: dict[str, date] | None = None,
 ) -> ContractDocument:
-    """Issue once or append an amendment; unchanged snapshots are idempotent."""
+    """Issue once or append an amendment; unchanged snapshots are idempotent.
+
+    ``terms`` sets custom contract ``start``, ``end`` and ``signature`` dates;
+    ``None`` keeps the ones recorded in the latest document, ``{}`` clears them.
+    """
     from app.services.contract_pdf import render_contract_document_pdf
 
     db.query(Teacher).filter(Teacher.ci == teacher_ci).with_for_update().first()
@@ -655,6 +718,10 @@ def issue_contract(
         department=department,
         allow_empty=bool(history),
         tracked_program_ids=tracked_program_ids,
+        terms=(
+            stored_contract_terms(predecessor.full_snapshot if predecessor else None)
+            if terms is None else terms
+        ),
     )
     existing = db.query(ContractDocument).filter(
         ContractDocument.teacher_ci == teacher_ci,
@@ -665,12 +732,15 @@ def issue_contract(
         return existing
 
     issued_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    # A document issued with an older template is superseded by a complete
-    # contract in the current template; earlier documents stay untouched.
-    reissue = (
-        predecessor is not None
-        and predecessor.template_version != TEMPLATE_VERSION
-        and bool(snapshot.lines)
+    # A new template, new contract dates or new comitente data supersede the
+    # latest document with a complete contract; earlier documents stay untouched.
+    reissue = predecessor is not None and bool(snapshot.lines) and (
+        predecessor.template_version != TEMPLATE_VERSION
+        or (predecessor.full_snapshot.get("contract_terms") or {}) != snapshot.contract_terms
+        or (
+            predecessor.full_snapshot.get("comitente")
+            or app_settings_service.default_contract_comitente()
+        ) != snapshot.comitente
     )
     if reissue:
         delta_lines = [dict(asdict(line), change_kind="full") for line in snapshot.lines]
@@ -697,6 +767,8 @@ def issue_contract(
         "lines": delta_lines,
         "metadata_changes": metadata_changes,
         "reissue": reissue,
+        "contract_terms": snapshot.contract_terms,
+        "comitente": snapshot.comitente,
     }
     pdf_bytes = render_contract_document_pdf(render_payload)
     artifact_sha256 = hashlib.sha256(pdf_bytes).hexdigest()

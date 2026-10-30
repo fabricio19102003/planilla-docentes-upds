@@ -15,11 +15,11 @@ recorded in the activity log for auditability.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,6 +30,8 @@ from app.services.whatsapp_delivery_control import current_delivery_status
 from app.utils.auth import require_admin
 
 logger = logging.getLogger(__name__)
+
+ContractText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 router = APIRouter(prefix="/api/admin", tags=["admin-settings"])
 
@@ -45,6 +47,13 @@ class SettingsResponse(BaseModel):
     docente_can_edit_photo: bool
     medicine_schedule_assistant_enabled: bool
     whatsapp_billing_delivery: "WhatsAppBillingDeliveryStatus"
+    contract_representative_name: str
+    contract_representative_ci: str
+    contract_power_number: str
+    contract_power_date: str
+    contract_notary_office: str
+    contract_notary_name: str
+    contract_city: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -60,6 +69,13 @@ class SettingsUpdateRequest(BaseModel):
     docente_can_edit_photo: Optional[bool] = None
     medicine_schedule_assistant_enabled: Optional[bool] = None
     whatsapp_billing_requested_enabled: Optional[bool] = None
+    contract_representative_name: Optional[ContractText] = None
+    contract_representative_ci: Optional[ContractText] = None
+    contract_power_number: Optional[ContractText] = None
+    contract_power_date: Optional[date] = None
+    contract_notary_office: Optional[ContractText] = None
+    contract_notary_name: Optional[ContractText] = None
+    contract_city: Optional[ContractText] = None
 
 
 class WhatsAppBillingDeliveryStatus(BaseModel):
@@ -83,6 +99,10 @@ def _current_settings(db: Session) -> SettingsResponse:
         docente_can_edit_photo=app_settings_service.get_docente_can_edit_photo(db),
         medicine_schedule_assistant_enabled=app_settings_service.get_medicine_schedule_assistant_enabled(db),
         whatsapp_billing_delivery=current_delivery_status(db),
+        **{
+            f"contract_{field}": value
+            for field, value in app_settings_service.get_contract_comitente(db).items()
+        },
     )
 
 
@@ -188,6 +208,14 @@ def update_settings(
                 "effective": payload.whatsapp_billing_requested_enabled and whatsapp_before["can_enable"],
                 "blocking_reasons": whatsapp_before["blocking_reasons"],
             }
+
+        for key, field in app_settings_service.CONTRACT_COMITENTE_KEYS.items():
+            value = getattr(payload, f"contract_{field}")
+            if value is None:
+                continue
+            text = value.isoformat() if isinstance(value, date) else value
+            app_settings_service.update_setting(db, key, text)
+            changes[f"contract_{field}"] = text
 
         if changes:
             log_activity(

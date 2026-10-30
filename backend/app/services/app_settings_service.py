@@ -34,6 +34,24 @@ KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
 KEY_BILLING_WHATSAPP_DELIVERY_ENABLED = "BILLING_WHATSAPP_DELIVERY_ENABLED"
 KEY_ACADEMIC_HOUR_MINUTES = "ACADEMIC_HOUR_MINUTES"
+KEY_CONTRACT_REPRESENTATIVE_NAME = "CONTRACT_REPRESENTATIVE_NAME"
+KEY_CONTRACT_REPRESENTATIVE_CI = "CONTRACT_REPRESENTATIVE_CI"
+KEY_CONTRACT_POWER_NUMBER = "CONTRACT_POWER_NUMBER"
+KEY_CONTRACT_POWER_DATE = "CONTRACT_POWER_DATE"
+KEY_CONTRACT_NOTARY_OFFICE = "CONTRACT_NOTARY_OFFICE"
+KEY_CONTRACT_NOTARY_NAME = "CONTRACT_NOTARY_NAME"
+KEY_CONTRACT_CITY = "CONTRACT_CITY"
+
+# Contract comitente fields: settings key -> snapshot field, in render order.
+CONTRACT_COMITENTE_KEYS: dict[str, str] = {
+    KEY_CONTRACT_REPRESENTATIVE_NAME: "representative_name",
+    KEY_CONTRACT_REPRESENTATIVE_CI: "representative_ci",
+    KEY_CONTRACT_POWER_NUMBER: "power_number",
+    KEY_CONTRACT_POWER_DATE: "power_date",
+    KEY_CONTRACT_NOTARY_OFFICE: "notary_office",
+    KEY_CONTRACT_NOTARY_NAME: "notary_name",
+    KEY_CONTRACT_CITY: "city",
+}
 
 # Safe defaults used when the row is missing (e.g. cache hit before seed, or
 # a brand-new key introduced after the first deploy).
@@ -48,6 +66,13 @@ _DEFAULTS: dict[str, str] = {
     KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
     KEY_BILLING_WHATSAPP_DELIVERY_ENABLED: "false",
     KEY_ACADEMIC_HOUR_MINUTES: "45",
+    KEY_CONTRACT_REPRESENTATIVE_NAME: "Luis Michel Bravo Alencar",
+    KEY_CONTRACT_REPRESENTATIVE_CI: "1750986 Pando",
+    KEY_CONTRACT_POWER_NUMBER: "1818/2024",
+    KEY_CONTRACT_POWER_DATE: "2024-09-04",
+    KEY_CONTRACT_NOTARY_OFFICE: "10",
+    KEY_CONTRACT_NOTARY_NAME: "Jaime David Canedo Encinas",
+    KEY_CONTRACT_CITY: "Cobija",
 }
 
 # ── Generic accessors ──────────────────────────────────────────────────────
@@ -112,6 +137,19 @@ def get_company_name(db: Session) -> str:
 
 def get_company_nit(db: Session) -> str:
     return get_setting(db, KEY_COMPANY_NIT, _DEFAULTS[KEY_COMPANY_NIT])
+
+
+def default_contract_comitente() -> dict[str, str]:
+    """Comitente data the contract template has always stated."""
+    return {field: _DEFAULTS[key] for key, field in CONTRACT_COMITENTE_KEYS.items()}
+
+
+def get_contract_comitente(db: Session) -> dict[str, str]:
+    """Current comitente data (representative, power of attorney, notary, city)."""
+    return {
+        field: get_setting(db, key, _DEFAULTS[key])
+        for key, field in CONTRACT_COMITENTE_KEYS.items()
+    }
 
 
 def get_hourly_rate(db: Session) -> float:
