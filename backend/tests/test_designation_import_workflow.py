@@ -533,3 +533,21 @@ def test_excel_upload_lists_every_rejected_block_and_warns_on_empty_schedule(cli
     assert "Fila 4: 'DOCENTE EXCEL SINTETICO' no tiene horario; la fila se omite." in result["warnings"]
     assert excel_apply(client, content, result["digest"]).status_code == 400
     assert db_session.query(Designation).count() == 0
+
+
+def test_preview_lists_each_row_with_its_action_and_changed_fields(client, db_session):
+    initial = synthetic_envelope(monthly_hours=8)
+    first = preview(client, initial).json()
+    assert first["changes"] == [{
+        "row": 1, "action": "create", "teacher_ci": "9000001", "teacher_name": "DOCENTE SINTETICO UNO",
+        "subject": "MATERIA SINTETICA", "semester": "PRIMERO", "group_code": "M-1", "fields": [],
+    }]
+    assert apply(client, initial, first["digest"]).status_code == 201
+
+    same = preview(client, initial).json()
+    assert [(c["action"], c["fields"]) for c in same["changes"]] == [("noop", [])]
+
+    changed = preview(client, synthetic_envelope(monthly_hours=12)).json()
+    assert [(c["action"], c["fields"]) for c in changed["changes"]] == [("update", ["monthly_hours"])]
+    # Preview never writes.
+    assert db_session.query(Designation).filter_by(subject="MATERIA SINTETICA").one().monthly_hours == 8

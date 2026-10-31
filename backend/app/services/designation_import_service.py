@@ -126,6 +126,8 @@ class DesignationImportPlan:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     rows: list[CanonicalDesignationRow] = field(default_factory=list, repr=False)
+    # One entry per resolved row so an admin can see exactly what the import will do.
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def can_apply(self) -> bool:
@@ -897,15 +899,29 @@ class DesignationImportService:
                         f"Fila {number}: la fecha de fin del contrato ({end.isoformat()}) "
                         f"quedaría anterior a la de inicio ({start.isoformat()})."
                     )
+            changed_fields = [] if existing is None else [
+                field_name for field_name in MUTABLE_DESIGNATION_FIELDS
+                if getattr(existing, field_name) != _incoming_value(existing, row, field_name)
+            ]
             if existing is None:
                 plan.designations.creates += 1
-            elif any(
-                getattr(existing, field_name) != _incoming_value(existing, row, field_name)
-                for field_name in MUTABLE_DESIGNATION_FIELDS
-            ):
+                action = "create"
+            elif changed_fields:
                 plan.designations.updates += 1
+                action = "update"
             else:
                 plan.designations.noops += 1
+                action = "noop"
+            plan.changes.append({
+                "row": number,
+                "action": action,
+                "teacher_ci": row.teacher_ci,
+                "teacher_name": row.teacher_name,
+                "subject": row.subject,
+                "semester": row.semester,
+                "group_code": row.group_code,
+                "fields": changed_fields,
+            })
 
         users = db.query(User).all()
         users_by_ci = {item.ci: item for item in users}
