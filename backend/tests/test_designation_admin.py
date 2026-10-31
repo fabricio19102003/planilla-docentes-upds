@@ -13,6 +13,7 @@ from app.models.contract import ContractDocument, ContractLine
 from app.models.designation import Designation
 from app.models.planilla import PlanillaOutput
 from app.models.practice_attendance import PracticeAttendanceLog
+from app.models.practice_planilla import PracticePlanillaOutput
 from app.models.teacher import Teacher
 
 URL = "/api/admin/designations"
@@ -441,3 +442,85 @@ def test_delete_blocked_by_attendance_contract_or_override(client, seeded):
 
 def test_delete_missing_is_404(client, seeded):
     assert client.delete(f"{URL}/999999").status_code == 404
+
+
+# ── Regressions from independent verification ────────────────────────────────
+
+def test_delete_blocked_by_any_payroll_output_covering_it(client, seeded):  # S4 / D1
+    item = _designation(seeded)
+    seeded.add(PlanillaOutput(month=9, year=2026, status="generated"))
+    seeded.flush()
+    assert client.get(URL).json()["items"][0]["actions"]["delete"] == {
+        "allowed": False, "reason": "La planilla de teoría 9/2026 ya se generó con esta designación; usá Finalizar."}
+    response = client.delete(f"{URL}/{item.id}")
+    assert response.status_code == 409 and _codes(response) == ["payroll_generated"]
+    assert len(_rows(seeded)) == 1
+
+
+def test_undated_designation_locked_by_approved_month_after_period_bounds(client, seeded):  # S4/S5 / D2
+    item = _designation(seeded)
+    seeded.add(PlanillaOutput(month=1, year=2027, status="approved"))
+    seeded.flush()
+    before = _rows(seeded)
+    assert client.delete(f"{URL}/{item.id}").status_code == 409
+    assert client.put(f"{URL}/{item.id}", json=_payload(subject="ANATOMIA", semester="PRIMERO", group_code="M-1",
+                      contract_start_date=None, contract_end_date=None, monthly_hours=99)).status_code == 409
+    assert client.post(f"{URL}/{item.id}/finalize", json={"end_date": "2026-12-01"}).status_code == 409
+    assert _rows(seeded) == before
+
+
+def test_update_rejects_period_change(client, seeded):  # D3
+    item = _designation(seeded, subject="ANATOMIA")
+    body = _payload(subject="ANATOMIA", semester="PRIMERO", group_code="M-1",
+                    schedule=[{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:30"}],
+                    monthly_hours=10, contract_start_date=None, contract_end_date=None, academic_period="I/2027")
+    response = client.put(f"{URL}/{item.id}", json=body)
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"] == [
+        "El período de una designación no se puede cambiar; finalizala y creá una nueva en el otro período."]
+    assert _rows(seeded)[0][3] == 8 and _logs(seeded, "update_designation") == 0
+
+
+@pytest.mark.parametrize("status", ["ABSENT", "ATTENDED", "LATE", "NO_EXIT"])
+def test_delete_blocked_by_attendance_of_any_status(client, seeded, status):  # S4
+    item = _designation(seeded)
+    _attendance(seeded, item, date(2026, 8, 3), status=status)
+    response = client.delete(f"{URL}/{item.id}")
+    assert response.status_code == 409 and "has_attendance" in _codes(response)
+
+
+@pytest.mark.parametrize("fmt", ["{ci}:{id}", "{ci}:legacy:{id}"])
+def test_delete_blocked_by_practice_override_keys(client, seeded, fmt):  # S4
+    item = _designation(seeded, subject="B PRACTICA", kind="practice")
+    seeded.add(PracticePlanillaOutput(month=3, year=2025, status="generated",
+               payment_overrides_json={fmt.format(ci="ADM-T1", id=item.id): 5}))
+    seeded.flush()
+    assert "payment_override" in _codes(client.delete(f"{URL}/{item.id}"))
+
+
+def test_delete_respects_custom_payroll_cutoff(client, seeded):  # S4
+    inside = _designation(seeded, subject="A", start=date(2026, 10, 25), end=date(2026, 10, 31))
+    outside = _designation(seeded, subject="B", start=date(2026, 11, 25), end=date(2026, 11, 30))
+    seeded.add(PlanillaOutput(month=11, year=2026, status="approved",
+               start_date=date(2026, 10, 21), end_date=date(2026, 11, 20)))
+    seeded.flush()
+    assert client.delete(f"{URL}/{inside.id}").status_code == 409
+    assert client.delete(f"{URL}/{outside.id}").status_code == 204
+
+
+def test_update_kind_change_checks_new_kind_payroll(client, seeded):  # S5
+    item = _designation(seeded, subject="ANATOMIA", start=date(2026, 8, 1), end=date(2026, 8, 31))
+    seeded.add(PracticePlanillaOutput(month=8, year=2026, status="approved"))
+    seeded.flush()
+    body = _payload(subject="ANATOMIA", semester="PRIMERO", group_code="M-1", designation_type="practice",
+                    schedule=[{"dia": "lunes", "hora_inicio": "08:00", "hora_fin": "09:30"}], monthly_hours=8,
+                    contract_start_date="2026-08-01", contract_end_date="2026-08-31")
+    assert "payroll_approved" in _codes(client.put(f"{URL}/{item.id}", json=body))
+
+
+def test_finalize_ignores_absences_but_not_presence_after_end(client, seeded):  # finalize
+    item = _designation(seeded, start=date(2026, 8, 1), end=date(2026, 12, 18))
+    _attendance(seeded, item, date(2026, 11, 2), status="ABSENT")
+    _attendance(seeded, item, date(2026, 11, 9), status="LATE")
+    assert "attendance_after_end" in _codes(client.post(f"{URL}/{item.id}/finalize", json={"end_date": "2026-11-01"}))
+    assert client.post(f"{URL}/{item.id}/finalize", json={"end_date": "2026-11-09"}).status_code == 200

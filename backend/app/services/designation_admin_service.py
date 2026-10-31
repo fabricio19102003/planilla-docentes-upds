@@ -85,11 +85,13 @@ def _kind(value: str | None) -> str:
 
 
 def _window(period: str, start: date | None, end: date | None) -> tuple[date, date]:
+    # Payroll picks designations by the active period and only cuts them by their own dates,
+    # so a designation without an end date counts as open-ended, even past the semester.
     try:
-        period_start, period_end = academic_period_bounds(period)
+        period_start, _period_end = academic_period_bounds(period)
     except ContractIssuanceError:
-        period_start, period_end = date.min, date.max
-    return start or period_start, end or period_end
+        period_start = date.min
+    return start or period_start, end or date.max
 
 
 @dataclass
@@ -203,7 +205,17 @@ def _delete_blockers(usage: _Usage, item: Designation) -> list[DesignationChange
         blockers.append(_blocker(
             "payment_override", "Una planilla tiene un monto manual para esta designación; usá Finalizar.",
         ))
-    blockers.extend(_lock(usage, item)[0])
+    lock_blockers, generated = _lock(usage, item)
+    blockers.extend(lock_blockers)
+    # Any planilla that already included it would lose that row on regeneration.
+    blockers.extend(
+        _blocker(
+            "payroll_generated",
+            f"La planilla de {KIND_LABEL[output.planilla]} {output.month}/{output.year} ya se generó con esta "
+            "designación; usá Finalizar.",
+        )
+        for output in generated
+    )
     return blockers
 
 
@@ -433,6 +445,10 @@ def update_designation(
 ) -> tuple[DesignationAdminMutation, dict[str, dict[str, Any]]]:
     item = _require_designation(db, designation_id)
     _require_teacher(db, payload.teacher_ci)
+    if payload.academic_period and payload.academic_period.strip() != item.academic_period:
+        raise DesignationInvalid([
+            "El período de una designación no se puede cambiar; finalizala y creá una nueva en el otro período."
+        ])
     fields = _normalized_fields(payload)
     changes = {
         name: {"before": _json(getattr(item, name)), "after": _json(value)}
