@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import date, datetime
-from typing import Optional, Any
+from typing import Any, Literal, Optional
 
 
 class DesignationBase(BaseModel):
@@ -53,6 +53,17 @@ class DesignationImportCounts(BaseModel):
     conflicts: int = 0
 
 
+class DesignationImportChange(BaseModel):
+    row: int
+    action: Literal["create", "update", "noop"]
+    teacher_ci: Optional[str] = None
+    teacher_name: str
+    subject: str
+    semester: str
+    group_code: str
+    fields: list[str] = Field(default_factory=list)
+
+
 class DesignationImportPreviewResponse(BaseModel):
     digest: str
     parsed_format: str
@@ -64,6 +75,7 @@ class DesignationImportPreviewResponse(BaseModel):
     users: DesignationImportCounts
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    changes: list[DesignationImportChange] = Field(default_factory=list)
 
 
 class DesignationImportApplyResponse(DesignationImportPreviewResponse):

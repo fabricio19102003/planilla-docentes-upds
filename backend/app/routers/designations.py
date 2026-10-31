@@ -138,6 +138,7 @@ def _preview_response(plan: DesignationImportPlan) -> DesignationImportPreviewRe
         users=plan.users.__dict__,
         warnings=plan.warnings,
         errors=plan.errors,
+        changes=plan.changes,
     )
 
 
