@@ -118,6 +118,7 @@ export function useUploadDesignations() {
     mutationFn: uploadDesignations,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teachers'] })
+      void queryClient.invalidateQueries({ queryKey: ['designations'] })
       void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
     },
   })

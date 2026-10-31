@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-const page = readFileSync(resolve(root, 'src/pages/UploadPage.tsx'), 'utf8')
+// The import flow lives in one wizard shared by Subir biométrico and Designaciones.
+const page = readFileSync(resolve(root, 'src/components/designations/DesignationImportWizard.tsx'), 'utf8')
+const uploadPage = readFileSync(resolve(root, 'src/pages/UploadPage.tsx'), 'utf8')
 const hooks = readFileSync(resolve(root, 'src/api/hooks/useBiometric.ts'), 'utf8')
 const types = readFileSync(resolve(root, 'src/api/types.ts'), 'utf8')
 
@@ -18,6 +20,8 @@ assert.match(page, /desPreview\?\.can_apply/)
 assert.match(page, /confirmation_digest: desPreview\.digest/)
 assert.match(page, /setDesPreview\(null\)/)
 assert.match(page, /no lo activa automáticamente/)
+
+assert.match(uploadPage, /<DesignationImportWizard \/>/)
 
 assert.match(types, /interface DesignationImportPreview/)
 assert.match(types, /can_apply: boolean/)

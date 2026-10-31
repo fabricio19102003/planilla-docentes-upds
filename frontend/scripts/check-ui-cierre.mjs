@@ -85,7 +85,9 @@ test('UploadPage shows FileUploader progress while uploading', () => {
 })
 
 test('data-changing actions confirm through ConfirmAlertDialog', () => {
-  for (const file of ['pages/PracticeAttendancePage.tsx', 'pages/AttendancePage.tsx', 'pages/UploadPage.tsx']) {
+  // UploadPage confirms the designation import through the shared wizard it renders.
+  assert.match(read('pages/UploadPage.tsx'), /<DesignationImportWizard \/>/)
+  for (const file of ['pages/PracticeAttendancePage.tsx', 'pages/AttendancePage.tsx', 'components/designations/DesignationImportWizard.tsx']) {
     const code = read(file)
     assert.match(code, /ConfirmAlertDialog/, `${file} must confirm destructive or overwriting actions`)
   }
@@ -100,10 +102,14 @@ test('behavior contracts the other checks and e2e rely on are kept', () => {
   assert.match(dashboard, /formatPaymentBreakdown/)
 
   const upload = read('pages/UploadPage.tsx')
-  for (const text of ['Generar vista previa', 'Confirmar e importar', 'no lo activa automáticamente', 'No activa períodos, elimina datos ni modifica accesos']) {
+  const designationImport = read('components/designations/DesignationImportWizard.tsx')
+  for (const text of ['Generar vista previa', 'Confirmar e importar', 'no lo activa automáticamente']) {
+    assert.ok(designationImport.includes(text), `the designation import must keep "${text}"`)
+  }
+  for (const text of ['Generar vista previa', 'Confirmar e importar', 'No activa períodos, elimina datos ni modifica accesos']) {
     assert.ok(upload.includes(text), `UploadPage must keep "${text}"`)
   }
-  assert.match(upload, /confirmation_digest: desPreview\.digest/)
+  assert.match(designationImport, /confirmation_digest: desPreview\.digest/)
   assert.match(upload, /Object\.entries\(teacherPreview\.fields\)/)
 
   const practice = read('pages/PracticeAttendancePage.tsx')
