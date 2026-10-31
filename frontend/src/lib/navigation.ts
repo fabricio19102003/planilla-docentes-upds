@@ -10,6 +10,7 @@ export type NavIconName =
   | 'academic'
   | 'teachers'
   | 'contracts'
+  | 'designations'
   | 'school'
   | 'schedule'
   | 'requests'
@@ -63,6 +64,7 @@ export const adminNav: AdminNavEntry[] = [
     icon: 'academic',
     children: [
       { to: '/teachers', label: 'Docentes', icon: 'teachers' },
+      { to: '/designations', label: 'Designaciones', icon: 'designations' },
       { to: '/contracts', label: 'Contratos', icon: 'contracts' },
       { to: '/academic-management', label: 'Gestión académica', icon: 'school' },
       { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },

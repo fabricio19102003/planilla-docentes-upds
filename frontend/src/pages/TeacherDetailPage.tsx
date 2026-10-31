@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Pencil,
@@ -711,7 +711,13 @@ export function TeacherDetailPage() {
 
       {/* Designations */}
       <section aria-label="Designaciones" className="space-y-3">
-        <h3 className="text-base font-semibold text-foreground">Designaciones ({teacher.designations.length})</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-foreground">Designaciones ({teacher.designations.length})</h3>
+          <Button variant="outline" size="sm" render={<Link to={`/designations?teacher=${encodeURIComponent(teacher.ci)}`} />}>
+            Gestionar designaciones
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Para crear, corregir horarios y fechas, o finalizar una materia de este docente, usá Gestionar designaciones.</p>
         <DataTable
           columns={designationColumns}
           data={teacher.designations}

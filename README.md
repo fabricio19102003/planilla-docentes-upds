@@ -349,6 +349,7 @@ planilla-docentes-upds/
 │   │   │   ├── auth.py                  # Login, cambio de contrasena
 │   │   │   ├── teachers.py              # CRUD docentes + upload lista + bulk delete
 │   │   │   ├── designations.py          # Preview/apply de designaciones (4 formatos)
+│   │   │   ├── designation_admin.py     # Gestion una por una: listar, crear, editar, finalizar, eliminar
 │   │   │   ├── biometric.py             # Upload biometrico + date-range detection
 │   │   │   ├── attendance.py            # Procesar asistencia + auditoria
 │   │   │   ├── planilla.py              # Generar planilla + salary report + dashboard + approve/reject
@@ -528,6 +529,18 @@ El string de HORARIO acepta uno o varios bloques `DIA: inicio - fin`, separados 
 Las fechas de contrato se importan desde `FECHA INICIO` y `FECHA FIN` (formato oficial) o desde `designation.contract_start_date` y `designation.contract_end_date` (sobre auditado), ambas en formato `AAAA-MM-DD`. Si una fila no trae una fecha, se conserva la que ya estaba guardada; para cerrar una designacion basta reenviarla con su nueva fecha de fin. La vista previa rechaza la fila si la fecha de fin resultante (nueva o guardada) queda antes de la fecha de inicio.
 
 La carga de designaciones siempre se realiza en dos pasos: primero **Generar vista previa**, que valida el archivo completo y muestra altas, actualizaciones, filas sin cambios y conflictos; luego **Confirmar e importar** usando el digest de esos mismos bytes y periodo. La aplicacion es atomica, no elimina filas ausentes y repetir exactamente un archivo produce operaciones sin cambios.
+
+### Pantalla Designaciones (gestion una por una)
+
+El menu **Docentes y academico → Designaciones** (`/designations`) muestra todas las designaciones del periodo con buscador por docente o materia y filtros de semestre, tipo y estado. Desde ahi un administrador puede:
+
+- **Nueva designacion**: docente, materia, semestre, grupo, tipo (se detecta "Practica" por el nombre), horario por bloques (las horas academicas se calculan con bloques de 45 minutos), horas mensuales (sugerido: semanales × 4) y del semestre (sugerido: mensuales × 5), y fechas de contrato.
+- **Editar**: corrige cualquier dato mientras ningun mes cubierto este pagado. Si la planilla del mes esta **aprobada** o la facturacion **publicada**, la API responde 409 y la pantalla sugiere finalizar y crear una nueva desde el dia del cambio. Las fechas quedan fijas una vez emitido un contrato para esa designacion.
+- **Finalizar**: fija el ultimo dia que dicta la materia (solo puede adelantar el fin). Se rechaza si hay asistencia registrada despues de esa fecha o un mes posterior ya pagado.
+- **Eliminar**: solo para designaciones cargadas por error, sin asistencia, contrato, monto manual en planilla ni mes pagado.
+- **Importar archivo**: el mismo asistente de *Subir biometrico*, con la vista previa fila por fila (nuevas, con cambios y sin cambios, indicando que campo cambia).
+
+API: `GET/POST /api/admin/designations`, `PUT/DELETE /api/admin/designations/{id}` y `POST /api/admin/designations/{id}/finalize` (solo admin; cada escritura queda en el registro de actividad, categoria *Designaciones*). El detalle del docente enlaza a la pantalla filtrada por ese docente (`/designations?teacher=<CI>`).
 
 ### CI Aliasing (Biometrico)
 

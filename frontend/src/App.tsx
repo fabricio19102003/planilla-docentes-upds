@@ -13,6 +13,7 @@ import { ObservationsPage } from './pages/ObservationsPage'
 import { PlanillaPage } from './pages/PlanillaPage'
 import { TeachersPage } from './pages/TeachersPage'
 import { TeacherDetailPage } from './pages/TeacherDetailPage'
+import { DesignationsPage } from './pages/DesignationsPage'
 import { UsersPage } from './pages/UsersPage'
 import { AdminRequestsPage } from './pages/AdminRequestsPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -75,6 +76,7 @@ function AppRoutes() {
             <Route path="planilla" element={<PlanillaPage />} />
             <Route path="teachers" element={<TeachersPage />} />
             <Route path="teachers/:ci" element={<TeacherDetailPage />} />
+            <Route path="designations" element={<DesignationsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="requests" element={<AdminRequestsPage />} />
             <Route path="reports" element={<ReportsPage />} />
