@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { CheckCircle, AlertCircle, Info, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useImportTeacherProfiles, usePreviewTeacherProfiles, useUploadBiometric, useUploadHistory } from '@/api/hooks/useBiometric'
-import { DesignationImportWizard } from '@/components/designations/DesignationImportWizard'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -169,10 +168,15 @@ export function UploadPage() {
     <div className="space-y-6">
       <PageHeader
         title="Carga de datos"
-        description="Subí el reporte biométrico, el Excel de designaciones y la lista de docentes del período."
+        description={(
+          <>
+            Subí el reporte biométrico y la lista de docentes del período. Las designaciones se cargan desde{' '}
+            <Link to="/designations" className="font-medium text-foreground underline underline-offset-4">Designaciones</Link>.
+          </>
+        )}
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Biometric Upload */}
         <UploadCard title="Reporte Biométrico" description="Subí el archivo .xls exportado del sistema biométrico">
           <FileUploader
@@ -237,15 +241,6 @@ export function UploadPage() {
               </AlertDescription>
             </Alert>
           )}
-        </UploadCard>
-
-        {/* Designations Upload */}
-        <UploadCard title="Designaciones Docentes" description="Importá el Excel de designaciones del semestre con vista previa fila por fila">
-          <DesignationImportWizard />
-          <p className="text-xs text-muted-foreground">
-            Para ver, crear, corregir o finalizar designaciones una por una, entrá a{' '}
-            <Link to="/designations" className="font-medium text-foreground underline underline-offset-4">Designaciones</Link>.
-          </p>
         </UploadCard>
 
         {/* Teacher List Upload */}

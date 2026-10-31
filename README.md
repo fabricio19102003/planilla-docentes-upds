@@ -402,7 +402,7 @@ planilla-docentes-upds/
 │   │   │   ├── LoginPage.tsx            # Login split-layout (desktop + mobile)
 │   │   │   ├── ForceChangePasswordPage  # Cambio obligatorio de contrasena
 │   │   │   ├── DashboardPage.tsx        # Dashboard con Recharts
-│   │   │   ├── UploadPage.tsx           # Subir: lista docentes, designacion, biometrico
+│   │   │   ├── UploadPage.tsx           # Subir: lista docentes, biometrico
 │   │   │   ├── AttendancePage.tsx        # Procesar asistencia (con auto-deteccion de rango)
 │   │   │   ├── AttendanceAuditPage.tsx  # Auditoria de asistencia por docente
 │   │   │   ├── PlanillaPage.tsx         # Generar + aprobar + publicar + excluir dias + detalle + override
@@ -538,7 +538,7 @@ El menu **Docentes y academico → Designaciones** (`/designations`) muestra tod
 - **Editar**: corrige cualquier dato mientras ningun mes cubierto este pagado. Si la planilla del mes esta **aprobada** o la facturacion **publicada**, la API responde 409 y la pantalla sugiere finalizar y crear una nueva desde el dia del cambio. Las fechas quedan fijas una vez emitido un contrato para esa designacion.
 - **Finalizar**: fija el ultimo dia que dicta la materia (solo puede adelantar el fin). Se rechaza si hay asistencia registrada despues de esa fecha o un mes posterior ya pagado.
 - **Eliminar**: solo para designaciones cargadas por error, sin asistencia, contrato, monto manual en planilla ni mes pagado.
-- **Importar archivo**: el mismo asistente de *Subir biometrico*, con la vista previa fila por fila (nuevas, con cambios y sin cambios, indicando que campo cambia).
+- **Importar archivo**: el unico lugar para cargar el Excel de designaciones (*Subir biometrico* ya no lo tiene y enlaza aca), con la vista previa fila por fila (nuevas, con cambios y sin cambios, indicando que campo cambia).
 
 API: `GET/POST /api/admin/designations`, `PUT/DELETE /api/admin/designations/{id}` y `POST /api/admin/designations/{id}/finalize` (solo admin; cada escritura queda en el registro de actividad, categoria *Designaciones*). El detalle del docente enlaza a la pantalla filtrada por ese docente (`/designations?teacher=<CI>`).
 
