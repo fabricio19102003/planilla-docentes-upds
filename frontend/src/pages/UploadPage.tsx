@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { CheckCircle, AlertCircle, Info, Loader2, Users } from 'lucide-react'
-import { useImportTeacherProfiles, usePreviewDesignations, usePreviewTeacherProfiles, useUploadBiometric, useUploadDesignations, useUploadHistory } from '@/api/hooks/useBiometric'
-import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
+import { CheckCircle, AlertCircle, Info, Loader2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useImportTeacherProfiles, usePreviewTeacherProfiles, useUploadBiometric, useUploadHistory } from '@/api/hooks/useBiometric'
+import { DesignationImportWizard } from '@/components/designations/DesignationImportWizard'
 import { FileUploader } from '@/components/shared/FileUploader'
 import { DataTable } from '@/components/shared/DataTable'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -16,7 +17,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { BiometricUploadResult, DesignationImportPreview, DesignationUploadResponse, TeacherProfileImportPreview, TeacherProfileImportResult, BiometricUpload } from '@/api/types'
+import type { BiometricUploadResult, TeacherProfileImportPreview, TeacherProfileImportResult, BiometricUpload } from '@/api/types'
 import type { Column } from '@/components/shared/DataTable'
 
 const MONTH_NAMES: Record<number, string> = {
@@ -114,15 +115,6 @@ export function UploadPage() {
   const [bioResult, setBioResult] = useState<BiometricUploadResult | null>(null)
   const [bioProgress, setBioProgress] = useState(0)
 
-  // Designations state
-  const [desFile, setDesFile] = useState<File | null>(null)
-  const [desPreview, setDesPreview] = useState<DesignationImportPreview | null>(null)
-  const [desResult, setDesResult] = useState<DesignationUploadResponse | null>(null)
-  const [desProgress, setDesProgress] = useState(0)
-  const [confirmDesApply, setConfirmDesApply] = useState(false)
-  // The server value is only a suggested selection; importing never activates a period.
-  const [academicPeriod, setAcademicPeriod] = useState('')
-
   // Teacher list state
   const [teacherFile, setTeacherFile] = useState<File | null>(null)
   const [teacherPeriod, setTeacherPeriod] = useState('')
@@ -131,13 +123,11 @@ export function UploadPage() {
 
   useEffect(() => {
     api.get<{ academic_period: string }>('/config/active-period')
-      .then(res => { setAcademicPeriod(res.data.academic_period); setTeacherPeriod(res.data.academic_period) })
-      .catch(() => { setAcademicPeriod(''); setTeacherPeriod('') })
+      .then(res => setTeacherPeriod(res.data.academic_period))
+      .catch(() => setTeacherPeriod(''))
   }, [])
 
   const uploadBiometric = useUploadBiometric()
-  const previewDesignations = usePreviewDesignations()
-  const uploadDesignations = useUploadDesignations()
   const previewTeacherProfiles = usePreviewTeacherProfiles()
   const importTeacherProfiles = useImportTeacherProfiles()
   const { data: history, isLoading: historyLoading } = useUploadHistory()
@@ -153,31 +143,6 @@ export function UploadPage() {
           setBioResult(data)
           setBioFile(null)
         },
-      },
-    )
-  }
-
-  const handleDesPreview = () => {
-    if (!desFile || !academicPeriod.trim()) return
-    setDesPreview(null)
-    setDesResult(null)
-    setDesProgress(0)
-    previewDesignations.mutate(
-      { file: desFile, academic_period: academicPeriod, onProgress: setDesProgress },
-      {
-        onSuccess: setDesPreview,
-      },
-    )
-  }
-
-  const handleDesApply = () => {
-    if (!desFile || !desPreview?.can_apply) return
-    setDesProgress(0)
-    uploadDesignations.mutate(
-      { file: desFile, academic_period: academicPeriod, confirmation_digest: desPreview.digest, onProgress: setDesProgress },
-      {
-        onSuccess: (data) => { setDesResult(data); setDesPreview(null); setDesFile(null) },
-        onSettled: () => setConfirmDesApply(false),
       },
     )
   }
@@ -200,13 +165,11 @@ export function UploadPage() {
     )
   }
 
-  const desUploading = previewDesignations.isPending || uploadDesignations.isPending
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Carga de datos"
-        description="Subí el reporte biométrico, las designaciones y la lista de docentes del período."
+        description="Subí el reporte biométrico, el Excel de designaciones y la lista de docentes del período."
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
@@ -277,88 +240,12 @@ export function UploadPage() {
         </UploadCard>
 
         {/* Designations Upload */}
-        <UploadCard title="Designaciones Docentes" description="Subí el archivo de designaciones docentes (JSON o Excel)">
-          <FileUploader
-            accept=".json,.xlsx"
-            label="Seleccioná el archivo de designaciones"
-            description="Archivo JSON o Excel con las designaciones del semestre"
-            onFileSelect={(f) => { setDesFile(f); setDesPreview(null); setDesResult(null) }}
-            progress={desUploading ? desProgress : null}
-          />
-
-          <Field>
-            <FieldLabel>Período Académico</FieldLabel>
-            <Input
-              value={academicPeriod}
-              onChange={e => { setAcademicPeriod(e.target.value); setDesPreview(null); setDesResult(null) }}
-              placeholder="Ej: I/2026, II/2025"
-            />
-            <FieldDescription>La importación usa este período, pero no lo activa automáticamente.</FieldDescription>
-          </Field>
-
-          <Button
-            onClick={handleDesPreview}
-            disabled={!desFile || !academicPeriod.trim() || previewDesignations.isPending || uploadDesignations.isPending}
-            size="lg"
-            className="w-full"
-          >
-            {previewDesignations.isPending ? <PendingLabel>Validando...</PendingLabel> : 'Generar vista previa'}
-          </Button>
-
-          {(previewDesignations.isError || uploadDesignations.isError) && (
-            <UploadErrorAlert error={previewDesignations.error ?? uploadDesignations.error} />
-          )}
-
-          {desPreview && (
-            <>
-              <Alert variant={desPreview.can_apply ? 'info' : 'error'}>
-                {desPreview.can_apply ? <Info /> : <AlertCircle />}
-                <AlertTitle>Vista previa: {desPreview.total_rows} filas · {desPreview.academic_period}</AlertTitle>
-                <AlertDescription className="gap-1 text-xs tabular-nums">
-                  <p>Formato: {desPreview.parsed_format}</p>
-                  <p>Docentes: {desPreview.teachers.creates} nuevos · {desPreview.teachers.updates} actualizaciones · {desPreview.teachers.noops} sin cambios</p>
-                  <p>Designaciones: {desPreview.designations.creates} nuevas · {desPreview.designations.updates} actualizaciones · {desPreview.designations.noops} sin cambios</p>
-                  <p>Usuarios: {desPreview.users.creates} nuevos · {desPreview.users.updates} vinculaciones · {desPreview.users.noops} sin cambios</p>
-                  {desPreview.warnings.map((warning, index) => <p key={`warning-${index}`} className="text-warning-foreground">{warning}</p>)}
-                  {desPreview.errors.map((error, index) => <p key={`error-${index}`} className="text-destructive-foreground">{error}</p>)}
-                </AlertDescription>
-              </Alert>
-              <Button
-                onClick={() => setConfirmDesApply(true)}
-                disabled={!desPreview.can_apply || uploadDesignations.isPending}
-                size="lg"
-                className="w-full"
-              >
-                {uploadDesignations.isPending ? <PendingLabel>Aplicando...</PendingLabel> : 'Confirmar e importar'}
-              </Button>
-            </>
-          )}
-
-          {desResult && (
-            <>
-              <Alert variant="success">
-                <CheckCircle />
-                <AlertTitle>¡Designaciones cargadas!</AlertTitle>
-                <AlertDescription>
-                  <p>
-                    {desResult.total_rows} filas aplicadas · {desResult.designations.creates} nuevas · {desResult.designations.updates} actualizadas · {desResult.designations.noops} sin cambios
-                  </p>
-                  {desResult.warnings.length > 0 && (
-                    <p className="text-warning-foreground">{desResult.warnings.length} advertencia(s)</p>
-                  )}
-                </AlertDescription>
-              </Alert>
-              {desResult.users.creates > 0 && (
-                <Alert variant="info">
-                  <Users />
-                  <AlertTitle>{desResult.users.creates} usuarios docentes creados automáticamente</AlertTitle>
-                  <AlertDescription>
-                    Los docentes deberán solicitar el restablecimiento de su contraseña al administrador
-                  </AlertDescription>
-                </Alert>
-              )}
-            </>
-          )}
+        <UploadCard title="Designaciones Docentes" description="Importá el Excel de designaciones del semestre con vista previa fila por fila">
+          <DesignationImportWizard />
+          <p className="text-xs text-muted-foreground">
+            Para ver, crear, corregir o finalizar designaciones una por una, entrá a{' '}
+            <Link to="/designations" className="font-medium text-foreground underline underline-offset-4">Designaciones</Link>.
+          </p>
         </UploadCard>
 
         {/* Teacher List Upload */}
@@ -462,31 +349,6 @@ export function UploadPage() {
         />
       </section>
 
-      <ConfirmAlertDialog
-        summary={
-          confirmDesApply && desPreview && desFile
-            ? {
-                title: 'Importar designaciones',
-                confirmLabel: 'Importar designaciones',
-                rows: [
-                  { label: 'Archivo', value: desFile.name },
-                  { label: 'Período académico', value: desPreview.academic_period },
-                  { label: 'Filas', value: String(desPreview.total_rows) },
-                  { label: 'Docentes', value: `${desPreview.teachers.creates} nuevos · ${desPreview.teachers.updates} actualizaciones` },
-                  { label: 'Designaciones', value: `${desPreview.designations.creates} nuevas · ${desPreview.designations.updates} actualizaciones` },
-                  { label: 'Usuarios', value: `${desPreview.users.creates} nuevos · ${desPreview.users.updates} vinculaciones` },
-                ],
-                warning: desPreview.teachers.updates + desPreview.designations.updates + desPreview.users.updates > 0
-                  ? 'Las actualizaciones modifican docentes, designaciones y usuarios ya guardados.'
-                  : null,
-                consequence: 'Los datos se guardan en SIPAD y afectan la planilla del período. No se activa el período académico.',
-              }
-            : null
-        }
-        pending={uploadDesignations.isPending}
-        onConfirm={handleDesApply}
-        onCancel={() => setConfirmDesApply(false)}
-      />
     </div>
   )
 }

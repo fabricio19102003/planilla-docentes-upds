@@ -862,6 +862,86 @@ export interface DesignationImportPreview {
   users: DesignationImportCounts
   warnings: string[]
   errors: string[]
+  changes?: DesignationImportChange[]
+}
+
+export interface DesignationImportChange {
+  row: number
+  action: 'create' | 'update' | 'noop'
+  teacher_ci: string | null
+  teacher_name: string
+  subject: string
+  semester: string
+  group_code: string
+  fields: string[]
+}
+
+export interface DesignationActionState {
+  allowed: boolean
+  reason: string | null
+}
+
+export interface DesignationAdminItem {
+  id: number
+  teacher_ci: string
+  teacher_name: string
+  subject: string
+  semester: string
+  group_code: string
+  academic_period: string
+  designation_type: string
+  schedule_json: ScheduleSlot[]
+  semester_hours: number | null
+  monthly_hours: number | null
+  weekly_hours: number | null
+  weekly_hours_calculated: number | null
+  schedule_raw: string | null
+  contract_start_date: string | null
+  contract_end_date: string | null
+  created_at: string
+  status: 'active' | 'finalized'
+  has_contract: boolean
+  attendance_count: number
+  actions: {
+    edit: DesignationActionState
+    edit_dates: DesignationActionState
+    finalize: DesignationActionState
+    delete: DesignationActionState
+  }
+}
+
+export interface DesignationAdminList {
+  academic_period: string
+  periods: string[]
+  items: DesignationAdminItem[]
+}
+
+export interface DesignationAdminMutation extends DesignationAdminItem {
+  regenerate: DesignationChangeRegeneration[]
+  warnings: string[]
+}
+
+export interface DesignationWritePayload {
+  teacher_ci: string
+  subject: string
+  semester: string
+  group_code: string
+  academic_period: string
+  designation_type: 'regular' | 'practice'
+  schedule: { dia: string; hora_inicio: string; hora_fin: string }[]
+  monthly_hours: number
+  semester_hours: number | null
+  contract_start_date: string | null
+  contract_end_date: string | null
+}
+
+export interface DesignationAdminFilters {
+  academic_period?: string
+  q?: string
+  semester?: string
+  designation_type?: 'regular' | 'practice'
+  status?: 'active' | 'finalized' | 'all'
+  teacher_ci?: string
 }
 
 export interface DesignationUploadResponse extends DesignationImportPreview {
