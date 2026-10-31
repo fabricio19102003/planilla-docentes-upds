@@ -38,6 +38,7 @@ from app.routers import (
     academic_management_router,
 )
 from app.routers.chat import router as chat_router
+from app.routers.designation_admin import router as designation_admin_router
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +432,7 @@ app.include_router(billing_media_router)
 app.include_router(admin_whatsapp_router)
 app.include_router(academic_management_router)
 app.include_router(chat_router)
+app.include_router(designation_admin_router)
 
 
 @app.get("/health", tags=["system"])
