@@ -20,6 +20,7 @@ export function humanizeCode(code: string): string {
 
 export const ACTIVITY_CATEGORY_LABELS: Record<string, string> = {
   academic_management: 'Gestión académica',
+  designations: 'Designaciones',
   academic_schedule: 'Horarios académicos',
   admin: 'Administración',
   auth: 'Autenticación',

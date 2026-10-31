@@ -59,6 +59,7 @@ test('admin sidebar keeps the monthly-closing order', () => {
       group: 'Docentes y académico',
       items: [
         ['Docentes', '/teachers'],
+        ['Designaciones', '/designations'],
         ['Contratos', '/contracts'],
         ['Gestión académica', '/academic-management'],
         ['Planificador de horarios', '/schedule-planner'],
