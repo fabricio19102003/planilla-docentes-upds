@@ -85,8 +85,8 @@ test('UploadPage shows FileUploader progress while uploading', () => {
 })
 
 test('data-changing actions confirm through ConfirmAlertDialog', () => {
-  // UploadPage confirms the designation import through the shared wizard it renders.
-  assert.match(read('pages/UploadPage.tsx'), /<DesignationImportWizard \/>/)
+  // The designation import (and its confirmation) moved to the Designaciones page.
+  assert.doesNotMatch(read('pages/UploadPage.tsx'), /DesignationImportWizard/)
   for (const file of ['pages/PracticeAttendancePage.tsx', 'pages/AttendancePage.tsx', 'components/designations/DesignationImportWizard.tsx']) {
     const code = read(file)
     assert.match(code, /ConfirmAlertDialog/, `${file} must confirm destructive or overwriting actions`)
