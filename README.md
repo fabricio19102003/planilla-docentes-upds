@@ -695,6 +695,17 @@ Importar designaciones no cambia el periodo activo. La activacion sigue siendo u
 - `GET .../schedule-view/export` con los mismos filtros descarga un Excel: una hoja por semestre y grupo con la grilla semanal de 06:30 a 23:30 en franjas de 30 minutos, mas una hoja `Lista` con todos los bloques.
 - La vista previa de publicacion bloquea los borradores con teoria que cambiarian lo que pagan las designaciones: `theory_hours_mismatch` cuando la designacion reemplazada pagaria otras horas semanales y `theory_duplicates_designation` cuando una designacion vigente del mismo grupo y semestre se superpone con un bloque de teoria sin ser reemplazada (se pagaria dos veces).
 
+## Gestion estudiantil (malla, estudiantes e historial)
+
+El sistema academico anterior sigue siendo el registro oficial. SIPAD importa sus exportaciones CSV (`gestion-AAAA.csv`, una fila por materia cursada, 48 columnas) y puede reimportarlas las veces que haga falta.
+
+- **Malla curricular** (`/curriculum`): Medicina 510-01, 10 semestres y 80 materias (4 electivas sin codigo). La definicion esta en `backend/data/curricula/medicina-510-01.json`; se carga con `POST /api/admin/academic-records/curricula/default/load` o sola en la primera importacion. Reutiliza el programa `MED 510-01` y las materias existentes por codigo (`MRF 0100`) sin renombrarlas.
+- **Periodos**: `Primer Semestre`, `Segundo Semestre`, `Invierno` y `Verano` de cada `OfertaGestion` se guardan como `I/AAAA`, `II/AAAA`, `INV/AAAA` y `VER/AAAA`; el `OfertaNombre` original (`2023/1/1`, `2025/ Semestre I`, `INVIERNO 2024`) queda como evidencia.
+- **Importacion** (`/academic-history-import`): `POST /imports/preview` no escribe nada; `POST /imports/apply` exige el `expected_sha256` de la vista previa y responde `409` si el archivo cambio. Los estudiantes se reconocen por `EstudianteNroDocumento` y cada materia por `RegistroMateriaID`, asi que reimportar actualiza (por ejemplo `Pendiente` a `Aprobado`) y nunca duplica. Las filas con error se omiten y se informan con su numero de fila; las materias fuera de la malla se importan con una advertencia. La importacion nunca crea docentes: vincula el registro a un docente de SIPAD solo si su documento coincide (tambien por alias de CI). Cada aplicacion guarda un recibo con nombre, SHA-256, conteos y usuario.
+- **Notas**: un `0` en una materia `Pendiente` o `Retirado` es el valor de relleno del sistema anterior y se guarda sin nota. El promedio del periodo que muestra el detalle del estudiante solo cuenta materias aprobadas y reprobadas.
+- **Archivos grandes**: el proxy acepta hasta 25 MB y `gestion-2026.csv` pesa ~27 MB, por eso el navegador comprime el CSV con gzip antes de subirlo; la API acepta CSV plano o gzip (maximo 20 MB subidos, 120 MB descomprimidos).
+- **Privacidad**: todos los endpoints `/api/admin/academic-records/*` y las pantallas de Gestion estudiantil son solo para administradores.
+
 ## Tests
 
 ```bash
