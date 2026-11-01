@@ -14,8 +14,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from app.models.academic_management import AcademicSubject
@@ -30,6 +31,9 @@ from app.models.teacher import Teacher
 from app.models.teacher_ci_alias import TeacherCiAlias
 from app.models.user import User
 from app.services import academic_records_service
+
+# New history rows go in as Core inserts of this size: a yearly export as ORM objects does not fit the worker.
+INSERT_BATCH = 5000
 
 REQUIRED_COLUMNS = (
     "EstudianteNombre", "EstudianteApellidos", "EstudianteNroDocumento", "EstudianteTipoDocumento",
@@ -102,17 +106,26 @@ def _birth_date(value: Optional[str]) -> Optional[date]:
         return None
 
 
-def _decode(content: bytes) -> list[dict[str, str]]:
+def _decode(content: bytes) -> Iterator[dict[str, str]]:
+    """Yield the CSV rows one at a time: a full yearly export held as dicts does not fit the worker."""
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ImportFormatError("El archivo no está en UTF-8") from exc
     reader = csv.DictReader(io.StringIO(text))
     try:
-        missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
-        if missing:
-            raise ImportFormatError("Faltan columnas: " + ", ".join(missing))
-        return list(reader)
+        fieldnames = reader.fieldnames or []
+    except csv.Error as exc:
+        raise ImportFormatError("El CSV está mal formado cerca de la línea 1") from exc
+    missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
+    if missing:
+        raise ImportFormatError("Faltan columnas: " + ", ".join(missing))
+    return _rows(reader)
+
+
+def _rows(reader: csv.DictReader) -> Iterator[dict[str, str]]:
+    try:
+        yield from reader
     except csv.Error as exc:
         # An unbalanced quote swallows the rest of the file, so no row after it can be trusted.
         raise ImportFormatError(f"El CSV está mal formado cerca de la línea {reader.line_num + 1}") from exc
@@ -246,10 +259,11 @@ def _teacher_links(db: Session, documents: set[str]) -> dict[str, str]:
     return links
 
 
-def _analyze(db: Session, content: bytes, rows: list[dict[str, str]]) -> _Analysis:
-    analysis = _Analysis(sha256=hashlib.sha256(content).hexdigest(), rows=len(rows))
+def _analyze(db: Session, content: bytes, rows: Iterator[dict[str, str]]) -> _Analysis:
+    analysis = _Analysis(sha256=hashlib.sha256(content).hexdigest())
     plan_ids, curriculum = _curriculum_codes(db)
     for line, row in enumerate(rows, start=2):
+        analysis.rows += 1
         record, error = _normalize(row, plan_ids)
         if record is None:
             pass
@@ -259,12 +273,15 @@ def _analyze(db: Session, content: bytes, rows: list[dict[str, str]]) -> _Analys
             analysis.error_rows += 1
             analysis.errors.append({"level": "error", "row": line, "rows": 1, "message": error})
             continue
+        # Keep one dict per student and term, not one per row: records only point at them.
+        student, term_values = record.pop("student"), record.pop("term")
+        record["document_number"] = student["document_number"]
         analysis.records[record["registration_id"]] = record
         # The newest row of a student wins; the legacy export repeats the same values.
-        analysis.students[record["student"]["document_number"]] = record["student"]
-        term = analysis.terms.setdefault(record["term_code"], {**record["term"], "legacy_names": []})
-        if record["term"]["legacy_name"] and record["term"]["legacy_name"] not in term["legacy_names"]:
-            term["legacy_names"].append(record["term"]["legacy_name"])
+        analysis.students[student["document_number"]] = student
+        term = analysis.terms.setdefault(record["term_code"], {**term_values, "legacy_names": []})
+        if term_values["legacy_name"] and term_values["legacy_name"] not in term["legacy_names"]:
+            term["legacy_names"].append(term_values["legacy_name"])
         analysis.subjects.setdefault(record["subject_code"], record["subject_name"])
         analysis.plan_names.add(record["plan_name"])
         if record["subject_code"] not in curriculum.get(record["plan_name"], set()):
@@ -326,7 +343,7 @@ def _diff(db: Session, analysis: _Analysis) -> dict[str, Any]:
         current = records.get(registration_id)
         if current is None:
             continue
-        if current.student.document_number != values["student"]["document_number"] or any(
+        if current.student.document_number != values["document_number"] or any(
             _record_values(current)[name] != values[name] for name in RECORD_FIELDS
         ):
             changed_records.add(registration_id)
@@ -426,19 +443,28 @@ def apply(
     db.flush()
 
     records = diff["records"]
+    new_rows: list[dict[str, Any]] = []
     for registration_id, values in analysis.records.items():
         record = records.get(registration_id)
         if record is not None and registration_id not in diff["changed_records"]:
             continue
+        columns = {
+            "student_id": students[values["document_number"]].id,
+            "term_id": terms[values["term_code"]].id,
+            "subject_id": subjects[values["subject_code"]].id,
+            **{name: values[name] for name in RECORD_FIELDS[2:]},
+            "last_import_id": receipt.id,
+        }
         if record is None:
-            record = StudentSubjectRecord(legacy_registration_id=registration_id)
-            db.add(record)
-        record.student_id = students[values["student"]["document_number"]].id
-        record.term_id = terms[values["term_code"]].id
-        record.subject_id = subjects[values["subject_code"]].id
-        for name in RECORD_FIELDS[2:]:
-            setattr(record, name, values[name])
-        record.last_import_id = receipt.id
+            new_rows.append({"legacy_registration_id": registration_id, **columns})
+            if len(new_rows) == INSERT_BATCH:
+                db.execute(insert(StudentSubjectRecord), new_rows)
+                new_rows = []
+        else:
+            for name, value in columns.items():
+                setattr(record, name, value)
+    if new_rows:
+        db.execute(insert(StudentSubjectRecord), new_rows)
     db.flush()
     result["import_id"] = receipt.id
     return result
