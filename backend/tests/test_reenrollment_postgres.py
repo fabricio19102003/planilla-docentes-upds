@@ -20,6 +20,7 @@ from app.models.academic_records import CurriculumPlan, Student
 from app.models.student_portal import ReenrollmentRequest, ReenrollmentWindow, StudentAccount
 from app.services import academic_history_import as importer
 from app.services import reenrollment
+from app.models.user import User
 from tests.test_academic_history_import import _csv, _row
 
 URL_VARIABLE = "REENROLLMENT_TEST_POSTGRES_URL"
@@ -103,3 +104,43 @@ def test_the_last_place_goes_to_one_student_only(monkeypatch):
     assert _race(Session, group_id, account_ids) == ["ok", (409, "El grupo M-01 ya no tiene cupos")]
     with Session() as db:
         assert db.query(ReenrollmentRequest).count() == 1
+
+
+def test_reopening_an_observed_request_waits_for_a_student_taking_the_last_place(monkeypatch):
+    engine = _engine(monkeypatch)
+    Session = sessionmaker(bind=engine)
+    group_id, account_ids = _seed(Session)
+    with Session.begin() as db:
+        staff = User(ci="RACE-STAFF", full_name="Registro", role="admin", is_active=True, password_hash="x")
+        db.add(staff)
+        db.flush()
+        observed = reenrollment.submit(db, db.get(StudentAccount, account_ids[0]), group_id, [])
+        reenrollment.handle(db, observed, staff, "observada", "pago_pendiente", "Falta el pago")
+        observed_id, staff_id = observed.id, staff.id
+    student_submitted = threading.Event()
+
+    def student():
+        with Session() as db:
+            reenrollment.submit(db, db.get(StudentAccount, account_ids[1]), group_id, [])
+            student_submitted.set()
+            time.sleep(1.5)  # hold the place uncommitted while staff reopen the observed request
+            db.commit()
+            return "ok"
+
+    def staff_reopens():
+        student_submitted.wait(10)
+        with Session() as db:
+            try:
+                reenrollment.handle(db, db.get(ReenrollmentRequest, observed_id), db.get(User, staff_id), "pendiente")
+                db.commit()
+                return "ok"
+            except HTTPException as exc:
+                db.rollback()
+                return (exc.status_code, exc.detail)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [pool.submit(student), pool.submit(staff_reopens)]
+        assert [f.result(timeout=30) for f in results] == ["ok", (409, "El grupo M-01 ya no tiene cupos")]
+    with Session() as db:
+        assert db.get(ReenrollmentRequest, observed_id).status == "observada"
+        assert reenrollment._taken(db, [group_id]) == {group_id: 1}
