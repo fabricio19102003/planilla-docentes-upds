@@ -11,6 +11,7 @@ from app.models.billing_publication import BillingPublication
 from app.models.designation import Designation
 from app.models.detail_request import DetailRequest
 from app.models.practice_attendance import PracticeAttendanceLog
+from app.models.academic_records import AcademicTerm, Student, StudentSubjectRecord
 from app.models.academic_management import (
     AcademicGroup,
     AcademicProgram,
@@ -97,6 +98,16 @@ def _seed_schedule_assignment(db_session):
     db_session.add(block)
     db_session.flush()
     db_session.add(AcademicScheduleAssignment(block_id=block.id, teacher_ci=OLD_CI, effective_from=date(2027, 1, 1)))
+    db_session.flush()
+    student = Student(document_number="CI-MOVE-STUDENT", document_type="CARNET DE IDENTIDAD",
+                      first_names="Ana", last_names="Rojas", is_foreign=False)
+    term = AcademicTerm(code="I/2027", year=2027, kind="I", name="Primer Semestre 2027", legacy_names=[])
+    db_session.add_all([student, term])
+    db_session.flush()
+    db_session.add(StudentSubjectRecord(
+        legacy_registration_id=990001, student_id=student.id, term_id=term.id, subject_id=subject.id,
+        teacher_document=OLD_CI, teacher_ci=OLD_CI, status="aprobado", grade=80,
+    ))
     db_session.flush()
 
 

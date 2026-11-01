@@ -37,6 +37,8 @@ class TeacherIdentityService:
         "academic_schedule_assignments",
         "teacher_ci_aliases",
         "chat_conversations",
+        # Only the SIPAD link moves; teacher_document keeps the legacy export value.
+        "student_subject_records",
         # Issued contracts are immutable; _grant_contract_correction lets this single
         # teacher_ci UPDATE through the trigger and records it.
         "contract_documents",

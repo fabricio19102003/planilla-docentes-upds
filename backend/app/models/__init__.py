@@ -39,6 +39,14 @@ from app.models.academic_management import (
     HistoricalScheduleImport,
 )
 from app.models.designation_bootstrap import DesignationBootstrapReceipt
+from app.models.academic_records import (
+    AcademicHistoryImport,
+    AcademicTerm,
+    CurriculumPlan,
+    CurriculumSubject,
+    Student,
+    StudentSubjectRecord,
+)
 
 __all__ = [
     "TeacherCiAlias",
