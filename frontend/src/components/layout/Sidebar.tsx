@@ -4,6 +4,8 @@ import {
   Activity,
   AlertTriangle,
   Bell,
+  BookOpen,
+  BookUser,
   Calendar,
   CalendarCheck,
   ChevronDown,
@@ -90,6 +92,8 @@ const navIcons: Record<NavIconName, LucideIcon> = {
   notifications: Bell,
   profile: User,
   messages: MessagesSquare,
+  students: BookUser,
+  curriculum: BookOpen,
 }
 
 function NavItemLink({ item }: { item: NavItemDef }) {

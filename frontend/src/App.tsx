@@ -24,6 +24,10 @@ import { SettingsPage } from './pages/SettingsPage'
 import { AttendanceAuditPage } from './pages/AttendanceAuditPage'
 import { PracticeAttendancePage } from './pages/PracticeAttendancePage'
 import { AcademicManagementPage } from './pages/AcademicManagementPage'
+import { AcademicHistoryImportPage } from './pages/AcademicHistoryImportPage'
+import { CurriculumPage } from './pages/CurriculumPage'
+import { StudentDetailPage } from './pages/StudentDetailPage'
+import { StudentsPage } from './pages/StudentsPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
 
@@ -88,6 +92,10 @@ function AppRoutes() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="academic-management" element={<AcademicManagementPage />} />
             <Route path="schedule-planner" element={<SchedulePlannerPage />} />
+            <Route path="students" element={<StudentsPage />} />
+            <Route path="students/:id" element={<StudentDetailPage />} />
+            <Route path="curriculum" element={<CurriculumPage />} />
+            <Route path="academic-history-import" element={<AcademicHistoryImportPage />} />
             <Route path="chat" element={<AdminChatPage />} />
           </Route>
 
