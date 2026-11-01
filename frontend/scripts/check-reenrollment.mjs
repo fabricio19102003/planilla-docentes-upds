@@ -43,6 +43,11 @@ test('credentials export as an Excel-friendly CSV without formula injection', ()
     + '7485000,"\'=HYPERLINK(""x"")",\'+Abc-Defg-Hjk\r\n')
 })
 
+test('a leading tab or carriage return is also neutralised', () => {
+  const csv = credentialsCsv([{ student_id: 3, document_number: '\t=1+1', full_name: '\r=2', temporary_password: 'Abcd-Efgh-Jkm' }])
+  assert.equal(csv.split('\r\n')[1], '\'\t=1+1,"\'\r=2",Abcd-Efgh-Jkm')
+})
+
 test('amounts are shown in bolivianos with thousands separators', () => {
   assert.equal(formatBs(850), '850 Bs')
   assert.equal(formatBs(8000), '8.000 Bs')
