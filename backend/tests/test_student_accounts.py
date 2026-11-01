@@ -164,3 +164,34 @@ def test_the_portal_requires_a_student_session(client):
             assert client.get(f"{PORTAL}{path}").status_code == 401
     finally:
         client.headers["Authorization"] = authorization
+
+
+def test_every_failed_login_costs_the_same_bcrypt_work(client, students, monkeypatch):
+    """Unknown documents, temporary passwords and chosen passwords must not be told apart by timing."""
+    temporary = _issue(client, students[RAIMUNDA_DOC])
+    chosen = _issue(client, students[CARLOS_DOC])
+    token = _login(client, CARLOS_DOC, chosen).json()["access_token"]
+    client.put(f"{PORTAL}/auth/change-password", headers=_as(token),
+               json={"current_password": chosen, "new_password": "NuevaClave2026"})
+    seen: list[str] = []
+    real = auth_service.verify_password
+    monkeypatch.setattr(auth_service, "verify_password",
+                        lambda plain, hashed: seen.append(hashed.split("$")[2]) or real(plain, hashed))
+
+    costs = []
+    for document in ("NO-EXISTE", RAIMUNDA_DOC, CARLOS_DOC):
+        seen.clear()
+        assert _login(client, document, "incorrecta").status_code == 401
+        costs.append(sorted(seen))
+    assert costs[0] == costs[1] == costs[2], costs
+    assert temporary  # the account under test still has its temporary password
+
+
+def test_a_new_temporary_password_does_not_re_enable_a_disabled_account(client, students):
+    _issue(client, students[RAIMUNDA_DOC])
+    client.post(f"{ADMIN}/students/{students[RAIMUNDA_DOC]}/account/disable")
+
+    password = _issue(client, students[RAIMUNDA_DOC])
+
+    assert _login(client, RAIMUNDA_DOC, password).status_code == 403
+    assert client.get(f"{ADMIN}/students/{students[RAIMUNDA_DOC]}").json()["account"]["is_active"] is False

@@ -23,7 +23,14 @@ _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 # Temporary passwords are random (about 64 bits), so a lower bcrypt cost keeps bulk issuing fast
 # without making them guessable; the password the student chooses uses the normal cost.
 _temporary_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=8)
-_DUMMY_HASH = auth_service.hash_password(secrets.token_urlsafe(16))
+# One dummy hash per cost: every login verifies once at each cost, so an unknown document, a
+# temporary password and a chosen one cost the same time and cannot be told apart.
+_DUMMY_TEMPORARY = _temporary_context.hash(secrets.token_urlsafe(16))
+_DUMMY_CHOSEN = auth_service.hash_password(secrets.token_urlsafe(16))
+
+
+def _cost(hashed: str) -> str:
+    return hashed.split("$")[2]
 
 
 def _invalid_session() -> HTTPException:
@@ -59,13 +66,13 @@ def issue_temporary_password(db: Session, student: Student, actor: User) -> dict
     password = generate_temporary_password()
     account = get_account(db, student)
     if account is None:
-        account = StudentAccount(student_id=student.id, token_version=0)
+        account = StudentAccount(student_id=student.id, token_version=0, is_active=True)
         db.add(account)
     else:
+        # A disabled account stays disabled until staff enable it on purpose.
         account.token_version += 1
     account.password_hash = _temporary_context.hash(password)
     account.must_change_password = True
-    account.is_active = True
     account.temporary_issued_at = datetime.utcnow()
     account.temporary_issued_by = actor.id
     db.flush()
@@ -95,8 +102,10 @@ def _token(account: StudentAccount) -> str:
 def login(db: Session, document_number: str, password: str) -> dict[str, Any]:
     student = db.query(Student).filter(Student.document_number == document_number.strip()).one_or_none()
     account = get_account(db, student) if student else None
-    # Verify against a dummy hash too, so an unknown document is not faster to reject.
-    valid = auth_service.verify_password(password, account.password_hash if account else _DUMMY_HASH)
+    target = account.password_hash if account else _DUMMY_CHOSEN
+    valid = auth_service.verify_password(password, target)
+    other = _DUMMY_CHOSEN if _cost(target) == _cost(_DUMMY_TEMPORARY) else _DUMMY_TEMPORARY
+    auth_service.verify_password(password, other)
     if account is None or not valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=LOGIN_FAILED)
     if not account.is_active:
