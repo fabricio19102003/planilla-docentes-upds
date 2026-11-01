@@ -28,6 +28,7 @@ import { AcademicHistoryImportPage } from './pages/AcademicHistoryImportPage'
 import { CurriculumPage } from './pages/CurriculumPage'
 import { StudentDetailPage } from './pages/StudentDetailPage'
 import { StudentsPage } from './pages/StudentsPage'
+import { ReenrollmentPage } from './pages/ReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
 
@@ -94,6 +95,7 @@ function AppRoutes() {
             <Route path="schedule-planner" element={<SchedulePlannerPage />} />
             <Route path="students" element={<StudentsPage />} />
             <Route path="students/:id" element={<StudentDetailPage />} />
+            <Route path="reenrollment" element={<ReenrollmentPage />} />
             <Route path="curriculum" element={<CurriculumPage />} />
             <Route path="academic-history-import" element={<AcademicHistoryImportPage />} />
             <Route path="chat" element={<AdminChatPage />} />

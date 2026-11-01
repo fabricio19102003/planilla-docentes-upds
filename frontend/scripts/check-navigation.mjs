@@ -68,6 +68,15 @@ test('admin sidebar keeps the monthly-closing order', () => {
       ],
     },
     {
+      group: 'Gestión estudiantil',
+      items: [
+        ['Estudiantes', '/students'],
+        ['Rematrícula', '/reenrollment'],
+        ['Malla curricular', '/curriculum'],
+        ['Importar historial', '/academic-history-import'],
+      ],
+    },
+    {
       group: 'Administración',
       items: [
         ['Usuarios', '/users'],
