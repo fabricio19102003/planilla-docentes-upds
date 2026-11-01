@@ -4,6 +4,7 @@ from __future__ import annotations
 import zlib
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -13,6 +14,7 @@ from app.schemas.academic_records import CurriculumPlanResponse, CurriculumPlanS
 from app.services import academic_history_import as importer
 from app.services import academic_records_queries as records_queries
 from app.services import academic_records_service as service
+from app.services import student_accounts
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -157,7 +159,77 @@ def list_students(
 
 @router.get("/students/{student_id}")
 def get_student(student_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    student = _student_or_404(db, student_id)
+    detail = records_queries.student_detail(db, student)
+    return {**detail, "account": student_accounts.account_summary(student_accounts.get_account(db, student))}
+
+
+def _student_or_404(db: Session, student_id: int) -> Student:
     student = db.get(Student, student_id)
     if student is None:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
-    return records_queries.student_detail(db, student)
+    return student
+
+
+# ── Student portal accounts ──────────────────────────────────────────────────
+
+class BulkTemporaryPasswords(BaseModel):
+    student_ids: list[int] = Field(..., min_length=1, max_length=student_accounts.MAX_BULK)
+
+
+def _log_issue(db: Session, request: Request, admin: User, credentials: list[dict]) -> None:
+    # The passwords themselves are shown once to staff and never stored in the log.
+    log_activity(
+        db, action="issue_student_temporary_password", category=CATEGORY,
+        description=f"Generó clave temporal del portal para {len(credentials)} estudiante(s)", user=admin,
+        details={"student_ids": [c["student_id"] for c in credentials]}, request=request,
+    )
+
+
+@router.post("/students/{student_id}/account/temporary-password")
+def issue_temporary_password(
+    student_id: int, request: Request, db: Session = Depends(get_db), admin: User = Depends(require_admin)
+):
+    credential = student_accounts.issue_temporary_password(db, _student_or_404(db, student_id), admin)
+    _log_issue(db, request, admin, [credential])
+    db.commit()
+    return credential
+
+
+@router.post("/student-accounts/temporary-passwords")
+def issue_temporary_passwords(
+    payload: BulkTemporaryPasswords, request: Request,
+    db: Session = Depends(get_db), admin: User = Depends(require_admin),
+):
+    ids = list(dict.fromkeys(payload.student_ids))
+    found = {s.id: s for s in db.query(Student).filter(Student.id.in_(ids))}
+    missing = [str(i) for i in ids if i not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail="Estudiantes no encontrados: " + ", ".join(missing))
+    credentials = [student_accounts.issue_temporary_password(db, found[i], admin) for i in ids]
+    _log_issue(db, request, admin, credentials)
+    db.commit()
+    return {"credentials": credentials}
+
+
+def _set_account_active(db: Session, request: Request, admin: User, student_id: int, active: bool):
+    account = student_accounts.set_active(db, _student_or_404(db, student_id), active)
+    log_activity(
+        db, action="enable_student_account" if active else "disable_student_account", category=CATEGORY,
+        description=("Habilitó" if active else "Deshabilitó") + " la cuenta del portal de un estudiante",
+        user=admin, details={"student_id": student_id}, request=request,
+    )
+    db.commit()
+    return {"account": student_accounts.account_summary(account)}
+
+
+@router.post("/students/{student_id}/account/disable")
+def disable_account(student_id: int, request: Request, db: Session = Depends(get_db),
+                    admin: User = Depends(require_admin)):
+    return _set_account_active(db, request, admin, student_id, False)
+
+
+@router.post("/students/{student_id}/account/enable")
+def enable_account(student_id: int, request: Request, db: Session = Depends(get_db),
+                   admin: User = Depends(require_admin)):
+    return _set_account_active(db, request, admin, student_id, True)

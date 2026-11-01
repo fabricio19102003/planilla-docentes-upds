@@ -78,6 +78,9 @@ class AuthService:
     def get_current_user(self, token: str, db: Session) -> User:
         payload = self.decode_token(token)
         user_id: Optional[int] = payload.get("sub")
+        # Student portal tokens carry a scope; their subject is a student account id, never a user id.
+        if payload.get("scope") is not None or not str(user_id or "").isdigit():
+            user_id = None
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
