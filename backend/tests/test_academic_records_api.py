@@ -145,6 +145,7 @@ def test_student_detail_groups_history_by_term_newest_first(client):
 @pytest.mark.parametrize("method,path", [
     ("get", "/students"), ("get", "/students/1"), ("get", "/terms"), ("get", "/imports"),
     ("post", "/imports/preview"), ("post", "/imports/apply"),
+    ("get", "/curricula"), ("get", "/curricula/1"), ("post", "/curricula/default/load"),
 ])
 def test_student_data_is_admin_only(client, db_session, method, path):
     authorization = client.headers.pop("Authorization")
@@ -162,3 +163,26 @@ def test_student_data_is_admin_only(client, db_session, method, path):
         assert getattr(client, method)(f"{BASE}{path}").status_code == 403
     finally:
         client.headers["Authorization"] = authorization
+
+
+def _preview_gzip(client, compressed: bytes):
+    return client.post(
+        f"{BASE}/imports/preview", files=_file(compressed, "gestion-2023.csv.gz", "application/gzip"),
+    )
+
+
+def test_a_gzip_bomb_is_rejected(client):
+    response = _preview_gzip(client, gzip.compress(b"\0" * (120 * 1024 * 1024 + 1), 9))
+
+    assert (response.status_code, response.json()["detail"]) == (
+        413, "El CSV descomprimido supera el límite permitido",
+    )
+
+
+def test_a_truncated_or_padded_gzip_is_rejected(client, db_session):
+    compressed = gzip.compress(_csv(_rows()))
+
+    for damaged in (compressed[: len(compressed) // 2], compressed + gzip.compress(b"extra")):
+        response = _preview_gzip(client, damaged)
+        assert (response.status_code, response.json()["detail"]) == (400, "El archivo comprimido está dañado")
+    assert db_session.query(Student).count() == 0

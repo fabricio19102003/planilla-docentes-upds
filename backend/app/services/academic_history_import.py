@@ -108,14 +108,52 @@ def _decode(content: bytes) -> list[dict[str, str]]:
     except UnicodeDecodeError as exc:
         raise ImportFormatError("El archivo no está en UTF-8") from exc
     reader = csv.DictReader(io.StringIO(text))
-    missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
-    if missing:
-        raise ImportFormatError("Faltan columnas: " + ", ".join(missing))
-    return list(reader)
+    try:
+        missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
+        if missing:
+            raise ImportFormatError("Faltan columnas: " + ", ".join(missing))
+        return list(reader)
+    except csv.Error as exc:
+        # An unbalanced quote swallows the rest of the file, so no row after it can be trusted.
+        raise ImportFormatError(f"El CSV está mal formado cerca de la línea {reader.line_num + 1}") from exc
+
+
+# Model column -> CSV column it comes from, so over-long values are row errors, not failed inserts.
+STUDENT_LIMITS = {
+    "document_number": "EstudianteNroDocumento", "document_type": "EstudianteTipoDocumento",
+    "first_names": "EstudianteNombre", "last_names": "EstudianteApellidos", "gender": "EstudianteGenero",
+    "phone": "EstudianteCelular", "personal_email": "EstudianteCorreoPersonal",
+    "academic_email": "EstudianteCorreoAcademico", "birth_country": "EstudiantePaisNacimiento",
+    "nationality": "EstudianteNacionalidad", "school": "InstitucionEducativa",
+    "legacy_enrollment_status": "EstadoActualInscripcion",
+}
+RECORD_LIMITS = {
+    "group_code": "GrupoNombre", "shift": "GrupoTurno", "teacher_document": "DocenteNroDocumento",
+    "teacher_name": "DocenteNombre y DocenteApellidos",
+}
+
+
+def _too_long(record: dict[str, Any]) -> Optional[str]:
+    checks = (
+        (Student, record["student"], STUDENT_LIMITS),
+        (StudentSubjectRecord, record, RECORD_LIMITS),
+        (AcademicSubject, {"name": record["subject_name"]}, {"name": "MateriaNombreSigla"}),
+    )
+    for model, values, columns in checks:
+        for key, label in columns.items():
+            length = model.__table__.c[key].type.length
+            if values[key] is not None and len(values[key]) > length:
+                return f"{label} supera {length} caracteres"
+    return None
 
 
 def _normalize(row: dict[str, str], plan_ids: dict[str, int]) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     """Return ``(record, None)`` or ``(None, error message)`` for one CSV row."""
+    if None in row:
+        return None, "Fila con más columnas que el encabezado"
+    cut = next((column for column, value in row.items() if value is None), None)
+    if cut is not None:
+        return None, f"Fila incompleta: faltan columnas desde {cut}"
     literal = (row["OfertaPeriodoLiteral"] or "").strip()
     kind = TERM_KINDS.get(literal.lower())
     if kind is None:
@@ -150,7 +188,7 @@ def _normalize(row: dict[str, str], plan_ids: dict[str, int]) -> tuple[Optional[
     teacher_name = " ".join(filter(None, (_text(row["DocenteNombre"]), _text(row["DocenteApellidos"])))) or None
     nationality = _text(row["EstudianteNacionalidad"])
     plan_name = (row["PlanEstudio"] or "").strip()
-    return {
+    record = {
         "registration_id": registration_id,
         "term_code": f"{kind[0]}/{year}",
         "term": {"year": year, "kind": kind[0], "name": f"{kind[1]} {year}", "legacy_name": row["OfertaNombre"].strip()},
@@ -181,7 +219,9 @@ def _normalize(row: dict[str, str], plan_ids: dict[str, int]) -> tuple[Optional[
         "teacher_name": teacher_name,
         "status": status,
         "grade": grade,
-    }, None
+    }
+    error = _too_long(record)
+    return (None, error) if error else (record, None)
 
 
 def _curriculum_codes(db: Session) -> tuple[dict[str, int], dict[str, set[str]]]:

@@ -225,6 +225,35 @@ def test_a_file_without_the_legacy_columns_is_rejected(db_session):
         importer.preview(db_session, content, "a.csv")
 
 
+def test_short_rows_and_over_long_values_are_reported_not_imported(db_session):
+    too_long = _row(CARLOS, 7101, "Nefrología MED-0650", "Aprobado", 70)
+    too_long["EstudianteCelular"] = "7" * 41
+    short = io.StringIO()
+    csv.writer(short).writerow(list(_rows()[0].values())[: COLUMNS.index("OfertaNombre")])
+    content = _csv(_rows()[:1] + [too_long]) + short.getvalue().encode("utf-8")
+
+    result = importer.apply(db_session, content, "a.csv", hashlib.sha256(content).hexdigest(), None)
+
+    assert (result["counts"]["valid_rows"], result["counts"]["error_rows"]) == (1, 2)
+    errors = [(issue["row"], issue["message"]) for issue in result["issues"] if issue["level"] == "error"]
+    assert errors == [
+        (3, "EstudianteCelular supera 40 caracteres"),
+        (4, "Fila incompleta: faltan columnas desde OfertaNombre"),
+    ]
+    assert [r.legacy_registration_id for r in db_session.query(StudentSubjectRecord)] == [5253]
+    assert db_session.query(Student).filter_by(document_number="7485000").count() == 0
+
+
+def test_a_malformed_csv_is_rejected_as_a_whole(db_session):
+    row = _rows()[0]
+    row["DireccionDomicilio"] = "x" * 140_000
+    content = _csv([row])
+
+    with pytest.raises(importer.ImportFormatError, match="El CSV está mal formado cerca de la línea 2"):
+        importer.preview(db_session, content, "a.csv")
+    assert db_session.query(Student).count() == 0
+
+
 def test_the_import_reuses_catalog_subjects_and_never_renames_them(db_session):
     db_session.add(AcademicSubject(code="LIN 0130", name="English I", active=True))
     db_session.flush()
