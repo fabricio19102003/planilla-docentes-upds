@@ -14,6 +14,7 @@
     "test:contract-terms": "node --experimental-strip-types --test scripts/check-contract-terms-form.mjs",
     "test:teacher-profile-import": "node --experimental-strip-types --test scripts/check-teacher-profile-import-state.mjs",
     "test:academic-management": "node --experimental-strip-types --test scripts/check-academic-management.mjs",
+    "test:academic-records": "node --experimental-strip-types --test scripts/check-academic-records.mjs",
     "test:academic-schedule-grid": "node --experimental-strip-types --test scripts/check-academic-schedule-grid.mjs",
     "test:schedule-planner": "node --experimental-strip-types --test scripts/check-schedule-planner.mjs",
     "test:schedule-assignments": "node --experimental-strip-types --test scripts/check-schedule-assignments.mjs",

@@ -24,6 +24,8 @@ export type NavIconName =
   | 'notifications'
   | 'messages'
   | 'profile'
+  | 'students'
+  | 'curriculum'
 
 export interface NavItemDef {
   to: string
@@ -70,6 +72,15 @@ export const adminNav: AdminNavEntry[] = [
       { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },
       { to: '/requests', label: 'Solicitudes', icon: 'requests' },
       { to: '/chat', label: 'Mensajes', icon: 'messages' },
+    ],
+  },
+  {
+    label: 'Gestión estudiantil',
+    icon: 'students',
+    children: [
+      { to: '/students', label: 'Estudiantes', icon: 'students' },
+      { to: '/curriculum', label: 'Malla curricular', icon: 'curriculum' },
+      { to: '/academic-history-import', label: 'Importar historial', icon: 'upload' },
     ],
   },
   {
@@ -134,5 +145,6 @@ export function getTitleFromPath(pathname: string): string {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
   if (routeTitles[path]) return routeTitles[path]
   if (path.startsWith('/teachers/')) return 'Detalle de Docente'
+  if (path.startsWith('/students/')) return 'Detalle de estudiante'
   return FALLBACK_TITLE
 }
