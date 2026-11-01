@@ -25,6 +25,8 @@ backend/tests
 backend/data/*
 !backend/data/assets
 !backend/data/assets/**
+!backend/data/curricula
+!backend/data/curricula/**
 
 deploy/.env.production
 deploy/state
