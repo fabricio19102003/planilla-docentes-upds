@@ -39,6 +39,7 @@ from app.routers import (
 )
 from app.routers.chat import router as chat_router
 from app.routers.designation_admin import router as designation_admin_router
+from app.routers.academic_records import router as academic_records_router
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +432,7 @@ app.include_router(twilio_whatsapp_router)
 app.include_router(billing_media_router)
 app.include_router(admin_whatsapp_router)
 app.include_router(academic_management_router)
+app.include_router(academic_records_router)
 app.include_router(chat_router)
 app.include_router(designation_admin_router)
 
