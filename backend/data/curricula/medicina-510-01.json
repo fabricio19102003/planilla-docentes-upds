@@ -1,0 +1,618 @@
+{
+  "program_code": "MED 510-01",
+  "program_name": "Medicina",
+  "plan_code": "510-01",
+  "plan_name": "Medicina 510-01",
+  "semesters": [
+    {
+      "semester": 1,
+      "subjects": [
+        {
+          "code": "MRF 0100",
+          "name": "Anatomía Humana I",
+          "theory_hours": 51,
+          "practice_hours": 51,
+          "credits": 5
+        },
+        {
+          "code": "MRF 0110",
+          "name": "Embriología Humana I",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "MRF 0120",
+          "name": "Histología y Biología Celular I",
+          "theory_hours": 51,
+          "practice_hours": 34,
+          "credits": 4
+        },
+        {
+          "code": "FUN 0100",
+          "name": "Bioquímica y Biología Molecular I",
+          "theory_hours": 68,
+          "practice_hours": 51,
+          "credits": 6
+        },
+        {
+          "code": "SCP 0100",
+          "name": "Salud Pública Comunidad I",
+          "theory_hours": 17,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "PSI 0135",
+          "name": "Introducción a la Salud Mental I",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "CBC 0100",
+          "name": "Caso Básico Clínico I",
+          "theory_hours": 0,
+          "practice_hours": 17,
+          "credits": 1
+        },
+        {
+          "code": "LIN 0130",
+          "name": "Inglés Técnico I",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        }
+      ]
+    },
+    {
+      "semester": 2,
+      "subjects": [
+        {
+          "code": "MRF 0200",
+          "name": "Anatomía Humana II",
+          "theory_hours": 51,
+          "practice_hours": 51,
+          "credits": 5
+        },
+        {
+          "code": "MRF 0210",
+          "name": "Embriología Humana II",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "MRF 0220",
+          "name": "Histología y Biología Celular II",
+          "theory_hours": 51,
+          "practice_hours": 34,
+          "credits": 4
+        },
+        {
+          "code": "FUN 0200",
+          "name": "Bioquímica y Biología Molecular II",
+          "theory_hours": 68,
+          "practice_hours": 51,
+          "credits": 6
+        },
+        {
+          "code": "SCP 0200",
+          "name": "Salud Pública Comunidad II",
+          "theory_hours": 17,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "PSI 0200",
+          "name": "Introducción a la Salud Mental II",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "CBC 0200",
+          "name": "Caso Básico Clínico II",
+          "theory_hours": 0,
+          "practice_hours": 17,
+          "credits": 1
+        },
+        {
+          "code": "LIN 0230",
+          "name": "Inglés Técnico II",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        }
+      ]
+    },
+    {
+      "semester": 3,
+      "subjects": [
+        {
+          "code": "FUN 0300",
+          "name": "Farmacología I",
+          "theory_hours": 68,
+          "practice_hours": 68,
+          "credits": 7
+        },
+        {
+          "code": "FUN 0310",
+          "name": "Fisiología I",
+          "theory_hours": 68,
+          "practice_hours": 68,
+          "credits": 7
+        },
+        {
+          "code": "CIR 0300",
+          "name": "Introducción a la Cirugía I",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "SCP 0300",
+          "name": "Promoción de la Salud en el Ciclo de Vida I",
+          "theory_hours": 17,
+          "practice_hours": 51,
+          "credits": 3
+        },
+        {
+          "code": "INF 0310",
+          "name": "Informática Biomédica I",
+          "theory_hours": 17,
+          "practice_hours": 17,
+          "credits": 2
+        },
+        {
+          "code": "CBC 0300",
+          "name": "Caso Básico Clínico III",
+          "theory_hours": 0,
+          "practice_hours": 17,
+          "credits": 1
+        },
+        {
+          "code": "LIN 0330",
+          "name": "Inglés Técnico III",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        }
+      ]
+    },
+    {
+      "semester": 4,
+      "subjects": [
+        {
+          "code": "FUN 0400",
+          "name": "Farmacología II",
+          "theory_hours": 68,
+          "practice_hours": 68,
+          "credits": 7
+        },
+        {
+          "code": "FUN 0410",
+          "name": "Fisiología II",
+          "theory_hours": 68,
+          "practice_hours": 68,
+          "credits": 7
+        },
+        {
+          "code": "CIR 0400",
+          "name": "Introducción a la Cirugía II",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "FUN 0420",
+          "name": "Microbiología y Parasitología",
+          "theory_hours": 102,
+          "practice_hours": 102,
+          "credits": 10
+        },
+        {
+          "code": "SCP 0400",
+          "name": "Promoción de la Salud en el Ciclo de Vida II",
+          "theory_hours": 17,
+          "practice_hours": 51,
+          "credits": 3
+        },
+        {
+          "code": "INF 0410",
+          "name": "Informática Biomédica II",
+          "theory_hours": 17,
+          "practice_hours": 17,
+          "credits": 2
+        },
+        {
+          "code": "CBC 0400",
+          "name": "Caso Básico Clínico IV",
+          "theory_hours": 0,
+          "practice_hours": 17,
+          "credits": 1
+        },
+        {
+          "code": "LIN 0430",
+          "name": "Inglés Técnico IV",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        }
+      ]
+    },
+    {
+      "semester": 5,
+      "subjects": [
+        {
+          "code": "MED 0500",
+          "name": "Propedéutica Médica y Fisiopatología",
+          "theory_hours": 200,
+          "practice_hours": 400,
+          "credits": 30
+        },
+        {
+          "code": "MED 0510",
+          "name": "Laboratorio Clínico",
+          "theory_hours": 14,
+          "practice_hours": 6,
+          "credits": 1
+        },
+        {
+          "code": "MED 0520",
+          "name": "Imagenología",
+          "theory_hours": 14,
+          "practice_hours": 14,
+          "credits": 1
+        },
+        {
+          "code": "PSI 0500",
+          "name": "Medicina Psicológica y Comunicación",
+          "theory_hours": 40,
+          "practice_hours": 40,
+          "credits": 4
+        },
+        {
+          "code": "SCP 0500",
+          "name": "Epidemiología Clínica y Medicina Basada en Evidencia",
+          "theory_hours": 60,
+          "practice_hours": 60,
+          "credits": 6
+        },
+        {
+          "code": "SVB 0500",
+          "name": "Soporte Vital Básico",
+          "theory_hours": 20,
+          "practice_hours": 20,
+          "credits": 2
+        }
+      ]
+    },
+    {
+      "semester": 6,
+      "subjects": [
+        {
+          "code": "ANP 0600",
+          "name": "Anatomía Patológica I",
+          "theory_hours": 40,
+          "practice_hours": 60,
+          "credits": 5
+        },
+        {
+          "code": "MED 0600",
+          "name": "Cardiología",
+          "theory_hours": 80,
+          "practice_hours": 120,
+          "credits": 9
+        },
+        {
+          "code": "MED 0610",
+          "name": "Neumología",
+          "theory_hours": 50,
+          "practice_hours": 100,
+          "credits": 7
+        },
+        {
+          "code": "MED 0620",
+          "name": "Otorrinolaringología",
+          "theory_hours": 30,
+          "practice_hours": 60,
+          "credits": 4
+        },
+        {
+          "code": "MED 0630",
+          "name": "Urología",
+          "theory_hours": 30,
+          "practice_hours": 60,
+          "credits": 4
+        },
+        {
+          "code": "MED 0670",
+          "name": "Farmacología Terapéutica",
+          "theory_hours": 24,
+          "practice_hours": 24,
+          "credits": 2
+        },
+        {
+          "code": "MED 0640",
+          "name": "Psiquiatría",
+          "theory_hours": 40,
+          "practice_hours": 80,
+          "credits": 6
+        },
+        {
+          "code": "MED 0650",
+          "name": "Nefrología",
+          "theory_hours": 8,
+          "practice_hours": 8,
+          "credits": 1
+        },
+        {
+          "code": "MED 0660",
+          "name": "Hematología",
+          "theory_hours": 8,
+          "practice_hours": 8,
+          "credits": 1
+        }
+      ]
+    },
+    {
+      "semester": 7,
+      "subjects": [
+        {
+          "code": "ANP 0700",
+          "name": "Anatomía Patológica II",
+          "theory_hours": 40,
+          "practice_hours": 60,
+          "credits": 5
+        },
+        {
+          "code": "MED 0710",
+          "name": "Gastroenterología",
+          "theory_hours": 50,
+          "practice_hours": 100,
+          "credits": 7
+        },
+        {
+          "code": "MED 0720",
+          "name": "Endocrinología",
+          "theory_hours": 50,
+          "practice_hours": 120,
+          "credits": 8
+        },
+        {
+          "code": "MED 0730",
+          "name": "Dermatología",
+          "theory_hours": 30,
+          "practice_hours": 60,
+          "credits": 4
+        },
+        {
+          "code": "MED 0740",
+          "name": "Neurología",
+          "theory_hours": 40,
+          "practice_hours": 80,
+          "credits": 6
+        },
+        {
+          "code": "MED 0750",
+          "name": "Oftalmología",
+          "theory_hours": 30,
+          "practice_hours": 60,
+          "credits": 4
+        },
+        {
+          "code": "MED 0760",
+          "name": "Nutrición Humana",
+          "theory_hours": 8,
+          "practice_hours": 8,
+          "credits": 1
+        },
+        {
+          "code": "MED 0770",
+          "name": "Genética Clínica",
+          "theory_hours": 28,
+          "practice_hours": 28,
+          "credits": 3
+        },
+        {
+          "code": "SCP 0700",
+          "name": "Antropología Médica e Interculturalidad",
+          "theory_hours": 8,
+          "practice_hours": 12,
+          "credits": 1
+        }
+      ]
+    },
+    {
+      "semester": 8,
+      "subjects": [
+        {
+          "code": "MED 0800",
+          "name": "Ginecología y Obstetricia",
+          "theory_hours": 100,
+          "practice_hours": 250,
+          "credits": 17
+        },
+        {
+          "code": "MED 0810",
+          "name": "Pediatría",
+          "theory_hours": 100,
+          "practice_hours": 250,
+          "credits": 17
+        },
+        {
+          "code": "MED 0820",
+          "name": "Rehabilitación",
+          "theory_hours": 12,
+          "practice_hours": 12,
+          "credits": 1
+        },
+        {
+          "code": "SCP 0800",
+          "name": "Medicina del Trabajo",
+          "theory_hours": 10,
+          "practice_hours": 16,
+          "credits": 2
+        },
+        {
+          "code": "MED 0850",
+          "name": "Bioética Médica y Profesionalismo",
+          "theory_hours": 8,
+          "practice_hours": 12,
+          "credits": 1
+        },
+        {
+          "code": null,
+          "name": "Electiva I",
+          "theory_hours": 40,
+          "practice_hours": 40,
+          "credits": 4
+        },
+        {
+          "code": "CVB 0800",
+          "name": "Soporte Vital Avanzado",
+          "theory_hours": 20,
+          "practice_hours": 20,
+          "credits": 2
+        },
+        {
+          "code": "GUA 0800",
+          "name": "Guaraní I",
+          "theory_hours": 20,
+          "practice_hours": 20,
+          "credits": 2
+        }
+      ]
+    },
+    {
+      "semester": 9,
+      "subjects": [
+        {
+          "code": "MED 0950",
+          "name": "Medicina Legal",
+          "theory_hours": 20,
+          "practice_hours": 10,
+          "credits": 2
+        },
+        {
+          "code": "MED 0920",
+          "name": "Geriatría",
+          "theory_hours": 80,
+          "practice_hours": 200,
+          "credits": 14
+        },
+        {
+          "code": "CIR 0900",
+          "name": "Cirugía y Urgencias Médicas",
+          "theory_hours": 90,
+          "practice_hours": 225,
+          "credits": 15
+        },
+        {
+          "code": "MED 0910",
+          "name": "Ortopedia y Traumatología",
+          "theory_hours": 30,
+          "practice_hours": 75,
+          "credits": 5
+        },
+        {
+          "code": "MED 0930",
+          "name": "Infectología",
+          "theory_hours": 20,
+          "practice_hours": 20,
+          "credits": 2
+        },
+        {
+          "code": "MED 0940",
+          "name": "Medicina del Dolor",
+          "theory_hours": 10,
+          "practice_hours": 10,
+          "credits": 1
+        },
+        {
+          "code": "MED 0960",
+          "name": "Reumatología",
+          "theory_hours": 14,
+          "practice_hours": 14,
+          "credits": 2
+        },
+        {
+          "code": "MED 0970",
+          "name": "Inmunología",
+          "theory_hours": 34,
+          "practice_hours": 51,
+          "credits": 4
+        },
+        {
+          "code": "GUA 0900",
+          "name": "Guaraní II",
+          "theory_hours": 20,
+          "practice_hours": 20,
+          "credits": 2
+        }
+      ]
+    },
+    {
+      "semester": 10,
+      "subjects": [
+        {
+          "code": "CIR 0905",
+          "name": "Urgencias Médico Quirúrgicas",
+          "theory_hours": 51,
+          "practice_hours": 51,
+          "credits": 5
+        },
+        {
+          "code": "SCP 1000",
+          "name": "Medicina Familiar y Comunitaria",
+          "theory_hours": 28,
+          "practice_hours": 40,
+          "credits": 3
+        },
+        {
+          "code": "MED 0935",
+          "name": "Medicina Tropical",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": "SVB 0900",
+          "name": "ATLS",
+          "theory_hours": 0,
+          "practice_hours": 30,
+          "credits": 1
+        },
+        {
+          "code": "SCP 0915",
+          "name": "Gerencia Hospitalaria",
+          "theory_hours": 34,
+          "practice_hours": 34,
+          "credits": 3
+        },
+        {
+          "code": null,
+          "name": "Electiva 3",
+          "theory_hours": 40,
+          "practice_hours": 40,
+          "credits": 4
+        },
+        {
+          "code": null,
+          "name": "Electiva 4",
+          "theory_hours": 40,
+          "practice_hours": 40,
+          "credits": 4
+        },
+        {
+          "code": null,
+          "name": "Electiva 2",
+          "theory_hours": 40,
+          "practice_hours": 40,
+          "credits": 4
+        }
+      ]
+    }
+  ]
+}
