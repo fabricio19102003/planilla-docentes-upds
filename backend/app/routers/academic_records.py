@@ -72,6 +72,9 @@ async def _read_csv_upload(file: UploadFile) -> tuple[bytes, str]:
             raise HTTPException(400, detail="El archivo comprimido está dañado") from exc
         if len(content) > MAX_CSV_BYTES or inflater.unconsumed_tail:
             raise HTTPException(413, detail="El CSV descomprimido supera el límite permitido")
+        # A cut-off stream or a second member would silently import only part of the file.
+        if not inflater.eof or inflater.unused_data:
+            raise HTTPException(400, detail="El archivo comprimido está dañado")
         if name.lower().endswith(".gz"):
             name = name[:-3]
     return content, name
