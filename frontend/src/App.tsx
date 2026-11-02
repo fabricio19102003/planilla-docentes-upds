@@ -36,6 +36,7 @@ import { StudentHomePage } from './pages/student/StudentHomePage'
 import { StudentLoginPage } from './pages/student/StudentLoginPage'
 import { StudentPortalLayout } from './pages/student/StudentPortalLayout'
 import { StudentIntensivePage } from './pages/student/StudentIntensivePage'
+import { StudentSchedulePage } from './pages/student/StudentSchedulePage'
 import { StudentReenrollmentPage } from './pages/student/StudentReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
@@ -78,6 +79,7 @@ function AppRoutes() {
             <Route path="/estudiante" element={<StudentHomePage />} />
             <Route path="/estudiante/historial" element={<StudentHistoryPage />} />
             <Route path="/estudiante/rematricula" element={<StudentReenrollmentPage />} />
+            <Route path="/estudiante/horario" element={<StudentSchedulePage />} />
             <Route path="/estudiante/intensivos" element={<StudentIntensivePage />} />
           </Route>
 
