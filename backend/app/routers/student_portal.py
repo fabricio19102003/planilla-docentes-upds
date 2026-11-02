@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.student_portal import StudentAccount
 from app.schemas.auth import PasswordChange
 from app.services import academic_records_queries as records_queries
-from app.services import reenrollment, student_accounts
+from app.services import intensive_courses, reenrollment, student_accounts
 from app.services.activity_logger import log_activity
 from app.utils.student_auth import require_student, require_student_session
 
@@ -88,3 +88,34 @@ def submit_reenrollment(
     )
     db.commit()
     return reenrollment.serialize_request(submitted)
+
+
+@router.get("/intensive-courses")
+def intensive_courses_view(db: Session = Depends(get_db), account: StudentAccount = Depends(require_student)):
+    return intensive_courses.student_view(db, account)
+
+
+def _intensive_action(db: Session, request: Request, account: StudentAccount, course_id: int, action: str,
+                      description: str, change) -> dict:
+    result = change(db, account, course_id)
+    log_activity(
+        db, action=action, category="intensive_courses",
+        description=f"{description} {result['subject']['code']} ({result['term_code']})",
+        details={"course_id": course_id, "student_id": account.student_id}, request=request,
+    )
+    db.commit()
+    return result
+
+
+@router.post("/intensive-courses/{course_id}/enroll")
+def enroll_intensive_course(course_id: int, request: Request, db: Session = Depends(get_db),
+                            account: StudentAccount = Depends(require_student)):
+    return _intensive_action(db, request, account, course_id, "enroll_intensive_course",
+                             "Se inscribió al curso intensivo de", intensive_courses.enroll)
+
+
+@router.post("/intensive-courses/{course_id}/cancel")
+def cancel_intensive_course(course_id: int, request: Request, db: Session = Depends(get_db),
+                            account: StudentAccount = Depends(require_student)):
+    return _intensive_action(db, request, account, course_id, "cancel_intensive_course",
+                             "Canceló su inscripción al curso intensivo de", intensive_courses.cancel)

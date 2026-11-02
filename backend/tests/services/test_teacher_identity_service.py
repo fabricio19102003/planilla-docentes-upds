@@ -24,6 +24,7 @@ from app.models.academic_management import (
     TeacherAvailability,
 )
 from app.models.chat import ChatConversation
+from app.models.intensive_courses import IntensiveCourse
 from app.models.contract import ContractDocument
 from app.models.teacher import Teacher
 from app.models.user import User
@@ -107,6 +108,11 @@ def _seed_schedule_assignment(db_session):
     db_session.add(StudentSubjectRecord(
         legacy_registration_id=990001, student_id=student.id, term_id=term.id, subject_id=subject.id,
         teacher_document=OLD_CI, teacher_ci=OLD_CI, status="aprobado", grade=80,
+    ))
+    db_session.add(IntensiveCourse(
+        term_code="VER/2027", subject_id=subject.id, teacher_ci=OLD_CI, capacity=10,
+        enrollment_starts_on=date(2027, 1, 1), enrollment_ends_on=date(2027, 1, 10),
+        theory_hours=10, practice_hours=0, status="open",
     ))
     db_session.flush()
 
