@@ -254,3 +254,72 @@ def test_the_inbox_is_admin_only(client, db_session, method, path):
 def test_a_student_token_never_opens_the_inbox(client, world):
     token = _student_token(client, world["good"])
     assert client.get(f"{ADMIN}/requests", headers=_as(token)).status_code == 401
+
+
+@pytest.mark.parametrize("action", ["reopen", "complete"])
+def test_staff_actions_on_an_observed_request_never_overbook(client, db_session, world, action):
+    _window(client)
+    good, failing = _student_token(client, world["good"]), _student_token(client, world["failing"])
+    m01 = world["groups"]["M-01"]  # capacity 1
+    request_id = client.post(f"{PORTAL}/reenrollment/request", headers=_as(good),
+                             json={"main_group_id": m01.id, "items": []}).json()["id"]
+    client.post(f"{ADMIN}/requests/{request_id}/observe", json={"reason": "pago_pendiente", "message": "Falta pago en caja"})
+    # Observing gives the place back, so another student can take it.
+    assert client.post(f"{PORTAL}/reenrollment/request", headers=_as(failing),
+                       json={"main_group_id": m01.id, "items": []}).status_code == 200
+
+    response = client.post(f"{ADMIN}/requests/{request_id}/{action}")
+
+    assert (response.status_code, response.json()["detail"]) == (409, "El grupo M-01 ya no tiene cupos")
+    assert reenrollment._taken(db_session, [m01.id])[m01.id] == 1
+    assert client.get(f"{ADMIN}/requests/{request_id}").json()["status"] == "observada"
+
+
+def test_a_student_takes_one_place_per_group_even_with_a_retake_there(client, db_session):
+    # Semester 2 is primary (2 subjects vs 1), so semester 3 is next and its failed FUN 0300 is a retake.
+    student = _load(db_session, "SAME-GROUP", [
+        ("Anatomía Humana II MRF-0200", "Aprobado", 70, I_2026),
+        ("Bioquímica II FUN-0200", "Aprobado", 70, I_2026),
+        ("Farmacología I FUN-0300", "Reprobado", 30, I_2026),
+    ])
+    _window(client)
+    group = _group(db_session, 3, "M-01", capacity=1)
+    token = _student_token(client, student)
+
+    response = client.post(f"{PORTAL}/reenrollment/request", headers=_as(token), json={
+        "main_group_id": group.id, "items": [{"subject_code": "FUN 0300", "group_id": group.id}],
+    })
+
+    assert response.status_code == 200, response.text
+    assert reenrollment._taken(db_session, [group.id]) == {group.id: 1}
+
+
+def test_four_recursado_chosen_are_charged_for_three(client, db_session):
+    student = _load(db_session, "FAIL-4", [(name, "Reprobado", 30, I_2026) for name in (
+        "Inglés Técnico I LIN-0130", "Anatomía Humana I MRF-0100", "Embriología Humana I MRF-0110",
+        "Caso Básico Clínico I CBC-0100")] + [(name, "Aprobado", 75, I_2026) for name in (
+        "Anatomía Humana II MRF-0200", "Bioquímica II FUN-0200", "Embriología Humana II MRF-0210")])
+    _window(client)
+    main, retakes = _group(db_session, 2, "N-01"), _group(db_session, 1, "M-01")
+    token = _student_token(client, student)
+
+    response = client.post(f"{PORTAL}/reenrollment/request", headers=_as(token), json={
+        "main_group_id": main.id,
+        "items": [{"subject_code": c, "group_id": retakes.id} for c in ("LIN 0130", "MRF 0100", "MRF 0110", "CBC 0100")],
+    })
+
+    assert response.json()["snapshot"]["recursado_fee"] == {
+        "per_subject": 1200, "subjects": 4, "charged_subjects": 3, "total": 3600,
+    }
+
+
+def test_the_inbox_group_filter_includes_retake_groups(client, world):
+    _window(client)
+    token = _student_token(client, world["failing"])
+    client.post(f"{PORTAL}/reenrollment/request", headers=_as(token), json={
+        "main_group_id": world["groups"]["N-01"].id,
+        "items": [{"subject_code": "LIN 0130", "group_id": world["groups"]["S1-M-01"].id}],
+    })
+
+    by_retake_group = client.get(f"{ADMIN}/requests", params={"group_id": world["groups"]["S1-M-01"].id}).json()
+    assert [row["document_number"] for row in by_retake_group["items"]] == ["FAIL-API"]

@@ -142,8 +142,8 @@ export function accountStatus(account: PortalAccount | null): { label: string; v
 }
 
 function csvCell(value: string): string {
-  // A leading = + - @ makes spreadsheets evaluate the cell as a formula.
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
+  // A leading = + - @ (or a tab or CR before one) makes spreadsheets evaluate the cell as a formula.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
   return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
