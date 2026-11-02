@@ -705,6 +705,8 @@ El sistema academico anterior sigue siendo el registro oficial. SIPAD importa su
 - **Notas**: un `0` en una materia `Pendiente` o `Retirado` es el valor de relleno del sistema anterior y se guarda sin nota. El promedio del periodo que muestra el detalle del estudiante solo cuenta materias aprobadas y reprobadas.
 - **Archivos grandes**: el proxy acepta hasta 25 MB y `gestion-2026.csv` pesa ~27 MB, por eso el navegador comprime el CSV con gzip antes de subirlo; la API acepta CSV plano o gzip (maximo 20 MB subidos, 120 MB descomprimidos); un gzip cortado o con contenido extra se rechaza con `400`.
 - **Privacidad**: todos los endpoints `/api/admin/academic-records/*` y las pantallas de Gestion estudiantil son solo para administradores.
+- **Editar la malla** (*Malla curricular → Editar malla*): agregar, editar o quitar materias (nombre, sigla, HT, HP, creditos, electiva), moverlas de semestre, reordenarlas, y agregar un semestre o quitar el ultimo si esta vacio. Los cambios aplican a la malla vigente para todos los estudiantes y cada uno queda en el registro de actividad con el antes y el despues; quitar una materia no borra el historial de nadie. La malla incluida en SIPAD se carga una sola vez: despues la importacion del historial ya no la sobrescribe.
+- **Ofertas desde la malla**: en el modo de edicion, *Generar ofertas* crea las ofertas de un periodo (`I/2027`, `II/2027`, `INV/2027`, `VER/2027`) con la materia, el semestre y las horas de la malla. Las que ya existen no se tocan (se conservan sus cambios manuales) y las electivas sin sigla se informan como no generadas.
 
 ## Portal del estudiante y rematricula
 

@@ -45,7 +45,8 @@
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview",
     "test:reenrollment": "node --experimental-strip-types --test scripts/check-reenrollment.mjs",
-    "test:student-portal": "node --experimental-strip-types --test scripts/check-student-portal.mjs"
+    "test:student-portal": "node --experimental-strip-types --test scripts/check-student-portal.mjs",
+    "test:curriculum-editing": "node --experimental-strip-types --test scripts/check-curriculum-editing.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

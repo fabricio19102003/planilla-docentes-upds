@@ -14,6 +14,7 @@ import {
   type StudentFilters,
   type StudentList,
 } from '@/lib/academicRecordsState'
+import type { OfferingGeneration, SlotPayload } from '@/lib/curriculumEditing'
 
 const root = '/admin/academic-records'
 const key = ['academic-records'] as const
@@ -93,5 +94,45 @@ export function useApplyImport() {
     mutationFn: async ({ file, sha256 }: { file: File; sha256: string }) =>
       (await api.post<ImportResult>(`${root}/imports/apply`, await uploadForm(file, sha256), multipart)).data,
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: key }),
+  })
+}
+
+// ── Curriculum editing ──────────────────────────────────────────────────────
+
+export type CurriculumChange =
+  | { kind: 'add'; payload: SlotPayload }
+  | { kind: 'update'; slotId: number; payload: SlotPayload }
+  | { kind: 'remove'; slotId: number }
+  | { kind: 'reorder'; semester: number; slotIds: number[] }
+  | { kind: 'add-semester' }
+  | { kind: 'remove-semester'; semester: number }
+
+export function useEditCurriculum(planId: number | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (change: CurriculumChange) => {
+      const base = `${root}/curricula/${planId}`
+      switch (change.kind) {
+        case 'add': return (await api.post<CurriculumPlan>(`${base}/slots`, change.payload)).data
+        case 'update': return (await api.put<CurriculumPlan>(`${base}/slots/${change.slotId}`, change.payload)).data
+        case 'remove': return (await api.delete<CurriculumPlan>(`${base}/slots/${change.slotId}`)).data
+        case 'reorder': return (await api.put<CurriculumPlan>(`${base}/semesters/${change.semester}/order`, { slot_ids: change.slotIds })).data
+        case 'add-semester': return (await api.post<CurriculumPlan>(`${base}/semesters`)).data
+        case 'remove-semester': return (await api.delete<CurriculumPlan>(`${base}/semesters/${change.semester}`)).data
+      }
+    },
+    onSuccess: (plan) => {
+      queryClient.setQueryData([...key, 'curricula', planId], plan)
+      void queryClient.invalidateQueries({ queryKey: [...key, 'curricula'] })
+    },
+  })
+}
+
+export function useGenerateOfferings(planId: number | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (academicPeriod: string) =>
+      (await api.post<OfferingGeneration>(`${root}/curricula/${planId}/offerings`, { academic_period: academicPeriod })).data,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['academic-management'] }),
   })
 }
