@@ -73,6 +73,7 @@ test('admin sidebar keeps the monthly-closing order', () => {
         ['Estudiantes', '/students'],
         ['Rematrícula', '/reenrollment'],
         ['Cursos intensivos', '/intensive-courses'],
+        ['Apertura de grupos', '/group-opening'],
         ['Malla curricular', '/curriculum'],
         ['Importar historial', '/academic-history-import'],
       ],

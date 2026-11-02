@@ -43,6 +43,7 @@ from app.routers.academic_records import router as academic_records_router
 from app.routers.student_portal import router as student_portal_router
 from app.routers.reenrollment_admin import router as reenrollment_admin_router
 from app.routers.intensive_courses_admin import router as intensive_courses_admin_router
+from app.routers.group_opening import router as group_opening_router
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +326,7 @@ async def lifespan(app: FastAPI):
                 ("MEDICINE_SCHEDULE_ASSISTANT_ENABLED", "false", "Habilita el asistente de horarios de Medicina"),
                 ("BILLING_WHATSAPP_DELIVERY_ENABLED", "false", "Permite solicitar envíos de facturación por WhatsApp oficial"),
                 ("ACADEMIC_HOUR_MINUTES", "45", "Minutos de una hora académica para precargar las horas de cada bloque"),
+                ("DEFAULT_GROUP_SIZE", "40", "Estudiantes por grupo para sugerir cuántos grupos abrir en cada turno"),
             ]
             added = 0
             for key, value, desc in defaults_spec:
@@ -439,6 +441,7 @@ app.include_router(academic_records_router)
 app.include_router(student_portal_router)
 app.include_router(reenrollment_admin_router)
 app.include_router(intensive_courses_admin_router)
+app.include_router(group_opening_router)
 app.include_router(chat_router)
 app.include_router(designation_admin_router)
 

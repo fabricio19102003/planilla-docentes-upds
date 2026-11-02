@@ -34,6 +34,7 @@ KEY_DOCENTE_CAN_EDIT_PHOTO = "DOCENTE_CAN_EDIT_PHOTO"
 KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED = "MEDICINE_SCHEDULE_ASSISTANT_ENABLED"
 KEY_BILLING_WHATSAPP_DELIVERY_ENABLED = "BILLING_WHATSAPP_DELIVERY_ENABLED"
 KEY_ACADEMIC_HOUR_MINUTES = "ACADEMIC_HOUR_MINUTES"
+KEY_DEFAULT_GROUP_SIZE = "DEFAULT_GROUP_SIZE"
 KEY_CONTRACT_REPRESENTATIVE_NAME = "CONTRACT_REPRESENTATIVE_NAME"
 KEY_CONTRACT_REPRESENTATIVE_CI = "CONTRACT_REPRESENTATIVE_CI"
 KEY_CONTRACT_POWER_NUMBER = "CONTRACT_POWER_NUMBER"
@@ -66,6 +67,7 @@ _DEFAULTS: dict[str, str] = {
     KEY_MEDICINE_SCHEDULE_ASSISTANT_ENABLED: "false",
     KEY_BILLING_WHATSAPP_DELIVERY_ENABLED: "false",
     KEY_ACADEMIC_HOUR_MINUTES: "45",
+    KEY_DEFAULT_GROUP_SIZE: "40",
     KEY_CONTRACT_REPRESENTATIVE_NAME: "Luis Michel Bravo Alencar",
     KEY_CONTRACT_REPRESENTATIVE_CI: "1750986 Pando",
     KEY_CONTRACT_POWER_NUMBER: "1818/2024",
@@ -181,6 +183,19 @@ def get_academic_hour_minutes(db: Session) -> int:
     if not 5 <= value <= 120:
         logger.warning("Invalid ACADEMIC_HOUR_MINUTES value in DB: %r — falling back to default", raw)
         return int(_DEFAULTS[KEY_ACADEMIC_HOUR_MINUTES])
+    return value
+
+
+def get_default_group_size(db: Session) -> int:
+    """Students per group used to suggest how many groups to open (1..200)."""
+    raw = get_setting(db, KEY_DEFAULT_GROUP_SIZE, _DEFAULTS[KEY_DEFAULT_GROUP_SIZE])
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 0
+    if not 1 <= value <= 200:
+        logger.warning("Invalid DEFAULT_GROUP_SIZE value in DB: %r — falling back to default", raw)
+        return int(_DEFAULTS[KEY_DEFAULT_GROUP_SIZE])
     return value
 
 
