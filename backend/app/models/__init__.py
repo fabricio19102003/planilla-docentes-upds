@@ -47,8 +47,18 @@ from app.models.academic_records import (
     Student,
     StudentSubjectRecord,
 )
+from app.models.student_portal import (
+    ReenrollmentRequest,
+    ReenrollmentRequestItem,
+    ReenrollmentWindow,
+    StudentAccount,
+)
 
 __all__ = [
+    "ReenrollmentRequest",
+    "ReenrollmentRequestItem",
+    "ReenrollmentWindow",
+    "StudentAccount",
     "TeacherCiAlias",
     "ContractCiCorrection",
     "ChatConversation",
