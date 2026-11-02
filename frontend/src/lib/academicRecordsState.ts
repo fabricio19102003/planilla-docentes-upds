@@ -1,5 +1,7 @@
 /** Types and pure helpers for curriculum, students and the legacy academic history import. */
 
+import type { PortalAccount } from '@/lib/reenrollmentState'
+
 export type RecordStatus = 'aprobado' | 'reprobado' | 'retirado' | 'pendiente'
 export type BadgeVariant = 'success' | 'error' | 'outline' | 'info'
 
@@ -97,6 +99,8 @@ export interface StudentDetail {
     term: Omit<AcademicTerm, 'id' | 'record_count'>
     records: StudentRecord[]
   }[]
+  /** Student portal account; only the admin student detail includes it. */
+  account?: PortalAccount | null
 }
 
 export interface ImportIssue {

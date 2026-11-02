@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 
 import { useStudent } from '@/api/hooks/useAcademicRecords'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { PortalAccountCard } from '@/components/students/PortalAccountCard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { TableCard } from '@/components/shared/TableCard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -86,6 +87,7 @@ export function StudentDetailPage() {
       />
 
       <PersonalData student={student} />
+      <PortalAccountCard studentId={student.id} account={detail.data.account ?? null} />
 
       <h2 className="text-lg font-semibold">Historial académico</h2>
       {history.length === 0 && <EmptyState title="Sin materias registradas" description="Este estudiante no tiene materias en los archivos importados." />}
