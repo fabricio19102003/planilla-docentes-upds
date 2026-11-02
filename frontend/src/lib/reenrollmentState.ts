@@ -98,6 +98,8 @@ export interface InboxRow {
   document_number: string
   full_name: string
   is_foreign: boolean
+  /** Null for students who are not foreign. */
+  migration_regularizado: boolean | null
   target_semester: number
   main_group_code: string
   main_group_shift: string

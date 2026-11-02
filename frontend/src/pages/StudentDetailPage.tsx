@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 
 import { useStudent } from '@/api/hooks/useAcademicRecords'
+import { MigrationDocumentsCard } from '@/components/students/MigrationDocumentsCard'
 import { PortalAccountCard } from '@/components/students/PortalAccountCard'
 import { StudentHistory } from '@/components/students/StudentHistory'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -86,6 +87,7 @@ export function StudentDetailPage() {
 
       <PersonalData student={student} />
       <PortalAccountCard studentId={student.id} account={detail.data.account ?? null} />
+      {student.is_foreign && <MigrationDocumentsCard studentId={student.id} />}
 
       <StudentHistory history={history} />
     </div>

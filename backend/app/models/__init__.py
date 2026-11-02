@@ -48,6 +48,7 @@ from app.models.academic_records import (
     StudentSubjectRecord,
 )
 from app.models.intensive_courses import IntensiveCourse, IntensiveCourseSettings, IntensiveEnrollment
+from app.models.migration_documents import MigrationDocumentType, StudentMigrationDocument
 from app.models.student_portal import (
     ReenrollmentRequest,
     ReenrollmentRequestItem,
@@ -56,6 +57,8 @@ from app.models.student_portal import (
 )
 
 __all__ = [
+    "MigrationDocumentType",
+    "StudentMigrationDocument",
     "IntensiveCourse",
     "IntensiveCourseSettings",
     "IntensiveEnrollment",

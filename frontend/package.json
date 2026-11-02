@@ -49,7 +49,8 @@
     "test:curriculum-editing": "node --experimental-strip-types --test scripts/check-curriculum-editing.mjs",
     "test:intensive-courses": "node --experimental-strip-types --test scripts/check-intensive-courses.mjs",
     "test:student-schedule": "node --experimental-strip-types --test scripts/check-student-schedule.mjs",
-    "test:group-opening": "node --experimental-strip-types --test scripts/check-group-opening.mjs"
+    "test:group-opening": "node --experimental-strip-types --test scripts/check-group-opening.mjs",
+    "test:migration-documents": "node --experimental-strip-types --test scripts/check-migration-documents.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

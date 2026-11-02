@@ -1,16 +1,19 @@
 import { Link } from 'react-router-dom'
 
-import { useStudentMe, useStudentReenrollment } from '@/api/hooks/useStudentPortal'
+import { useStudentMe, useStudentMigrationDocuments, useStudentReenrollment } from '@/api/hooks/useStudentPortal'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatDateInBolivia } from '@/lib/boliviaDates'
+import { pendingLabels, regularizadoBadge } from '@/lib/migrationDocumentsState'
 import { formatBs, requestStatus } from '@/lib/reenrollmentState'
 
 export function StudentHomePage() {
   const me = useStudentMe()
   const view = useStudentReenrollment()
+  const migration = useStudentMigrationDocuments().data
+  const migrationBadge = migration ? regularizadoBadge(migration) : null
   const data = view.data
   const request = data?.request
 
@@ -59,6 +62,24 @@ export function StudentHomePage() {
           </Card>
         )}
       </div>
+      {migration?.applies && migrationBadge && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">Documentos migratorios <Badge variant={migrationBadge.variant}>{migrationBadge.label}</Badge></CardTitle>
+            <CardDescription>
+              {migration.regularizado ? 'Tenés todos tus documentos migratorios al día.' : 'Te faltan documentos o alguno está vencido.'}
+            </CardDescription>
+          </CardHeader>
+          {!migration.regularizado && (
+            <CardContent className="space-y-2 text-sm">
+              <ul className="list-disc pl-5">
+                {pendingLabels(migration).map((label) => <li key={label}>{label}</li>)}
+              </ul>
+              <p className="text-muted-foreground">Presentalos en Registro para poder completar tu rematrícula.</p>
+            </CardContent>
+          )}
+        </Card>
+      )}
       {me.data && (
         <Card>
           <CardHeader><CardTitle className="text-base">Mis datos</CardTitle><CardDescription>Si algo está mal, avisá en Registro.</CardDescription></CardHeader>

@@ -7,10 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetDescription, SheetFooter, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { completeBlockReason, documentBadge, formatExpiry, regularizadoBadge } from '@/lib/migrationDocumentsState'
 import { OBSERVATION_REASONS, formatBs, requestStatus, type ObservationReason } from '@/lib/reenrollmentState'
 import { apiErrorMessage } from '@/lib/userCredentials'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+/** The detail endpoint also returns the migration status of the student. */
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -29,6 +32,8 @@ export function RequestSheet({ requestId, onClose }: { requestId: number | null;
   const [reason, setReason] = useState<ObservationReason>('documentos_migracion')
   const [message, setMessage] = useState('')
   const data = detail.data
+  const blockReason = completeBlockReason(data?.migration)
+  const regularizado = data ? regularizadoBadge(data.migration) : null
 
   const act = (action: 'complete' | 'observe' | 'reopen') => {
     if (requestId === null) return
@@ -49,6 +54,7 @@ export function RequestSheet({ requestId, onClose }: { requestId: number | null;
                 {data.student.document_number} · {data.term_code} · semestre {data.target_semester}
                 <Badge variant={requestStatus(data.status).variant}>{requestStatus(data.status).label}</Badge>
                 {data.student.is_foreign && <Badge variant="warning">Extranjero</Badge>}
+                {regularizado && <Badge variant={regularizado.variant}>{regularizado.label}</Badge>}
               </span>
             )}
           </SheetDescription>
@@ -58,10 +64,29 @@ export function RequestSheet({ requestId, onClose }: { requestId: number | null;
           {!data && !detail.isError && <p role="status" className="text-sm text-muted-foreground">Cargando solicitud…</p>}
           {data && (
             <>
-              {data.student.is_foreign && (
-                <Alert variant="warning">
-                  <AlertDescription>Estudiante extranjero: verificá que tenga regularizada su situación migratoria antes de completar la rematrícula.</AlertDescription>
-                </Alert>
+              {data.migration.applies && (
+                <Section title="Documentos migratorios">
+                  {data.migration.documents.length === 0
+                    ? <p className="text-sm text-muted-foreground">No hay documentos requeridos activos.</p>
+                    : (
+                      <ul className="divide-y rounded-lg border text-sm">
+                        {data.migration.documents.map((row) => (
+                          <li key={row.type_id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                            <span>{row.name}</span>
+                            <span className="flex items-center gap-2">
+                              {row.requires_expiry && row.expires_on && <span className="text-xs text-muted-foreground">Vence {formatExpiry(row.expires_on)}</span>}
+                              <Badge variant={documentBadge(row.state).variant} size="sm">{documentBadge(row.state).label}</Badge>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  {blockReason && (
+                    <Alert variant="warning">
+                      <AlertDescription>{blockReason}. Registralos desde el detalle del estudiante antes de marcarla como realizada.</AlertDescription>
+                    </Alert>
+                  )}
+                </Section>
               )}
               {data.status === 'observada' && (
                 <Alert variant="error">
@@ -134,7 +159,7 @@ export function RequestSheet({ requestId, onClose }: { requestId: number | null;
             ) : data.status === 'pendiente' ? (
               <>
                 <Button variant="outline" onClick={() => setObserving(true)}>Observar</Button>
-                <Button disabled={handle.isPending} onClick={() => act('complete')}>Marcar como realizada</Button>
+                <Button disabled={handle.isPending || blockReason !== null} title={blockReason ?? undefined} onClick={() => act('complete')}>Marcar como realizada</Button>
               </>
             ) : (
               <Button variant="outline" disabled={handle.isPending} onClick={() => act('reopen')}>Reabrir como pendiente</Button>

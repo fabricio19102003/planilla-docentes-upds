@@ -18,6 +18,7 @@ from app.models.student_portal import (
     StudentAccount,
 )
 from app.models.user import User
+from app.services import migration_documents
 from app.services import reenrollment_eligibility as eligibility
 
 BOLIVIA = timezone(timedelta(hours=-4))  # no daylight saving
@@ -302,10 +303,12 @@ def inbox(db: Session, *, window_id: Optional[int], status: Optional[str], semes
         query.order_by(ReenrollmentRequest.submitted_at, ReenrollmentRequest.id)
         .offset((page - 1) * page_size).limit(page_size).all()
     )
+    migration = migration_documents.statuses(db, [r.student for r in rows], bolivia_today())
     items = [
         {
             "id": r.id, "student_id": r.student_id, "document_number": r.student.document_number,
             "full_name": r.student.full_name, "is_foreign": r.student.is_foreign,
+            "migration_regularizado": migration[r.student_id]["regularizado"] if r.student.is_foreign else None,
             "target_semester": r.target_semester, "main_group_code": r.main_group.code,
             "main_group_shift": r.main_group.shift, "status": r.status,
             "recursado_count": sum(1 for i in r.items if i.kind == "recursado"),
@@ -329,6 +332,10 @@ def handle(db: Session, request: ReenrollmentRequest, actor: User, status: str,
            reason: Optional[str] = None, message: Optional[str] = None) -> ReenrollmentRequest:
     if status != "pendiente" and request.status == status:
         raise HTTPException(status_code=409, detail="La solicitud ya está en ese estado")
+    if status == "realizada" and request.student.is_foreign:
+        documents = migration_documents.status(db, request.student, bolivia_today())
+        if not documents["regularizado"]:
+            raise HTTPException(status_code=409, detail=migration_documents.blocked_detail(documents))
     if status in HOLDING_STATUSES and request.status not in HOLDING_STATUSES:
         # An observed request gave its places back; taking them again must fit like a new request.
         group_ids = {request.main_group_id, *(item.group_id for item in request.items)}

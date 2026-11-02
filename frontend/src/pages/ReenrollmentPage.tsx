@@ -22,6 +22,7 @@ import {
   type ReenrollmentWindow,
   type RequestStatusValue,
 } from '@/lib/reenrollmentState'
+import { inboxRegularizadoBadge } from '@/lib/migrationDocumentsState'
 import { apiErrorMessage } from '@/lib/userCredentials'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -182,11 +183,12 @@ export function ReenrollmentPage() {
                 {!inbox.data && <TableRow><TableCell colSpan={7} role="status" className="px-4 py-10 text-center text-muted-foreground">Cargando solicitudes…</TableCell></TableRow>}
                 {inbox.data?.items.map((row) => {
                   const status = requestStatus(row.status)
+                  const migration = inboxRegularizadoBadge(row.migration_regularizado)
                   return (
                     <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenRequest(row.id)}>
                       <TableCell className="px-4 py-3">
                         <button type="button" className="text-left font-medium text-foreground underline-offset-4 hover:underline" onClick={() => setOpenRequest(row.id)}>{row.full_name}</button>
-                        <p className="flex items-center gap-2 text-xs text-muted-foreground">{row.document_number}{row.is_foreign && <Badge variant="warning" size="sm">Extranjero</Badge>}</p>
+                        <p className="flex items-center gap-2 text-xs text-muted-foreground">{row.document_number}{row.is_foreign && <Badge variant="warning" size="sm">Extranjero</Badge>}{migration && <Badge variant={migration.variant} size="sm">{migration.label}</Badge>}</p>
                       </TableCell>
                       <TableCell className="px-4 py-3">{row.target_semester}</TableCell>
                       <TableCell className="px-4 py-3">{row.main_group_code} · {row.main_group_shift}</TableCell>
