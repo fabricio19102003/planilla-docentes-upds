@@ -95,21 +95,20 @@ def _taken(db: Session, group_ids: list[int], exclude_request_id: Optional[int] 
     if exclude_request_id is not None:
         holding = holding.filter(ReenrollmentRequest.id != exclude_request_id)
     holding_ids = holding.subquery()
-    taken: dict[int, int] = {}
-    for group_id, count in (
-        db.query(ReenrollmentRequest.main_group_id, func.count())
+    # A place is a student: retaking a subject in one's own main group does not take a second one.
+    members: dict[int, set[int]] = {}
+    for group_id, request_id in (
+        db.query(ReenrollmentRequest.main_group_id, ReenrollmentRequest.id)
         .filter(ReenrollmentRequest.id.in_(holding_ids.select()), ReenrollmentRequest.main_group_id.in_(group_ids))
-        .group_by(ReenrollmentRequest.main_group_id)
     ):
-        taken[group_id] = taken.get(group_id, 0) + count
-    for group_id, count in (
-        db.query(ReenrollmentRequestItem.group_id, func.count())
+        members.setdefault(group_id, set()).add(request_id)
+    for group_id, request_id in (
+        db.query(ReenrollmentRequestItem.group_id, ReenrollmentRequestItem.request_id)
         .filter(ReenrollmentRequestItem.request_id.in_(holding_ids.select()),
                 ReenrollmentRequestItem.group_id.in_(group_ids))
-        .group_by(ReenrollmentRequestItem.group_id)
     ):
-        taken[group_id] = taken.get(group_id, 0) + count
-    return taken
+        members.setdefault(group_id, set()).add(request_id)
+    return {group_id: len(ids) for group_id, ids in members.items()}
 
 
 def _group_payload(group: AcademicGroup, taken: int) -> dict[str, Any]:
@@ -193,6 +192,16 @@ def _lock_groups(db: Session, group_ids: set[int]) -> dict[int, AcademicGroup]:
     return {group.id: group for group in rows}
 
 
+def _ensure_places(db: Session, groups: dict[int, AcademicGroup], group_ids: set[int],
+                   exclude_request_id: Optional[int]) -> None:
+    """Refuse when one more student does not fit; the caller holds the row locks of ``groups``."""
+    taken = _taken(db, list(group_ids), exclude_request_id)
+    for group_id in sorted(group_ids):
+        group = groups[group_id]
+        if group.expected_size is not None and taken.get(group_id, 0) + 1 > group.expected_size:
+            raise HTTPException(status_code=409, detail=f"El grupo {group.code} ya no tiene cupos")
+
+
 def submit(db: Session, account: StudentAccount, main_group_id: int, items: list[dict[str, Any]]) -> ReenrollmentRequest:
     window = current_window(db)
     if window is None or not window_payload(window)["is_open"]:
@@ -222,14 +231,7 @@ def submit(db: Session, account: StudentAccount, main_group_id: int, items: list
     main = check(main_group_id, result["target_semester"], "El grupo elegido no corresponde a tu semestre")
     for code, group_id in chosen.items():
         check(group_id, offered[code][1]["semester"], f"El grupo de {code} debe ser del semestre {offered[code][1]['semester']}")
-    wanted: dict[int, int] = {}
-    for group_id in (main_group_id, *chosen.values()):
-        wanted[group_id] = wanted.get(group_id, 0) + 1
-    taken = _taken(db, list(wanted), existing.id if existing else None)
-    for group_id, count in wanted.items():
-        group = groups[group_id]
-        if group.expected_size is not None and taken.get(group_id, 0) + count > group.expected_size:
-            raise HTTPException(status_code=409, detail=f"El grupo {group.code} ya no tiene cupos")
+    _ensure_places(db, groups, {main_group_id, *chosen.values()}, existing.id if existing else None)
 
     request = existing or ReenrollmentRequest(student_id=account.student_id, window_id=window.id)
     request.target_semester = result["target_semester"]
@@ -287,7 +289,8 @@ def inbox(db: Session, *, window_id: Optional[int], status: Optional[str], semes
     if semester:
         query = query.filter(ReenrollmentRequest.target_semester == semester)
     if group_id:
-        query = query.filter(ReenrollmentRequest.main_group_id == group_id)
+        in_items = db.query(ReenrollmentRequestItem.request_id).filter(ReenrollmentRequestItem.group_id == group_id)
+        query = query.filter(or_(ReenrollmentRequest.main_group_id == group_id, ReenrollmentRequest.id.in_(in_items)))
     if foreign is not None:
         query = query.filter(Student.is_foreign.is_(foreign))
     if search:
@@ -326,6 +329,10 @@ def handle(db: Session, request: ReenrollmentRequest, actor: User, status: str,
            reason: Optional[str] = None, message: Optional[str] = None) -> ReenrollmentRequest:
     if status != "pendiente" and request.status == status:
         raise HTTPException(status_code=409, detail="La solicitud ya está en ese estado")
+    if status in HOLDING_STATUSES and request.status not in HOLDING_STATUSES:
+        # An observed request gave its places back; taking them again must fit like a new request.
+        group_ids = {request.main_group_id, *(item.group_id for item in request.items)}
+        _ensure_places(db, _lock_groups(db, group_ids), group_ids, request.id)
     request.status = status
     request.observation_reason = reason
     request.observation_message = message
