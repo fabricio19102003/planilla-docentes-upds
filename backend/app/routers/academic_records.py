@@ -14,6 +14,7 @@ from app.schemas.academic_records import CurriculumPlanResponse, CurriculumPlanS
 from app.services import academic_history_import as importer
 from app.services import academic_records_queries as records_queries
 from app.services import academic_records_service as service
+from app.services import curriculum_editing
 from app.services import student_accounts
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
@@ -48,6 +49,105 @@ def get_curriculum(plan_id: int, db: Session = Depends(get_db), _admin: User = D
     if plan is None:
         raise HTTPException(status_code=404, detail="Plan de estudio no encontrado")
     return service.serialize_plan(plan)
+
+
+# ── Curriculum editing ───────────────────────────────────────────────────────
+
+class CurriculumSlotIn(BaseModel):
+    semester: int = Field(..., ge=1, le=20)
+    name: str = Field(..., min_length=1, max_length=200)
+    code: str | None = Field(None, pattern=r"^[A-Z]{3} [0-9]{4}$")
+    theory_hours: int = Field(..., ge=0, le=40)
+    practice_hours: int = Field(..., ge=0, le=40)
+    credits: int = Field(..., ge=0, le=40)
+    is_elective: bool = False
+
+
+class OfferingGeneration(BaseModel):
+    academic_period: str = Field(..., pattern=r"^(I|II|INV|VER)/[0-9]{4}$")
+
+
+class SemesterOrder(BaseModel):
+    slot_ids: list[int] = Field(..., max_length=50)
+
+
+def _curriculum_changed(db: Session, request: Request, admin: User, plan, change: str,
+                        before: dict | None = None, after: dict | None = None):
+    log_activity(
+        db, action="update_curriculum", category=CATEGORY, description=f"Modificó la malla {plan.name} ({change})",
+        user=admin, details={"plan_id": plan.id, "change": change, "before": before, "after": after}, request=request,
+    )
+    db.commit()
+    db.refresh(plan)
+    return service.serialize_plan(plan)
+
+
+@router.post("/curricula/{plan_id}/slots", response_model=CurriculumPlanResponse, status_code=201)
+def add_curriculum_slot(plan_id: int, payload: CurriculumSlotIn, request: Request,
+                        db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    slot = curriculum_editing.add_slot(db, plan, payload.model_dump())
+    return _curriculum_changed(db, request, admin, plan, "add_subject", after=curriculum_editing.slot_values(slot))
+
+
+@router.put("/curricula/{plan_id}/slots/{slot_id}", response_model=CurriculumPlanResponse)
+def update_curriculum_slot(plan_id: int, slot_id: int, payload: CurriculumSlotIn, request: Request,
+                           db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    slot = curriculum_editing.get_slot(plan, slot_id)
+    before = curriculum_editing.slot_values(slot)
+    curriculum_editing.update_slot(db, plan, slot, payload.model_dump())
+    return _curriculum_changed(db, request, admin, plan, "update_subject", before, curriculum_editing.slot_values(slot))
+
+
+@router.delete("/curricula/{plan_id}/slots/{slot_id}", response_model=CurriculumPlanResponse)
+def remove_curriculum_slot(plan_id: int, slot_id: int, request: Request,
+                           db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    slot = curriculum_editing.get_slot(plan, slot_id)
+    before = curriculum_editing.slot_values(slot)
+    curriculum_editing.remove_slot(db, plan, slot)
+    return _curriculum_changed(db, request, admin, plan, "remove_subject", before=before)
+
+
+@router.put("/curricula/{plan_id}/semesters/{semester}/order", response_model=CurriculumPlanResponse)
+def reorder_curriculum_semester(plan_id: int, semester: int, payload: SemesterOrder, request: Request,
+                                db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    curriculum_editing.reorder(db, plan, semester, payload.slot_ids)
+    return _curriculum_changed(db, request, admin, plan, "reorder_semester", after={"semester": semester,
+                                                                                    "slot_ids": payload.slot_ids})
+
+
+@router.post("/curricula/{plan_id}/offerings")
+def generate_curriculum_offerings(plan_id: int, payload: OfferingGeneration, request: Request,
+                                  db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    result = curriculum_editing.generate_offerings(db, plan, payload.academic_period)
+    log_activity(
+        db, action="generate_offerings_from_curriculum", category=CATEGORY,
+        description=f"Generó las ofertas de {payload.academic_period} desde la malla {plan.name}", user=admin,
+        details={"plan_id": plan.id, "academic_period": payload.academic_period, "created": len(result["created"]),
+                 "existing": len(result["existing"]), "skipped": len(result["skipped"])}, request=request,
+    )
+    db.commit()
+    return result
+
+
+@router.post("/curricula/{plan_id}/semesters", response_model=CurriculumPlanResponse)
+def add_curriculum_semester(plan_id: int, request: Request, db: Session = Depends(get_db),
+                            admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    curriculum_editing.add_semester(db, plan)
+    return _curriculum_changed(db, request, admin, plan, "add_semester", after={"total_semesters": plan.total_semesters})
+
+
+@router.delete("/curricula/{plan_id}/semesters/{semester}", response_model=CurriculumPlanResponse)
+def remove_curriculum_semester(plan_id: int, semester: int, request: Request, db: Session = Depends(get_db),
+                               admin: User = Depends(require_admin)):
+    plan = curriculum_editing.get_plan(db, plan_id)
+    curriculum_editing.remove_semester(db, plan, semester)
+    return _curriculum_changed(db, request, admin, plan, "remove_semester", after={"total_semesters": plan.total_semesters})
 
 
 # ── Legacy academic history import ───────────────────────────────────────────
