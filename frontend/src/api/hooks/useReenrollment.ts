@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import type { StudentDetail } from '@/lib/academicRecordsState'
+import type { MigrationStatus } from '@/lib/migrationDocumentsState'
 import {
   inboxQueryParams,
   type Inbox,
@@ -81,7 +82,7 @@ export function useInbox(windowId: number | undefined, filters: InboxFilters) {
   })
 }
 
-export type RequestDetail = ReenrollmentRequest & StudentDetail
+export type RequestDetail = ReenrollmentRequest & StudentDetail & { migration: MigrationStatus }
 
 export function useRequestDetail(requestId: number | null) {
   return useQuery({

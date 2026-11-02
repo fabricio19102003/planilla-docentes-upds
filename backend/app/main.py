@@ -43,6 +43,7 @@ from app.routers.academic_records import router as academic_records_router
 from app.routers.student_portal import router as student_portal_router
 from app.routers.reenrollment_admin import router as reenrollment_admin_router
 from app.routers.intensive_courses_admin import router as intensive_courses_admin_router
+from app.routers.migration_documents_admin import router as migration_documents_admin_router
 from app.routers.group_opening import router as group_opening_router
 
 logger = logging.getLogger(__name__)
@@ -441,6 +442,7 @@ app.include_router(academic_records_router)
 app.include_router(student_portal_router)
 app.include_router(reenrollment_admin_router)
 app.include_router(intensive_courses_admin_router)
+app.include_router(migration_documents_admin_router)
 app.include_router(group_opening_router)
 app.include_router(chat_router)
 app.include_router(designation_admin_router)

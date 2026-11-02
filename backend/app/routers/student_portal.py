@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.student_portal import StudentAccount
 from app.schemas.auth import PasswordChange
 from app.services import academic_records_queries as records_queries
-from app.services import intensive_courses, reenrollment, student_accounts, student_schedule
+from app.services import intensive_courses, migration_documents, reenrollment, student_accounts, student_schedule
 from app.services.activity_logger import log_activity
 from app.utils.student_auth import require_student, require_student_session
 
@@ -124,3 +124,10 @@ def cancel_intensive_course(course_id: int, request: Request, db: Session = Depe
                             account: StudentAccount = Depends(require_student)):
     return _intensive_action(db, request, account, course_id, "cancel_intensive_course",
                              "Canceló su inscripción al curso intensivo de", intensive_courses.cancel)
+
+
+@router.get("/migration-documents")
+def migration_documents_view(db: Session = Depends(get_db), account: StudentAccount = Depends(require_student)):
+    """The student's own missing and expired documents; staff notes and the full list stay out."""
+    result = migration_documents.status(db, account.student, reenrollment.bolivia_today())
+    return {key: result[key] for key in ("applies", "regularizado", "missing", "expired")}

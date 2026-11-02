@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { STUDENT_TOKEN_KEY, studentApi } from '@/api/studentClient'
 import type { StudentDetail } from '@/lib/academicRecordsState'
+import type { PendingDocuments } from '@/lib/migrationDocumentsState'
 import type { StudentIntensiveView } from '@/lib/intensiveCoursesState'
 import type { StudentScheduleView } from '@/lib/studentScheduleState'
 import type { Eligibility, GroupOption, ReenrollmentRequest, ReenrollmentWindow } from '@/lib/reenrollmentState'
@@ -105,5 +106,12 @@ export function useIntensiveEnrollment() {
       (await studentApi.post(`/intensive-courses/${courseId}/${action}`)).data,
     // The same course can fail for a stale reason (full, closed): refresh the list either way.
     onSettled: () => void queryClient.invalidateQueries({ queryKey: [...key, 'intensive-courses'] }),
+  })
+}
+
+export function useStudentMigrationDocuments() {
+  return useQuery({
+    queryKey: [...key, 'migration-documents'],
+    queryFn: async () => (await studentApi.get<PendingDocuments>('/migration-documents')).data,
   })
 }

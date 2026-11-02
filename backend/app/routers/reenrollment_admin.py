@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.services import academic_records_queries as records_queries
-from app.services import reenrollment
+from app.services import migration_documents, reenrollment
 from app.services.activity_logger import log_activity
 from app.utils.auth import require_admin
 
@@ -92,7 +92,8 @@ def list_requests(
 def get_request(request_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     found = reenrollment.get_request(db, request_id)
     detail = records_queries.student_detail(db, found.student)
-    return {**reenrollment.serialize_request(found), **detail}
+    migration = migration_documents.status(db, found.student, reenrollment.bolivia_today())
+    return {**reenrollment.serialize_request(found), **detail, "migration": migration}
 
 
 def _transition(db: Session, request: Request, admin: User, request_id: int, status: str, action: str,

@@ -31,6 +31,7 @@ import { StudentsPage } from './pages/StudentsPage'
 import { ReenrollmentPage } from './pages/ReenrollmentPage'
 import { IntensiveCoursesPage } from './pages/IntensiveCoursesPage'
 import { GroupOpeningPage } from './pages/GroupOpeningPage'
+import { MigrationDocumentsPage } from './pages/MigrationDocumentsPage'
 import { StudentChangePasswordPage } from './pages/student/StudentChangePasswordPage'
 import { StudentHistoryPage } from './pages/student/StudentHistoryPage'
 import { StudentHomePage } from './pages/student/StudentHomePage'
@@ -118,6 +119,7 @@ function AppRoutes() {
             <Route path="reenrollment" element={<ReenrollmentPage />} />
             <Route path="intensive-courses" element={<IntensiveCoursesPage />} />
             <Route path="group-opening" element={<GroupOpeningPage />} />
+            <Route path="migration-documents" element={<MigrationDocumentsPage />} />
             <Route path="curriculum" element={<CurriculumPage />} />
             <Route path="academic-history-import" element={<AcademicHistoryImportPage />} />
             <Route path="chat" element={<AdminChatPage />} />
