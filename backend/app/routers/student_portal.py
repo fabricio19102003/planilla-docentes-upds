@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.student_portal import StudentAccount
 from app.schemas.auth import PasswordChange
 from app.services import academic_records_queries as records_queries
-from app.services import intensive_courses, reenrollment, student_accounts
+from app.services import intensive_courses, reenrollment, student_accounts, student_schedule
 from app.services.activity_logger import log_activity
 from app.utils.student_auth import require_student, require_student_session
 
@@ -88,6 +88,11 @@ def submit_reenrollment(
     )
     db.commit()
     return reenrollment.serialize_request(submitted)
+
+
+@router.get("/schedule")
+def schedule_view(db: Session = Depends(get_db), account: StudentAccount = Depends(require_student)):
+    return student_schedule.student_schedule(db, account)
 
 
 @router.get("/intensive-courses")

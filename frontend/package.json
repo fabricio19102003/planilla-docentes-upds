@@ -47,7 +47,8 @@
     "test:reenrollment": "node --experimental-strip-types --test scripts/check-reenrollment.mjs",
     "test:student-portal": "node --experimental-strip-types --test scripts/check-student-portal.mjs",
     "test:curriculum-editing": "node --experimental-strip-types --test scripts/check-curriculum-editing.mjs",
-    "test:intensive-courses": "node --experimental-strip-types --test scripts/check-intensive-courses.mjs"
+    "test:intensive-courses": "node --experimental-strip-types --test scripts/check-intensive-courses.mjs",
+    "test:student-schedule": "node --experimental-strip-types --test scripts/check-student-schedule.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
