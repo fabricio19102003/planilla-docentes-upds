@@ -78,12 +78,19 @@ def load_curriculum(db: Session, payload: dict[str, Any]) -> CurriculumPlan:
 
 
 def load_default_curriculum(db: Session) -> CurriculumPlan:
+    """Load the bundled curriculum once; afterwards the plan is edited in SIPAD and never overwritten."""
     payload = json.loads(DEFAULT_CURRICULUM_PATH.read_text(encoding="utf-8"))
-    return load_curriculum(db, payload)
+    existing = (
+        db.query(CurriculumPlan).join(AcademicProgram, AcademicProgram.id == CurriculumPlan.program_id)
+        .filter(AcademicProgram.code == payload["program_code"], CurriculumPlan.code == payload["plan_code"])
+        .one_or_none()
+    )
+    return existing if existing is not None else load_curriculum(db, payload)
 
 
 def serialize_plan(plan: CurriculumPlan) -> dict[str, Any]:
-    semesters: dict[int, list[dict[str, Any]]] = {}
+    # Every semester of the plan, so a newly added empty one can be filled in.
+    semesters: dict[int, list[dict[str, Any]]] = {number: [] for number in range(1, plan.total_semesters + 1)}
     for slot in sorted(plan.subjects, key=lambda item: (item.semester, item.position)):
         semesters.setdefault(slot.semester, []).append({
             "id": slot.id,
