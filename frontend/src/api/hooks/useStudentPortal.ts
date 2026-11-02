@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { STUDENT_TOKEN_KEY, studentApi } from '@/api/studentClient'
 import type { StudentDetail } from '@/lib/academicRecordsState'
+import type { StudentIntensiveView } from '@/lib/intensiveCoursesState'
 import type { Eligibility, GroupOption, ReenrollmentRequest, ReenrollmentWindow } from '@/lib/reenrollmentState'
 
 const key = ['student-portal'] as const
@@ -79,5 +80,22 @@ export function useSubmitReenrollment() {
     mutationFn: async (payload: { main_group_id: number; items: { subject_code: string; group_id: number }[] }) =>
       (await studentApi.post<ReenrollmentRequest>('/reenrollment/request', payload)).data,
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: [...key, 'reenrollment'] }),
+  })
+}
+
+export function useStudentIntensiveCourses() {
+  return useQuery({
+    queryKey: [...key, 'intensive-courses'],
+    queryFn: async () => (await studentApi.get<StudentIntensiveView>('/intensive-courses')).data,
+  })
+}
+
+export function useIntensiveEnrollment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ courseId, action }: { courseId: number; action: 'enroll' | 'cancel' }) =>
+      (await studentApi.post(`/intensive-courses/${courseId}/${action}`)).data,
+    // The same course can fail for a stale reason (full, closed): refresh the list either way.
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: [...key, 'intensive-courses'] }),
   })
 }
