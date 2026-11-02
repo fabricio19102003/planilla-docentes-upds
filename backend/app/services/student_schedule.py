@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.academic_management import AcademicGroup, AcademicSchedulePublication, AcademicSchedulePublishedBlock
 from app.models.intensive_courses import IntensiveCourse, IntensiveEnrollment
-from app.models.student_portal import ReenrollmentRequest, StudentAccount
+from app.models.student_portal import ReenrollmentRequest, ReenrollmentWindow, StudentAccount
 from app.services import reenrollment
 from app.services.academic_schedule_publication_service import _effective_publication, _publication_query
 
@@ -140,17 +140,25 @@ def _intensive_entries(db: Session, account: StudentAccount, today: date):
 
 def student_schedule(db: Session, account: StudentAccount) -> dict[str, Any]:
     today = reenrollment.bolivia_today()
-    window = reenrollment.current_window(db)
-    request = reenrollment._request_for(db, account.student_id, window) if window else None
     entries: list[dict[str, Any]] = []
     publication: Optional[dict] = None
-    if request is None:
-        status = _status("no_request", NO_REQUEST)
-    elif request.status != "realizada":
-        status = _status("not_done", NOT_DONE)
-    else:
-        entries, publication, term_code = _request_entries(db, request, today)
+    # A new window (even scheduled in advance) must not hide the term in progress: among the done
+    # requests, the one whose schedule is in force today wins; else the newest one (its next publication).
+    done = (
+        db.query(ReenrollmentRequest).join(ReenrollmentWindow, ReenrollmentWindow.id == ReenrollmentRequest.window_id)
+        .filter(ReenrollmentRequest.student_id == account.student_id, ReenrollmentRequest.status == "realizada")
+        .order_by(ReenrollmentWindow.starts_on.desc(), ReenrollmentRequest.id.desc()).all()
+    )
+    built = [_request_entries(db, request, today) for request in done]
+    chosen = next((b for b in built if b[1] and date.fromisoformat(b[1]["effective_from"]) <= today), None) \
+        or next((b for b in built if b[1]), None) or (built[0] if built else None)
+    if chosen is not None:
+        entries, publication, term_code = chosen
         status = _status("ok", None) if publication else _status("not_published", _not_published(term_code))
+    else:
+        window = reenrollment.current_window(db)
+        request = reenrollment._request_for(db, account.student_id, window) if window else None
+        status = _status("no_request", NO_REQUEST) if request is None else _status("not_done", NOT_DONE)
     intensive, unscheduled = _intensive_entries(db, account, today)
     entries += intensive
     entries.sort(key=lambda e: (WEEKDAYS.index(e["weekday"]) if e["weekday"] in WEEKDAYS else len(WEEKDAYS),
