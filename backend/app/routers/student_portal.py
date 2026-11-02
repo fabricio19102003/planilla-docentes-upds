@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.student_portal import StudentAccount
 from app.schemas.auth import PasswordChange
 from app.services import academic_records_queries as records_queries
-from app.services import student_accounts
+from app.services import reenrollment, student_accounts
 from app.services.activity_logger import log_activity
 from app.utils.student_auth import require_student, require_student_session
 
@@ -59,3 +59,32 @@ def me(db: Session = Depends(get_db), account: StudentAccount = Depends(require_
 def history(db: Session = Depends(get_db), account: StudentAccount = Depends(require_student)):
     return {"history": records_queries.student_detail(db, account.student)["history"]}
 
+
+class RequestItem(BaseModel):
+    subject_code: str = Field(..., min_length=1, max_length=30)
+    group_id: int
+
+
+class ReenrollmentSubmission(BaseModel):
+    main_group_id: int
+    items: list[RequestItem] = Field(default_factory=list, max_length=30)
+
+
+@router.get("/reenrollment")
+def reenrollment_view(db: Session = Depends(get_db), account: StudentAccount = Depends(require_student)):
+    return reenrollment.student_view(db, account)
+
+
+@router.post("/reenrollment/request")
+def submit_reenrollment(
+    payload: ReenrollmentSubmission, request: Request, db: Session = Depends(get_db),
+    account: StudentAccount = Depends(require_student),
+):
+    submitted = reenrollment.submit(db, account, payload.main_group_id, [i.model_dump() for i in payload.items])
+    log_activity(
+        db, action="submit_reenrollment_request", category="reenrollment",
+        description=f"Envió su solicitud de rematrícula para {submitted.window.term_code}",
+        details={"request_id": submitted.id, "student_id": account.student_id}, request=request,
+    )
+    db.commit()
+    return reenrollment.serialize_request(submitted)
