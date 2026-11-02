@@ -706,6 +706,17 @@ El sistema academico anterior sigue siendo el registro oficial. SIPAD importa su
 - **Archivos grandes**: el proxy acepta hasta 25 MB y `gestion-2026.csv` pesa ~27 MB, por eso el navegador comprime el CSV con gzip antes de subirlo; la API acepta CSV plano o gzip (maximo 20 MB subidos, 120 MB descomprimidos); un gzip cortado o con contenido extra se rechaza con `400`.
 - **Privacidad**: todos los endpoints `/api/admin/academic-records/*` y las pantallas de Gestion estudiantil son solo para administradores.
 
+## Portal del estudiante y rematricula
+
+El estudiante pide su rematricula desde SIPAD y Registro la carga en el sistema academico anterior, que sigue siendo el oficial.
+
+- **Cuenta** (`/estudiante/login`): el estudiante entra con su numero de documento. Registro genera una clave temporal desde el detalle del estudiante o para hasta 100 estudiantes seleccionados en la lista (se muestra una sola vez y se puede descargar como CSV); el estudiante la cambia en su primer ingreso. Generar una clave nueva o deshabilitar la cuenta cierra las sesiones abiertas. La sesion del portal (`student_token`) es independiente de la de admin/docente: un token de estudiante nunca abre rutas de staff y viceversa.
+- **Ventanas** (*Gestion estudiantil → Rematricula*): el admin abre la rematricula de un periodo destino (por ejemplo `I/2027`) con fecha de inicio y fin, en hora de Bolivia. Fuera de la ventana el portal solo muestra el historial y el estado de la solicitud.
+- **Que le toca cursar**: el semestre siguiente a su semestre principal del ultimo periodo regular (I o II), es decir el semestre del que curso mas materias distintas (empate al mayor), con tope en el ultimo semestre de la malla. Recursado: materias con un `Reprobado` y sin `Aprobado`. Pendientes sin cargo: materias de semestres anteriores que solo tienen `Retirado`. Las materias en curso (`Pendiente`) no aparecen. `SPC 0100` y `SVB 0800` del sistema anterior equivalen a `SCP 0100` y `CVB 0800` de la malla.
+- **Grupos y cupos**: los grupos del periodo destino se cargan en *Gestion academica* (codigo, turno, semestre y capacidad). El estudiante elige un grupo de su semestre y uno por cada materia de recursado o pendiente que quiera cursar. Las solicitudes pendientes y realizadas ocupan cupo; un grupo lleno no se puede elegir y un grupo sin capacidad no tiene limite.
+- **Montos (informativos)**: Beca Fundador (promedio > 64) 850 Bs por cuota, Beca Desafio (promedio > 61) 1300 Bs, Sin beca 1600 Bs, 5 cuotas. Las dos becas exigen no haber reprobado nunca una materia; el promedio es el del ultimo periodo regular con notas finales, sin `Retirado`. Recursado: 1200 Bs por materia elegida, cobrando como maximo 3. SIPAD no cobra nada; Registro verifica el pago del recursado en caja.
+- **Bandeja de Registro**: filtra por estado, semestre, nacionalidad y nombre o documento. Cada solicitud se marca como *Realizada* despues de cargarla en el sistema anterior, o como *Observada* con un motivo (`Documentos de migracion`, `Pago pendiente`, `Otro`) y un mensaje que el estudiante ve en su portal; mientras la ventana esta abierta el estudiante puede corregirla y vuelve a *Pendiente*. Todas las acciones quedan en el registro de actividad.
+
 ## Tests
 
 ```bash

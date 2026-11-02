@@ -29,6 +29,12 @@ import { CurriculumPage } from './pages/CurriculumPage'
 import { StudentDetailPage } from './pages/StudentDetailPage'
 import { StudentsPage } from './pages/StudentsPage'
 import { ReenrollmentPage } from './pages/ReenrollmentPage'
+import { StudentChangePasswordPage } from './pages/student/StudentChangePasswordPage'
+import { StudentHistoryPage } from './pages/student/StudentHistoryPage'
+import { StudentHomePage } from './pages/student/StudentHomePage'
+import { StudentLoginPage } from './pages/student/StudentLoginPage'
+import { StudentPortalLayout } from './pages/student/StudentPortalLayout'
+import { StudentReenrollmentPage } from './pages/student/StudentReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
 
@@ -63,6 +69,14 @@ function AppRoutes() {
           {/* Public */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/change-password" element={<ForceChangePasswordPage />} />
+          {/* Student portal: its own session (student_token), never the staff one. */}
+          <Route path="/estudiante/login" element={<StudentLoginPage />} />
+          <Route path="/estudiante/cambiar-clave" element={<StudentChangePasswordPage />} />
+          <Route path="/estudiante" element={<StudentPortalLayout />}>
+            <Route path="/estudiante" element={<StudentHomePage />} />
+            <Route path="/estudiante/historial" element={<StudentHistoryPage />} />
+            <Route path="/estudiante/rematricula" element={<StudentReenrollmentPage />} />
+          </Route>
 
           {/* Admin routes */}
           <Route

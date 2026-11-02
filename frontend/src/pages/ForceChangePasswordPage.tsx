@@ -22,7 +22,7 @@ const STRENGTH_TEXT = [
   'text-success-foreground',
 ]
 
-function PasswordStrengthBar({ password }: { password: string }) {
+export function PasswordStrengthBar({ password }: { password: string }) {
   const checks = [
     password.length >= 8,
     /[A-Z]/.test(password),
@@ -54,7 +54,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
 
 // ─── Validation checklist ─────────────────────────────────────────────────────
 
-function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
+export function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2">
       {passes ? (
@@ -67,7 +67,7 @@ function ValidationItem({ passes, label }: { passes: boolean; label: string }) {
   )
 }
 
-function PasswordInput({
+export function PasswordInput({
   id,
   value,
   onChange,
