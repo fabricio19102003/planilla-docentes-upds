@@ -210,13 +210,15 @@ def test_documents_are_recorded_updated_and_removed(client, db_session, types):
     assert (again.status_code, again.json()["detail"]) == (404, "El estudiante no tiene ese documento registrado")
 
 
-def test_a_document_that_does_not_expire_drops_a_given_expiry(client, db_session, types):
+def test_an_expiry_for_a_document_that_does_not_expire_is_refused(client, db_session, types):
     student = _foreign(db_session)
 
     response = _record(client, student, types["pasaporte"]["id"], "2030-01-01")
 
-    assert response.status_code == 200
-    assert response.json()["documents"][0]["expires_on"] is None
+    assert (response.status_code, response.json()["detail"]) == (
+        422, "Este documento no tiene vencimiento; dejá la fecha vacía")
+    pasaporte = next(d for d in client.get(f"{ADMIN}/students/{student.id}").json()["documents"] if d["name"] == "Pasaporte")
+    assert (pasaporte["state"], pasaporte["expires_on"]) == ("missing", None)
 
 
 def test_document_validation_messages(client, db_session, types):

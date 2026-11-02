@@ -21,6 +21,7 @@ from app.services.reenrollment import bolivia_today
 
 NOT_CONFIGURED = "Configurá las tarifas de cursos intensivos antes de abrir un curso"
 NOT_FOUND = "Curso intensivo no encontrado"
+NOT_OPEN = "La inscripción al curso intensivo no está abierta"
 CLOSED = "El curso intensivo está cerrado"
 NO_HOURS = "Las horas de teoría y práctica no pueden ser ambas cero"
 BAD_DATES = "La fecha de fin debe ser igual o posterior a la de inicio"
@@ -315,7 +316,7 @@ def enroll(db: Session, account: StudentAccount, course_id: int) -> dict[str, An
     if course.status == "closed":
         raise HTTPException(status_code=409, detail=CLOSED)
     if not _is_enrollment_open(course):
-        raise HTTPException(status_code=409, detail="La inscripción al curso intensivo no está abierta")
+        raise HTTPException(status_code=409, detail=NOT_OPEN)
     if course.subject.code not in codes:
         raise HTTPException(status_code=422,
                             detail=f"{course.subject.code} no está entre tus materias a recursar o pendientes")
@@ -338,6 +339,9 @@ def cancel(db: Session, account: StudentAccount, course_id: int) -> dict[str, An
     course = _one(db, course_id, lock=True)
     if course.status == "closed":
         raise HTTPException(status_code=409, detail=CLOSED)
+    # Cancelling changes everyone's price, so it follows the enrollment dates like enrolling.
+    if not _is_enrollment_open(course):
+        raise HTTPException(status_code=409, detail=NOT_OPEN)
     enrollment = db.query(IntensiveEnrollment).filter_by(course_id=course.id, student_id=account.student_id).first()
     if enrollment is None:
         raise HTTPException(status_code=409, detail="No estás inscrito en este curso intensivo")

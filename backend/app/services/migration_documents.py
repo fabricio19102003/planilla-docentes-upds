@@ -218,13 +218,15 @@ def save_document(db: Session, student_id: int, type_id: int, expires_on: Option
         raise HTTPException(status_code=409, detail=INACTIVE)
     if doc_type.requires_expiry and expires_on is None:
         raise HTTPException(status_code=422, detail=EXPIRY_REQUIRED)
+    if not doc_type.requires_expiry and expires_on is not None:
+        raise HTTPException(status_code=422, detail="Este documento no tiene vencimiento; dejá la fecha vacía")
     document = _find(db, student.id, doc_type.id)
     before = document_payload(document)
     if document is None:
         document = StudentMigrationDocument(student_id=student.id, document_type_id=doc_type.id)
         db.add(document)
     # A document that does not expire has no expiry date to keep.
-    document.expires_on = expires_on if doc_type.requires_expiry else None
+    document.expires_on = expires_on
     document.notes = (notes or "").strip() or None
     document.recorded_by = actor.id
     try:

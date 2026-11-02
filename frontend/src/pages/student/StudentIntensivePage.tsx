@@ -47,7 +47,7 @@ function CourseCard({ course, action, onAction }: {
           {course.is_full ? 'Sin cupos' : course.is_enrollment_open ? 'Inscribirme' : 'Inscripción no abierta'}
         </Button>
       )}
-      {action === 'cancel' && course.status === 'open' && (
+      {action === 'cancel' && course.status === 'open' && course.is_enrollment_open && (
         <Button variant="outline" onClick={() => onAction(course, 'cancel')}>Cancelar inscripción</Button>
       )}
     </li>

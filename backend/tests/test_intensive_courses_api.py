@@ -1,7 +1,7 @@
 """Intensive (summer/winter) courses: open, enroll with capacity, price and close (academic-phase3 S1, S2)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -594,3 +594,15 @@ def test_the_student_routes_need_a_student_session(client, world):
             assert getattr(client, method)(f"{PORTAL}{path}").status_code == 401
     finally:
         client.headers["Authorization"] = authorization
+
+
+def test_cancelling_after_the_enrollment_dates_is_refused(client, db_session, world, monkeypatch):
+    course = _create(client, theory_hours=40, practice_hours=0)
+    token = _student_token(client, world["failing"])
+    assert client.post(f"{PORTAL}/{course['id']}/enroll", headers=_as(token)).status_code == 200
+    monkeypatch.setattr(intensive_courses, "bolivia_today", lambda: date.fromisoformat(course["enrollment_ends_on"]) + timedelta(days=1))
+
+    response = client.post(f"{PORTAL}/{course['id']}/cancel", headers=_as(token))
+
+    assert (response.status_code, response.json()["detail"]) == (409, "La inscripción al curso intensivo no está abierta")
+    assert _snapshot(db_session)[1] != []

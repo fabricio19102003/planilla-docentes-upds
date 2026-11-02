@@ -475,3 +475,50 @@ def test_the_schedule_needs_a_student_session(client, world):
     assert client.get(URL).status_code == 401
     forged = client.get(URL, headers=_as("not-a-token"))
     assert forged.status_code == 401
+
+
+# ── Several re-enrollment windows (verify B1) ───────────────────────────────
+
+def test_the_term_schedule_stays_while_the_next_window_is_created_and_opened(client, db_session, world, monkeypatch):
+    groups = world["groups"]
+    token, request = _submit(client, world["good"], groups["M-01"])
+    _publish(db_session, [_block(groups["M-01"], "FUN 0300", "Bioquímica III")], effective_from=date(2027, 2, 1))
+    _complete(client, request["id"])
+    monkeypatch.setattr(reenrollment, "bolivia_today", lambda: date(2027, 3, 15))
+    assert _view(client, token)["status"]["code"] == "ok"
+
+    # Registro schedules II/2027 in advance, then it opens: classes of I/2027 are still going on.
+    created = client.post(f"{ADMIN}/windows", json={"term_code": "II/2027", "starts_on": "2027-07-01",
+                                                     "ends_on": "2027-07-20"})
+    assert created.status_code == 201, created.text
+    scheduled = _view(client, token)
+    monkeypatch.setattr(reenrollment, "bolivia_today", lambda: date(2027, 7, 5))
+    while_open = _view(client, token)
+
+    for body in (scheduled, while_open):
+        assert body["status"] == {"code": "ok", "message": None}
+        assert _shape(body["entries"]) == [("grupo", "FUN 0300", "M-01", "monday", "08:00")]
+
+
+def test_the_next_term_replaces_the_current_one_once_it_is_done_and_published(client, db_session, world, monkeypatch):
+    groups = world["groups"]
+    token, request = _submit(client, world["good"], groups["M-01"])
+    _publish(db_session, [_block(groups["M-01"], "FUN 0300", "Bioquímica III")], effective_from=date(2027, 2, 1))
+    _complete(client, request["id"])
+    client.post(f"{ADMIN}/windows", json={"term_code": "II/2027", "starts_on": "2027-07-01", "ends_on": "2027-07-20"})
+    next_group = _group(db_session, 3, "M-01", period="II/2027")
+    monkeypatch.setattr(reenrollment, "bolivia_today", lambda: date(2027, 7, 5))
+    second = client.post(f"{PORTAL}/reenrollment/request", headers=_as(token),
+                         json={"main_group_id": next_group.id, "items": []})
+    assert second.status_code == 200, second.text
+    _complete(client, second.json()["id"])
+    _publish(db_session, [_block(next_group, "FUN 0300", "Bioquímica III", weekday="friday")],
+             period="II/2027", effective_from=date(2027, 8, 1))
+
+    before_classes = _view(client, token)
+    monkeypatch.setattr(reenrollment, "bolivia_today", lambda: date(2027, 8, 2))
+    after = _view(client, token)
+
+    # Until II/2027 takes effect, I/2027 (in force) wins; then II/2027.
+    assert _shape(before_classes["entries"]) == [("grupo", "FUN 0300", "M-01", "monday", "08:00")]
+    assert _shape(after["entries"]) == [("grupo", "FUN 0300", "M-01", "friday", "08:00")]
