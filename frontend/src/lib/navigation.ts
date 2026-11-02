@@ -80,6 +80,7 @@ export const adminNav: AdminNavEntry[] = [
     children: [
       { to: '/students', label: 'Estudiantes', icon: 'students' },
       { to: '/reenrollment', label: 'Rematrícula', icon: 'requests' },
+      { to: '/intensive-courses', label: 'Cursos intensivos', icon: 'schedule' },
       { to: '/curriculum', label: 'Malla curricular', icon: 'curriculum' },
       { to: '/academic-history-import', label: 'Importar historial', icon: 'upload' },
     ],

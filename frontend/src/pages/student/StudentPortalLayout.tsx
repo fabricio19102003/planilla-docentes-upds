@@ -11,6 +11,7 @@ const LINKS = [
   { to: '/estudiante', label: 'Inicio', end: true },
   { to: '/estudiante/historial', label: 'Historial académico', end: false },
   { to: '/estudiante/rematricula', label: 'Rematrícula', end: false },
+  { to: '/estudiante/intensivos', label: 'Cursos de verano e invierno', end: false },
   { to: '/estudiante/cambiar-clave', label: 'Cambiar contraseña', end: false },
 ]
 

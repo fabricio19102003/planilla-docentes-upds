@@ -29,11 +29,13 @@ import { CurriculumPage } from './pages/CurriculumPage'
 import { StudentDetailPage } from './pages/StudentDetailPage'
 import { StudentsPage } from './pages/StudentsPage'
 import { ReenrollmentPage } from './pages/ReenrollmentPage'
+import { IntensiveCoursesPage } from './pages/IntensiveCoursesPage'
 import { StudentChangePasswordPage } from './pages/student/StudentChangePasswordPage'
 import { StudentHistoryPage } from './pages/student/StudentHistoryPage'
 import { StudentHomePage } from './pages/student/StudentHomePage'
 import { StudentLoginPage } from './pages/student/StudentLoginPage'
 import { StudentPortalLayout } from './pages/student/StudentPortalLayout'
+import { StudentIntensivePage } from './pages/student/StudentIntensivePage'
 import { StudentReenrollmentPage } from './pages/student/StudentReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
@@ -76,6 +78,7 @@ function AppRoutes() {
             <Route path="/estudiante" element={<StudentHomePage />} />
             <Route path="/estudiante/historial" element={<StudentHistoryPage />} />
             <Route path="/estudiante/rematricula" element={<StudentReenrollmentPage />} />
+            <Route path="/estudiante/intensivos" element={<StudentIntensivePage />} />
           </Route>
 
           {/* Admin routes */}
@@ -110,6 +113,7 @@ function AppRoutes() {
             <Route path="students" element={<StudentsPage />} />
             <Route path="students/:id" element={<StudentDetailPage />} />
             <Route path="reenrollment" element={<ReenrollmentPage />} />
+            <Route path="intensive-courses" element={<IntensiveCoursesPage />} />
             <Route path="curriculum" element={<CurriculumPage />} />
             <Route path="academic-history-import" element={<AcademicHistoryImportPage />} />
             <Route path="chat" element={<AdminChatPage />} />
