@@ -17,7 +17,7 @@ export interface StatCardTrend {
 export interface StatCardProps {
   icon: LucideIcon
   title: string
-  value: string | number
+  value: ReactNode
   /** Muted line under the value. */
   subtitle?: string
   /** Same slot as `subtitle` but accepts nodes; wins over `subtitle` when both are given. */
@@ -53,7 +53,7 @@ export function StatCard({ icon: Icon, title, value, subtitle, hint, trend, tone
   const TrendIcon = trend ? TREND_ICON[trend.direction ?? 'flat'] : null
 
   return (
-    <Card className={cn('flex-row items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5', className)}>
+    <Card interactive className={cn('flex-row items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5', className)}>
       <span aria-hidden="true" className={cn('pointer-events-none absolute inset-x-0 top-0 h-1', TONE_DOT[resolved])} />
       <Icon
         aria-hidden="true"

@@ -10,6 +10,7 @@ import { useAppSettings } from '@/api/hooks/useAppSettings'
 import { usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus } from '@/api/hooks/useBillingPublication'
 import { MonthlyCloseStepper } from '@/components/dashboard/MonthlyCloseStepper'
+import { CountUp } from '@/components/shared/CountUp'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
@@ -112,6 +113,10 @@ function formatCurrency(value: number): string {
   return `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`
+}
+
 export function DashboardPage() {
   const now = new Date()
   const currentMonth = now.getMonth() + 1
@@ -212,32 +217,28 @@ export function DashboardPage() {
         <StatCard
           icon={Users}
           title="Total Docentes"
-          value={data?.teacher_count ?? 0}
+          value={<CountUp value={data?.teacher_count ?? 0} />}
           subtitle="Docentes registrados"
           tone="primary"
         />
         <StatCard
           icon={BookOpen}
           title="Designaciones Activas"
-          value={data?.designation_count ?? 0}
+          value={<CountUp value={data?.designation_count ?? 0} />}
           subtitle="Materias asignadas"
           tone="violet"
         />
         <StatCard
           icon={TrendingUp}
           title="Tasa de Asistencia"
-          value={
-            attendanceRate != null
-              ? `${attendanceRate.toFixed(1)}%`
-              : 'Sin datos'
-          }
+          value={<CountUp value={attendanceRate ?? 'Sin datos'} format={formatPercent} />}
           subtitle="Último mes procesado"
           tone="success"
         />
         <StatCard
           icon={DollarSign}
           title="Total a pagar (teoría + asistencial)"
-          value={totalPayment > 0 ? formatCurrency(totalPayment) : 'Sin datos'}
+          value={<CountUp value={totalPayment > 0 ? totalPayment : 'Sin datos'} format={formatCurrency} />}
           hint={
             paymentBreakdown ? (
               <>
@@ -260,7 +261,7 @@ export function DashboardPage() {
         <StatCard
           icon={AlertCircle}
           title="Solicitudes Pendientes"
-          value={pendingRequests}
+          value={<CountUp value={pendingRequests} />}
           subtitle="Solicitudes por responder"
           tone={pendingRequests > 0 ? 'warning' : 'neutral'}
         />
