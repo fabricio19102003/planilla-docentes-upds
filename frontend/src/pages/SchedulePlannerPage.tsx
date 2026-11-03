@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { DragDropProvider, DragOverlay, useDraggable, useDroppable } from '@dnd-kit/react'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/react'
-import { Archive, CalendarDays, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, CalendarDays, Clock, GripVertical, History, MoreVertical, Pencil, Plus, Trash2, TriangleAlert, UserRoundPlus, Users, UserX, LayoutGrid } from 'lucide-react'
 
 import { useAcademicCollection } from '@/api/hooks/useAcademicManagement'
 import {
@@ -35,12 +35,22 @@ import type {
 import { useAppSettings } from '@/api/hooks/useAppSettings'
 import { DesignationBootstrapDialog } from '@/components/academic-management/DesignationBootstrapDialog'
 import { TeacherCombobox } from '@/components/academic-management/TeacherCombobox'
+import { ScheduleLegend } from '@/components/schedule-planner/ScheduleLegend'
+import { WorkloadBar } from '@/components/schedule-planner/WorkloadBar'
+import { CountUp } from '@/components/shared/CountUp'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { Badge } from '@/components/ui/badge'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
+import { StatCard } from '@/components/shared/StatCard'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { TONE_CHIP, TONE_DOT, TONE_TEXT } from '@/components/shared/tones'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   addMinutes,
   assignmentForReferenceDate,
@@ -60,7 +70,10 @@ import {
   SCHEDULE_TIMES,
   SCHEDULE_WEEKDAYS,
 } from '@/lib/schedulePlannerState'
+import { semesterTone } from '@/lib/academicTones'
 import { formatHours } from '@/lib/displayFormat'
+import { blockTone, draftStatusTone, plannerKpis, workloadSegments } from '@/lib/schedulePlannerView'
+import { cn } from '@/lib/utils'
 import type { ScheduleBlockForm } from '@/lib/schedulePlannerState'
 
 const errorMessage = (error: unknown) => {
@@ -70,6 +83,9 @@ const errorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message
   return 'No se pudo completar la operación. Revise los datos e intente nuevamente.'
 }
+
+// One look for every native <select> in the planner, so the draft picker and the dialog fields match.
+const SELECT_CLASS = 'h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32'
 
 type OfferingDragData = { offeringId: number; activityType: ScheduleActivityType; label: string }
 
@@ -139,32 +155,69 @@ function ScheduleCell({
   return (
     <td
       ref={ref}
-      className={`h-16 min-w-40 border-l border-t p-1 align-top transition-colors ${isDropTarget ? 'bg-info/8 ring-2 ring-inset ring-info/32' : 'bg-card'}`}
+      className={`h-12 min-w-40 border-l border-t p-1 align-top transition-colors ${isDropTarget ? 'bg-info/8 ring-2 ring-inset ring-info/32' : 'bg-card'}`}
       aria-label={`${SCHEDULE_WEEKDAYS.find((day) => day.value === weekday)?.label}, ${time}`}
     >
-      {blocks.map((block) => (
-        <div key={block.id} className="rounded-md border border-info/32 bg-info/4 p-2 text-xs text-foreground">
-          <p className="font-semibold">{block.offering.subject.code} · {block.group.code}</p>
-          <p>{block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.classroom.code} · {block.paid_hours} h</p>
-          <p className="mt-1 font-medium text-info-foreground">
-            {currentAssignments[block.id]?.teacher_name ?? 'Sin docente asignado'}
-          </p>
-          <div className="mt-1 flex flex-wrap gap-1">
-            <button type="button" onClick={() => onAssign(block)} disabled={disabled} className="rounded border border-info/32 px-1.5 py-1 font-medium hover:bg-info/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
-              {currentAssignments[block.id] ? 'Reemplazar' : 'Asignar'}
-            </button>
-            <button type="button" onClick={() => onHistory(block)} className="rounded border border-border px-1.5 py-1 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
-              Historial
-            </button>
-            <button type="button" onClick={() => onEdit(block)} disabled={disabled} className="rounded p-1 hover:bg-info/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32" aria-label={`Editar bloque ${block.offering.subject.code}`}>
-              <Pencil aria-hidden="true" size={14} />
-            </button>
-            <button type="button" onClick={() => onDelete(block)} disabled={disabled} className="rounded p-1 text-destructive-foreground hover:bg-destructive/4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/32" aria-label={`Eliminar bloque ${block.offering.subject.code}`}>
-              <Trash2 aria-hidden="true" size={14} />
-            </button>
+      {blocks.map((block) => {
+        const { tone, dashed } = blockTone(block)
+        const teacherName = currentAssignments[block.id]?.teacher_name
+        return (
+          <div
+            key={block.id}
+            className={cn(
+              'relative overflow-hidden rounded-md border py-1.5 pl-3 pr-1 text-xs text-foreground',
+              TONE_CHIP[tone],
+              'text-foreground',
+              dashed ? 'border-dashed border-foreground/40' : 'border-solid border-foreground/15',
+            )}
+          >
+            <span aria-hidden="true" className={cn('absolute inset-y-0 left-0 w-1', TONE_DOT[tone])} />
+            <div className="flex items-start justify-between gap-1">
+              <div className="min-w-0">
+                <p className={cn('truncate font-semibold', TONE_TEXT[tone])}>{block.offering.subject.code} · {block.group.code}</p>
+                <p className="tabular-nums">{block.start_time.slice(0, 5)}–{block.end_time.slice(0, 5)} · {block.paid_hours} h</p>
+              </div>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-card/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32"
+                      aria-label={`Acciones del bloque ${block.offering.subject.code}`}
+                    />
+                  }
+                >
+                  <MoreVertical aria-hidden="true" size={14} />
+                </MenuTrigger>
+                <MenuPopup align="end" className="min-w-48">
+                  <MenuItem disabled={disabled} onClick={() => onAssign(block)}>
+                    <UserRoundPlus aria-hidden="true" />
+                    {teacherName ? 'Reemplazar docente' : 'Asignar docente'}
+                  </MenuItem>
+                  <MenuItem onClick={() => onHistory(block)}>
+                    <History aria-hidden="true" />
+                    Historial de asignaciones
+                  </MenuItem>
+                  <MenuItem disabled={disabled} onClick={() => onEdit(block)}>
+                    <Pencil aria-hidden="true" />
+                    Editar bloque
+                  </MenuItem>
+                  <MenuItem variant="destructive" disabled={disabled} onClick={() => onDelete(block)}>
+                    <Trash2 aria-hidden="true" />
+                    Eliminar bloque
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span className="text-muted-foreground">{block.classroom.code}</span>
+              {teacherName
+                ? <span className="min-w-0 truncate font-medium">{teacherName}</span>
+                : <StatusBadge tone="warning">Sin docente</StatusBadge>}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </td>
   )
 }
@@ -250,6 +303,11 @@ export function SchedulePlannerPage() {
     blockId,
     assignmentForReferenceDate(assignmentHistories.data[blockId] ?? [], referenceDate),
   ])) as Record<number, AcademicScheduleAssignment | null>
+
+  const kpis = plannerKpis(blocks.data ?? [], currentAssignments)
+  const legendSemesters = [...new Set((blocks.data ?? []).map((block) => block.offering.semester))]
+    .sort((a, b) => a - b)
+    .map((semester) => ({ semester, tone: semesterTone(semester) }))
 
   const openAssignment = (block: AcademicScheduleBlock) => {
     setAssignmentBlock(block)
@@ -440,12 +498,43 @@ export function SchedulePlannerPage() {
           }
         />
 
-        <div role="note" className="rounded-md border-2 border-warning/32 bg-warning/4 p-4 text-sm font-medium text-warning-foreground">
-          Publicar un borrador cambia lo que se paga desde su fecha efectiva: sus bloques reemplazan a las designaciones de la misma materia, grupo y semestre en la planilla y la asistencia. Revise la vista previa antes de publicar; la teoría se bloquea si cambiaría lo que pagan las designaciones.
-        </div>
+        <Alert variant="warning" role="note">
+          <TriangleAlert aria-hidden="true" />
+          <AlertTitle>Publicar afecta la planilla</AlertTitle>
+          <AlertDescription className="text-xs">
+            Publicar un borrador cambia lo que se paga desde su fecha efectiva: sus bloques reemplazan a las designaciones de la misma materia, grupo y semestre en la planilla y la asistencia. Revise la vista previa antes de publicar; la teoría se bloquea si cambiaría lo que pagan las designaciones.
+          </AlertDescription>
+        </Alert>
+
+        {selectedDraft && !blocks.isLoading && !queryError && (
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <StatCard icon={LayoutGrid} tone="primary" title="Bloques" value={<CountUp value={kpis.blocks} />} hint="En el borrador activo" />
+            <StatCard
+              icon={UserX}
+              tone={kpis.unassigned > 0 ? 'warning' : 'success'}
+              title="Sin docente"
+              value={assignmentHistories.isLoading ? '—' : <CountUp value={kpis.unassigned} />}
+              hint={kpis.unassigned > 0 ? 'Faltan asignaciones' : 'Todos asignados'}
+            />
+            <StatCard icon={Clock} tone="info" title="Horas pagadas" value={<CountUp value={kpis.paidHours} format={formatHours} />} hint="Horas académicas por semana" />
+            <StatCard
+              icon={Users}
+              tone="violet"
+              title="Docentes"
+              value={assignmentHistories.isLoading ? '—' : <CountUp value={kpis.teachers} />}
+              hint="Con bloques en la fecha de referencia"
+            />
+          </div>
+        )}
 
         {error && !blockOpen && !draftOpen && !assignmentOpen && !publicationOpen && !publicationHistoryOpen && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
-        {loading && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">Cargando planificador…</p>}
+        {loading && (
+          <div role="status" className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <span className="sr-only">Cargando planificador…</span>
+            <div aria-hidden="true" className="flex flex-col gap-4"><Skeleton className="h-28 rounded-xl" /><Skeleton className="h-32 rounded-xl" /><Skeleton className="h-48 rounded-xl" /></div>
+            <Skeleton aria-hidden="true" className="h-96 rounded-xl" />
+          </div>
+        )}
         {queryError && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">No se pudo cargar la información del planificador.</p>}
 
         {!loading && !queryError && (
@@ -453,15 +542,15 @@ export function SchedulePlannerPage() {
             <aside className="flex flex-col gap-4">
               <div className="rounded-xl border bg-card p-4">
                 <Label htmlFor="schedule-draft">Borrador activo</Label>
-                <select id="schedule-draft" value={effectiveDraftId ?? ''} onChange={(event) => setSelectedDraftId(event.target.value ? Number(event.target.value) : null)} className="mt-2 h-10 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/32">
+                <select id="schedule-draft" value={effectiveDraftId ?? ''} onChange={(event) => setSelectedDraftId(event.target.value ? Number(event.target.value) : null)} className={`mt-2 ${SELECT_CLASS}`}>
                   <option value="">Seleccione un borrador</option>
                   {drafts.data?.map((draft) => <option key={draft.id} value={draft.id}>{draft.name} · {draft.academic_period}</option>)}
                 </select>
                 {selectedDraft && (
                   <div className="mt-3 flex items-center justify-between gap-2">
-                    <Badge variant={editable ? 'default' : 'secondary'}>
+                    <StatusBadge tone={draftStatusTone(selectedDraft.status)}>
                       {selectedDraft.status === 'draft' ? 'Borrador' : selectedDraft.status === 'published' ? 'Publicado e inmutable' : 'Archivado'}
-                    </Badge>
+                    </StatusBadge>
                     {editable && <div className="flex gap-1"><Button size="sm" variant="outline" onClick={() => { setEditingDraftId(selectedDraft.id); setDraftForm({ program_id: String(selectedDraft.program_id), academic_period: selectedDraft.academic_period, name: selectedDraft.name }); setError(null); setDraftOpen(true) }}><Pencil aria-hidden="true" />Editar</Button><Button size="sm" variant="outline" onClick={() => void archiveDraft.mutateAsync(selectedDraft.id).catch((caught) => setError(errorMessage(caught)))}><Archive aria-hidden="true" />Archivar</Button></div>}
                   </div>
                 )}
@@ -485,28 +574,53 @@ export function SchedulePlannerPage() {
                   {scopedOfferings.flatMap((offering) => (['theory', 'practice'] as const)
                     .filter((type) => (type === 'theory' ? offering.theory_hours : offering.practice_hours) > 0)
                     .map((type) => <OfferingCard key={`${offering.id}-${type}`} offering={offering} activityType={type} disabled={!editable} onAdd={() => openBlockForm(offering.id, type)} />))}
-                  {selectedDraft && !scopedOfferings.length && <p className="text-sm text-muted-foreground">No hay ofertas activas para este programa y período.</p>}
-                  {!selectedDraft && <p className="text-sm text-muted-foreground">Seleccione o cree un borrador para comenzar.</p>}
+                  {selectedDraft && !scopedOfferings.length && <EmptyState illustration="empty-box" className="py-4 md:py-4" title="Sin ofertas" description="No hay ofertas activas para este programa y período." />}
+                  {!selectedDraft && <EmptyState illustration="empty-calendar" className="py-4 md:py-4" title="Sin borrador" description="Seleccione o cree un borrador para comenzar." />}
                 </div>
               </div>
               <div className="rounded-xl border bg-card p-4" aria-labelledby="workload-title">
                 <h2 id="workload-title" className="font-semibold text-foreground">Carga docente semanal</h2>
-                {workload.isLoading && <p role="status" className="mt-2 text-sm text-muted-foreground">Cargando carga docente…</p>}
+                {workload.isLoading && (
+                  <div role="status" className="mt-3 flex flex-col gap-2">
+                    <span className="sr-only">Cargando carga docente…</span>
+                    <Skeleton aria-hidden="true" className="h-14 rounded-md" /><Skeleton aria-hidden="true" className="h-14 rounded-md" />
+                  </div>
+                )}
                 {workload.isError && <p role="alert" className="mt-2 text-sm text-destructive-foreground">No se pudo cargar la vista previa.</p>}
-                {!workload.isLoading && !workload.isError && !workload.data?.items.length && <p className="mt-2 text-sm text-muted-foreground">No hay asignaciones vigentes en esta fecha.</p>}
+                {!workload.isLoading && !workload.isError && !workload.data?.items.length && <EmptyState illustration="empty-inbox" className="py-4 md:py-4" title="Sin carga" description="No hay asignaciones vigentes en esta fecha." />}
                 <ul className="mt-3 flex flex-col gap-2">
-                  {workload.data?.items.map((item) => <li key={item.teacher_ci} className="rounded-md bg-muted/40 p-2 text-xs">
-                    <p className="font-semibold text-foreground">{item.teacher_name}</p>
-                    <p className="text-muted-foreground">Teoría {formatHours(item.theory_minutes_week / 60)} · Práctica {formatHours(item.practice_minutes_week / 60)} · Total {formatHours(item.total_minutes_week / 60)}</p>
-                  </li>)}
+                  {workload.data?.items.map((item) => {
+                    const { overloaded } = workloadSegments(item)
+                    return (
+                      <li key={item.teacher_ci} className="rounded-md bg-muted/40 p-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <PersonAvatar name={item.teacher_name} colorKey={item.teacher_ci} size="sm" />
+                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{item.teacher_name}</p>
+                          <span className={cn('shrink-0 font-semibold tabular-nums', overloaded ? TONE_TEXT.destructive : 'text-foreground')}>{formatHours(item.total_minutes_week / 60)}</span>
+                        </div>
+                        <div className="mt-2"><WorkloadBar item={item} /></div>
+                        <p className="mt-1 text-muted-foreground">
+                          Teoría {formatHours(item.theory_minutes_week / 60)} · Práctica {formatHours(item.practice_minutes_week / 60)}
+                          {overloaded && <span className={cn('font-medium', TONE_TEXT.destructive)}> · Supera la referencia semanal</span>}
+                        </p>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             </aside>
 
             <section aria-labelledby="weekly-grid-title" className="min-w-0">
               <h2 id="weekly-grid-title" className="sr-only">Horario semanal</h2>
-              {blocks.isLoading && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">Cargando bloques…</p>}
+              {blocks.isLoading && (
+                <div role="status">
+                  <span className="sr-only">Cargando bloques…</span>
+                  <Skeleton aria-hidden="true" className="h-96 rounded-xl" />
+                </div>
+              )}
               {selectedDraft && !blocks.isLoading ? (
+                <div className="flex flex-col gap-3">
+                <ScheduleLegend semesters={legendSemesters} />
                 <div className="max-h-[70vh] overflow-auto rounded-xl border bg-card">
                   <table className="w-full border-collapse text-left text-sm">
                     <thead className="sticky top-0 z-10 bg-muted text-foreground">
@@ -514,13 +628,18 @@ export function SchedulePlannerPage() {
                     </thead>
                     <tbody>
                       {SCHEDULE_TIMES.map((time) => <tr key={time}>
-                        <th scope="row" className="border-t bg-muted/40 p-2 align-top font-medium text-muted-foreground">{time}</th>
+                        <th scope="row" className="border-t bg-muted/40 px-2 py-1 align-top text-xs tabular-nums font-medium text-muted-foreground">{time}</th>
                         {SCHEDULE_WEEKDAYS.map((day) => <ScheduleCell key={day.value} weekday={day.value} time={time} disabled={!editable} blocks={blocks.data?.filter((block) => block.weekday === day.value && cellForStart(block.start_time.slice(0, 5)) === time) ?? []} currentAssignments={currentAssignments} onAssign={openAssignment} onHistory={openHistory} onEdit={editBlock} onDelete={(block) => void removeBlock(block)} />)}
                       </tr>)}
                     </tbody>
                   </table>
                 </div>
-              ) : !blocks.isLoading && <div className="rounded-xl border border-dashed bg-card p-12 text-center text-sm text-muted-foreground">Seleccione un borrador para ver la semana.</div>}
+                </div>
+              ) : !blocks.isLoading && (
+                <div className="rounded-xl border border-dashed bg-card">
+                  <EmptyState illustration="empty-calendar" title="Seleccione un borrador para ver la semana." description="Elija uno en el panel lateral o cree un borrador nuevo." />
+                </div>
+              )}
             </section>
           </section>
         )}
@@ -530,7 +649,7 @@ export function SchedulePlannerPage() {
             <DialogHeader><DialogTitle>{editingDraftId ? 'Editar borrador' : 'Nuevo borrador'}</DialogTitle><DialogDescription>Defina el programa, período y un nombre descriptivo.</DialogDescription></DialogHeader>
             <DialogPanel>
               <form onSubmit={submitDraft} className="flex flex-col gap-4">
-                <div><Label htmlFor="draft-program">Programa</Label><select id="draft-program" required value={draftForm.program_id} onChange={(event) => setDraftForm((value) => ({ ...value, program_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{programs.data?.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></div>
+                <div><Label htmlFor="draft-program">Programa</Label><select id="draft-program" required value={draftForm.program_id} onChange={(event) => setDraftForm((value) => ({ ...value, program_id: event.target.value }))} className={`mt-1 ${SELECT_CLASS}`}><option value="">Seleccione</option>{programs.data?.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></div>
                 <div><Label htmlFor="draft-period">Período académico</Label><Input id="draft-period" required maxLength={30} value={draftForm.academic_period} onChange={(event) => setDraftForm((value) => ({ ...value, academic_period: event.target.value }))} /></div>
                 <div><Label htmlFor="draft-name">Nombre</Label><Input id="draft-name" required maxLength={120} value={draftForm.name} onChange={(event) => setDraftForm((value) => ({ ...value, name: event.target.value }))} /></div>
                 {error && <p role="alert" className="rounded-md border border-destructive/32 bg-destructive/4 p-3 text-sm text-destructive-foreground">{error}</p>}
@@ -545,11 +664,11 @@ export function SchedulePlannerPage() {
             <DialogHeader><DialogTitle>{editingBlock ? 'Editar bloque' : 'Agregar bloque'}</DialogTitle><DialogDescription>Cualquier horario entre 06:00 y 23:30 en pasos de 5 minutos (de 15 minutos a 6 horas).</DialogDescription></DialogHeader>
             <DialogPanel>
               <form onSubmit={submitBlock} className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2"><Label htmlFor="block-offering">Oferta académica</Label><select id="block-offering" required value={blockForm.offering_id} onChange={(event) => setBlockForm((value) => ({ ...value, offering_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedOfferings.map((item) => <option key={item.id} value={item.id}>{item.subject.code} · {item.subject.name}</option>)}</select></div>
-                <div><Label htmlFor="block-group">Grupo</Label><select id="block-group" required value={blockForm.group_id} onChange={(event) => setBlockForm((value) => ({ ...value, group_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{scopedGroups.map((item) => <option key={item.id} value={item.id}>{item.code} · Semestre {item.semester}</option>)}</select></div>
-                <div><Label htmlFor="block-classroom">Aula</Label><select id="block-classroom" required value={blockForm.classroom_id} onChange={(event) => setBlockForm((value) => ({ ...value, classroom_id: event.target.value }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="">Seleccione</option>{activeClassrooms.map((item) => <option key={item.id} value={item.id}>{item.code} · Cap. {item.capacity ?? 'No aplica'}</option>)}</select></div>
-                <div><Label htmlFor="block-activity">Actividad</Label><select id="block-activity" value={blockForm.activity_type} onChange={(event) => setBlockForm((value) => ({ ...value, activity_type: event.target.value as ScheduleActivityType }))} className="mt-1 h-10 w-full rounded-md border px-3"><option value="theory">Teoría</option><option value="practice">Práctica</option></select></div>
-                <div><Label htmlFor="block-day">Día</Label><select id="block-day" value={blockForm.weekday} onChange={(event) => setBlockForm((value) => ({ ...value, weekday: event.target.value as ScheduleWeekday }))} className="mt-1 h-10 w-full rounded-md border px-3">{SCHEDULE_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div>
+                <div className="sm:col-span-2"><Label htmlFor="block-offering">Oferta académica</Label><select id="block-offering" required value={blockForm.offering_id} onChange={(event) => setBlockForm((value) => ({ ...value, offering_id: event.target.value }))} className={`mt-1 ${SELECT_CLASS}`}><option value="">Seleccione</option>{scopedOfferings.map((item) => <option key={item.id} value={item.id}>{item.subject.code} · {item.subject.name}</option>)}</select></div>
+                <div><Label htmlFor="block-group">Grupo</Label><select id="block-group" required value={blockForm.group_id} onChange={(event) => setBlockForm((value) => ({ ...value, group_id: event.target.value }))} className={`mt-1 ${SELECT_CLASS}`}><option value="">Seleccione</option>{scopedGroups.map((item) => <option key={item.id} value={item.id}>{item.code} · Semestre {item.semester}</option>)}</select></div>
+                <div><Label htmlFor="block-classroom">Aula</Label><select id="block-classroom" required value={blockForm.classroom_id} onChange={(event) => setBlockForm((value) => ({ ...value, classroom_id: event.target.value }))} className={`mt-1 ${SELECT_CLASS}`}><option value="">Seleccione</option>{activeClassrooms.map((item) => <option key={item.id} value={item.id}>{item.code} · Cap. {item.capacity ?? 'No aplica'}</option>)}</select></div>
+                <div><Label htmlFor="block-activity">Actividad</Label><select id="block-activity" value={blockForm.activity_type} onChange={(event) => setBlockForm((value) => ({ ...value, activity_type: event.target.value as ScheduleActivityType }))} className={`mt-1 ${SELECT_CLASS}`}><option value="theory">Teoría</option><option value="practice">Práctica</option></select></div>
+                <div><Label htmlFor="block-day">Día</Label><select id="block-day" value={blockForm.weekday} onChange={(event) => setBlockForm((value) => ({ ...value, weekday: event.target.value as ScheduleWeekday }))} className={`mt-1 ${SELECT_CLASS}`}>{SCHEDULE_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div>
                 <div><Label htmlFor="block-start">Inicio</Label><Input id="block-start" type="time" step={300} min="06:00" max="23:30" required value={blockForm.start_time} onChange={(event) => setBlockForm((value) => ({ ...value, start_time: event.target.value }))} className="mt-1" /></div>
                 <div><Label htmlFor="block-end">Fin</Label><Input id="block-end" type="time" step={300} min="06:00" max="23:30" required value={blockForm.end_time} aria-invalid={Boolean(blockFormError)} aria-describedby="block-time-help" onChange={(event) => setBlockForm((value) => ({ ...value, end_time: event.target.value }))} className="mt-1" /></div>
                 <div className="sm:col-span-2 flex flex-wrap items-center gap-2" role="group" aria-label="Duración rápida">
