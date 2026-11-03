@@ -106,6 +106,7 @@ function NavItemLink({ item }: { item: NavItemDef }) {
       <SidebarMenuButton
         isActive={isPathActive(pathname, item)}
         tooltip={item.label}
+        className="data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground data-[active=true]:shadow-md data-[active=true]:shadow-black/20 data-[active=true]:hover:bg-sidebar-primary data-[active=true]:hover:text-sidebar-primary-foreground"
         render={
           <NavLink
             to={item.to}
@@ -147,7 +148,7 @@ function NavGroup({
       <SidebarGroup className="py-1">
         <SidebarGroupLabel
           render={<CollapsibleTrigger />}
-          className="cursor-pointer gap-2 hover:text-sidebar-foreground"
+          className="cursor-pointer gap-2 uppercase tracking-wider text-[11px] text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
         >
           <GroupIcon className="size-3.5" />
           <span className="flex-1 text-left">{group.label}</span>
@@ -262,11 +263,11 @@ function UserMenu() {
                   onError={() => setFailedAvatarUrl(avatarUrl)}
                 />
               )}
-              <AvatarFallback className="bg-primary text-primary-foreground text-xs">{initials}</AvatarFallback>
+              <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs ring-2 ring-sidebar-border">{initials}</AvatarFallback>
             </Avatar>
             <div className="grid min-w-0 flex-1 text-left leading-tight">
               <span className="truncate text-sm font-medium">{user?.full_name ?? ''}</span>
-              <span className="truncate text-xs text-muted-foreground">{isAdmin ? 'Administrador' : 'Docente'}</span>
+              <span className="truncate text-xs text-sidebar-foreground/60">{isAdmin ? 'Administrador' : 'Docente'}</span>
             </div>
             <ChevronsUpDown className="ml-auto size-4 opacity-60" />
           </MenuTrigger>
@@ -303,19 +304,19 @@ export function AppSidebar() {
       {/* The 3rem collapsed rail leaves room for p-2 plus the 2rem badge, the same box as the menu icons. */}
       <SidebarHeader className="px-4 py-3 group-data-[collapsible=icon]:px-2">
         <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-black text-primary-foreground shadow-xs">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-black text-sidebar-primary-foreground shadow-md shadow-black/25 ring-1 ring-sidebar-border">
             S
           </div>
           <div className="grid min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-bold tracking-wide text-sidebar-foreground">UPDS</span>
-            <span className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="truncate text-sm font-bold tracking-wide text-sidebar-accent-foreground">UPDS</span>
+            <span className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-sidebar-foreground/60">
               Sistema de Pago
             </span>
           </div>
         </div>
       </SidebarHeader>
 
-      <SidebarContent>{isAdmin ? <SidebarNav navItems={adminNav} /> : <DocenteSidebarNav />}</SidebarContent>
+      <SidebarContent className="bg-sidebar-glow">{isAdmin ? <SidebarNav navItems={adminNav} /> : <DocenteSidebarNav />}</SidebarContent>
 
       <SidebarFooter>
         <UserMenu />

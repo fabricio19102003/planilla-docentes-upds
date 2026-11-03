@@ -9,8 +9,9 @@
  * the brand utilities below.
  */
 :root {
-  /* Soft blue canvas: white cards float on it instead of on white. */
-  --background: oklch(0.972 0.013 248);
+  --background: var(--color-white);
+  /* Soft blue page canvas: white cards and controls float on it instead of on white. */
+  --canvas: oklch(0.972 0.013 248);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -113,6 +114,7 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-canvas: var(--canvas);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -204,6 +206,7 @@
 .dark {
   --background: color-mix(in srgb, var(--color-neutral-950) 95%, var(--color-white));
   --foreground: var(--color-neutral-100);
+  --canvas: var(--background);
   --card: color-mix(in srgb, var(--background) 98%, var(--color-white));
   --card-foreground: var(--color-neutral-100);
   --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
@@ -246,7 +249,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-canvas text-foreground;
     margin: 0;
     font-family: Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
   }

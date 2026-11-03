@@ -31,8 +31,11 @@ export function PageHeader({ title, description, actions, breadcrumb, className 
       <div className="min-w-0 space-y-1">
         {breadcrumb && <div className="mb-2 text-sm text-muted-foreground">{breadcrumb}</div>}
         {/* h2: the app header already renders the route title as the page h1. */}
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        <div className="flex items-center gap-3">
+          <span aria-hidden="true" className="h-7 w-1.5 shrink-0 rounded-full bg-brand-strong shadow-sm shadow-brand-strong/40" />
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
+        </div>
+        {description && <p className="pl-[1.125rem] text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
     </header>

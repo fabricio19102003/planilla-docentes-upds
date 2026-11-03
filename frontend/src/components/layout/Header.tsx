@@ -106,7 +106,8 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-2 border-b bg-background/85 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4 md:flex-nowrap md:px-6">
+    <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-2 border-b bg-card/85 px-3 py-2 shadow-xs/5 backdrop-blur supports-[backdrop-filter]:bg-card/75 sm:px-4 md:flex-nowrap md:px-6">
+      <span aria-hidden="true" className="bg-brand-line pointer-events-none absolute inset-x-0 top-0 h-0.5" />
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger
           aria-label="Abrir menú de navegación"
@@ -116,7 +117,7 @@ export function Header() {
           aria-label="Mostrar u ocultar el menú lateral"
           className="hidden flex-shrink-0 md:inline-flex"
         />
-        <h1 className="truncate text-base font-semibold text-foreground sm:text-lg md:text-xl">
+        <h1 className="truncate text-base font-semibold text-brand sm:text-lg md:text-xl">
           {title}
         </h1>
       </div>

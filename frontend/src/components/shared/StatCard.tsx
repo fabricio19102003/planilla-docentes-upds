@@ -5,7 +5,7 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-import { resolveTone, TONE_CHIP, TONE_TEXT, type Tone } from './tones'
+import { resolveTone, TONE_DOT, TONE_SOLID, TONE_TEXT, type Tone } from './tones'
 
 export interface StatCardTrend {
   /** Short text such as "+12% vs. mes anterior". */
@@ -41,7 +41,8 @@ const TREND_TONE: Record<NonNullable<StatCardTrend['direction']>, Tone> = {
 }
 
 /**
- * Summary metric: a soft tinted icon chip, a tabular-nums value and an optional hint or trend line.
+ * Summary metric: a colored top bar and solid icon chip per tone, a tabular-nums value, an optional
+ * hint or trend line, and a faint watermark of the icon.
  *
  * @example
  * <StatCard icon={Users} title="Docentes" value={42} tone="primary" hint="Activos este mes" />
@@ -52,11 +53,16 @@ export function StatCard({ icon: Icon, title, value, subtitle, hint, trend, tone
   const TrendIcon = trend ? TREND_ICON[trend.direction ?? 'flat'] : null
 
   return (
-    <Card className={cn('flex-row items-center gap-3 p-4 sm:gap-4 sm:p-5', className)}>
-      <div className={cn('flex size-9 shrink-0 sm:size-11 items-center justify-center rounded-xl', TONE_CHIP[resolved])}>
+    <Card className={cn('flex-row items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5', className)}>
+      <span aria-hidden="true" className={cn('pointer-events-none absolute inset-x-0 top-0 h-1', TONE_DOT[resolved])} />
+      <Icon
+        aria-hidden="true"
+        className={cn('pointer-events-none absolute -right-3 -bottom-4 size-24 opacity-[0.07]', TONE_TEXT[resolved])}
+      />
+      <div className={cn('relative flex size-9 shrink-0 sm:size-11 items-center justify-center rounded-xl', TONE_SOLID[resolved])}>
         <Icon className="size-4 sm:size-5" aria-hidden="true" />
       </div>
-      <div className="min-w-0">
+      <div className="relative min-w-0">
         <p className="truncate text-sm font-medium text-muted-foreground">{title}</p>
         <p className="truncate text-2xl font-semibold leading-tight tracking-tight tabular-nums text-foreground">{value}</p>
         {hintContent != null && hintContent !== '' && (
