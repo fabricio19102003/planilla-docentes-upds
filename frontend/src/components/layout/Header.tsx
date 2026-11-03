@@ -18,6 +18,7 @@ import {
   AutocompletePopup,
 } from '@/components/ui/autocomplete'
 import { SidebarTrigger } from '@/components/ui/sidebar'
+import { ThemeToggle } from '@/components/layout/ThemeToggle'
 
 interface SearchResults {
   teachers: { ci: string; full_name: string; email: string | null }[]
@@ -171,8 +172,9 @@ export function Header() {
         </div>
       )}
 
-      {/* Notification bell — docentes only */}
       <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
+        {/* Notification bell — docentes only */}
         {isDocente && (
           <Button
             type="button"

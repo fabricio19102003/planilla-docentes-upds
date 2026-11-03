@@ -4,6 +4,7 @@ import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useStudentLogout, useStudentMe } from '@/api/hooks/useStudentPortal'
 import { STUDENT_TOKEN_KEY } from '@/api/studentClient'
 import { Logo } from '@/components/layout/Logo'
+import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +37,7 @@ export function StudentPortalLayout() {
           </div>
           <div className="flex items-center gap-3 text-sm">
             {me.data && <span className="text-brand-foreground/80">{me.data.full_name}</span>}
+            <ThemeToggle variant="brand" />
             <Button size="sm" variant="outline"
               className="border-brand-foreground/30 bg-brand-foreground/10 text-brand-foreground hover:bg-brand-foreground/20 hover:text-brand-foreground"
               onClick={() => { logout(); navigate('/estudiante/login', { replace: true }) }}>
@@ -48,7 +50,7 @@ export function StudentPortalLayout() {
             <NavLink key={link.to} to={link.to} end={link.end}
               className={({ isActive }) => cn('whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition-colors',
                 isActive
-                  ? 'bg-brand-foreground font-medium text-brand shadow-sm'
+                  ? 'bg-brand-foreground font-medium text-brand-surface shadow-sm'
                   : 'text-brand-foreground/80 hover:bg-brand-foreground/10 hover:text-brand-foreground')}>
               {link.label}
             </NavLink>
