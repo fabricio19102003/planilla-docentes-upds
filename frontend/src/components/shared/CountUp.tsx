@@ -11,7 +11,7 @@ export interface CountUpProps {
   durationMs?: number
 }
 
-const formatInteger = (value: number) => String(Math.round(value))
+const formatInteger = (value: number) => Math.round(value).toLocaleString('es-BO')
 
 /**
  * Counts from 0 to `value` with an ease-out curve. Screen readers get the formatted final value
