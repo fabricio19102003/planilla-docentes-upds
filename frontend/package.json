@@ -50,6 +50,7 @@
     "test:chart-palette": "node --experimental-strip-types --test scripts/check-chart-palette.mjs",
     "test:avatar-tone": "node --experimental-strip-types --test scripts/check-avatar-tone.mjs",
     "test:curriculum-board": "node --experimental-strip-types --test scripts/check-curriculum-board.mjs",
+    "test:schedule-planner-view": "node --experimental-strip-types --test scripts/check-schedule-planner-view.mjs",
     "test:academic-tones": "node --experimental-strip-types --test scripts/check-academic-tones.mjs",
     "test:motion": "node --experimental-strip-types --test scripts/check-motion.mjs",
     "test:theme": "node --experimental-strip-types --test scripts/check-theme.mjs",
