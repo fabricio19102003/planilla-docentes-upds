@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -35,6 +35,8 @@ import { DataTable } from '@/components/shared/DataTable'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
+import { TeacherTypeBadge } from '@/components/shared/TeacherTypeBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmAlertDialog } from '@/components/shared/ConfirmAlertDialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -110,7 +112,7 @@ const designationColumns: Column<TeacherWorkload>[] = [
   },
 ]
 
-function InfoRow({ label, value }: { label: string; value?: string | null }) {
+function InfoRow({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div>
       <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
@@ -146,12 +148,6 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isDownloading, setIsDownloading] = useState(false)
-  const initials = teacher.full_name
-    .split(' ')
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
   const showImage = Boolean(teacher.avatar_url) && !imageError
   const busy = uploadPhoto.isPending || deletePhoto.isPending || isDownloading
 
@@ -199,18 +195,18 @@ function TeacherPhotoControl({ teacher }: { teacher: TeacherDetail }) {
   return (
     <section aria-label="Foto institucional">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="flex size-32 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary/10 text-4xl font-black text-primary ring-1 ring-border">
-          {showImage ? (
+        {showImage ? (
+          <div className="flex size-32 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-border">
             <img
               src={teacher.avatar_url ?? undefined}
               alt={`Foto de perfil de ${teacher.full_name}`}
               className="h-full w-full object-cover"
               onError={() => setImageError(true)}
             />
-          ) : (
-            initials
-          )}
-        </div>
+          </div>
+        ) : (
+          <PersonAvatar name={teacher.full_name} colorKey={teacher.ci} size="lg" className="[--avatar-size:--spacing(32)] rounded-2xl text-4xl font-black" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-foreground">
             <Camera size={15} aria-hidden="true" />
@@ -424,7 +420,7 @@ export function TeacherDetailPage() {
           <span className="flex flex-wrap items-center gap-2">
             <span>C.I.: {teacher.ci}</span>
             {!editMode && teacher.external_permanent && (
-              <StatusBadge tone="info">{teacherTypeLabel(teacher.external_permanent)}</StatusBadge>
+              <TeacherTypeBadge type={teacher.external_permanent} label={teacherTypeLabel(teacher.external_permanent)} />
             )}
             {!editMode && teacher.gender && <StatusBadge>{teacher.gender}</StatusBadge>}
           </span>
@@ -675,7 +671,7 @@ export function TeacherDetailPage() {
               <InfoRow label="Correo Electrónico" value={teacher.email} />
               <InfoRow label="Teléfono de contacto (no es consentimiento de WhatsApp)" value={teacher.phone} />
               <InfoRow label="Género" value={teacher.gender} />
-              <InfoRow label="Tipo" value={teacherTypeLabel(teacher.external_permanent)} />
+              <InfoRow label="Tipo" value={<TeacherTypeBadge type={teacher.external_permanent} label={teacherTypeLabel(teacher.external_permanent)} />} />
               <InfoRow label="Nivel Académico" value={teacher.academic_level} />
               <InfoRow label="Profesión" value={teacher.profession} />
               <InfoRow label="Especialidad" value={teacher.specialty} />

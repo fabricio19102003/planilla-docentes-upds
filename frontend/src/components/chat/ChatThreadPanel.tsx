@@ -4,7 +4,7 @@ import { ArrowLeft, MessageSquareText, TriangleAlert } from 'lucide-react'
 import { useChatThread, useLoadOlderChatMessages, useMarkChatRead, useSendChatMessage } from '@/api/hooks/useChat'
 import type { ChatTarget } from '@/api/hooks/useChat'
 import type { ChatSenderRole } from '@/api/types'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
 import { Button } from '@/components/ui/button'
 import { ChatAttachments } from './ChatAttachments'
 import { ChatComposer } from './ChatComposer'
@@ -15,7 +15,7 @@ import { ChatMessageText } from './chat-message-text'
 import { ChatEmptyState, ChatLoadingState } from './chat-states'
 import { ChatUnreadDivider } from './chat-unread-divider'
 import { useChatScroll } from './hooks/use-chat-scroll'
-import { apiErrorMessage, buildThreadItems, conversationTitle, formatMessageTime, groupByDay, initialsOf, unreadDividerMessageId } from '@/lib/chat'
+import { apiErrorMessage, buildThreadItems, conversationTitle, formatMessageTime, groupByDay, unreadDividerMessageId } from '@/lib/chat'
 
 function subscribeToVisibility(onChange: () => void) {
   document.addEventListener('visibilitychange', onChange)
@@ -106,9 +106,7 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
             <ArrowLeft />
           </Button>
         )}
-        <Avatar className="size-9">
-          <AvatarFallback className="bg-primary text-xs text-primary-foreground">{initialsOf(heading)}</AvatarFallback>
-        </Avatar>
+        <PersonAvatar name={heading} colorKey={data?.conversation.teacher_ci ?? heading} size="md" />
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">{heading}</h3>
           {headingSubtitle && <p className="truncate text-xs text-muted-foreground">{headingSubtitle}</p>}
@@ -169,9 +167,7 @@ export function ChatThreadPanel({ target, title, subtitle, emptyDescription, onB
                       grouped={grouped}
                       author={author}
                       avatar={
-                        <Avatar className="size-7">
-                          <AvatarFallback className="text-[10px]">{initialsOf(author)}</AvatarFallback>
-                        </Avatar>
+                        <PersonAvatar name={author} colorKey={message.sender_user_id ?? author} size="sm" />
                       }
                       footer={
                         <time dateTime={message.created_at}>
