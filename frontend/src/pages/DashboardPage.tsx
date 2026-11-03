@@ -57,6 +57,8 @@ const TONE_FILL: Record<Tone, string> = {
   warning: 'var(--color-warning)',
   destructive: 'var(--color-destructive)',
   info: 'var(--color-info)',
+  violet: 'var(--color-tone-violet)',
+  cyan: 'var(--color-tone-cyan)',
   neutral: 'var(--color-muted-foreground)',
 }
 
