@@ -315,6 +315,29 @@
   background-image: radial-gradient(120% 60% at 0% 0%, --alpha(var(--color-sky-400) / 18%), transparent 60%);
 }
 
+/* Opt-in hover lift for cards that act as links or summaries (`<Card interactive>`). */
+@utility card-hover {
+  transition:
+    transform 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 180ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: --alpha(var(--color-primary) / 35%);
+    box-shadow: 0 10px 28px --alpha(var(--color-black) / 14%);
+  }
+}
+
+/* Route change: a short fade with a tiny rise. Backwards fill only, so no transform lingers afterwards. */
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+@utility page-enter {
+  animation: pageEnter 150ms ease-out backwards;
+}
+
 /* ─── 3D Card Styles ──────────────────────────────────────── */
 @layer utilities {
   .card-3d {
@@ -397,4 +420,20 @@
   .stagger-3 { animation-delay: 0.15s; }
   .stagger-4 { animation-delay: 0.2s; }
   .stagger-5 { animation-delay: 0.25s; }
+}
+
+/* Reduced motion: no lift, no slide, no entrance animation. Content shows immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .card-hover:hover,
+  .card-3d:hover {
+    transform: none;
+  }
+
+  .page-enter,
+  .animate-fade-in-up,
+  .animate-fade-in,
+  .animate-slide-in-left,
+  .animate-count-up {
+    animation: none;
+  }
 }

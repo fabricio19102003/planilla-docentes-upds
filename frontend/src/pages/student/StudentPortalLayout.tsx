@@ -1,5 +1,5 @@
 import { GraduationCap, LogOut } from 'lucide-react'
-import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { useStudentLogout, useStudentMe } from '@/api/hooks/useStudentPortal'
 import { STUDENT_TOKEN_KEY } from '@/api/studentClient'
@@ -19,6 +19,7 @@ const LINKS = [
 
 export function StudentPortalLayout() {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const me = useStudentMe()
   const logout = useStudentLogout()
 
@@ -57,7 +58,7 @@ export function StudentPortalLayout() {
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-5xl space-y-5 px-4 py-6"><Outlet /></main>
+      <main key={pathname} className="page-enter mx-auto max-w-5xl space-y-5 px-4 py-6"><Outlet /></main>
     </div>
   )
 }

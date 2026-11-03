@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Header } from './Header'
 import { AppSidebar } from './Sidebar'
 import { SidebarProvider } from '@/components/ui/sidebar'
@@ -10,12 +10,13 @@ function readSidebarOpen(): boolean {
 }
 
 export function Layout() {
+  const { pathname } = useLocation()
   return (
     <SidebarProvider defaultOpen={readSidebarOpen()}>
       <AppSidebar />
       <div className="flex min-w-0 flex-1 flex-col bg-canvas">
         <Header />
-        <main className="min-w-0 overflow-x-clip p-3 sm:p-4 md:p-6">
+        <main key={pathname} className="page-enter min-w-0 overflow-x-clip p-3 sm:p-4 md:p-6">
           <Outlet />
         </main>
       </div>
