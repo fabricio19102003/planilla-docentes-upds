@@ -9,14 +9,33 @@
 
 ## Descripcion General
 
-SIPAD procesa designaciones docentes, datos biometricos de asistencia y genera planillas de pago con calculo automatizado. Incluye retencion RC-IVA 13%, ajustes manuales del admin, publicacion de facturacion para docentes, generacion de contratos PDF, reportes multiples, auditoria de asistencia y registro completo de actividad.
+SIPAD procesa designaciones docentes, datos biometricos de asistencia y genera planillas de pago con calculo automatizado. Incluye retencion RC-IVA 13%, ajustes manuales del admin, publicacion de facturacion para docentes, contratos PDF con enmiendas inmutables, planificador de horarios con publicaciones, reportes multiples, auditoria de asistencia, mensajeria admin-docente y registro completo de actividad.
+
+Ademas cubre la gestion estudiantil de Medicina: malla curricular, historial academico importado del sistema anterior, portal del estudiante con rematricula, cursos de verano e invierno, apertura de grupos y documentos migratorios.
+
+## Documentacion
+
+| Para | Leer |
+|------|------|
+| Operar el sistema paso a paso (personal administrativo) | [Guias de procesos](docs/procesos/README.md) |
+| Crear, editar o finalizar designaciones | [Designaciones](docs/procesos/designaciones.md) |
+| Cambiar el docente de una materia | [Cambio de docente](docs/procesos/cambio-de-docente.md) |
+| Armar y publicar horarios | [Planificador de horarios](docs/procesos/planificador-de-horarios.md) |
+| Emitir contratos y enmiendas | [Contratos](docs/procesos/contratos.md) |
+| Cerrar el mes: biometrico, asistencia, planilla, publicacion | [Cierre mensual](docs/procesos/cierre-mensual.md) |
+| Malla, estudiantes, rematricula, intensivos | [Gestion estudiantil](docs/procesos/gestion-estudiantil.md) |
+| Docentes, usuarios y credenciales | [Docentes y usuarios](docs/procesos/docentes-y-usuarios.md) |
+| Desplegar en el VPS, backups y rollback | [DEPLOYMENT.md](DEPLOYMENT.md) |
+| Desarrollar en el frontend (tema, componentes, checks) | [frontend/README.md](frontend/README.md) |
 
 ## Stack Tecnologico
 
 | Capa | Tecnologia |
 |------|-----------|
-| **Backend** | Python 3.11 · FastAPI · SQLAlchemy · PostgreSQL |
-| **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS 4 · Shadcn UI |
+| **Backend** | Python 3.11 · FastAPI · SQLAlchemy |
+| **Base de datos** | PostgreSQL · migraciones con Alembic (`backend/alembic/`) |
+| **Frontend** | React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · coss UI sobre Base UI · TanStack Query |
+| **Interfaz** | Tema propio "Institucional vivo" con modo oscuro (Claro/Oscuro/Sistema) · Lucide icons · dnd-kit (planificador) |
 | **PDFs** | ReportLab 4.4 |
 | **Graficos** | Recharts |
 | **Exportacion** | html-to-image (PNG) · openpyxl (Excel parsing) · xlrd (XLS parsing) |
@@ -192,8 +211,11 @@ ADMIN_DEFAULT_PASSWORD=Admin123
 
 Al iniciar el backend por primera vez con una base de datos vacia:
 
-1. Se crean todas las tablas automaticamente
-2. Se ejecutan las migraciones de columnas nuevas
+1. En desarrollo (`AUTO_SCHEMA_BOOTSTRAP=true`, el valor por defecto de `backend/.env.example`) se crean todas las tablas automaticamente
+2. Se ejecutan las migraciones de columnas nuevas de compatibilidad
+
+> **Produccion es distinto:** con `APP_ENV=production` y `AUTO_SCHEMA_BOOTSTRAP=false` el backend no crea tablas: exige que la base este en el head de Alembic (`alembic upgrade head` se corre aparte) y se niega a arrancar si no. Ver [DEPLOYMENT.md](DEPLOYMENT.md).
+
 3. Se crean **3 usuarios admin** por defecto (si `ADMIN_DEFAULT_PASSWORD` esta configurado):
 
 | Usuario | Contraseña | Rol |
@@ -331,120 +353,37 @@ npm run build
 planilla-docentes-upds/
 ├── backend/
 │   ├── app/
-│   │   ├── models/              # 12 modelos SQLAlchemy
-│   │   │   ├── teacher.py               # Docente (CI, nombre, email, banco, NIT)
-│   │   │   ├── designation.py           # Designacion (materia, grupo, horario, periodo)
-│   │   │   ├── attendance.py            # Registro de asistencia
-│   │   │   ├── biometric.py             # Datos biometricos (upload + records)
-│   │   │   ├── planilla.py              # Planilla generada (con overrides + discount_mode)
-│   │   │   ├── billing_publication.py   # Publicacion de facturacion (snapshot inmutable)
-│   │   │   ├── user.py                  # Usuarios (admin/docente, must_change_password)
-│   │   │   ├── notification.py          # Notificaciones para docentes
-│   │   │   ├── detail_request.py        # Solicitudes docente→admin
-│   │   │   ├── activity_log.py          # Registro de actividad (audit trail)
-│   │   │   ├── report.py               # Reportes generados
-│   │   │   └── app_setting.py           # Configuracion de negocio (key-value en BD)
-│   │   │
-│   │   ├── routers/             # 15 routers FastAPI
-│   │   │   ├── auth.py                  # Login, cambio de contrasena
-│   │   │   ├── teachers.py              # CRUD docentes + upload lista + bulk delete
-│   │   │   ├── designations.py          # Preview/apply de designaciones (4 formatos)
-│   │   │   ├── designation_admin.py     # Gestion una por una: listar, crear, editar, finalizar, eliminar
-│   │   │   ├── biometric.py             # Upload biometrico + date-range detection
-│   │   │   ├── attendance.py            # Procesar asistencia + auditoria
-│   │   │   ├── planilla.py              # Generar planilla + salary report + dashboard + approve/reject
-│   │   │   ├── billing_publication.py   # Publicar/despublicar facturacion
-│   │   │   ├── contracts.py             # Generar contratos PDF
-│   │   │   ├── reports.py               # Generar reportes PDF (7 tipos)
-│   │   │   ├── docente_portal.py        # Portal docente completo
-│   │   │   ├── detail_requests.py       # Solicitudes admin↔docente
-│   │   │   ├── users.py                 # Gestion de usuarios
-│   │   │   ├── activity_log.py          # Registro de actividad
-│   │   │   ├── admin.py                 # Backups de BD
-│   │   │   └── admin_settings.py        # Configuracion de negocio (CRUD admin)
-│   │   │
-│   │   ├── services/            # Logica de negocio
-│   │   │   ├── planilla_generator.py     # Calculo de pagos (Model C + dias reales + discount_mode + cross-month)
-│   │   │   ├── practice_planilla_generator.py # Planilla de practicas internas (misma logica)
-│   │   │   ├── salary_report_generator.py # Planilla de salarios Excel (formato UNIPANDO)
-│   │   │   ├── app_settings_service.py   # Configuracion de negocio (cache + CRUD)
-│   │   │   ├── attendance_engine.py      # Procesamiento de asistencia
-│   │   │   ├── designation_loader.py     # Compatibilidad legacy + HORARIO parser
-│   │   │   ├── biometric_parser.py       # Parseo de archivos biometricos + CI aliasing
-│   │   │   ├── auth_service.py           # Autenticacion + JWT
-│   │   │   ├── report_generator.py       # PDFs: financiero, asistencia, comparativo, plantel, incidencias, conciliacion
-│   │   │   ├── contract_pdf.py           # PDFs de contratos (17 clausulas legales UPDS)
-│   │   │   ├── retention_letter_pdf.py   # Carta de retencion RC-IVA
-│   │   │   ├── schedule_pdf.py           # Horario semanal PDF
-│   │   │   ├── audit_report_pdf.py       # Auditoria de asistencia PDF (individual + masivo)
-│   │   │   └── activity_logger.py        # Helper de logging de actividad
-│   │   │
-│   │   ├── schemas/             # Pydantic schemas (validacion)
-│   │   ├── utils/               # Helpers (auth middleware, normalizacion)
-│   │   ├── config.py            # Configuracion (env vars + settings)
-│   │   ├── database.py          # Conexion a PostgreSQL
-│   │   └── main.py              # App FastAPI + lifespan + migraciones
-│   │
-│   ├── tests/                   # Test suite (226+ tests)
-│   ├── data/
-│   │   ├── assets/              # Logos UPDS (isologo + logotipo)
-│   │   ├── uploads/             # Archivos subidos
-│   │   ├── reports/             # Reportes PDF generados
-│   │   ├── contracts/           # Contratos PDF generados
-│   │   ├── schedules/           # Horarios PDF
-│   │   ├── retention_letters/   # Cartas de retencion
-│   │   └── backups/             # Backups de BD (.sql)
-│   └── requirements.txt
+│   │   ├── models/        # ~28 modelos SQLAlchemy (docentes, designaciones, asistencia, planilla,
+│   │   │                  #   publicaciones, contratos, horarios, estudiantes, rematricula, chat...)
+│   │   ├── routers/       # ~30 routers FastAPI (admin, portal docente, portal estudiante)
+│   │   ├── services/      # Logica de negocio: planilla, asistencia, contratos y PDFs, horarios,
+│   │   │                  #   importaciones, rematricula, intensivos, WhatsApp/email, chat
+│   │   ├── schemas/       # Validacion Pydantic
+│   │   ├── config.py      # Variables de entorno
+│   │   └── main.py        # App FastAPI: arranque, seeds y verificacion del esquema
+│   ├── alembic/           # Migraciones de esquema (fuente de verdad en produccion)
+│   ├── data/              # Malla curricular incluida, assets y archivos generados (PDFs, uploads, backups)
+│   └── tests/             # Suite pytest (~120 archivos)
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/               # 24 paginas
-│   │   │   ├── LoginPage.tsx            # Login split-layout (desktop + mobile)
-│   │   │   ├── ForceChangePasswordPage  # Cambio obligatorio de contrasena
-│   │   │   ├── DashboardPage.tsx        # Dashboard con Recharts
-│   │   │   ├── UploadPage.tsx           # Subir: lista docentes, biometrico
-│   │   │   ├── AttendancePage.tsx        # Procesar asistencia (con auto-deteccion de rango)
-│   │   │   ├── AttendanceAuditPage.tsx  # Auditoria de asistencia por docente
-│   │   │   ├── PlanillaPage.tsx         # Generar + aprobar + publicar + excluir dias + detalle + override
-│   │   │   ├── TeachersPage.tsx         # CRUD docentes + bulk delete
-│   │   │   ├── TeacherDetailPage.tsx    # Detalle/edicion de docente
-│   │   │   ├── UsersPage.tsx            # Gestion de usuarios
-│   │   │   ├── ContractsPage.tsx        # Generacion de contratos PDF
-│   │   │   ├── ReportsPage.tsx          # 7 tipos de reportes con preview
-│   │   │   ├── AdminRequestsPage.tsx    # Solicitudes de docentes (admin)
-│   │   │   ├── ObservationsPage.tsx     # Observaciones de asistencia
-│   │   │   ├── ActivityLogPage.tsx      # Registro de actividad
-│   │   │   ├── BackupPage.tsx           # Respaldos de BD
-│   │   │   ├── SettingsPage.tsx         # Configuracion de negocio (admin)
-│   │   │   ├── BillingPage.tsx          # Facturacion actual (docente)
-│   │   │   ├── BillingHistoryPage.tsx   # Historial de facturacion (docente)
-│   │   │   ├── MyProfilePage.tsx        # Perfil editable (docente)
-│   │   │   ├── SchedulePage.tsx         # Horario semanal con 3 vistas (docente)
-│   │   │   ├── RetentionLetterPage.tsx  # Carta de retencion RC-IVA (docente)
-│   │   │   ├── MyRequestsPage.tsx       # Mis solicitudes (docente)
-│   │   │   └── NotificationsPage.tsx    # Notificaciones (docente)
-│   │   │
-│   │   ├── components/          # UI components
-│   │   │   ├── layout/                  # Layout, Sidebar (colapsable), Header (search + bell)
-│   │   │   ├── shared/                  # StatCard, DataTable, FileUploader
-│   │   │   └── ui/                      # Shadcn: Button, Dialog, Input, Select, Badge, etc.
-│   │   │
-│   │   ├── api/                 # API layer
-│   │   │   ├── client.ts                # Axios con interceptor JWT
-│   │   │   ├── types.ts                 # TypeScript interfaces
-│   │   │   └── hooks/                   # 13 hooks TanStack Query
-│   │   │
-│   │   ├── context/             # React contexts
-│   │   │   ├── AuthContext.tsx           # Auth + must_change_password redirect
-│   │   │   └── SidebarContext.tsx        # Sidebar collapse state
-│   │   │
-│   │   └── lib/                 # Utilidades (format, utils)
-│   │
-│   ├── public/                  # Logos UPDS
-│   └── package.json
+│   │   ├── pages/         # ~47 pantallas: admin, portal docente y portal del estudiante (pages/student/)
+│   │   ├── components/
+│   │   │   ├── ui/        # Primitivas coss UI sobre Base UI (Button, Dialog, Sheet, Menu, Table...)
+│   │   │   ├── shared/    # PageHeader, StatCard, StatusBadge, EmptyState, PersonAvatar, tones.ts...
+│   │   │   ├── layout/    # Shell: Sidebar, Header, ThemeToggle, Logo
+│   │   │   └── <modulo>/  # Componentes por modulo (designations, contracts, curriculum, chat...)
+│   │   ├── api/           # Cliente Axios + hooks TanStack Query (staff y studentClient)
+│   │   ├── lib/           # Logica pura testeable (estado de pantallas, formatos, navegacion)
+│   │   ├── context/       # AuthContext, ThemeContext
+│   │   └── index.css      # Tokens del tema (claro/oscuro) y utilidades de marca
+│   ├── scripts/           # Checks node:test (`npm run test:*`)
+│   └── e2e/               # Playwright con API simulada
 │
-├── backend/tests/fixtures/
-│   └── designations.synthetic.json  # Artificial designation test data
+├── docs/procesos/         # Guias de procesos para el personal administrativo
+├── deploy/                # Scripts y runbooks de despliegue
+├── openspec/              # Especificaciones y cambios (SDD)
+├── DEPLOYMENT.md          # Despliegue seguro en el VPS
 └── README.md
 ```
 
@@ -468,18 +407,18 @@ Neto          = Bruto - Retencion
 > periodo 21/Mar → 20/Abr tiene 5 lunes, cobra 20h (no 16h como seria con la formula vieja).
 
 **Reglas de negocio:**
+- Solo las clases **ausentes** descuentan: tardanzas (mas de 5 minutos) y clases sin salida se pagan completas
 - Docentes **sin biometrico** = pago completo (0 ausencias asumidas)
 - Biometrico scoped al **periodo** de corte, no al mes calendario
 - Admin puede excluir dias especificos del calculo (feriados, eventos, clases magistrales)
 - Tres niveles de granularidad: global (todos), por semestre, por materia+grupo
 - Exclusiones se configuran antes de generar y son editables despues (regenerar)
-- Dias excluidos aparecen con color purpura y 0h en el Excel
+- Dias excluidos aparecen en rojo y con 0h en el Excel
 - Exclusiones almacenadas en `excluded_days_json` (JSONB) — mismo patron que overrides
 - Admin puede aplicar **overrides** manuales al monto de cualquier docente
 - Overrides almacenados inmutables en `PlanillaOutput.payment_overrides_json`
 - Publicacion crea **snapshot inmutable** — los montos publicados no cambian si los datos base cambian
 - El sistema **detecta automaticamente** el rango del biometrico y sugiere las fechas al admin
-- **46 docentes** tienen retencion RC-IVA 13%, **87** facturan con NIT propio
 
 ### Periodo de corte (cross-month)
 
@@ -488,15 +427,15 @@ El admin define un **periodo de corte** para cada planilla (ej: 21 de marzo al 2
 - Calcula las horas de cada docente contando los **dias reales** del periodo que coinciden con su horario programado
 - Muestra **dos bloques** en el Excel: uno por cada mes del corte, con los dias fuera del rango en gris
 - Las queries de asistencia y biometrico cubren **ambos meses** del rango
-- Si no se establece periodo de corte, se usa el mes completo como fallback
+- La pantalla exige las dos fechas de corte (hasta 63 dias) antes de habilitar **Generar Planilla**
 
 ### Modo de calculo (discount_mode)
 
-La planilla soporta dos modos de calculo que el admin elige al momento de generar:
+La planilla soporta dos modos de calculo. No hay modo por defecto: el admin tiene que elegir uno para habilitar **Generar Planilla**, y la pantalla resume que se va a generar antes de confirmar.
 
 | Modo | Comportamiento |
 |------|---------------|
-| **Con descuentos** (default) | Se aplican descuentos por horas ausentes segun biometrico |
+| **Con descuentos** | Se descuentan las clases ausentes segun biometrico |
 | **Sin descuentos** | Todos los docentes cobran el 100% de sus horas asignadas. No se requiere biometrico. |
 
 En modo "sin descuentos":
@@ -551,50 +490,20 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
 
 ### Flujo de trabajo del admin
 
-```
-1. Subir Lista de Docentes (Excel/JSON)
-   → Crea docentes con CI real + datos personales + NIT/retencion
-   → Auto-crea usuarios docentes
+El detalle de cada paso esta en las [guias de procesos](docs/procesos/README.md). Resumen:
 
-2. Previsualizar y confirmar Designacion Docente (JSON o Excel)
-   → Valida identidades, materias, grupos y horarios antes de modificar datos
-   → Asigna designaciones al periodo seleccionado sin activarlo
-   → Parsea HORARIO string automaticamente
-   → Auto-crea usuarios si hay docentes nuevos
+**Antes de clases** ([Docentes y usuarios](docs/procesos/docentes-y-usuarios.md), [Designaciones](docs/procesos/designaciones.md), [Planificador](docs/procesos/planificador-de-horarios.md), [Contratos](docs/procesos/contratos.md))
 
-3. Subir Biometrico (XLS)
-   → Datos de entrada/salida del control de acceso
-   → CI aliasing automatico por nombre
+1. **Docentes**: alta en *Docentes y academico → Docentes*; el importador seguro de perfiles (*Subir biometrico → Lista de Docentes*) solo completa campos vacios y nunca crea docentes.
+2. **Designaciones**: una por una o *Importar archivo* en *Designaciones* (vista previa obligatoria, aplicacion atomica). *Gestion academica → Cargar designacion* no importa designaciones: arma un borrador del planificador a partir de las existentes.
+3. **Horario**: borrador en el *Planificador de horarios* → *Revisar publicacion completa* → publicar. Lo publicado reemplaza a las designaciones en planilla y asistencia desde su fecha efectiva.
+4. **Contratos**: *Emitir contratos* (individual o por lote). Si la carga cambia despues, la nueva emision genera una enmienda.
 
-4. Procesar Asistencia (con rango de fechas auto-detectado)
-   → Cruza biometrico con designaciones → ATTENDED/LATE/ABSENT
-   → Sugiere rango basado en cobertura del biometrico
-   → Warning si el rango excede la cobertura
+**Cada mes** ([Cierre mensual](docs/procesos/cierre-mensual.md)) — el Dashboard muestra el avance:
 
-5. Auditar Asistencia
-   → Vista detallada por docente: horario + biometrico + resultado
-   → Trazabilidad: de donde viene cada ATTENDED/LATE/ABSENT
-   → Exportar PDF individual o masivo
+1. Subir biometrico → 2. Asistencia (teoricas y practicas) y auditoria → 3. Generar planilla con periodo de corte y modo de calculo → 4. Aprobar → 5. Publicar facturacion y notificar a los docentes.
 
-6. Generar Planilla
-   → Definir periodo de corte (ej: 21/Mar al 20/Abr)
-   → Elegir modo: con descuentos (default) o sin descuentos
-   → Opcionalmente excluir dias especificos (feriados, eventos, clases magistrales)
-   → Granularidad: global, por semestre, o por materia+grupo
-   → Calcula pagos por dias reales del calendario (no semanal x 4)
-   → Excel muestra dos bloques de dias (un mes cada uno) con dias fuera del corte en gris
-   → Admin puede ajustar montos (overrides)
-   → Descargar Planilla de Salarios (Excel formato UNIPANDO)
-
-7. Aprobar Planilla
-   → Estado: generated → approved (o rejected)
-   → No se puede publicar sin aprobacion
-
-8. Publicar Facturacion
-   → Snapshot inmutable con overrides aplicados
-   → Notificacion a TODOS los docentes
-   → Docentes ven sus montos en el portal
-```
+**Durante el semestre**: [cambio de docente](docs/procesos/cambio-de-docente.md), finalizar designaciones, responder solicitudes y mensajes.
 
 ### Roles de usuario
 
@@ -602,38 +511,72 @@ El biometrico puede tener CIs diferentes a la designacion (ej: `10752810` en bio
 |-----|--------|
 | **Admin** | Todo: uploads, planilla, reportes, contratos, usuarios, auditoria, actividad, backups |
 | **Docente** | Su facturacion, horario, perfil, solicitudes, carta retencion, notificaciones |
+| **Estudiante** | Portal propio (`/estudiante`, sesion separada): historial, rematricula, horario, cursos intensivos |
 
 ## Modulos del Sistema
 
+El menu del administrador se organiza en cuatro grupos. Cada guia de [docs/procesos](docs/procesos/README.md) explica el paso a paso.
+
 ### Panel de Administracion
 
-| Modulo | Descripcion |
-|--------|-------------|
-| **Dashboard** | Metricas con Recharts: asistencia (donut), top facturacion (barras), grupos, semestres. 6 stat cards. Busqueda global. |
-| **Subir Archivos** | 3 uploaders: lista docentes (Excel/JSON), designacion (JSON — 3 formatos), biometrico (XLS) |
-| **Asistencia** | Procesar asistencia con rango de fechas auto-detectado del biometrico. Banners de cobertura. |
-| **Auditoria Asistencia** | Vista detallada por docente: horario programado vs entrada real vs estado. Exportar PDF individual o masivo. |
-| **Planilla** | Generar + override montos + aprobar/rechazar + publicar + detalle por docente/designacion + historial |
-| **Docentes** | CRUD completo + eliminacion masiva (checkboxes) + detalle con edicion de todos los campos incluyendo CI |
-| **Usuarios** | Crear/editar/desactivar usuarios + reset de contrasena (fuerza cambio en proximo login) |
-| **Contratos** | Generar contratos PDF con plantilla legal UPDS (17 clausulas). Individual o masivo. Configurable: departamento, duracion, tarifa. |
-| **Reportes** | 7 tipos con preview: Financiero, Asistencia, Comparativo, Plantel Docente, Incidencias, Conciliacion |
-| **Solicitudes** | Responder solicitudes de docentes con info de facturacion + horarios del docente |
-| **Observaciones** | Tardanzas, ausencias, sin salida — filtradas por tipo y docente |
-| **Registro Actividad** | Audit trail: 16 tipos de eventos con usuario, IP, timestamp, detalles JSON |
-| **Respaldos** | Backup/restore de BD via pg_dump. Crear, listar, descargar, eliminar. |
+**Dashboard** — metricas del mes con conteo animado, stepper del **Cierre mensual** (biometrico → asistencia → planilla → aprobacion → publicacion), graficos de asistencia, top facturacion, grupos y semestres, y busqueda global.
+
+| Grupo del menu | Modulo | Que hace |
+|----------------|--------|----------|
+| **Cierre mensual** | Subir biometrico | Carga el XLS del control de acceso con deteccion de rango y alias de CI; tambien aloja el importador de perfiles docentes |
+| | Asistencia teoricas / practicas | Cruza biometrico con horarios: asistio, tardanza, ausencia, sin salida |
+| | Observaciones | Tardanzas, ausencias y salidas faltantes por docente |
+| | Auditoria de asistencia | Trazabilidad por docente (horario vs. marcacion) con PDF individual o masivo |
+| | Planilla | Planilla teorica y de practicas: generar, ajustar montos, aprobar, publicar facturacion, notificar |
+| | Reportes | Financiero, asistencia, comparativo, plantel, incidencias, conciliacion |
+| **Docentes y academico** | Docentes | Padron con avatar y tipo (titular, permanente, externo), detalle, foto, importacion de perfiles |
+| | Designaciones | Materias asignadas: crear, editar, finalizar, eliminar, importar Excel; KPIs y filtros rapidos |
+| | Contratos | Historial inmutable agrupado por docente (originales y enmiendas) y emision en panel lateral |
+| | Gestion academica | Catalogos (programas, materias, grupos, aulas), horarios por semestre, conflictos, cambio de docente |
+| | Planificador de horarios | Borradores semanales con arrastrar y soltar, asignacion de docentes, publicaciones con vista previa |
+| | Solicitudes | Responde las solicitudes de los docentes |
+| | Mensajes | Chat con los docentes (adjuntos, respuestas, reacciones) |
+| **Gestion estudiantil** | Estudiantes | Ficha, historial, cuenta del portal y documentos migratorios |
+| | Rematricula | Ventanas por periodo y bandeja de solicitudes (realizar u observar) |
+| | Cursos intensivos | Cursos de verano e invierno con montos propios e inscripcion desde el portal |
+| | Apertura de grupos | Compara solicitudes con grupos creados por semestre y turno |
+| | Documentos migratorios | Lista configurable de documentos y estado de regularizacion |
+| | Malla curricular | Tablero por semestre con totales; edicion y generacion de ofertas |
+| | Importar historial | Importa los CSV del sistema academico anterior (vista previa + aplicar) |
+| **Administracion** | Usuarios | Cuentas, roles, credenciales y reseteo de contraseña |
+| | Registro de actividad | Audit trail con usuario, IP, fecha y detalle |
+| | Respaldos | Backups de la base |
+| | Configuracion | Periodo activo, tarifas, comitente de contratos, WhatsApp |
 
 ### Portal del Docente
 
 | Modulo | Descripcion |
 |--------|-------------|
-| **Mi Facturacion** | Monto a cobrar del mes (solo meses publicados). Bruto, retencion, neto. |
-| **Historial** | Historial de facturacion por mes con desglose por materia/grupo |
-| **Mi Horario** | 3 vistas: por dia, por materia, grilla semanal. Filtro por turno. Export PDF/PNG. |
-| **Mi Perfil** | Editar: email, telefono, banco, cuenta. Solo lectura: CI, nombre, genero. Cambio de contrasena con barra de fortaleza. |
-| **Solicitudes** | Enviar solicitudes al admin. Ver detalle de respuestas. |
-| **Carta Retencion** | Generar carta RC-IVA 13% en PDF con preview. Formulario: titulo, matricula, periodo. |
-| **Notificaciones** | Campana con badge de no leidas (poll 30s). Marcar como leida/todas leidas. |
+| **Mi Facturacion** | Monto a cobrar del mes publicado: bruto, retencion y neto, con detalle por materia |
+| **Historico** | Facturacion de meses anteriores |
+| **Mi Horario** | Horario publicado vigente: por dia, por materia o grilla semanal; exporta PDF/PNG |
+| **Carta Retencion** | Carta RC-IVA 13% en PDF (solo para docentes con retencion) |
+| **Mis Solicitudes** | Consultas al admin y sus respuestas |
+| **Mensajes** | Chat con administracion |
+| **Notificaciones** | Avisos de publicacion y respuestas, con contador de no leidas |
+| **Mi Perfil** | Datos de contacto y bancarios, foto y cambio de contraseña |
+
+### Portal del Estudiante (`/estudiante`)
+
+| Modulo | Descripcion |
+|--------|-------------|
+| **Inicio** | Bienvenida con semestre, beca y plan; estado de la rematricula y documentos migratorios |
+| **Historial academico** | Resumen (promedio, aprobadas, avance) y linea de tiempo por periodo con notas coloreadas |
+| **Rematricula** | Solicitud con grupo del semestre y materias de recursado o pendientes |
+| **Mi horario** | Horario publicado de sus grupos y cursos intensivos |
+| **Cursos de verano e invierno** | Inscripcion y cancelacion con precio estimado |
+
+## Interfaz y tema
+
+- **Componentes:** coss UI sobre Base UI (`frontend/src/components/ui/`). Las paginas usan los componentes compartidos de `components/shared/` (`PageHeader`, `StatCard`, `StatusBadge`, `EmptyState` con ilustraciones, `PersonAvatar`, `TeacherTypeBadge`).
+- **Colores solo por tokens:** todos los colores viven en `frontend/src/index.css` (tokens claro/oscuro y utilidades `bg-brand`, `bg-brand-soft`, `bg-brand-line`). Las paginas no usan hex, degradados ni clases de paleta (`bg-blue-500`); los checks `test:ui-*` lo verifican. Los tonos semanticos estan en `components/shared/tones.ts` y los colores por semestre y turno en `lib/academicTones.ts`.
+- **Modo oscuro:** selector Claro/Oscuro/Sistema en el header y en el portal del estudiante; sigue al sistema operativo por defecto y se recuerda por navegador (`sipad-theme`), con un script previo al render para evitar el destello claro.
+- **Accesibilidad:** contraste WCAG AA verificado en ambos temas; las animaciones (hover, transicion de pagina, conteo de numeros) se desactivan con `prefers-reduced-motion`.
 
 ## Seguridad
 
@@ -679,10 +622,10 @@ Al procesar asistencia o generar planilla, el sistema:
 
 ## Periodo Academico
 
-Las designaciones estan scoped por periodo academico (ej: `I/2026`, `II/2026`). El periodo activo es configurable via:
-- Variable de entorno `ACTIVE_ACADEMIC_PERIOD`
-- Selector en la pagina de upload de designaciones
-- Endpoint `GET /api/config/active-period` para el frontend
+Las designaciones estan scoped por periodo academico (ej: `I/2026`, `II/2026`).
+- El **periodo activo** se guarda en la base (`ACTIVE_ACADEMIC_PERIOD`, por defecto `I/2026`) y se cambia en *Administracion → Configuracion*; ya no se lee del `.env`.
+- El frontend lo consulta con `GET /api/config/active-period`.
+- Al importar en *Designaciones → Importar archivo* se elige el periodo destino del archivo.
 
 Importar designaciones no cambia el periodo activo. La activacion sigue siendo una accion separada en Configuracion.
 
@@ -750,7 +693,20 @@ python -m pytest tests/test_designation_loader.py -v
 python -m pytest tests/test_designation_loader.py -s
 ```
 
-**226+ tests** cubriendo: carga de designaciones, calculo de pagos (Model C + retencion + overrides), procesamiento de asistencia, APIs, normalizacion de nombres.
+La suite backend (~120 archivos de test) cubre: carga de designaciones, calculo de pagos (Model C + retencion + overrides), asistencia, contratos, horarios y publicaciones, rematricula, intensivos, importaciones y APIs. Los tests de concurrencia en PostgreSQL son opcionales (`REENROLLMENT_TEST_POSTGRES_URL`).
+
+### Frontend
+
+```bash
+cd frontend
+npx tsc -b            # Tipos
+npm run lint          # ESLint
+npm run build         # Build de produccion
+npm run test:<nombre> # Checks node:test de logica pura y reglas de UI (scripts/check-*.mjs), ej. test:ui-shared
+npm run test:e2e      # Playwright (desktop + mobile) con la API simulada; la primera vez: npm run test:e2e:install
+```
+
+Para correr todos los checks: `for s in $(node -e "console.log(Object.keys(require('./package.json').scripts).filter(k=>k.startsWith('test:')&&!k.startsWith('test:e2e')).join(' '))"); do npm run -s $s || echo "FALLO $s"; done`
 
 ## Test Data and External Real-Data E2E
 
@@ -775,14 +731,14 @@ both existing inputs, the real-data E2E skips safely.
 ### Orden de carga recomendado
 
 ```
-1. Lista de docentes (Excel)      → Crea docentes con CI real + usuarios
-2. Designacion docente (JSON)     → Asigna materias y horarios
-3. Biometrico (XLS)               → Datos de asistencia con CI aliasing
-4. Procesar asistencia            → Cruza bio con designaciones (usar fechas sugeridas)
-5. Generar planilla               → Calcula pagos
-6. Revisar + ajustar              → Override montos si necesario
-7. Aprobar planilla               → Estado: approved
-8. Publicar facturacion           → Docentes ven sus montos
+1. Docentes (alta o importador de perfiles)   → Padron con CI real; usuarios docentes
+2. Designaciones (Designaciones → Importar)   → Materias, grupos y horarios del periodo
+3. Horario publicado (opcional)               → Planificador: borrador → revisar → publicar
+4. Biometrico (XLS)                           → Marcaciones con alias de CI
+5. Asistencia                                 → Cruza biometrico con horarios (usar fechas sugeridas)
+6. Planilla                                   → Calcula pagos; ajustar montos si hace falta
+7. Aprobar planilla                           → Requisito para publicar
+8. Publicar facturacion                       → Los docentes ven sus montos
 ```
 
 ## Judgment Day (Control de Calidad)
