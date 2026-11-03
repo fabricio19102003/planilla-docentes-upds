@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertCircle, CalendarDays, CheckCircle, Download, FileSignature, RotateCcw } from 'lucide-react'
 
+import { TONE_CHIP } from '@/components/shared/tones'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardPanel, CardTitle } from '@/components/ui/card'
@@ -20,6 +21,7 @@ import {
   validateTermsForm,
   type ContractTermsForm,
 } from '@/lib/contractTermsForm'
+import { cn } from '@/lib/utils'
 
 const EMPTY_FORM: ContractTermsForm = { start: '', end: '', signature: '' }
 
@@ -85,7 +87,7 @@ export function IndividualContractCard({ teachers, department, academicPeriod }:
     <Card render={<section aria-labelledby="individual-contract-heading" />}>
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <div className={cn('flex size-9 items-center justify-center rounded-xl', TONE_CHIP.primary)}>
             <CalendarDays size={16} aria-hidden="true" />
           </div>
           <div>
