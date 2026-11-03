@@ -9,7 +9,7 @@ export function StudentHistory({ history }: { history: StudentDetail['history'] 
   return (
     <>
     <h2 className="text-lg font-semibold">Historial académico</h2>
-    {history.length === 0 && <EmptyState title="Sin materias registradas" description="Este estudiante no tiene materias en los archivos importados." />}
+    {history.length === 0 && <EmptyState illustration="empty-box" title="Sin materias registradas" description="Este estudiante no tiene materias en los archivos importados." />}
     {history.map(({ term, records }) => {
       const average = termAverage(records)
       return (

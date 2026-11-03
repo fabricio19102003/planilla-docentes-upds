@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
+import { illustrations, type IllustrationName } from '@/components/illustrations'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { cn } from '@/lib/utils'
 
 export interface EmptyStateProps {
   icon?: LucideIcon
+  /** Flat SVG illustration shown above the title; takes precedence over `icon`. */
+  illustration?: IllustrationName
   title: ReactNode
   description?: ReactNode
   /** Optional call to action, for example a Button. */
@@ -18,15 +21,24 @@ export interface EmptyStateProps {
  *
  * @example
  * <EmptyState icon={Inbox} title="Sin solicitudes" description="No hay solicitudes pendientes." />
+ *
+ * @example
+ * <EmptyState illustration="empty-inbox" title="Sin solicitudes" description="No hay solicitudes pendientes." />
  */
-export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, illustration, title, description, action, className }: EmptyStateProps) {
+  const Illustration = illustration ? illustrations[illustration] : undefined
+
   return (
     <Empty className={cn('py-12 md:py-16', className)}>
       <EmptyHeader>
-        {Icon && (
-          <EmptyMedia variant="icon" className="bg-primary/10 text-primary">
-            <Icon aria-hidden="true" />
-          </EmptyMedia>
+        {Illustration ? (
+          <Illustration className="mb-4 w-36" />
+        ) : (
+          Icon && (
+            <EmptyMedia variant="icon" className="bg-primary/10 text-primary">
+              <Icon aria-hidden="true" />
+            </EmptyMedia>
+          )
         )}
         <EmptyTitle className="text-lg">{title}</EmptyTitle>
         {description && <EmptyDescription>{description}</EmptyDescription>}

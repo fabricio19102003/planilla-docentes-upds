@@ -22,7 +22,7 @@ export function StudentHistoryPage() {
         </div>
       )}
       {history.data?.length === 0 && (
-        <EmptyState icon={History} title="Sin materias registradas" description="Todavía no tenés materias en tu historial académico." />
+        <EmptyState illustration="empty-box" icon={History} title="Sin materias registradas" description="Todavía no tenés materias en tu historial académico." />
       )}
       {history.data && history.data.length > 0 && <StudentHistoryTimeline history={history.data} />}
     </>

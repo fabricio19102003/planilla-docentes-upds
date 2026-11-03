@@ -1166,7 +1166,7 @@ export function PlanillaPage() {
             <CardTitle className="text-base">Historial de Planillas</CardTitle>
             <CardDescription>0 planilla(s) generada(s)</CardDescription>
           </CardHeader>
-          <EmptyState icon={History} title="No hay planillas generadas aún" />
+          <EmptyState illustration="empty-document" icon={History} title="No hay planillas generadas aún" />
         </Card>
       ) : (
         <TableCard
@@ -1581,7 +1581,7 @@ export function PlanillaPage() {
                   )}
 
                   {visibleTeacherTotals.length === 0 ? (
-                    <EmptyState
+                    <EmptyState illustration="empty-search"
                       icon={Search}
                       title="Sin docentes para mostrar"
                       description={searchTerm ? 'Ningún docente coincide con la búsqueda.' : 'La planilla no tiene docentes.'}
@@ -1825,7 +1825,7 @@ export function PlanillaPage() {
               title="Elegí el modo de cálculo para ver la vista previa."
             />
           ) : (
-            <EmptyState
+            <EmptyState illustration="empty-document"
               icon={FileSpreadsheet}
               title={`No hay datos para ${MONTH_NAMES[month]} ${year}.`}
               description="Generá la planilla para ver el detalle."

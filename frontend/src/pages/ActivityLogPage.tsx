@@ -426,7 +426,7 @@ export function ActivityLogPage() {
           ) : filteredItems.length === 0 ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={TABLE_HEADERS.length + 1} className="p-0 whitespace-normal">
-                <EmptyState icon={Activity} title="No se encontraron registros de actividad" />
+                <EmptyState illustration="empty-document" icon={Activity} title="No se encontraron registros de actividad" />
               </TableCell>
             </TableRow>
           ) : (

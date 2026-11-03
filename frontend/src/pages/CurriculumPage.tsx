@@ -103,7 +103,7 @@ export function CurriculumPage() {
       {plans.isLoading && <p role="status" className="text-sm text-muted-foreground">Cargando malla curricular…</p>}
 
       {plans.data && plans.data.length === 0 && (
-        <EmptyState
+        <EmptyState illustration="empty-document"
           icon={BookOpen}
           title="Todavía no hay una malla cargada"
           description="Cargá la malla de Medicina 510-01. También se carga sola la primera vez que importás el historial académico."

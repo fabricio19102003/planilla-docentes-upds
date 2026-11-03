@@ -347,7 +347,7 @@ export function MyRequestsPage() {
       {/* Empty state */}
       {!requests?.length ? (
         <Card>
-          <EmptyState
+          <EmptyState illustration="empty-inbox"
             icon={MessageSquare}
             title="No tenés solicitudes todavía"
             description="Podés pedir detalles biométricos, resúmenes de horas o detalle de horario."

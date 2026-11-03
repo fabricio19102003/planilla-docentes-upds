@@ -108,7 +108,7 @@ export function NotificationsPage() {
       {/* Notifications list */}
       {!notifications?.length ? (
         <Card>
-          <EmptyState icon={Bell} title="No tenés notificaciones" />
+          <EmptyState illustration="empty-inbox" icon={Bell} title="No tenés notificaciones" />
         </Card>
       ) : (
         <div className="space-y-2">

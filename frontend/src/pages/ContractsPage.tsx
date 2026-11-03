@@ -408,7 +408,7 @@ export function ContractsPage() {
           </Alert>
         )}
         {contractHistory.isSuccess && contractHistory.data.length === 0 && (
-          <EmptyState icon={FileText} title="Todavía no se emitieron contratos inmutables." />
+          <EmptyState illustration="empty-document" icon={FileText} title="Todavía no se emitieron contratos inmutables." />
         )}
         {contractHistory.isSuccess && contractHistory.data.length > 0 && (
           <ol className="divide-y">
@@ -456,7 +456,7 @@ export function ContractsPage() {
       {/* Empty state after successful generation with 0 results */}
       {generateBatch.isSuccess && generatedContracts.length === 0 && (
         <Card>
-          <EmptyState
+          <EmptyState illustration="empty-document"
             icon={FileSignature}
             title="No se emitieron contratos."
             description="Revisá que los docentes tengan carga efectiva y tarifas completas."

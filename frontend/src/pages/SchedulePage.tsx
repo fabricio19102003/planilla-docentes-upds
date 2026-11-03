@@ -171,7 +171,7 @@ function ViewPorDia({ allSlots }: { allSlots: FlatSlot[] }) {
   if (allSlots.length === 0) {
     return (
       <Card>
-        <EmptyState icon={CalendarX} title="No hay clases con los filtros seleccionados" />
+        <EmptyState illustration="empty-calendar" icon={CalendarX} title="No hay clases con los filtros seleccionados" />
       </Card>
     )
   }
@@ -242,7 +242,7 @@ function ViewPorMateria({ designations, turnFilter }: { designations: PortalDesi
   if (filtered.length === 0) {
     return (
       <Card>
-        <EmptyState icon={CalendarX} title="No hay materias con los filtros seleccionados" />
+        <EmptyState illustration="empty-calendar" icon={CalendarX} title="No hay materias con los filtros seleccionados" />
       </Card>
     )
   }
@@ -322,7 +322,7 @@ function ViewGrillaSemanal({ allSlots }: { allSlots: FlatSlot[] }) {
   if (uniqueTimes.length === 0) {
     return (
       <Card>
-        <EmptyState icon={CalendarX} title="No hay clases con los filtros seleccionados" />
+        <EmptyState illustration="empty-calendar" icon={CalendarX} title="No hay clases con los filtros seleccionados" />
       </Card>
     )
   }

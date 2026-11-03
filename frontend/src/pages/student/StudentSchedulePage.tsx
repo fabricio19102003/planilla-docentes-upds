@@ -77,7 +77,7 @@ function ScheduleContent({ view }: { view: StudentScheduleView }) {
           <AlertDescription>Este horario todavía no empezó a regir; puede cambiar hasta esa fecha.</AlertDescription>
         </Alert>
       )}
-      {message && <EmptyState icon={CalendarX} title="Sin clases para mostrar" description={message} />}
+      {message && <EmptyState illustration="empty-calendar" icon={CalendarX} title="Sin clases para mostrar" description={message} />}
       {days.map((day) => (
         <Card key={day.weekday}>
           <CardHeader><CardTitle className="text-base">{day.label}</CardTitle></CardHeader>

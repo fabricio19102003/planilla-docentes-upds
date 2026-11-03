@@ -116,7 +116,7 @@ export function StudentIntensivePage() {
         <CardHeader><CardTitle className="text-base">Mis inscripciones</CardTitle></CardHeader>
         <CardContent className="p-0">
           {enrollments.length === 0
-            ? <EmptyState icon={ClipboardList} className="py-8" title="Sin inscripciones" description="No estás inscrito en ningún curso intensivo." />
+            ? <EmptyState illustration="empty-inbox" icon={ClipboardList} className="py-8" title="Sin inscripciones" description="No estás inscrito en ningún curso intensivo." />
             : <ul className="divide-y">{enrollments.map((course) => <CourseCard key={course.id} course={course} action="cancel" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
         </CardContent>
       </Card>
@@ -128,7 +128,7 @@ export function StudentIntensivePage() {
         </CardHeader>
         <CardContent className="p-0">
           {courses.length === 0
-            ? <EmptyState icon={BookOpen} className="py-8" title="Sin cursos disponibles" description="Por ahora no hay cursos abiertos para tus materias." />
+            ? <EmptyState illustration="empty-box" icon={BookOpen} className="py-8" title="Sin cursos disponibles" description="Por ahora no hay cursos abiertos para tus materias." />
             : <ul className="divide-y">{courses.map((course) => <CourseCard key={course.id} course={course} action="enroll" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
         </CardContent>
       </Card>

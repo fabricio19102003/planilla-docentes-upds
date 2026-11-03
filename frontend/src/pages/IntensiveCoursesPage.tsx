@@ -71,7 +71,7 @@ export function IntensiveCoursesPage() {
 
       {courses.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(courses.error, 'No se pudieron cargar los cursos.')}</AlertTitle></Alert>}
       {courses.data && list.length === 0 ? (
-        <EmptyState icon={Sun} title="No hay cursos intensivos con estos filtros" description="Abrí un curso de verano o invierno para que los estudiantes puedan inscribirse desde su portal." />
+        <EmptyState illustration="empty-search" icon={Sun} title="No hay cursos intensivos con estos filtros" description="Abrí un curso de verano o invierno para que los estudiantes puedan inscribirse desde su portal." />
       ) : (
         <TableCard tableClassName="min-w-[960px]">
           <TableHeader>
