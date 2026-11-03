@@ -9,6 +9,7 @@ import { useDashboard } from '@/api/hooks/useDashboard'
 import { useAppSettings } from '@/api/hooks/useAppSettings'
 import { usePlanillaStatus } from '@/api/hooks/usePlanilla'
 import { usePublicationStatus } from '@/api/hooks/useBillingPublication'
+import { MonthlyCloseStepper } from '@/components/dashboard/MonthlyCloseStepper'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
@@ -20,6 +21,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { seriesColor } from '@/lib/chartPalette'
+import { deriveMonthlyClose } from '@/lib/monthlyClose'
 import { cn } from '@/lib/utils'
 import { formatPaymentBreakdown } from '@/lib/displayFormat'
 
@@ -174,6 +177,14 @@ export function DashboardPage() {
         : 'neutral'
   const activePeriod = settings?.active_academic_period || `Gestión ${currentYear}`
   const billingPeriodLabel = hasBillingPeriod ? `${MONTH_NAMES[billingMonth]} ${billingYear}` : 'Sin datos'
+  const monthlyCloseSteps = deriveMonthlyClose({
+    month: hasBillingPeriod ? billingMonth : null,
+    year: hasBillingPeriod ? billingYear : null,
+    uploads: data?.recent_uploads ?? [],
+    attendanceSlots: data?.latest_attendance_summary?.total_slots ?? null,
+    planilla: planillaStatus,
+    publication: publicationStatus,
+  })
   const attendanceTotal = data?.attendance_distribution?.reduce((acc, i) => acc + i.value, 0) ?? 0
 
   return (
@@ -192,6 +203,8 @@ export function DashboardPage() {
           }
         />
       </section>
+
+      <MonthlyCloseStepper steps={monthlyCloseSteps} periodLabel={billingPeriodLabel} />
 
       {/* Stats Grid */}
       {/* StatCard truncates its text; long values (planilla state, amounts) wrap here instead. */}
@@ -281,6 +294,8 @@ export function DashboardPage() {
                       paddingAngle={3}
                       dataKey="value"
                       stroke="var(--card)"
+                      // The entry sweep starts from an empty ring, so the donut looked empty until it finished.
+                      isAnimationActive={false}
                     >
                       {data.attendance_distribution.map((entry) => (
                         <Cell key={entry.name} fill={TONE_FILL[distributionTone(entry.name)]} />
@@ -342,7 +357,11 @@ export function DashboardPage() {
                     'Facturación',
                   ]}
                 />
-                <Bar dataKey="payment" fill="var(--color-chart-1)" radius={[0, 4, 4, 0]} barSize={20} />
+                <Bar dataKey="payment" radius={[0, 4, 4, 0]} barSize={20}>
+                  {data.top_earners.map((entry, index) => (
+                    <Cell key={entry.name} fill={seriesColor(index)} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -361,7 +380,11 @@ export function DashboardPage() {
                 <XAxis dataKey="group" tick={AXIS_TICK} />
                 <YAxis tick={AXIS_TICK} />
                 <Tooltip {...CHART_TOOLTIP_PROPS} cursor={{ fill: 'var(--muted)' }} />
-                <Bar dataKey="count" fill="var(--color-chart-1)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {data.group_distribution.slice(0, 10).map((entry, index) => (
+                    <Cell key={entry.group} fill={seriesColor(index)} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -377,7 +400,11 @@ export function DashboardPage() {
                 <XAxis dataKey="semester" tick={AXIS_TICK} />
                 <YAxis tick={AXIS_TICK} />
                 <Tooltip {...CHART_TOOLTIP_PROPS} cursor={{ fill: 'var(--muted)' }} />
-                <Bar dataKey="count" fill="var(--color-chart-2)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {data.semester_distribution.map((entry, index) => (
+                    <Cell key={entry.semester} fill={seriesColor(index)} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (
