@@ -53,7 +53,7 @@ export function StatCard({ icon: Icon, title, value, subtitle, hint, trend, tone
   const TrendIcon = trend ? TREND_ICON[trend.direction ?? 'flat'] : null
 
   return (
-    <Card interactive className={cn('flex-row items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5', className)}>
+    <Card interactive className={cn('flex-row flex-wrap items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5', className)}>
       <span aria-hidden="true" className={cn('pointer-events-none absolute inset-x-0 top-0 h-1', TONE_DOT[resolved])} />
       <Icon
         aria-hidden="true"
@@ -62,7 +62,8 @@ export function StatCard({ icon: Icon, title, value, subtitle, hint, trend, tone
       <div className={cn('relative flex size-9 shrink-0 sm:size-11 items-center justify-center rounded-xl', TONE_SOLID[resolved])}>
         <Icon className="size-4 sm:size-5" aria-hidden="true" />
       </div>
-      <div className="relative min-w-0">
+      {/* Narrow cards (two per row on phones) wrap the text under the icon instead of truncating it. */}
+      <div className="relative min-w-[7.5rem] flex-1">
         <p className="truncate text-sm font-medium text-muted-foreground">{title}</p>
         <p className="truncate text-2xl font-semibold leading-tight tracking-tight tabular-nums text-foreground">{value}</p>
         {hintContent != null && hintContent !== '' && (

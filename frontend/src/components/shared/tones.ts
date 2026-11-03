@@ -9,7 +9,7 @@ export const TONES: readonly Tone[] = ['primary', 'success', 'warning', 'destruc
 
 /** Soft tinted chip: icon containers and tinted surfaces. */
 export const TONE_CHIP: Record<Tone, string> = {
-  primary: 'bg-primary/10 text-primary',
+  primary: 'bg-primary/10 text-tone-primary-foreground',
   success: 'bg-success/10 text-success-foreground',
   warning: 'bg-warning/10 text-warning-foreground',
   destructive: 'bg-destructive/10 text-destructive-foreground',

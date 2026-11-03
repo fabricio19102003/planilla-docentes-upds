@@ -149,7 +149,7 @@ export function DesignationsPage() {
         </Alert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <StatCard icon={Layers} tone="primary" title="Designaciones" value={loading ? '—' : <CountUp value={kpis.total} />} hint="Con los filtros actuales" />
         <StatCard icon={UserCheck} tone="success" title="Vigentes" value={loading ? '—' : <CountUp value={kpis.active} />} hint="Dando clases hoy" />
         <StatCard icon={Flag} tone="warning" title="Finalizadas" value={loading ? '—' : <CountUp value={kpis.finalized} />} hint="Ya en el historial" />

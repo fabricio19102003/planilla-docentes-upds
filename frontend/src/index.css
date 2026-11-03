@@ -34,12 +34,14 @@
   --success: var(--color-emerald-500);
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-700);
+  --warning-foreground: var(--color-amber-800);
   /* Extra accent tones so summaries are not all blue. */
   --tone-violet: var(--color-violet-500);
   --tone-violet-foreground: var(--color-violet-700);
+  /* Primary text on tinted chips: a step deeper than --primary so chips keep AA. */
+  --tone-primary-foreground: oklch(0.45 0.17 257);
   --tone-cyan: var(--color-cyan-500);
-  --tone-cyan-foreground: var(--color-cyan-700);
+  --tone-cyan-foreground: var(--color-cyan-800);
   /* Solid fills that keep white text and icons at WCAG AA (4.5:1) in both themes. */
   --solid-success: var(--color-emerald-700);
   --solid-warning: var(--color-amber-700);
@@ -108,6 +110,7 @@
   --color-warning: var(--warning);
   --color-tone-violet: var(--tone-violet);
   --color-tone-violet-foreground: var(--tone-violet-foreground);
+  --color-tone-primary-foreground: var(--tone-primary-foreground);
   --color-tone-cyan: var(--tone-cyan);
   --color-tone-cyan-foreground: var(--tone-cyan-foreground);
   --color-solid-success: var(--solid-success);
@@ -251,6 +254,7 @@
   --success-foreground: var(--color-emerald-400);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-400);
+  --tone-primary-foreground: var(--primary);
   --tone-violet: var(--color-violet-500);
   --tone-violet-foreground: var(--color-violet-400);
   --tone-cyan: var(--color-cyan-500);
