@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StatCard } from '@/components/shared/StatCard'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { TableCard } from '@/components/shared/TableCard'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -571,13 +572,18 @@ export function UsersPage() {
           {!users.length ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={7} className="p-0 whitespace-normal">
-                <EmptyState icon={Users} title="No hay usuarios registrados" description="Probá con otros filtros o creá un nuevo usuario." />
+                <EmptyState illustration="empty-search" title="No hay usuarios registrados" description="Probá con otros filtros o creá un nuevo usuario." />
               </TableCell>
             </TableRow>
           ) : (
             users.map((u) => (
               <TableRow key={u.id}>
-                <TableCell className="px-4 py-3 font-medium text-foreground">{u.full_name}</TableCell>
+                <TableCell className="px-4 py-3 font-medium text-foreground">
+                  <span className="flex items-center gap-3">
+                    <PersonAvatar name={u.full_name} colorKey={u.ci} size="sm" />
+                    <span>{u.full_name}</span>
+                  </span>
+                </TableCell>
                 <TableCell className="px-4 py-3 font-mono text-xs text-muted-foreground">{u.ci}</TableCell>
                 <TableCell className="px-4 py-3">
                   <StatusBadge tone={u.role === 'admin' ? 'info' : 'success'}>

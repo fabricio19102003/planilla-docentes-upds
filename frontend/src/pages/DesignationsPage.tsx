@@ -176,6 +176,7 @@ export function DesignationsPage() {
 
       {!list.isLoading && !list.isError && items.length === 0 ? (
         <EmptyState
+          illustration="empty-search"
           title={`No hay designaciones${currentPeriod ? ` en ${currentPeriod}` : ''} con estos filtros`}
           description="Creá una designación o importá el Excel del semestre."
         />

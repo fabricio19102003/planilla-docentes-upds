@@ -1,12 +1,12 @@
 import { MessageSquareOff, Plus, Search, TriangleAlert } from 'lucide-react'
 
 import type { ChatConversationSummary } from '@/api/types'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { apiErrorMessage, conversationTitle, formatListTimestamp, initialsOf } from '@/lib/chat'
+import { apiErrorMessage, conversationTitle, formatListTimestamp } from '@/lib/chat'
 import { cn } from '@/lib/utils'
 
 export interface ChatConversationListProps {
@@ -107,9 +107,7 @@ export function ChatConversationList({
                       selected && 'bg-accent',
                     )}
                   >
-                    <Avatar className="size-10">
-                      <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">{initialsOf(title)}</AvatarFallback>
-                    </Avatar>
+                    <PersonAvatar name={title} colorKey={conversation.teacher_ci} size="md" className="[--avatar-size:--spacing(10)]" />
                     <span className="grid min-w-0 flex-1 gap-0.5">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className={cn('truncate text-sm', unread > 0 ? 'font-semibold' : 'font-medium')}>{title}</span>

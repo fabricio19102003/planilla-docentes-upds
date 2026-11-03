@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search,
-  Users,
   Plus,
   UserPlus,
   IdCard,
@@ -35,6 +34,8 @@ import {
 import type { Teacher } from '@/api/types'
 import { apiErrorMessage } from '@/lib/userCredentials'
 import { TEACHER_TYPE_OPTIONS, teacherTypeLabel } from '@/domain/teacherTypes'
+import { PersonAvatar } from '@/components/shared/PersonAvatar'
+import { TeacherTypeBadge } from '@/components/shared/TeacherTypeBadge'
 import type { TeacherType } from '@/domain/teacherTypes'
 
 const GENDER_ITEMS = [
@@ -496,7 +497,7 @@ export function TeachersPage() {
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={TABLE_HEADERS.length + 1} className="p-0 whitespace-normal">
                 <EmptyState
-                  icon={Users}
+                  illustration="empty-search"
                   title={
                     debouncedSearch
                       ? `No se encontraron docentes para "${debouncedSearch}"`
@@ -521,11 +522,16 @@ export function TeachersPage() {
                     }}
                   />
                 </TableCell>
-                <TableCell className="px-4 py-3 font-medium text-foreground">{teacher.full_name}</TableCell>
+                <TableCell className="px-4 py-3 font-medium text-foreground">
+                  <span className="flex items-center gap-3">
+                    <PersonAvatar name={teacher.full_name} colorKey={teacher.ci} size="sm" />
+                    <span>{teacher.full_name}</span>
+                  </span>
+                </TableCell>
                 <TableCell className="px-4 py-3 text-muted-foreground tabular-nums">{teacher.ci}</TableCell>
                 <TableCell className="px-4 py-3 text-muted-foreground">{teacher.email ?? '—'}</TableCell>
                 <TableCell className="px-4 py-3 text-muted-foreground">{teacher.profession ?? '—'}</TableCell>
-                <TableCell className="px-4 py-3 text-muted-foreground">{teacherTypeLabel(teacher.external_permanent)}</TableCell>
+                <TableCell className="px-4 py-3"><TeacherTypeBadge type={teacher.external_permanent} label={teacherTypeLabel(teacher.external_permanent)} /></TableCell>
                 <TableCell className="px-4 py-3">
                   <Button variant="link" size="sm" className="px-0 text-primary" onClick={() => navigate(`/teachers/${teacher.ci}`)}>
                     Ver más →

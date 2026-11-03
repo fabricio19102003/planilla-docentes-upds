@@ -48,6 +48,7 @@
     "test:student-ui": "node --experimental-strip-types --test scripts/check-student-ui.mjs",
     "test:monthly-close": "node --experimental-strip-types --test scripts/check-monthly-close.mjs",
     "test:chart-palette": "node --experimental-strip-types --test scripts/check-chart-palette.mjs",
+    "test:avatar-tone": "node --experimental-strip-types --test scripts/check-avatar-tone.mjs",
     "test:theme": "node --experimental-strip-types --test scripts/check-theme.mjs",
     "test:empty-illustrations": "node --test scripts/check-empty-illustrations.mjs",
     "test:student-history-summary": "node --experimental-strip-types --test scripts/check-student-history-summary.mjs",
