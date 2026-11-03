@@ -125,7 +125,7 @@ export function Header() {
 
       {/* Global search — admin only */}
       {isAdmin && (
-        <div className="order-last relative w-full flex-1 md:order-none md:mx-4 md:max-w-md">
+        <div className="order-last relative w-full basis-full md:basis-0 md:flex-1 md:order-none md:mx-4 md:max-w-md">
           <Autocomplete
             items={searchGroups}
             filter={null}
@@ -186,7 +186,7 @@ export function Header() {
           >
             <Bell />
             {unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-solid-destructive text-[10px] font-bold text-white">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}

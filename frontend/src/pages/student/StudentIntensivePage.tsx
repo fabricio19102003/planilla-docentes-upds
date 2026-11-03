@@ -81,8 +81,7 @@ export function StudentIntensivePage() {
 
   const header = (
     <>
-      <h1 className="sr-only">Portal del estudiante: Cursos de verano e invierno</h1>
-      <PageHeader
+      <PageHeader as="h1"
         title="Cursos de verano e invierno"
         description="Podés inscribirte a los cursos de las materias que reprobaste o tenés pendientes. Es informativo: el cobro no se hace desde el portal."
       />

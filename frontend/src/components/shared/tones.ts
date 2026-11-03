@@ -19,16 +19,19 @@ export const TONE_CHIP: Record<Tone, string> = {
   neutral: 'bg-muted text-muted-foreground',
 }
 
-/** Solid filled chip with a soft colored glow: StatCard icons and other prominent markers. */
+/**
+ * Solid filled chip with a soft colored glow: StatCard icons, avatars and other prominent markers.
+ * The fills are the darker `solid-*` tokens so white text and icons keep WCAG AA contrast.
+ */
 export const TONE_SOLID: Record<Tone, string> = {
   primary: 'bg-primary text-primary-foreground shadow-md shadow-primary/30',
-  success: 'bg-success text-white shadow-md shadow-success/30',
-  warning: 'bg-warning text-white shadow-md shadow-warning/30',
-  destructive: 'bg-destructive text-white shadow-md shadow-destructive/30',
-  info: 'bg-info text-white shadow-md shadow-info/30',
-  violet: 'bg-tone-violet text-white shadow-md shadow-tone-violet/30',
-  cyan: 'bg-tone-cyan text-white shadow-md shadow-tone-cyan/30',
-  neutral: 'bg-muted-foreground/70 text-white shadow-md shadow-muted-foreground/20',
+  success: 'bg-solid-success text-white shadow-md shadow-solid-success/30',
+  warning: 'bg-solid-warning text-white shadow-md shadow-solid-warning/30',
+  destructive: 'bg-solid-destructive text-white shadow-md shadow-solid-destructive/30',
+  info: 'bg-solid-info text-white shadow-md shadow-solid-info/30',
+  violet: 'bg-solid-violet text-white shadow-md shadow-solid-violet/30',
+  cyan: 'bg-solid-cyan text-white shadow-md shadow-solid-cyan/30',
+  neutral: 'bg-muted-foreground text-white shadow-md shadow-muted-foreground/20',
 }
 
 /** Solid dot color, used for status indicators. */

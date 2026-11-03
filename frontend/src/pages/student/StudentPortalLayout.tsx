@@ -28,7 +28,7 @@ export function StudentPortalLayout() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="bg-brand shadow-lg shadow-brand/20">
+      <header className="bg-brand shadow-lg shadow-brand-surface/20">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div className="flex items-center gap-4">
             <Logo size="sm" />
@@ -37,7 +37,7 @@ export function StudentPortalLayout() {
             </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            {me.data && <span className="text-brand-foreground/80">{me.data.full_name}</span>}
+            {me.data && <span className="text-brand-foreground">{me.data.full_name}</span>}
             <ThemeToggle variant="brand" />
             <Button size="sm" variant="outline"
               className="border-brand-foreground/30 bg-brand-foreground/10 text-brand-foreground hover:bg-brand-foreground/20 hover:text-brand-foreground"
@@ -52,7 +52,7 @@ export function StudentPortalLayout() {
               className={({ isActive }) => cn('whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition-colors',
                 isActive
                   ? 'bg-brand-foreground font-medium text-brand-surface shadow-sm'
-                  : 'text-brand-foreground/80 hover:bg-brand-foreground/10 hover:text-brand-foreground')}>
+                  : 'text-brand-foreground hover:bg-brand-foreground/10 hover:text-brand-foreground')}>
               {link.label}
             </NavLink>
           ))}

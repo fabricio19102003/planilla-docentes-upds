@@ -46,8 +46,7 @@ export function StudentSchedulePage() {
 
   return (
     <>
-      <h1 className="sr-only">Portal del estudiante: Mi horario</h1>
-      <PageHeader
+      <PageHeader as="h1"
         title="Mi horario"
         description="Horario publicado de tu grupo, de las materias que recursás o tenés pendientes y de tus cursos de verano e invierno."
       />

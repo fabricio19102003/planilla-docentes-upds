@@ -143,8 +143,7 @@ export function StudentReenrollmentPage() {
 
   return (
     <>
-      <h1 className="sr-only">Portal del estudiante: Rematrícula</h1>
-      <PageHeader
+      <PageHeader as="h1"
         title={`Rematrícula${window ? ` ${window.term_code}` : ''}`}
         description={window ? `Abierta del ${formatDateInBolivia(window.starts_on)} al ${formatDateInBolivia(window.ends_on)}.` : 'Elegí tu grupo y las materias que vas a cursar el próximo período.'}
         actions={request && <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge>}

@@ -53,8 +53,9 @@ for (const name of HEADER_PAGES) {
     const code = sources[name]
     assert.match(code, /import \{ PageHeader \} from '@\/components\/shared\/PageHeader'/)
     assert.match(code, /<PageHeader\b/)
-    // PageHeader renders an h2 and the student layout has no app header, so each page owns its h1.
-    assert.equal((code.match(/<h1\b/g) ?? []).length, 1, `${name} must render exactly one h1`)
+    // The student layout has no app header, so each page's PageHeader renders the single h1.
+    assert.equal((code.match(/<PageHeader as="h1"/g) ?? []).length, 1, `${name} must render exactly one PageHeader as h1`)
+    assert.equal((code.match(/<h1\b/g) ?? []).length, 0, `${name} must not add another h1`)
   })
 }
 
