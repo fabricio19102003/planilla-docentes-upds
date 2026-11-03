@@ -34,11 +34,14 @@ export function StudentChangePasswordPage() {
   const toggle = { visible, onToggle: () => setVisible((v) => !v), toggleLabel: visible ? 'Ocultar contraseñas' : 'Mostrar contraseñas' }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md p-6 sm:p-8">
+    <main className="bg-brand flex min-h-screen flex-col items-center justify-center p-4">
+      <div className="mb-6 rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand/30 backdrop-blur">
+        <Logo />
+      </div>
+      <Card className="w-full max-w-md overflow-hidden p-6 shadow-2xl shadow-brand/40 sm:p-8">
+        <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <Logo />
-          <h1 className="flex items-center gap-2 text-xl font-semibold"><Lock aria-hidden="true" />Creá tu contraseña</h1>
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-brand"><Lock aria-hidden="true" />Creá tu contraseña</h1>
           <p className="text-sm text-muted-foreground">
             {me.data?.must_change_password === false ? 'Cambiá tu contraseña del portal.' : 'Antes de seguir, reemplazá la clave temporal por una contraseña tuya.'}
           </p>

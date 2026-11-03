@@ -1,3 +1,4 @@
+import { Award, CalendarCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useStudentMe, useStudentMigrationDocuments, useStudentReenrollment } from '@/api/hooks/useStudentPortal'
@@ -19,7 +20,18 @@ export function StudentHomePage() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold">Hola{me.data ? `, ${me.data.first_names}` : ''}</h1>
+      <section className="bg-brand-soft relative overflow-hidden rounded-2xl border p-5 shadow-xs/5 sm:p-6">
+        <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
+        <h1 className="text-2xl font-semibold text-brand">Hola{me.data ? `, ${me.data.first_names}` : ''}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Te damos la bienvenida: tu rematrícula, tu historial y tu horario en un solo lugar.</p>
+        {(data?.eligibility.target_semester || me.data?.curriculum_plan) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {data?.eligibility.target_semester && <Badge variant="info">Semestre {data.eligibility.target_semester}</Badge>}
+            {data && <Badge variant="success">{data.eligibility.scholarship.label}</Badge>}
+            {me.data?.curriculum_plan && <Badge variant="outline">Plan {me.data.curriculum_plan}</Badge>}
+          </div>
+        )}
+      </section>
       {request?.status === 'observada' && (
         <Alert variant="error" role="alert">
           <AlertTitle>Tu solicitud de rematrícula tiene una observación: {request.observation_label}</AlertTitle>
@@ -27,9 +39,13 @@ export function StudentHomePage() {
         </Alert>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+        <Card className="overflow-hidden">
+          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-primary" />
           <CardHeader>
-            <CardTitle className="text-base">Rematrícula</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md shadow-primary/30"><CalendarCheck className="size-4" aria-hidden="true" /></span>
+              Rematrícula
+            </CardTitle>
             <CardDescription>
               {data?.window
                 ? `${data.window.term_code}: del ${formatDateInBolivia(data.window.starts_on)} al ${formatDateInBolivia(data.window.ends_on)}`
@@ -45,9 +61,13 @@ export function StudentHomePage() {
           </CardContent>
         </Card>
         {data && (
-          <Card>
+          <Card className="overflow-hidden">
+            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-success" />
             <CardHeader>
-              <CardTitle className="text-base">{data.eligibility.scholarship.label}</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-success text-primary-foreground shadow-md shadow-success/30"><Award className="size-4" aria-hidden="true" /></span>
+                {data.eligibility.scholarship.label}
+              </CardTitle>
               <CardDescription>
                 {data.eligibility.scholarship.average === null
                   ? 'Sin notas finales en tu último período.'

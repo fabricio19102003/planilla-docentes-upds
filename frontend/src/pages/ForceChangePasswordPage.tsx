@@ -175,16 +175,17 @@ export function ForceChangePasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/40 p-4 sm:p-6">
+    <main className="bg-brand flex min-h-screen flex-col items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="rounded-2xl bg-primary px-8 py-5 shadow-sm">
+          <div className="rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand/30 backdrop-blur">
             <Logo size="md" />
           </div>
         </div>
 
-        <Card className="p-6 sm:p-8">
+        <Card className="overflow-hidden p-6 shadow-2xl shadow-brand/40 sm:p-8">
+          <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
           {/* Title */}
           <div className="mb-6 text-center">
             <div className="mb-2 flex items-center justify-center gap-2">
