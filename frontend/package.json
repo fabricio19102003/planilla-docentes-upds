@@ -46,6 +46,7 @@
     "preview": "vite preview",
     "test:reenrollment": "node --experimental-strip-types --test scripts/check-reenrollment.mjs",
     "test:student-ui": "node --experimental-strip-types --test scripts/check-student-ui.mjs",
+    "test:empty-illustrations": "node --test scripts/check-empty-illustrations.mjs",
     "test:student-history-summary": "node --experimental-strip-types --test scripts/check-student-history-summary.mjs",
     "test:student-portal": "node --experimental-strip-types --test scripts/check-student-portal.mjs",
     "test:curriculum-editing": "node --experimental-strip-types --test scripts/check-curriculum-editing.mjs",

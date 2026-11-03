@@ -112,7 +112,7 @@ export function MigrationDocumentsPage() {
       </Card>
       {types.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(types.error, 'No se pudo cargar la lista de documentos.')}</AlertTitle></Alert>}
       {types.isSuccess && list.length === 0 && (
-        <EmptyState icon={FileText} title="Todavía no definiste documentos" description="Agregá los documentos migratorios que se exigen; mientras no haya ninguno activo todos los estudiantes cuentan como regularizados." />
+        <EmptyState illustration="empty-document" icon={FileText} title="Todavía no definiste documentos" description="Agregá los documentos migratorios que se exigen; mientras no haya ninguno activo todos los estudiantes cuentan como regularizados." />
       )}
       {list.length > 0 && (
         <TableCard tableClassName="min-w-[760px]" footer={<p className="text-sm text-muted-foreground">El orden de esta lista es el que se usa al nombrar los documentos pendientes.</p>}>

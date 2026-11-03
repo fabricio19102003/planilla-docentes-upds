@@ -152,7 +152,7 @@ export function BackupPage() {
           ) : !backups || backups.length === 0 ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={4} className="p-0 whitespace-normal">
-                <EmptyState icon={Database} title="No hay respaldos disponibles" description="Creá el primero." />
+                <EmptyState illustration="empty-box" icon={Database} title="No hay respaldos disponibles" description="Creá el primero." />
               </TableCell>
             </TableRow>
           ) : (

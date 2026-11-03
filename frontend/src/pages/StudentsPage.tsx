@@ -100,7 +100,7 @@ export function StudentsPage() {
       )}
 
       {!students.isLoading && !students.isError && total === 0 ? (
-        <EmptyState
+        <EmptyState illustration="empty-search"
           icon={GraduationCap}
           title={hasFilters ? 'Ningún estudiante coincide con estos filtros' : 'Todavía no hay estudiantes'}
           description={hasFilters ? 'Probá con otro nombre, documento o filtro.' : 'Importá el CSV de una gestión desde el sistema académico.'}

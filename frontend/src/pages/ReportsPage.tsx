@@ -887,7 +887,7 @@ export function ReportsPage() {
             <CardTitle className="text-base">Historial de Reportes</CardTitle>
             <CardDescription>Últimos 50 reportes generados</CardDescription>
           </CardHeader>
-          <EmptyState
+          <EmptyState illustration="empty-document"
             icon={History}
             title="No hay reportes generados aún"
             description="Usá los filtros de arriba para crear uno."

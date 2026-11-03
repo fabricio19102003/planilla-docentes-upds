@@ -543,7 +543,7 @@ export function AdminRequestsPage() {
           {!filtered?.length ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={7} className="p-0 whitespace-normal">
-                <EmptyState icon={Inbox} title="No hay solicitudes para mostrar" />
+                <EmptyState illustration="empty-inbox" icon={Inbox} title="No hay solicitudes para mostrar" />
               </TableCell>
             </TableRow>
           ) : (

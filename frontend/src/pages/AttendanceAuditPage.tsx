@@ -553,7 +553,7 @@ export function AttendanceAuditPage() {
           {/* Section C: Detalle de Asistencia — AUDIT TABLE */}
           {data.attendance_detail.length === 0 ? (
             <AuditSection icon={<ClipboardCheck size={16} />} title="Detalle de Asistencia — Auditoría" aside="0 registros">
-              <EmptyState
+              <EmptyState illustration="empty-document"
                 icon={ClipboardCheck}
                 title="Sin registros de asistencia procesados para este período"
               />

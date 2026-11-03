@@ -84,7 +84,7 @@ export function DataTable<T>({
           ) : data.length === 0 ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={columns.length} className="p-0 whitespace-normal">
-                <EmptyState icon={Inbox} title={emptyMessage} />
+                <EmptyState illustration="empty-box" icon={Inbox} title={emptyMessage} />
               </TableCell>
             </TableRow>
           ) : (

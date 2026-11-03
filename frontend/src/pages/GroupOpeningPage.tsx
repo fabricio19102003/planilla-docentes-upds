@@ -80,10 +80,10 @@ export function GroupOpeningPage() {
 
       {opening.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(opening.error, 'No se pudieron cargar las sugerencias.')}</AlertTitle></Alert>}
       {windows.isSuccess && list.length === 0 && (
-        <EmptyState icon={Layers} title="Todavía no hay una rematrícula abierta" description="Abrí una ventana en Rematrícula; con las solicitudes de los estudiantes acá vas a ver cuántos grupos abrir." />
+        <EmptyState illustration="empty-calendar" icon={Layers} title="Todavía no hay una rematrícula abierta" description="Abrí una ventana en Rematrícula; con las solicitudes de los estudiantes acá vas a ver cuántos grupos abrir." />
       )}
       {data?.window && data.rows.length === 0 && (
-        <EmptyState icon={Layers} title="Sin solicitudes ni grupos" description={`Todavía no hay solicitudes pendientes o realizadas ni grupos activos de ${data.window.term_code}.`} />
+        <EmptyState illustration="empty-inbox" icon={Layers} title="Sin solicitudes ni grupos" description={`Todavía no hay solicitudes pendientes o realizadas ni grupos activos de ${data.window.term_code}.`} />
       )}
       {data?.window && data.rows.length > 0 && (
         <TableCard

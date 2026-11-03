@@ -154,7 +154,7 @@ export function ReenrollmentPage() {
 
           {inbox.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(inbox.error, 'No se pudieron cargar las solicitudes.')}</AlertTitle></Alert>}
           {inbox.data && total === 0 ? (
-            <EmptyState icon={InboxIcon} title="No hay solicitudes con estos filtros" description="Las solicitudes aparecen acá apenas el estudiante las envía desde su portal." />
+            <EmptyState illustration="empty-inbox" icon={InboxIcon} title="No hay solicitudes con estos filtros" description="Las solicitudes aparecen acá apenas el estudiante las envía desde su portal." />
           ) : (
             <TableCard
               tableClassName="min-w-[860px]"

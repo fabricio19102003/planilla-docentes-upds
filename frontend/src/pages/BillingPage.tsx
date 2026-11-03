@@ -422,7 +422,7 @@ export function BillingPage() {
         <div className="max-w-3xl">
           {header}
           <Card>
-            <EmptyState
+            <EmptyState illustration="empty-document"
               icon={Clock}
               title="Facturación aún no publicada"
               description="El administrador aún no ha publicado los montos a facturar para este mes. Serás notificado cuando estén disponibles."

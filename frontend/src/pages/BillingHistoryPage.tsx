@@ -393,7 +393,7 @@ export function BillingHistoryPage() {
         {/* History: cards below sm (every month amount visible), table from sm up */}
         {!history.length ? (
           <Card>
-            <EmptyState
+            <EmptyState illustration="empty-document"
               icon={Inbox}
               title="No hay meses publicados en tu historial de facturación"
             />

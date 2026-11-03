@@ -641,7 +641,7 @@ export function PracticeAttendancePage() {
           {/* Daily flat table */}
           {dailyEntries.length === 0 ? (
             <Card>
-              <EmptyState
+              <EmptyState illustration="empty-calendar"
                 icon={Calendar}
                 title="No hay clases programadas para esta fecha"
                 description="Selecciona otra fecha o usa los botones de navegacion"
@@ -741,7 +741,7 @@ export function PracticeAttendancePage() {
         <>
           {grouped.length === 0 && !isLoading && (
             <Card>
-              <EmptyState
+              <EmptyState illustration="empty-document"
                 icon={AlertTriangle}
                 title="No hay registros de asistencia para este periodo"
                 description='Usa el boton "Generar Asistencia" para crear los registros desde el horario'

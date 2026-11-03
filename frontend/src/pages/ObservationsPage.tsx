@@ -180,7 +180,7 @@ export function ObservationsPage() {
                 <DataTable columns={observationColumns} data={[]} loading />
               ) : !observations?.length ? (
                 <Card>
-                  <EmptyState icon={AlertTriangle} title="No hay observaciones para este período" />
+                  <EmptyState illustration="empty-box" icon={AlertTriangle} title="No hay observaciones para este período" />
                 </Card>
               ) : (
                 <DataTable
