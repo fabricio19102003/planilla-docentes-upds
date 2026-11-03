@@ -40,11 +40,20 @@
   --tone-violet-foreground: var(--color-violet-700);
   --tone-cyan: var(--color-cyan-500);
   --tone-cyan-foreground: var(--color-cyan-700);
+  /* Solid fills that keep white text and icons at WCAG AA (4.5:1) in both themes. */
+  --solid-success: var(--color-emerald-700);
+  --solid-warning: var(--color-amber-700);
+  --solid-destructive: var(--color-red-600);
+  --solid-info: var(--color-blue-600);
+  --solid-violet: var(--color-violet-600);
+  --solid-cyan: var(--color-cyan-700);
   /* UPDS brand surfaces: navy #003366 to blue #0066CC. */
   --brand: oklch(0.322 0.094 252.5);
   /* Surface of the brand band; --brand doubles as text colour, so dark mode splits the two. */
   --brand-surface: var(--brand);
   --brand-strong: oklch(0.522 0.177 255.8);
+  /* End of the brand band gradient: a touch deeper than UPDS blue so white text keeps AA. */
+  --brand-gradient-end: oklch(0.46 0.17 257);
   --brand-foreground: var(--color-white);
   --brand-soft-glow: --alpha(var(--color-sky-300) / 28%);
   --border: oklch(0.9 0.02 250);
@@ -59,7 +68,7 @@
   /* Navy UPDS sidebar with light text; the active item is UPDS blue. */
   --sidebar: oklch(0.29 0.085 253);
   --sidebar-foreground: --alpha(var(--color-white) / 78%);
-  --sidebar-primary: oklch(0.58 0.17 252);
+  --sidebar-primary: oklch(0.522 0.177 255.8);
   --sidebar-primary-foreground: var(--color-white);
   --sidebar-accent: --alpha(var(--color-white) / 9%);
   --sidebar-accent-foreground: var(--color-white);
@@ -101,6 +110,12 @@
   --color-tone-violet-foreground: var(--tone-violet-foreground);
   --color-tone-cyan: var(--tone-cyan);
   --color-tone-cyan-foreground: var(--tone-cyan-foreground);
+  --color-solid-success: var(--solid-success);
+  --color-solid-warning: var(--solid-warning);
+  --color-solid-destructive: var(--solid-destructive);
+  --color-solid-info: var(--solid-info);
+  --color-solid-violet: var(--solid-violet);
+  --color-solid-cyan: var(--solid-cyan);
   --color-brand: var(--brand);
   --color-brand-surface: var(--brand-surface);
   --color-brand-strong: var(--brand-strong);
@@ -219,8 +234,9 @@
   --card-foreground: var(--color-neutral-100);
   --popover: oklch(0.245 0.034 255);
   --popover-foreground: var(--color-neutral-100);
-  --primary: oklch(0.618 0.152 251.7);
-  --primary-foreground: var(--color-white);
+  /* Light blue with navy text: AA for filled buttons and for primary text on dark cards. */
+  --primary: oklch(0.72 0.13 248);
+  --primary-foreground: oklch(0.2 0.06 255);
   --secondary: --alpha(var(--color-white) / 6%);
   --secondary-foreground: var(--color-neutral-100);
   --muted: --alpha(var(--color-white) / 6%);
@@ -243,6 +259,7 @@
   --brand: oklch(0.82 0.09 250);
   --brand-surface: oklch(0.27 0.08 252);
   --brand-strong: oklch(0.45 0.15 255);
+  --brand-gradient-end: var(--brand-strong);
   --brand-foreground: var(--color-white);
   --brand-soft-glow: --alpha(var(--color-sky-300) / 10%);
   --border: --alpha(var(--color-white) / 10%);
@@ -256,7 +273,7 @@
   --chart-5: var(--color-emerald-400);
   --sidebar: oklch(0.205 0.06 253);
   --sidebar-foreground: --alpha(var(--color-white) / 78%);
-  --sidebar-primary: oklch(0.58 0.17 252);
+  --sidebar-primary: oklch(0.522 0.177 255.8);
   --sidebar-primary-foreground: var(--color-white);
   --sidebar-accent: --alpha(var(--color-white) / 8%);
   --sidebar-accent-foreground: var(--color-white);
@@ -291,9 +308,9 @@
 @utility bg-brand {
   background-color: var(--brand-surface);
   background-image:
-    radial-gradient(circle at 85% 15%, --alpha(var(--color-sky-400) / 35%), transparent 45%),
+    radial-gradient(circle at 85% 15%, --alpha(var(--color-sky-400) / 22%), transparent 45%),
     radial-gradient(circle at 10% 110%, --alpha(var(--color-violet-500) / 30%), transparent 50%),
-    linear-gradient(135deg, var(--brand-surface) 0%, var(--brand-strong) 100%);
+    linear-gradient(135deg, var(--brand-surface) 0%, var(--brand-gradient-end) 100%);
   color: var(--brand-foreground);
 }
 

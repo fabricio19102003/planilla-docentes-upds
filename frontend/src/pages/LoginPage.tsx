@@ -55,16 +55,16 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand/30 backdrop-blur">
+          <div className="rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand-surface/30 backdrop-blur">
             <Logo size="md" />
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-tight text-brand-foreground">SIPAD</h1>
-            <p className="text-sm text-brand-foreground/75">Sistema Integrado de Pago Docente</p>
+            <p className="text-sm text-brand-foreground">Sistema Integrado de Pago Docente</p>
           </div>
         </div>
 
-        <Card className="overflow-hidden p-6 shadow-2xl shadow-brand/40 sm:p-8">
+        <Card className="overflow-hidden p-6 shadow-2xl shadow-brand-surface/40 sm:p-8">
           <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
           {/* Welcome text */}
           <div className="mb-6">
@@ -149,7 +149,7 @@ export function LoginPage() {
           </form>
         </Card>
 
-        <p className="mt-6 text-center text-xs text-brand-foreground/70">
+        <p className="mt-6 text-center text-xs text-brand-foreground">
           © {new Date().getFullYear()} UPDS - Sede Cobija
         </p>
       </div>

@@ -35,10 +35,10 @@ export function StudentChangePasswordPage() {
 
   return (
     <main className="bg-brand flex min-h-screen flex-col items-center justify-center p-4">
-      <div className="mb-6 rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand/30 backdrop-blur">
+      <div className="mb-6 rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand-surface/30 backdrop-blur">
         <Logo />
       </div>
-      <Card className="w-full max-w-md overflow-hidden p-6 shadow-2xl shadow-brand/40 sm:p-8">
+      <Card className="w-full max-w-md overflow-hidden p-6 shadow-2xl shadow-brand-surface/40 sm:p-8">
         <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <h1 className="flex items-center gap-2 text-xl font-semibold text-brand"><Lock aria-hidden="true" />Creá tu contraseña</h1>

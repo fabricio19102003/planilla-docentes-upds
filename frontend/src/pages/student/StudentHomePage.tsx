@@ -73,7 +73,7 @@ export function StudentHomePage() {
               <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-success" />
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <span className="flex size-8 items-center justify-center rounded-lg bg-success text-primary-foreground shadow-md shadow-success/30"><Award className="size-4" aria-hidden="true" /></span>
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-solid-success text-primary-foreground shadow-md shadow-solid-success/30"><Award className="size-4" aria-hidden="true" /></span>
                   {data.eligibility.scholarship.label}
                 </CardTitle>
                 <CardDescription>

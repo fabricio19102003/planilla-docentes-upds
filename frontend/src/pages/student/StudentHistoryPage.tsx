@@ -11,8 +11,7 @@ export function StudentHistoryPage() {
   const history = useStudentHistory()
   return (
     <>
-      <h1 className="sr-only">Portal del estudiante: Historial académico</h1>
-      <PageHeader title="Historial académico" description="Tus materias por período, con la nota final y el avance de tu carrera." />
+      <PageHeader as="h1" title="Historial académico" description="Tus materias por período, con la nota final y el avance de tu carrera." />
       {history.isError && <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar tu historial.</AlertTitle></Alert>}
       {!history.isError && !history.data && (
         <div role="status" aria-label="Cargando historial" className="space-y-4">

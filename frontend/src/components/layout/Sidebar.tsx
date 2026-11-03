@@ -148,7 +148,7 @@ function NavGroup({
       <SidebarGroup className="py-1">
         <SidebarGroupLabel
           render={<CollapsibleTrigger />}
-          className="cursor-pointer gap-2 uppercase tracking-wider text-[11px] text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
+          className="cursor-pointer gap-2 uppercase tracking-wider text-[11px] text-sidebar-foreground/85 hover:text-sidebar-accent-foreground"
         >
           <GroupIcon className="size-3.5" />
           <span className="flex-1 text-left">{group.label}</span>
@@ -267,7 +267,7 @@ function UserMenu() {
             </Avatar>
             <div className="grid min-w-0 flex-1 text-left leading-tight">
               <span className="truncate text-sm font-medium">{user?.full_name ?? ''}</span>
-              <span className="truncate text-xs text-sidebar-foreground/60">{isAdmin ? 'Administrador' : 'Docente'}</span>
+              <span className="truncate text-xs text-sidebar-foreground/85">{isAdmin ? 'Administrador' : 'Docente'}</span>
             </div>
             <ChevronsUpDown className="ml-auto size-4 opacity-60" />
           </MenuTrigger>
@@ -309,7 +309,7 @@ export function AppSidebar() {
           </div>
           <div className="grid min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate text-sm font-bold tracking-wide text-sidebar-accent-foreground">UPDS</span>
-            <span className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-sidebar-foreground/60">
+            <span className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-sidebar-foreground/85">
               Sistema de Pago
             </span>
           </div>
