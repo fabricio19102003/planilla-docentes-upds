@@ -2,10 +2,12 @@ import { CheckCircle2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { useStudentReenrollment, useSubmitReenrollment, type StudentReenrollment } from '@/api/hooks/useStudentPortal'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateInBolivia } from '@/lib/boliviaDates'
 import { formatBs, requestStatus, type CurriculumItem } from '@/lib/reenrollmentState'
 import { buildSubmission, estimateAmounts, groupLabel, submissionProblem, type GroupChoices } from '@/lib/studentPortalState'
@@ -136,19 +138,33 @@ function Form({ view }: { view: StudentReenrollment }) {
 
 export function StudentReenrollmentPage() {
   const view = useStudentReenrollment()
-  if (view.isError) return <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar la rematrícula.</AlertTitle></Alert>
-  if (!view.data) return <p role="status" className="text-sm text-muted-foreground">Cargando rematrícula…</p>
-  const { window, request, eligibility } = view.data
+  const window = view.data?.window
+  const request = view.data?.request
 
   return (
     <>
-      <div className="space-y-1">
-        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
-          Rematrícula {window?.term_code}
-          {request && <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge>}
-        </h1>
-        {window && <p className="text-sm text-muted-foreground">Abierta del {formatDateInBolivia(window.starts_on)} al {formatDateInBolivia(window.ends_on)}.</p>}
-      </div>
+      <h1 className="sr-only">Portal del estudiante: Rematrícula</h1>
+      <PageHeader
+        title={`Rematrícula${window ? ` ${window.term_code}` : ''}`}
+        description={window ? `Abierta del ${formatDateInBolivia(window.starts_on)} al ${formatDateInBolivia(window.ends_on)}.` : 'Elegí tu grupo y las materias que vas a cursar el próximo período.'}
+        actions={request && <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge>}
+      />
+      {view.isError && <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar la rematrícula.</AlertTitle></Alert>}
+      {!view.isError && !view.data && (
+        <div role="status" aria-label="Cargando rematrícula" className="space-y-4">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+        </div>
+      )}
+      {view.data && <ReenrollmentContent view={view.data} />}
+    </>
+  )
+}
+
+function ReenrollmentContent({ view }: { view: StudentReenrollment }) {
+  const { window, request, eligibility } = view
+  return (
+    <>
       {!window && <Alert variant="info"><AlertTitle>Todavía no hay una rematrícula programada.</AlertTitle></Alert>}
       {window && !window.is_open && <Alert variant="info"><AlertTitle>La rematrícula no está abierta en este momento.</AlertTitle></Alert>}
       {request?.status === 'realizada' && (
@@ -162,7 +178,7 @@ export function StudentReenrollmentPage() {
       )}
       {eligibility.target_semester === null
         ? <Alert variant="warning"><AlertTitle>No encontramos tu historial académico; acercate a Registro.</AlertTitle></Alert>
-        : window && <Form key={request?.submitted_at ?? 'new'} view={view.data} />}
+        : window && <Form key={request?.submitted_at ?? 'new'} view={view} />}
     </>
   )
 }

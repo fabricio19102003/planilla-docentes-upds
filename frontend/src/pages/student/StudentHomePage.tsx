@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateInBolivia } from '@/lib/boliviaDates'
 import { pendingLabels, regularizadoBadge } from '@/lib/migrationDocumentsState'
 import { formatBs, requestStatus } from '@/lib/reenrollmentState'
@@ -38,50 +39,58 @@ export function StudentHomePage() {
           <AlertDescription>{request.observation_message} Corregila desde Rematrícula o acercate a Registro.</AlertDescription>
         </Alert>
       )}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-primary" />
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md shadow-primary/30"><CalendarCheck className="size-4" aria-hidden="true" /></span>
-              Rematrícula
-            </CardTitle>
-            <CardDescription>
-              {data?.window
-                ? `${data.window.term_code}: del ${formatDateInBolivia(data.window.starts_on)} al ${formatDateInBolivia(data.window.ends_on)}`
-                : 'Todavía no hay una rematrícula programada.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {data?.eligibility.target_semester && <p>Te corresponde cursar el <strong>semestre {data.eligibility.target_semester}</strong>.</p>}
-            {request
-              ? <p className="flex items-center gap-2">Estado de tu solicitud: <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge></p>
-              : data?.window?.is_open && <p>Todavía no enviaste tu solicitud.</p>}
-            {data?.window?.is_open && <Button render={<Link to="/estudiante/rematricula" />}>{request ? 'Ver o editar mi solicitud' : 'Solicitar rematrícula'}</Button>}
-          </CardContent>
-        </Card>
-        {data && (
+      {view.isLoading && (
+        <div role="status" aria-label="Cargando tu rematrícula" className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-44 rounded-xl" />
+          <Skeleton className="h-44 rounded-xl" />
+        </div>
+      )}
+      {!view.isLoading && (
+        <div className="grid gap-4 md:grid-cols-2">
           <Card className="overflow-hidden">
-            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-success" />
+            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-primary" />
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-success text-primary-foreground shadow-md shadow-success/30"><Award className="size-4" aria-hidden="true" /></span>
-                {data.eligibility.scholarship.label}
+                <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md shadow-primary/30"><CalendarCheck className="size-4" aria-hidden="true" /></span>
+                Rematrícula
               </CardTitle>
               <CardDescription>
-                {data.eligibility.scholarship.average === null
-                  ? 'Sin notas finales en tu último período.'
-                  : `Promedio de tu último período (${data.eligibility.graded_term}): ${data.eligibility.scholarship.average}`}
+                {data?.window
+                  ? `${data.window.term_code}: del ${formatDateInBolivia(data.window.starts_on)} al ${formatDateInBolivia(data.window.ends_on)}`
+                  : 'Todavía no hay una rematrícula programada.'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <p>Cuota: <strong>{formatBs(data.eligibility.scholarship.cuota)}</strong> × {data.eligibility.scholarship.cuotas} = {formatBs(data.eligibility.scholarship.total)}</p>
-              {!data.eligibility.scholarship.never_failed && <p className="text-muted-foreground">Las becas requieren no haber reprobado ninguna materia.</p>}
-              <p className="text-xs text-muted-foreground">Montos informativos; el pago se realiza en caja.</p>
+            <CardContent className="space-y-3 text-sm">
+              {data?.eligibility.target_semester && <p>Te corresponde cursar el <strong>semestre {data.eligibility.target_semester}</strong>.</p>}
+              {request
+                ? <p className="flex items-center gap-2">Estado de tu solicitud: <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge></p>
+                : data?.window?.is_open && <p>Todavía no enviaste tu solicitud.</p>}
+              {data?.window?.is_open && <Button render={<Link to="/estudiante/rematricula" />}>{request ? 'Ver o editar mi solicitud' : 'Solicitar rematrícula'}</Button>}
             </CardContent>
           </Card>
-        )}
-      </div>
+          {data && (
+            <Card className="overflow-hidden">
+              <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-success" />
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-success text-primary-foreground shadow-md shadow-success/30"><Award className="size-4" aria-hidden="true" /></span>
+                  {data.eligibility.scholarship.label}
+                </CardTitle>
+                <CardDescription>
+                  {data.eligibility.scholarship.average === null
+                    ? 'Sin notas finales en tu último período.'
+                    : `Promedio de tu último período (${data.eligibility.graded_term}): ${data.eligibility.scholarship.average}`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <p>Cuota: <strong>{formatBs(data.eligibility.scholarship.cuota)}</strong> × {data.eligibility.scholarship.cuotas} = {formatBs(data.eligibility.scholarship.total)}</p>
+                {!data.eligibility.scholarship.never_failed && <p className="text-muted-foreground">Las becas requieren no haber reprobado ninguna materia.</p>}
+                <p className="text-xs text-muted-foreground">Montos informativos; el pago se realiza en caja.</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
       {migration?.applies && migrationBadge && (
         <Card>
           <CardHeader>
