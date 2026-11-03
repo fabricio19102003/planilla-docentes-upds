@@ -1,12 +1,15 @@
-import { CheckCircle2 } from 'lucide-react'
+import { BookOpen, CheckCircle2, ClipboardList } from 'lucide-react'
 import { useState } from 'react'
 
 import { useIntensiveEnrollment, useStudentIntensiveCourses } from '@/api/hooks/useStudentPortal'
 import { ConfirmAlertDialog, type ConfirmAlertSummary } from '@/components/shared/ConfirmAlertDialog'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { Alert, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateInBolivia, getTodayInBolivia } from '@/lib/boliviaDates'
 import {
   courseStatus,
@@ -76,16 +79,32 @@ export function StudentIntensivePage() {
   const change = useIntensiveEnrollment()
   const [confirm, setConfirm] = useState<{ course: StudentIntensiveCourse; action: Action } | null>(null)
 
-  if (view.isError) return <Alert variant="error" role="alert"><AlertTitle>No se pudieron cargar los cursos de verano e invierno.</AlertTitle></Alert>
-  if (!view.data) return <p role="status" className="text-sm text-muted-foreground">Cargando cursos…</p>
+  const header = (
+    <>
+      <h1 className="sr-only">Portal del estudiante: Cursos de verano e invierno</h1>
+      <PageHeader
+        title="Cursos de verano e invierno"
+        description="Podés inscribirte a los cursos de las materias que reprobaste o tenés pendientes. Es informativo: el cobro no se hace desde el portal."
+      />
+    </>
+  )
+  if (view.isError) return <>{header}<Alert variant="error" role="alert"><AlertTitle>No se pudieron cargar los cursos de verano e invierno.</AlertTitle></Alert></>
+  if (!view.data) {
+    return (
+      <>
+        {header}
+        <div role="status" aria-label="Cargando cursos" className="space-y-4">
+          <Skeleton className="h-32 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+      </>
+    )
+  }
   const { courses, enrollments } = view.data
 
   return (
     <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">Cursos de verano e invierno</h1>
-        <p className="text-sm text-muted-foreground">Podés inscribirte a los cursos de las materias que reprobaste o tenés pendientes. Es informativo: el cobro no se hace desde el portal.</p>
-      </div>
+      {header}
       {change.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(change.error, 'No se pudo actualizar tu inscripción.')}</AlertTitle></Alert>}
       {change.isSuccess && (
         <Alert variant="success" role="status">
@@ -97,7 +116,7 @@ export function StudentIntensivePage() {
         <CardHeader><CardTitle className="text-base">Mis inscripciones</CardTitle></CardHeader>
         <CardContent className="p-0">
           {enrollments.length === 0
-            ? <p className="px-4 pb-4 text-sm text-muted-foreground">No estás inscrito en ningún curso intensivo.</p>
+            ? <EmptyState icon={ClipboardList} className="py-8" title="Sin inscripciones" description="No estás inscrito en ningún curso intensivo." />
             : <ul className="divide-y">{enrollments.map((course) => <CourseCard key={course.id} course={course} action="cancel" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
         </CardContent>
       </Card>
@@ -109,7 +128,7 @@ export function StudentIntensivePage() {
         </CardHeader>
         <CardContent className="p-0">
           {courses.length === 0
-            ? <p className="px-4 pb-4 text-sm text-muted-foreground">Por ahora no hay cursos abiertos para tus materias.</p>
+            ? <EmptyState icon={BookOpen} className="py-8" title="Sin cursos disponibles" description="Por ahora no hay cursos abiertos para tus materias." />
             : <ul className="divide-y">{courses.map((course) => <CourseCard key={course.id} course={course} action="enroll" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
         </CardContent>
       </Card>

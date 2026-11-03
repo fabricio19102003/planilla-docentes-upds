@@ -1,7 +1,12 @@
+import { CalendarX } from 'lucide-react'
+
 import { useStudentSchedule } from '@/api/hooks/useStudentPortal'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { termLabel } from '@/lib/intensiveCoursesState'
 import {
   activityLabel,
@@ -12,6 +17,7 @@ import {
   timeRange,
   upcomingNote,
   type ScheduleEntry,
+  type StudentScheduleView,
 } from '@/lib/studentScheduleState'
 
 function EntryRow({ entry }: { entry: ScheduleEntry }) {
@@ -38,27 +44,40 @@ function EntryRow({ entry }: { entry: ScheduleEntry }) {
 export function StudentSchedulePage() {
   const view = useStudentSchedule()
 
-  if (view.isError) return <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar tu horario.</AlertTitle></Alert>
-  if (!view.data) return <p role="status" className="text-sm text-muted-foreground">Cargando horario…</p>
+  return (
+    <>
+      <h1 className="sr-only">Portal del estudiante: Mi horario</h1>
+      <PageHeader
+        title="Mi horario"
+        description="Horario publicado de tu grupo, de las materias que recursás o tenés pendientes y de tus cursos de verano e invierno."
+      />
+      {view.isError && <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar tu horario.</AlertTitle></Alert>}
+      {!view.isError && !view.data && (
+        <div role="status" aria-label="Cargando horario" className="space-y-4">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+      )}
+      {view.data && <ScheduleContent view={view.data} />}
+    </>
+  )
+}
 
-  const { entries, unscheduled } = view.data
+function ScheduleContent({ view }: { view: StudentScheduleView }) {
+  const { entries, unscheduled } = view
   const days = groupByWeekday(entries)
-  const message = emptyMessage(view.data)
+  const message = emptyMessage(view)
   const upcoming = upcomingNote(entries)
 
   return (
     <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">Mi horario</h1>
-        <p className="text-sm text-muted-foreground">Horario publicado de tu grupo, de las materias que recursás o tenés pendientes y de tus cursos de verano e invierno.</p>
-      </div>
       {upcoming && (
         <Alert variant="info" role="status">
           <AlertTitle>{upcoming}</AlertTitle>
           <AlertDescription>Este horario todavía no empezó a regir; puede cambiar hasta esa fecha.</AlertDescription>
         </Alert>
       )}
-      {message && <Alert variant="info" role="status"><AlertTitle>{message}</AlertTitle></Alert>}
+      {message && <EmptyState icon={CalendarX} title="Sin clases para mostrar" description={message} />}
       {days.map((day) => (
         <Card key={day.weekday}>
           <CardHeader><CardTitle className="text-base">{day.label}</CardTitle></CardHeader>
