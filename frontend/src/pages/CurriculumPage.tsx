@@ -128,11 +128,11 @@ export function CurriculumPage() {
 
       {plan.data && summary && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
             <StatCard icon={BookOpen} tone="primary" title="Materias" value={<CountUp value={summary.subjects} />}
               hint={`En ${plan.data.semesters.length} semestres`} />
             <StatCard icon={Clock} tone="cyan" title="Horas" value={<CountUp value={summary.hours} />}
-              hint={`${summary.theoryHours} teoría · ${summary.practiceHours} práctica`} />
+              hint={`${summary.theoryHours.toLocaleString('es-BO')} teoría · ${summary.practiceHours.toLocaleString('es-BO')} práctica`} />
             <StatCard icon={GraduationCap} tone="success" title="Créditos" value={<CountUp value={summary.credits} />}
               hint="Total de la carrera" />
             <StatCard icon={Sparkles} tone="violet" title="Electivas" value={<CountUp value={summary.electives} />}
