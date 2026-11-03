@@ -57,6 +57,8 @@ const TONE_FILL: Record<Tone, string> = {
   warning: 'var(--color-warning)',
   destructive: 'var(--color-destructive)',
   info: 'var(--color-info)',
+  violet: 'var(--color-tone-violet)',
+  cyan: 'var(--color-tone-cyan)',
   neutral: 'var(--color-muted-foreground)',
 }
 
@@ -176,16 +178,20 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Panel de Administración — SIPAD"
-        description={activePeriod}
-        actions={
-          <div className="rounded-xl border bg-card px-4 py-2 sm:text-right">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Período facturación</p>
-            <p className="text-base font-semibold tabular-nums text-foreground">{billingPeriodLabel}</p>
-          </div>
-        }
-      />
+      {/* Brand hero: the header text and the accent bar switch to the brand foreground. */}
+      <section className="bg-brand rounded-2xl p-5 shadow-lg shadow-brand/20 sm:p-6">
+        <PageHeader
+          className="mb-0 [&_h2]:text-brand-foreground [&_p]:text-brand-foreground/75 [&_span[aria-hidden]]:bg-brand-foreground/80"
+          title="Panel de Administración — SIPAD"
+          description={activePeriod}
+          actions={
+            <div className="rounded-xl border border-brand-foreground/20 bg-brand-foreground/10 px-4 py-2 backdrop-blur sm:text-right">
+              <p className="text-xs font-medium uppercase tracking-wider text-brand-foreground/70">Período facturación</p>
+              <p className="text-base font-semibold tabular-nums text-brand-foreground">{billingPeriodLabel}</p>
+            </div>
+          }
+        />
+      </section>
 
       {/* Stats Grid */}
       {/* StatCard truncates its text; long values (planilla state, amounts) wrap here instead. */}
@@ -202,7 +208,7 @@ export function DashboardPage() {
           title="Designaciones Activas"
           value={data?.designation_count ?? 0}
           subtitle="Materias asignadas"
-          tone="info"
+          tone="violet"
         />
         <StatCard
           icon={TrendingUp}
@@ -229,7 +235,7 @@ export function DashboardPage() {
               billingPeriodLabel
             )
           }
-          tone="primary"
+          tone="cyan"
         />
         <StatCard
           icon={ClipboardCheck}

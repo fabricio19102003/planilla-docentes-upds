@@ -2,11 +2,16 @@
 @import "tw-animate-css";
 
 /*
- * coss UI theme (neutral system) with UPDS blue as the primary colour.
- * "Moderno y suave": softer radius, hairline borders and subtle shadows.
+ * coss UI theme with UPDS blue as the primary colour.
+ * "Institucional vivo": a soft blue canvas instead of white, a navy UPDS sidebar,
+ * a multicolour tone set (violet and cyan next to the status tones) and brand
+ * gradients. Every colour lives here; components only reference the tokens and
+ * the brand utilities below.
  */
 :root {
   --background: var(--color-white);
+  /* Soft blue page canvas: white cards and controls float on it instead of on white. */
+  --canvas: oklch(0.972 0.013 248);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -29,7 +34,16 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
-  --border: --alpha(var(--color-black) / 8%);
+  /* Extra accent tones so summaries are not all blue. */
+  --tone-violet: var(--color-violet-500);
+  --tone-violet-foreground: var(--color-violet-700);
+  --tone-cyan: var(--color-cyan-500);
+  --tone-cyan-foreground: var(--color-cyan-700);
+  /* UPDS brand surfaces: navy #003366 to blue #0066CC. */
+  --brand: oklch(0.322 0.094 252.5);
+  --brand-strong: oklch(0.522 0.177 255.8);
+  --brand-foreground: var(--color-white);
+  --border: oklch(0.9 0.02 250);
   --input: --alpha(var(--color-black) / 10%);
   --ring: oklch(0.618 0.152 251.7);
   --chart-1: oklch(0.522 0.177 255.8);
@@ -38,14 +52,15 @@
   --chart-4: var(--color-amber-400);
   --chart-5: var(--color-emerald-500);
   --radius: 0.75rem;
-  --sidebar: var(--color-neutral-50);
-  --sidebar-foreground: color-mix(in srgb, var(--color-neutral-800) 64%, var(--sidebar));
-  --sidebar-primary: oklch(0.522 0.177 255.8);
+  /* Navy UPDS sidebar with light text; the active item is UPDS blue. */
+  --sidebar: oklch(0.29 0.085 253);
+  --sidebar-foreground: --alpha(var(--color-white) / 78%);
+  --sidebar-primary: oklch(0.58 0.17 252);
   --sidebar-primary-foreground: var(--color-white);
-  --sidebar-accent: --alpha(var(--color-black) / 4%);
-  --sidebar-accent-foreground: var(--color-neutral-800);
-  --sidebar-border: --alpha(var(--color-black) / 6%);
-  --sidebar-ring: oklch(0.618 0.152 251.7);
+  --sidebar-accent: --alpha(var(--color-white) / 9%);
+  --sidebar-accent-foreground: var(--color-white);
+  --sidebar-border: --alpha(var(--color-white) / 10%);
+  --sidebar-ring: oklch(0.7 0.13 240);
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -78,6 +93,13 @@
   --color-success: var(--success);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
+  --color-tone-violet: var(--tone-violet);
+  --color-tone-violet-foreground: var(--tone-violet-foreground);
+  --color-tone-cyan: var(--tone-cyan);
+  --color-tone-cyan-foreground: var(--tone-cyan-foreground);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-foreground: var(--brand-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -92,6 +114,7 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-canvas: var(--canvas);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -183,6 +206,7 @@
 .dark {
   --background: color-mix(in srgb, var(--color-neutral-950) 95%, var(--color-white));
   --foreground: var(--color-neutral-100);
+  --canvas: var(--background);
   --card: color-mix(in srgb, var(--background) 98%, var(--color-white));
   --card-foreground: var(--color-neutral-100);
   --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
@@ -203,6 +227,10 @@
   --success-foreground: var(--color-emerald-400);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-400);
+  --tone-violet: var(--color-violet-500);
+  --tone-violet-foreground: var(--color-violet-400);
+  --tone-cyan: var(--color-cyan-500);
+  --tone-cyan-foreground: var(--color-cyan-400);
   --border: --alpha(var(--color-white) / 6%);
   --input: --alpha(var(--color-white) / 8%);
   --ring: oklch(0.618 0.152 251.7);
@@ -221,7 +249,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-canvas text-foreground;
     margin: 0;
     font-family: Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
   }
@@ -236,6 +264,35 @@
 #root {
   width: 100%;
   min-height: 100vh;
+}
+
+/* ─── Brand surfaces ──────────────────────────────────────── */
+/* Navy → UPDS blue band for headers, heroes and the login panel. */
+@utility bg-brand {
+  background-color: var(--brand);
+  background-image:
+    radial-gradient(circle at 85% 15%, --alpha(var(--color-sky-400) / 35%), transparent 45%),
+    radial-gradient(circle at 10% 110%, --alpha(var(--color-violet-500) / 30%), transparent 50%),
+    linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
+  color: var(--brand-foreground);
+}
+
+/* Pale brand wash for welcome cards and highlighted panels. */
+@utility bg-brand-soft {
+  background-color: var(--card);
+  background-image:
+    radial-gradient(circle at 100% 0%, --alpha(var(--color-sky-300) / 28%), transparent 55%),
+    linear-gradient(135deg, --alpha(var(--brand-strong) / 9%) 0%, --alpha(var(--color-violet-500) / 6%) 100%);
+}
+
+/* Thin multicolour accent line (header top edge, card tops). */
+@utility bg-brand-line {
+  background-image: linear-gradient(90deg, var(--brand-strong), var(--color-sky-400) 40%, var(--color-violet-500) 70%, var(--color-emerald-400));
+}
+
+/* Sidebar depth: a faint glow at the top of the navy panel. */
+@utility bg-sidebar-glow {
+  background-image: radial-gradient(120% 60% at 0% 0%, --alpha(var(--color-sky-400) / 18%), transparent 60%);
 }
 
 /* ─── 3D Card Styles ──────────────────────────────────────── */

@@ -25,25 +25,31 @@ export function StudentPortalLayout() {
   if (me.data?.must_change_password) return <Navigate to="/estudiante/cambiar-clave" replace />
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="border-b bg-background">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Logo />
-            <span className="flex items-center gap-2 text-sm font-semibold"><GraduationCap aria-hidden="true" />Portal del estudiante</span>
+    <div className="min-h-screen bg-canvas">
+      <header className="bg-brand shadow-lg shadow-brand/20">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
+          <div className="flex items-center gap-4">
+            <Logo size="sm" />
+            <span className="flex items-center gap-2 border-l border-brand-foreground/20 pl-4 text-sm font-semibold text-brand-foreground">
+              <GraduationCap aria-hidden="true" />Portal del estudiante
+            </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            {me.data && <span className="text-muted-foreground">{me.data.full_name}</span>}
-            <Button size="sm" variant="outline" onClick={() => { logout(); navigate('/estudiante/login', { replace: true }) }}>
+            {me.data && <span className="text-brand-foreground/80">{me.data.full_name}</span>}
+            <Button size="sm" variant="outline"
+              className="border-brand-foreground/30 bg-brand-foreground/10 text-brand-foreground hover:bg-brand-foreground/20 hover:text-brand-foreground"
+              onClick={() => { logout(); navigate('/estudiante/login', { replace: true }) }}>
               <LogOut aria-hidden="true" />Salir
             </Button>
           </div>
         </div>
-        <nav aria-label="Portal del estudiante" className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4">
+        <nav aria-label="Portal del estudiante" className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 pb-3">
           {LINKS.map((link) => (
             <NavLink key={link.to} to={link.to} end={link.end}
-              className={({ isActive }) => cn('whitespace-nowrap border-b-2 px-3 py-2 text-sm',
-                isActive ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+              className={({ isActive }) => cn('whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition-colors',
+                isActive
+                  ? 'bg-brand-foreground font-medium text-brand shadow-sm'
+                  : 'text-brand-foreground/80 hover:bg-brand-foreground/10 hover:text-brand-foreground')}>
               {link.label}
             </NavLink>
           ))}

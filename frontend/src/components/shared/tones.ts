@@ -1,11 +1,11 @@
 /**
  * Semantic tones shared by StatCard, StatusBadge and the other page helpers.
- * Every class resolves to a theme token (primary, success, warning, destructive, info),
- * so a tone never carries a raw color.
+ * Every class resolves to a theme token (primary, success, warning, destructive, info, and the
+ * violet and cyan accent tones), so a tone never carries a raw color.
  */
-export type Tone = 'primary' | 'success' | 'warning' | 'destructive' | 'info' | 'neutral'
+export type Tone = 'primary' | 'success' | 'warning' | 'destructive' | 'info' | 'violet' | 'cyan' | 'neutral'
 
-export const TONES: readonly Tone[] = ['primary', 'success', 'warning', 'destructive', 'info', 'neutral']
+export const TONES: readonly Tone[] = ['primary', 'success', 'warning', 'destructive', 'info', 'violet', 'cyan', 'neutral']
 
 /** Soft tinted chip: icon containers and tinted surfaces. */
 export const TONE_CHIP: Record<Tone, string> = {
@@ -14,7 +14,21 @@ export const TONE_CHIP: Record<Tone, string> = {
   warning: 'bg-warning/10 text-warning-foreground',
   destructive: 'bg-destructive/10 text-destructive-foreground',
   info: 'bg-info/10 text-info-foreground',
+  violet: 'bg-tone-violet/10 text-tone-violet-foreground',
+  cyan: 'bg-tone-cyan/10 text-tone-cyan-foreground',
   neutral: 'bg-muted text-muted-foreground',
+}
+
+/** Solid filled chip with a soft colored glow: StatCard icons and other prominent markers. */
+export const TONE_SOLID: Record<Tone, string> = {
+  primary: 'bg-primary text-primary-foreground shadow-md shadow-primary/30',
+  success: 'bg-success text-white shadow-md shadow-success/30',
+  warning: 'bg-warning text-white shadow-md shadow-warning/30',
+  destructive: 'bg-destructive text-white shadow-md shadow-destructive/30',
+  info: 'bg-info text-white shadow-md shadow-info/30',
+  violet: 'bg-tone-violet text-white shadow-md shadow-tone-violet/30',
+  cyan: 'bg-tone-cyan text-white shadow-md shadow-tone-cyan/30',
+  neutral: 'bg-muted-foreground/70 text-white shadow-md shadow-muted-foreground/20',
 }
 
 /** Solid dot color, used for status indicators. */
@@ -24,6 +38,8 @@ export const TONE_DOT: Record<Tone, string> = {
   warning: 'bg-warning',
   destructive: 'bg-destructive',
   info: 'bg-info',
+  violet: 'bg-tone-violet',
+  cyan: 'bg-tone-cyan',
   neutral: 'bg-muted-foreground/60',
 }
 
@@ -34,6 +50,8 @@ export const TONE_TEXT: Record<Tone, string> = {
   warning: 'text-warning-foreground',
   destructive: 'text-destructive-foreground',
   info: 'text-info-foreground',
+  violet: 'text-tone-violet-foreground',
+  cyan: 'text-tone-cyan-foreground',
   neutral: 'text-muted-foreground',
 }
 

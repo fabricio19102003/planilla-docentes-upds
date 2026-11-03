@@ -24,7 +24,7 @@ export function EmptyState({ icon: Icon, title, description, action, className }
     <Empty className={cn('py-12 md:py-16', className)}>
       <EmptyHeader>
         {Icon && (
-          <EmptyMedia variant="icon">
+          <EmptyMedia variant="icon" className="bg-primary/10 text-primary">
             <Icon aria-hidden="true" />
           </EmptyMedia>
         )}
