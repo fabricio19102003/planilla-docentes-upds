@@ -341,7 +341,13 @@ def build_contract_snapshot(
     allow_empty: bool = False,
     tracked_program_ids: set[int] | None = None,
     terms: dict[str, date] | None = None,
+    schedule_sources_cache: dict[str, list[PayrollScheduleSource]] | None = None,
 ) -> ContractSnapshot:
+    """Build the contract snapshot of one teacher.
+
+    The effective load is resolved for the whole institution, so a batch passes
+    one ``schedule_sources_cache`` to resolve it once per academic period.
+    """
     teacher = db.query(Teacher).filter(Teacher.ci == teacher_ci).first()
     if teacher is None:
         raise ContractIssuanceError(f"Docente con CI {teacher_ci} no encontrado.")
@@ -355,15 +361,21 @@ def build_contract_snapshot(
     if regular_rate <= 0 or practice_rate <= 0:
         raise ContractIssuanceError("Las tarifas de teoría y práctica deben ser mayores que cero.")
 
-    sources: list[PayrollScheduleSource] = []
-    for activity_kind in ("theory", "practice"):
-        sources.extend(payroll_schedule_sources(
-            db,
-            academic_period=academic_period,
-            period_start=period_start,
-            period_end=period_end,
-            activity_kind=activity_kind,
-        ))
+    cached = schedule_sources_cache.get(academic_period) if schedule_sources_cache is not None else None
+    if cached is not None:
+        sources = cached
+    else:
+        sources = []
+        for activity_kind in ("theory", "practice"):
+            sources.extend(payroll_schedule_sources(
+                db,
+                academic_period=academic_period,
+                period_start=period_start,
+                period_end=period_end,
+                activity_kind=activity_kind,
+            ))
+        if schedule_sources_cache is not None:
+            schedule_sources_cache[academic_period] = sources
     teacher_sources = [
         source for source in sources
         if source.teacher_ci == teacher_ci and source.schedule
@@ -774,11 +786,13 @@ def issue_contract(
     academic_period: str,
     department: str,
     terms: dict[str, date] | None = None,
+    schedule_sources_cache: dict[str, list[PayrollScheduleSource]] | None = None,
 ) -> ContractDocument:
     """Issue once or append an amendment; unchanged snapshots are idempotent.
 
     ``terms`` sets custom contract ``start``, ``end`` and ``signature`` dates;
     ``None`` keeps the ones recorded in the latest document, ``{}`` clears them.
+    ``schedule_sources_cache`` is shared by a batch; see ``build_contract_snapshot``.
     """
     from app.services.contract_pdf import render_contract_document_pdf
 
@@ -802,6 +816,7 @@ def issue_contract(
             stored_contract_terms(predecessor.full_snapshot if predecessor else None)
             if terms is None else terms
         ),
+        schedule_sources_cache=schedule_sources_cache,
     )
     existing = db.query(ContractDocument).filter(
         ContractDocument.teacher_ci == teacher_ci,
