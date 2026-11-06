@@ -934,3 +934,58 @@ def test_teacher_without_current_designations_keeps_the_latest_ones(
 
     assert "1 Farmacología I III 140" in text
     assert "desde el 02 de febrero de 2026 al 15 de marzo de 2026" in text
+
+
+def test_batch_route_resolves_the_institution_load_once_for_all_teachers(
+    client, db_session, contract_sources, monkeypatch
+):
+    teacher, _theory, _practice, state = contract_sources
+    second = Teacher(ci="CONTRACT-2", full_name="Segundo Docente")
+    db_session.add(second)
+    db_session.flush()
+    second_theory = Designation(
+        teacher_ci=second.ci,
+        subject="Fisiología",
+        semester="I",
+        group_code="M-2",
+        academic_period="I/2026",
+        designation_type="regular",
+        schedule_json=[],
+        semester_hours=80,
+        contract_start_date=date(2026, 2, 2),
+        contract_end_date=date(2026, 6, 20),
+    )
+    db_session.add(second_theory)
+    db_session.flush()
+    state["theory"] = [*state["theory"], _source(second_theory, activity="theory", hours=2)]
+    calls: list[str] = []
+
+    def counted_sources(_db, *, activity_kind, **_kwargs):
+        calls.append(activity_kind)
+        return state[activity_kind]
+
+    monkeypatch.setattr(ledger, "payroll_schedule_sources", counted_sources)
+
+    response = client.post(
+        "/api/contracts/generate-batch",
+        json={
+            "department": "Pando",
+            "academic_period": "I/2026",
+            "teacher_cis": [teacher.ci, second.ci],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["errors"] == []
+    assert sorted(calls) == ["practice", "theory"]
+    documents = {
+        document.teacher_ci: document
+        for document in db_session.query(ContractDocument).all()
+    }
+    assert set(documents) == {teacher.ci, second.ci}
+    assert {line["subject_label"] for line in documents[teacher.ci].full_snapshot["lines"]} == {
+        "Anatomía", "Clínica",
+    }
+    assert {line["subject_label"] for line in documents[second.ci].full_snapshot["lines"]} == {
+        "Fisiología",
+    }

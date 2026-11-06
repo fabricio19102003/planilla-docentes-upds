@@ -26,6 +26,7 @@ from app.services.contract_ledger_service import (
     issue_contract,
     stored_contract_terms,
 )
+from app.services.payroll_schedule_source_service import PayrollScheduleSource
 from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -213,6 +214,7 @@ def _issue(
     teacher_ci: str,
     payload: ContractRequest,
     terms: Optional[dict[str, date]] = None,
+    schedule_sources_cache: Optional[dict[str, list[PayrollScheduleSource]]] = None,
 ) -> ContractDocument:
     _validate_department(payload.department)
     academic_period = payload.academic_period or app_settings_service.get_active_academic_period(db)
@@ -223,6 +225,7 @@ def _issue(
             academic_period=academic_period,
             department=payload.department,
             terms=terms,
+            schedule_sources_cache=schedule_sources_cache,
         )
     except ContractIssuanceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -337,9 +340,11 @@ def generate_batch_contracts(
         raise HTTPException(status_code=404, detail="No se encontraron docentes para emitir contratos")
     contracts: list[ContractFileInfo] = []
     errors: list[str] = []
+    # The effective load covers every teacher; resolve it once for the batch.
+    schedule_sources_cache: dict[str, list[PayrollScheduleSource]] = {}
     for teacher in teachers:
         try:
-            document = _issue(db, teacher.ci, payload)
+            document = _issue(db, teacher.ci, payload, schedule_sources_cache=schedule_sources_cache)
             contracts.append(ContractFileInfo(
                 teacher_ci=teacher.ci,
                 teacher_name=document.teacher_name,
