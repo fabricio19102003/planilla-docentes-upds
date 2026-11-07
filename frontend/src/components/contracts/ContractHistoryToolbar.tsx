@@ -8,7 +8,7 @@ import type { KindFilter } from '@/lib/contractHistoryView'
 const KINDS: { value: KindFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
   { value: 'original', label: 'Originales' },
-  { value: 'amendment', label: 'Enmiendas' },
+  { value: 'amendment', label: 'Versiones posteriores' },
 ]
 
 interface Props {

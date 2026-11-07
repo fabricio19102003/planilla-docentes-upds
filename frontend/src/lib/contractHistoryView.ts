@@ -152,3 +152,10 @@ export function changeKindTone(changeKind: string): Tone {
 export function changeKindLabel(changeKind: string): string {
   return CHANGE_KIND[changeKind]?.label ?? CHANGE_KIND.full.label
 }
+
+/** Every contract version is a complete contract: "Original", then "Versión 2", "Versión 3"… */
+export function contractVersionLabel(
+  document: Pick<HistoryDocument, 'document_kind' | 'amendment_sequence'>,
+): string {
+  return document.document_kind === 'original' ? 'Original' : `Versión ${document.amendment_sequence + 1}`
+}
