@@ -736,8 +736,6 @@ def issue_contract(
         "issued_at": issued_at.isoformat(),
         "root_public_id": history[0].public_id if history else None,
         "lines": delta_lines,
-        "metadata_changes": [],
-        "reissue": predecessor is not None and bool(delta_lines),
         "contract_terms": snapshot.contract_terms,
         "comitente": snapshot.comitente,
     }

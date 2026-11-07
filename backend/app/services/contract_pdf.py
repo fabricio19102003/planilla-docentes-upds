@@ -982,109 +982,11 @@ def _contract_term(lines: list[dict]) -> tuple[date, date]:
     return start, end
 
 
-def _amendment_hours(line: dict) -> str:
-    current = _hours_text(_line_term_hours(line))
-    previous = line.get("previous_term_hours") or line.get("previous_hours")
-    return current if previous is None else f"{_hours_text(previous)} → {current}"
-
-
-def _amendment_elements(styles: dict, document: dict) -> list:
-    teacher = document["teacher"]
-    sequence = int(document["amendment_sequence"])
-    effective = _format_spanish_date(date.fromisoformat(str(document["effective_date"])))
-    lines = document["lines"]
-    metadata_changes = document.get("metadata_changes", [])
-    elements: list = [
-        Paragraph(
-            f"ADENDA N.º {sequence} AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
-            styles["title_main"],
-        ),
-        Spacer(1, 6 * mm),
-        Paragraph(
-            f"Conste por el presente documento, la ADENDA N.º {sequence} al CONTRATO PRIVADO DE "
-            "PRESTACIÓN DE SERVICIOS PROFESIONALES suscrito entre UNIPANDO S.R.L., en adelante el "
-            f"COMITENTE, y el señor(a) <b>{escape(str(teacher['full_name']))}</b> con C.I. "
-            f"<b>{escape(str(teacher['ci']))}</b>, en adelante "
-            "el CONTRATISTA, conforme a la cláusula SEXTA del contrato, al tenor de las cláusulas "
-            "siguientes:",
-            styles["justify"],
-        ),
-        Spacer(1, 4 * mm),
-    ]
-    clauses = iter(_ORDINAL_CLAUSES)
-
-    if lines:
-        elements.append(Paragraph(
-            f"<b>{next(clauses)}: (MODIFICACIÓN DE LA CARGA HORARIA).-</b><br/>"
-            f"La presente adenda modifica, con efecto desde el {effective}, la carga horaria del "
-            "contrato conforme al siguiente detalle:",
-            styles["justify"],
-        ))
-        elements.append(Spacer(1, 3 * mm))
-        usable_width = CONTRACT_PAGE_SIZE[0] - 3.0 * cm - 2.5 * cm
-        col_widths = [usable_width * weight / 15.5 for weight in (1.0, 7.0, 2.5, 2.5, 2.5)]
-        for subtitle, items in _activity_groups(lines):
-            if subtitle:
-                elements.append(Paragraph(f"<b>{escape(subtitle)}:</b>", styles["justify"]))
-                elements.append(Spacer(1, 2 * mm))
-            table_data = [["Nº", "Materia", "Semestre", "Modificación", "Total Horas"]]
-            ordered = sorted(items, key=lambda line: (line["subject_label"], line["group_label"]))
-            for idx, line in enumerate(ordered, start=1):
-                table_data.append([
-                    str(idx),
-                    line["subject_label"],
-                    line["semester_label"],
-                    _CHANGE_LABELS[line["change_kind"]],
-                    _amendment_hours(line),
-                ])
-            elements.append(_contract_table(table_data, col_widths))
-            elements.append(Spacer(1, 3 * mm))
-        elements.append(Paragraph(
-            f"El valor de la hora del servicio aplicable es de {_rate_html(lines)}.",
-            styles["justify"],
-        ))
-        elements.append(Spacer(1, 4 * mm))
-
-    if metadata_changes:
-        elements.append(Paragraph(
-            f"<b>{next(clauses)}: (CORRECCIÓN DE DATOS).-</b><br/>"
-            "La presente adenda corrige los datos de identificación del contrato conforme al "
-            "siguiente detalle:",
-            styles["justify"],
-        ))
-        elements.append(Spacer(1, 3 * mm))
-        usable_width = CONTRACT_PAGE_SIZE[0] - 3.0 * cm - 2.5 * cm
-        table_data = [["Dato", "Anterior", "Actual"]] + [
-            [str(change["label"]), str(change["previous"]), str(change["current"])]
-            for change in metadata_changes
-        ]
-        elements.append(_contract_table(table_data, [usable_width / 3] * 3))
-        elements.append(Spacer(1, 4 * mm))
-
-    elements.append(Paragraph(
-        f"<b>{next(clauses)}: (VIGENCIA DEL CONTRATO).-</b> Todas las demás cláusulas del "
-        "contrato original permanecen vigentes e inalteradas.",
-        styles["justify"],
-    ))
-    elements.append(Spacer(1, 4 * mm))
-    elements.append(Paragraph(
-        f"<b>{next(clauses)}: (CONFORMIDAD).-</b> Ambas PARTES como señal de conformidad y sin "
-        "que medie ningún vicio del consentimiento, firmamos la presente adenda en doble "
-        "ejemplar de un solo tenor y para un solo efecto.",
-        styles["justify"],
-    ))
-    elements.append(Spacer(1, 6 * mm))
-    city = escape(_resolved_comitente(document.get("comitente"))["city"])
-    elements.append(Paragraph(f"{city}, {effective}.", styles["right"]))
-    elements.extend(_signature_elements(styles))
-    return elements
-
-
 def render_contract_document_pdf(document: dict) -> bytes:
     """Render an immutable ledger DTO with the UPDS legal template.
 
-    Originals and full re-issues carry the complete contract; other amendments
-    render as a formal adenda. Ledger identifiers stay out of the body text.
+    Every version carries the complete contract; UPDS Cobija uses no adendas.
+    Ledger identifiers stay out of the body text.
     """
     styles = _make_styles()
     buffer = io.BytesIO()
@@ -1100,30 +1002,27 @@ def render_contract_document_pdf(document: dict) -> bytes:
         subject="Contrato docente inmutable",
     )
     lines = document["lines"]
-    if document["document_kind"] == "original" or document.get("reissue"):
-        teacher = document["teacher"]
-        terms = document.get("contract_terms") or {}
-        start, end = _contract_term(lines)
-        start = date.fromisoformat(terms["start"]) if terms.get("start") else start
-        end = date.fromisoformat(terms["end"]) if terms.get("end") else end
-        signature = terms.get("signature")
-        elements = _legal_contract_elements(
-            styles,
-            teacher_name=str(teacher["full_name"]),
-            teacher_ci=str(teacher["ci"]),
-            department=str(document["department"]),
-            subject_sections=[
-                (subtitle, _subject_rows(items)) for subtitle, items in _activity_groups(lines)
-            ],
-            duration_text=_format_duration_text(start, end),
-            start_date=_format_spanish_date(start),
-            end_date=_format_spanish_date(end),
-            rate_html=_rate_html(lines),
-            signature_date=_format_spanish_date(date.fromisoformat(signature)) if signature else None,
-            comitente=document.get("comitente"),
-        )
-    else:
-        elements = _amendment_elements(styles, document)
+    teacher = document["teacher"]
+    terms = document.get("contract_terms") or {}
+    start, end = _contract_term(lines)
+    start = date.fromisoformat(terms["start"]) if terms.get("start") else start
+    end = date.fromisoformat(terms["end"]) if terms.get("end") else end
+    signature = terms.get("signature")
+    elements = _legal_contract_elements(
+        styles,
+        teacher_name=str(teacher["full_name"]),
+        teacher_ci=str(teacher["ci"]),
+        department=str(document["department"]),
+        subject_sections=[
+            (subtitle, _subject_rows(items)) for subtitle, items in _activity_groups(lines)
+        ],
+        duration_text=_format_duration_text(start, end),
+        start_date=_format_spanish_date(start),
+        end_date=_format_spanish_date(end),
+        rate_html=_rate_html(lines),
+        signature_date=_format_spanish_date(date.fromisoformat(signature)) if signature else None,
+        comitente=document.get("comitente"),
+    )
     doc.build(
         elements,
         onFirstPage=_page_number_canvas,
