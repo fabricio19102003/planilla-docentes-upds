@@ -601,149 +601,6 @@ def _validate_snapshot_provenance(
             )
 
 
-def _line_identity(line: dict[str, Any]) -> str:
-    return f"{line['source_kind']}:{line['source_id']}"
-
-
-def _line_scope(line: dict[str, Any]) -> tuple[str, str, str, str]:
-    return (
-        str(line["activity_kind"]),
-        str(line["subject_label"]).casefold().strip(),
-        str(line["group_label"]).casefold().strip(),
-        str(line["semester_label"]).casefold().strip(),
-    )
-
-
-def _removal_effective_date(
-    old: dict[str, Any],
-    previous: dict[str, Any],
-    current: ContractSnapshot,
-) -> date:
-    previous_ids = {
-        item.get("publication_id")
-        for item in previous.get("authority_transitions", [])
-        if isinstance(item, dict)
-    }
-    candidates = [
-        date.fromisoformat(line.authority_effective_from)
-        for line in current.lines
-        if line.source_kind == "published"
-        and line.publication_id not in previous_ids
-        and _line_scope(asdict(line)) == _line_scope(old)
-    ]
-    old_program_id = old.get("publication_program_id")
-    if old_program_id is not None:
-        candidates.extend(
-            date.fromisoformat(item["effective_from"])
-            for item in current.authority_transitions
-            if item["program_id"] == old_program_id
-            and item["publication_id"] not in previous_ids
-        )
-    if not candidates:
-        raise ContractIssuanceError(
-            f"No se puede determinar la fecha efectiva autoritativa del retiro de {_line_identity(old)}."
-        )
-    return min(candidates)
-
-
-def _metadata_changes(
-    previous: dict[str, Any], current: ContractSnapshot
-) -> list[dict[str, str]]:
-    changes: list[dict[str, str]] = []
-    previous_teacher = previous.get("teacher") if isinstance(previous.get("teacher"), dict) else {}
-    for field, label in (("full_name", "Nombre del docente"), ("ci", "CI del docente")):
-        before = str(previous_teacher.get(field, ""))
-        after = str(current.teacher.get(field, ""))
-        if before != after:
-            changes.append({"field": field, "label": label, "previous": before, "current": after})
-    for field, label, before, after in (
-        ("department", "Departamento del CI", previous.get("department"), current.department),
-        (
-            "template_version",
-            "Versión de plantilla",
-            previous.get("template_version"),
-            current.template_version,
-        ),
-    ):
-        if before != after:
-            changes.append({
-                "field": field,
-                "label": label,
-                "previous": str(before or ""),
-                "current": str(after),
-            })
-    return changes
-
-
-def _delta_lines(
-    previous: dict[str, Any] | None,
-    current: ContractSnapshot,
-    *,
-    issuance_date: date,
-) -> tuple[list[dict[str, Any]], date, list[dict[str, str]]]:
-    current_lines = [asdict(line) for line in current.lines]
-    if previous is None:
-        return (
-            [dict(line, change_kind="full") for line in current_lines],
-            min(date.fromisoformat(line["effective_from"]) for line in current_lines),
-            [],
-        )
-
-    previous_lines = previous.get("lines")
-    if not isinstance(previous_lines, list):
-        raise ContractIssuanceError("El contrato anterior no contiene un snapshot de líneas válido.")
-    before = {_line_identity(line): line for line in previous_lines}
-    after = {_line_identity(line): line for line in current_lines}
-    if len(before) != len(previous_lines) or len(after) != len(current_lines):
-        raise ContractIssuanceError("La cobertura contractual contiene fuentes ambiguas.")
-
-    delta: list[dict[str, Any]] = []
-    effective_candidates: list[date] = []
-    for key in sorted(before.keys() | after.keys()):
-        old = before.get(key)
-        new = after.get(key)
-        if old is None and new is not None:
-            delta.append(dict(new, change_kind="added"))
-            effective_candidates.append(date.fromisoformat(new["effective_from"]))
-        elif old is not None and new is None:
-            removed = dict(old)
-            removed.update(
-                change_kind="removed",
-                previous_hours=old["hours"],
-                previous_hourly_rate=old["hourly_rate"],
-                previous_source_key=key,
-                hours="0.00",
-            )
-            if old.get("term_hours") is not None:
-                removed.update(previous_term_hours=old["term_hours"], term_hours="0.00")
-            delta.append(removed)
-            effective_candidates.append(_removal_effective_date(old, previous, current))
-        elif old != new and old is not None and new is not None:
-            changed = dict(new)
-            changed.update(
-                change_kind="changed",
-                previous_hours=old["hours"],
-                previous_hourly_rate=old["hourly_rate"],
-                previous_source_key=key,
-            )
-            if old.get("term_hours") is not None:
-                changed["previous_term_hours"] = old["term_hours"]
-            delta.append(changed)
-            old_end = date.fromisoformat(old["effective_to"])
-            new_end = date.fromisoformat(new["effective_to"])
-            candidate = new_end.fromordinal(new_end.toordinal() + 1) if new_end < old_end else date.fromisoformat(new["effective_from"])
-            effective_candidates.append(candidate)
-    metadata_changes = _metadata_changes(previous, current)
-    if not delta and not metadata_changes:
-        raise ContractIssuanceError("El digest cambió sin diferencias contractuales identificables.")
-    period_start = date.fromisoformat(current.academic_period["start"])
-    period_end = date.fromisoformat(current.academic_period["end"])
-    effective_date = min(effective_candidates) if effective_candidates else issuance_date
-    if effective_candidates and not period_start <= effective_date <= period_end:
-        raise ContractIssuanceError("La fecha efectiva de la enmienda queda fuera del período académico.")
-    return delta, effective_date, metadata_changes
-
-
 def _load_history(db: Session, teacher_ci: str, academic_period: str) -> list[ContractDocument]:
     return (
         db.query(ContractDocument)
@@ -757,21 +614,36 @@ def _load_history(db: Session, teacher_ci: str, academic_period: str) -> list[Co
     )
 
 
-def _complete_contract_name(history: list[ContractDocument]) -> str | None:
-    """Teacher name on the latest document that states the whole contract."""
-    for document in reversed(history):
-        if document.lines and all(line.change_kind == "full" for line in document.lines):
-            return document.teacher_name
-    return None
+def _contract_lines(snapshot: ContractSnapshot) -> list[dict[str, Any]]:
+    """Every document states the complete contract: all current lines."""
+    return [dict(asdict(line), change_kind="full") for line in snapshot.lines]
+
+
+def _is_complete(document: ContractDocument) -> bool:
+    return bool(document.lines) and all(line.change_kind == "full" for line in document.lines)
 
 
 def _name_reissue_digest(snapshot_digest: str) -> str:
-    """Ledger digest of a full contract reissued only because the name changed.
-
-    The load is unchanged, so the snapshot digest may already belong to a
-    name-correction amendment; the ledger keeps digests unique per period.
-    """
+    """Ledger digest given by the name-change reissues of 2026-11-07."""
     return hashlib.sha256(f"{snapshot_digest}:name-reissue".encode("utf-8")).hexdigest()
+
+
+def _reissue_digest(snapshot_digest: str, sequence: int) -> str:
+    """Ledger digest of a contract whose snapshot an earlier document already used.
+
+    The ledger keeps digests unique per teacher and period, so a load that
+    returns to an earlier state is issued again under a digest tied to its
+    version.
+    """
+    return hashlib.sha256(f"{snapshot_digest}:reissue:{sequence}".encode("utf-8")).hexdigest()
+
+
+def _matches_snapshot(document: ContractDocument, snapshot_digest: str) -> bool:
+    return document.source_digest in {
+        snapshot_digest,
+        _name_reissue_digest(snapshot_digest),
+        _reissue_digest(snapshot_digest, document.amendment_sequence),
+    }
 
 
 def _validate_history(history: list[ContractDocument]) -> None:
@@ -793,7 +665,7 @@ def _validate_history(history: list[ContractDocument]) -> None:
             or document.root_contract_id != original.id
             or document.predecessor_contract_id != predecessor.id
         ):
-            raise ContractIssuanceError("El historial contractual tiene una cadena de enmiendas inválida.")
+            raise ContractIssuanceError("El historial contractual tiene una cadena de versiones inválida.")
 
 
 def issue_contract(
@@ -805,7 +677,7 @@ def issue_contract(
     terms: dict[str, date] | None = None,
     schedule_sources_cache: dict[str, list[PayrollScheduleSource]] | None = None,
 ) -> ContractDocument:
-    """Issue once or append an amendment; unchanged snapshots are idempotent.
+    """Issue the complete contract once per change; unchanged snapshots are idempotent.
 
     ``terms`` sets custom contract ``start``, ``end`` and ``signature`` dates;
     ``None`` keeps the ones recorded in the latest document, ``{}`` clears them.
@@ -827,7 +699,6 @@ def issue_contract(
         teacher_ci=teacher_ci,
         academic_period=academic_period,
         department=department,
-        allow_empty=bool(history),
         tracked_program_ids=tracked_program_ids,
         terms=(
             stored_contract_terms(predecessor.full_snapshot if predecessor else None)
@@ -835,50 +706,24 @@ def issue_contract(
         ),
         schedule_sources_cache=schedule_sources_cache,
     )
-    # A legal name change restates the whole contract with the new name; a
-    # name-only amendment would leave the complete contract under the old one.
-    complete_name = _complete_contract_name(history)
-    name_reissue = (
+    # UPDS Cobija uses no amendments: every new version states the complete
+    # contract, and an unchanged snapshot returns the latest complete contract.
+    if (
         predecessor is not None
-        and bool(snapshot.lines)
-        and complete_name is not None
-        and complete_name != str(snapshot.teacher["full_name"])
-    )
-    reissue_digest = _name_reissue_digest(snapshot.digest)
-    document_digest = reissue_digest if name_reissue else snapshot.digest
-    existing = db.query(ContractDocument).filter(
-        ContractDocument.teacher_ci == teacher_ci,
-        ContractDocument.academic_period == academic_period,
-        ContractDocument.source_digest.in_(
-            [reissue_digest] if name_reissue else [snapshot.digest, reissue_digest]
-        ),
-    ).order_by(ContractDocument.amendment_sequence.desc()).first()
-    if existing is not None:
-        return existing
+        and _is_complete(predecessor)
+        and _matches_snapshot(predecessor, snapshot.digest)
+    ):
+        return predecessor
 
     issued_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    # A new template, new contract dates, new comitente data or a new legal name
-    # supersede the latest document with a complete contract; earlier documents
-    # stay untouched.
-    reissue = name_reissue or predecessor is not None and bool(snapshot.lines) and (
-        predecessor.template_version != TEMPLATE_VERSION
-        or (predecessor.full_snapshot.get("contract_terms") or {}) != snapshot.contract_terms
-        or (
-            predecessor.full_snapshot.get("comitente")
-            or app_settings_service.default_contract_comitente()
-        ) != snapshot.comitente
-    )
-    if reissue:
-        delta_lines = [dict(asdict(line), change_kind="full") for line in snapshot.lines]
-        effective_date = min(date.fromisoformat(line.effective_from) for line in snapshot.lines)
-        metadata_changes: list[dict[str, str]] = []
-    else:
-        delta_lines, effective_date, metadata_changes = _delta_lines(
-            predecessor.full_snapshot if predecessor is not None else None,
-            snapshot,
-            issuance_date=issued_at.date(),
-        )
+    delta_lines = _contract_lines(snapshot)
+    effective_date = min(date.fromisoformat(line.effective_from) for line in snapshot.lines)
     sequence = 0 if predecessor is None else predecessor.amendment_sequence + 1
+    document_digest = (
+        _reissue_digest(snapshot.digest, sequence)
+        if any(document.source_digest == snapshot.digest for document in history)
+        else snapshot.digest
+    )
     kind = "original" if predecessor is None else "amendment"
     root = None if predecessor is None else (predecessor.root_contract_id or predecessor.id)
     public_id = str(uuid4())
@@ -891,8 +736,8 @@ def issue_contract(
         "issued_at": issued_at.isoformat(),
         "root_public_id": history[0].public_id if history else None,
         "lines": delta_lines,
-        "metadata_changes": metadata_changes,
-        "reissue": reissue,
+        "metadata_changes": [],
+        "reissue": predecessor is not None and bool(delta_lines),
         "contract_terms": snapshot.contract_terms,
         "comitente": snapshot.comitente,
     }
@@ -964,7 +809,7 @@ def issue_contract(
         if replay is not None:
             return replay
         raise ContractIssuanceError(
-            "Otra emisión modificó simultáneamente el historial; reintentá para emitir la siguiente enmienda."
+            "Otra emisión modificó simultáneamente el historial; reintentá para emitir la nueva versión del contrato."
         )
     db.refresh(document)
     return document

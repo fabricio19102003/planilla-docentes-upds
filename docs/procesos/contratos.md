@@ -1,6 +1,6 @@
 # Emitir contratos docentes y consultar su historial
 
-**Para qué sirve.** La pantalla **Contratos** emite los contratos docentes en PDF, de a uno o por lote, a partir de la carga vigente de cada docente en el período académico activo. Cada emisión queda guardada en un **Historial Inmutable**: el primer contrato de un docente en el período es el **Original**, y si su carga cambia después se emite una **Enmienda** sin tocar los documentos anteriores. Si volvés a emitir y nada cambió, el sistema te devuelve el mismo contrato en lugar de crear otro.
+**Para qué sirve.** La pantalla **Contratos** emite los contratos docentes en PDF, de a uno o por lote, a partir de la carga vigente de cada docente en el período académico activo. Cada emisión queda guardada en un **Historial Inmutable**: el primer contrato de un docente en el período es el **Original**, y si algo del contrato cambia después se emite una **versión nueva** del contrato completo, sin tocar los documentos anteriores. UPDS Cobija no usa adendas. Si volvés a emitir y nada cambió, el sistema te devuelve el mismo contrato en lugar de crear otro.
 
 ## Antes de empezar
 
@@ -50,7 +50,7 @@ Para volver a las fechas de las designaciones, tocá **Usar fechas de designacio
 
 Las fechas de contrato no se eligen en el lote. Si cerrás el panel, el resultado de la última emisión queda en la página con el botón de cierre **Cerrar resultados de emisión**, así podés descargar los archivos más tarde.
 
-### 4. Enmiendas: cuándo se crea un contrato nuevo y cuándo se recupera
+### 4. Versiones: cuándo se crea un contrato nuevo y cuándo se recupera
 
 Cada vez que emitís (individual o por lote), el sistema compara la carga vigente de hoy con la del último contrato del docente:
 
@@ -58,44 +58,38 @@ Cada vez que emitís (individual o por lote), el sistema compara la carga vigent
 |---|---|
 | Nada | Recupera el contrato existente. No se crea ningún documento nuevo |
 | No tiene contrato en el período | Emite el **Original** |
-| Cambió la carga: una materia o grupo se agregó, se quitó, o cambiaron sus horas o su tarifa | Emite una **Enmienda** con solo las líneas que cambiaron |
-| Cambiaron las fechas de contrato, la fecha de firma, los datos del comitente o la plantilla del contrato | Emite un contrato nuevo completo, con todas las líneas, que figura como enmienda en el historial |
+| Cambió algo del contrato: la carga (una materia o grupo se agregó, se quitó, o cambiaron sus horas o su tarifa), el nombre o el CI del docente, las fechas de contrato, la fecha de firma, los datos del comitente o la plantilla | Emite una **versión nueva**: el contrato completo, con todas las materias vigentes |
+| El docente ya tenía contrato y se quedó sin carga efectiva | No emite nada: «El docente <nombre> no tiene carga efectiva en <período>.» Su último contrato queda como está |
 
-El número de **Enmienda** sube de a uno por docente y período. La versión es la secuencia más uno (el Original es la versión 1). El archivo se descarga como `Contrato_<CI>_<período>_v<N>.pdf`.
+La versión sube de a uno por docente y período: el Original es la versión 1, la siguiente la **Versión 2**, y así. El archivo se descarga como `Contrato_<CI>_<período>_v<N>.pdf`.
 
 ### 5. Consultar el historial inmutable
 
 La parte inferior de la página muestra primero seis indicadores:
 
-- **Documentos emitidos**: originales y enmiendas.
+- **Documentos emitidos**: originales y versiones posteriores.
 - **Originales**: primer contrato de cada docente y período.
-- **Enmiendas**: cambios posteriores a un original.
+- **Versiones posteriores**: contratos completos emitidos después del original.
 - **Docentes con contrato**.
-- **Horas vigentes**: carga vigente de cada docente (último original más sus enmiendas).
+- **Horas vigentes**: carga vigente de cada docente según su última versión.
 - **Monto estimado**: horas por tarifa de la carga vigente de cada docente.
 
-Debajo, en **Historial Inmutable**, hay una tarjeta por docente con una línea de tiempo de sus versiones. Cada versión muestra el tipo (**Original** o **Enmienda N**), el período, la fecha efectiva, la fecha de emisión y el botón **Descargar PDF**.
+Debajo, en **Historial Inmutable**, hay una tarjeta por docente con una línea de tiempo de sus versiones. Cada versión muestra el tipo (**Original** o **Versión N**), el período, la fecha efectiva, la fecha de emisión y el botón **Descargar PDF**.
 
 Para filtrar:
 
 1. Escribí en **Buscar en el historial** (por docente o CI).
 2. Elegí un período en **Período académico** (o **Todos los períodos**).
-3. Elegí el **Tipo de documento**: **Todos**, **Originales** o **Enmiendas** (cada opción muestra su cantidad).
+3. Elegí el **Tipo de documento**: **Todos**, **Originales** o **Versiones posteriores** (cada opción muestra su cantidad).
 4. Para volver a ver todo, tocá **Limpiar filtros**.
 
-Bajo cada versión, la tabla de líneas muestra **Actividad** (**Teoría** o **Práctica**), **Materia** (con su grupo), **Horas**, **Tarifa** y **Cambio**. En una enmienda parcial, la columna **Cambio** indica:
-
-- **Agregada**: la materia o grupo se sumó a la carga;
-- **Modificada**: cambiaron las horas o la tarifa; debajo se lee «antes N h» o «antes Bs N»;
-- **Quitada**: la materia o grupo ya no forma parte de la carga.
-
-En un contrato completo no se muestra ninguna etiqueta de cambio.
+Bajo cada versión, la tabla de líneas muestra **Actividad** (**Teoría** o **Práctica**), **Materia** (con su grupo), **Horas** y **Tarifa**. Cada versión es un contrato completo con toda la carga vigente al emitirla.
 
 ## Reglas y bloqueos
 
 | Situación | Qué pasa | Qué hacer |
 |---|---|---|
-| El docente no tiene carga efectiva en el período y no tiene contrato previo | «El docente <nombre> no tiene carga efectiva en <período>.» En el lote queda en **Algunos docentes se omitieron:** | Cargá la designación o publicá el horario con su asignación |
+| El docente no tiene carga efectiva en el período (tenga o no un contrato previo) | «El docente <nombre> no tiene carga efectiva en <período>.» No se emite nada y el último contrato queda como está. En el lote queda en **Algunos docentes se omitieron:** | Cargá la designación o publicá el horario con su asignación |
 | Ninguno de los docentes pudo procesarse (lote) | Error «No se pudo emitir ningún contrato.» seguido de los motivos; si no hay docentes que coincidan, «No se encontraron docentes para emitir contratos» | Resolvé los motivos listados y volvé a emitir |
 | Un lote termina sin contratos | «No se emitieron contratos.» con la ayuda «Revisá que los docentes tengan carga efectiva y tarifas completas.» | Revisá cargas y tarifas |
 | Alguna tarifa es cero o negativa | «Las tarifas de teoría y práctica deben ser mayores que cero.» | Corregí las tarifas en **Administración → Configuración** |
@@ -103,8 +97,8 @@ En un contrato completo no se muestra ninguna etiqueta de cambio.
 | El período activo no tiene formato válido | «El período académico … no permite determinar fechas. Usá el formato I/AAAA o II/AAAA.» | Corregí el período activo en la configuración |
 | Fechas de contrato fuera del período | «Las fechas del contrato deben estar dentro del período <período> (<inicio> al <fin>).» | Elegí fechas dentro del período |
 | Fecha de inicio posterior a la de fin | «La fecha de inicio del contrato no puede ser posterior a la fecha de fin.» | Corregí las fechas |
-| Dos personas emiten a la vez para el mismo docente | «Otra emisión modificó simultáneamente el historial; reintentá para emitir la siguiente enmienda.» | Volvé a emitir |
-| Quiero corregir o borrar un contrato emitido | No se puede: el historial es inmutable | Corregí la causa (carga, fechas, comitente) y emití de nuevo para generar una enmienda |
+| Dos personas emiten a la vez para el mismo docente | «Otra emisión modificó simultáneamente el historial; reintentá para emitir la nueva versión del contrato.» | Volvé a emitir |
+| Quiero corregir o borrar un contrato emitido | No se puede: el historial es inmutable | Corregí la causa (carga, fechas, comitente) y emití de nuevo para generar una versión nueva |
 | Datos del comitente incompletos | «El campo "<nombre del campo>" no puede estar vacío.» y no se guarda | Completá todos los campos |
 | Guardar el comitente sin cambios | «No hay cambios para guardar.» | Modificá algún dato |
 
@@ -113,17 +107,17 @@ En un contrato completo no se muestra ninguna etiqueta de cambio.
 **¿Por qué el botón dice «Emitir o Recuperar Contratos»?**
 Porque si la carga de un docente no cambió desde su último contrato, el sistema te devuelve ese mismo documento y no crea uno nuevo. Por eso podés volver a descargar un lote sin ensuciar el historial.
 
-**¿Por qué se generó una enmienda si yo no cambié nada del docente?**
-Se emite una enmienda si cambió algo de lo que entra en el contrato: la carga (por ejemplo, una nueva publicación del horario o un cambio de designación), las fechas, los datos del comitente o la plantilla. Revisá la columna **Cambio** de la versión nueva.
+**¿Por qué se generó una versión nueva si yo no cambié nada del docente?**
+Se emite una versión nueva si cambió algo de lo que entra en el contrato: la carga (por ejemplo, una nueva publicación del horario o un cambio de designación), el nombre o el CI del docente, las fechas, los datos del comitente o la plantilla. Compará sus materias y horas con las de la versión anterior.
 
 **¿Se puede borrar o reemplazar un contrato ya emitido?**
-No. Los documentos son inmutables. Un cambio siempre se hace emitiendo una enmienda.
+No. Los documentos son inmutables. Un cambio siempre se hace emitiendo una versión nueva del contrato completo.
 
 **¿Qué período se usa?**
 El período académico activo de la configuración. El historial guarda los contratos de todos los períodos y los podés filtrar con **Período académico**.
 
 **¿Los contratos cambian si publico un horario nuevo?**
-Sí, la carga vigente puede cambiar. El contrato ya emitido queda igual; al emitir de nuevo se agrega una enmienda con las diferencias.
+Sí, la carga vigente puede cambiar. El contrato ya emitido queda igual; al emitir de nuevo se agrega una versión nueva del contrato completo con la carga actual.
 
 ## Relacionado
 

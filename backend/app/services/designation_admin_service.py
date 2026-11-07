@@ -45,9 +45,9 @@ from app.utils.helpers import normalize_group_code
 
 KIND_LABEL = {"regular": "teoría", "practice": "práctica"}
 CONTRACT_DATES_LOCKED = (
-    "Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una adenda desde Contratos."
+    "Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una nueva versión del contrato desde Contratos."
 )
-CONTRACT_FINALIZE_WARNING = "El contrato emitido no cambia; si corresponde, emití una adenda desde Contratos."
+CONTRACT_FINALIZE_WARNING = "El contrato emitido no cambia; si corresponde, emití una nueva versión del contrato desde Contratos."
 PAID_MESSAGE = "No se puede guardar porque ya se pagó con estos datos."
 DUPLICATE_MESSAGE = "Ya existe una designación de esa materia, semestre y grupo para este docente en el período."
 DATE_ORDER_ERROR = "La fecha de fin no puede ser anterior a la fecha de inicio."

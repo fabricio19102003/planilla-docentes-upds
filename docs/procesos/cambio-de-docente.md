@@ -126,7 +126,7 @@ Sí. La **Vista previa** muestra el pago base del mes del cambio (antes de descu
 No hay un botón para deshacerlo. Las designaciones resultantes se corrigen en **Designaciones** con **Editar** (fechas) siempre que ningún mes cubierto esté pagado y la designación no tenga contrato emitido; si el mes ya está aprobado o publicado, esas ediciones también se bloquean (ver [designaciones.md](designaciones.md)).
 
 **¿Cambiar docente toca el contrato del docente saliente?**
-No. El contrato emitido no cambia; si hace falta ajustarlo, se hace con una adenda desde **Contratos**.
+No. El contrato emitido no cambia; si hace falta ajustarlo, se emite una versión nueva del contrato desde **Contratos**.
 
 **Cambié al docente en el Planificador pero la planilla no se movió.**
 El reemplazo recién rige cuando **publicás** el borrador con la **Fecha efectiva** correcta. Después, regenerá la planilla del mes.

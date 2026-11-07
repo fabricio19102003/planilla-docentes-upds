@@ -233,7 +233,7 @@ def test_v1_contract_is_reissued_once_as_full_v2_contract_preserving_history(
     assert bytes(original.artifact_content) == original_bytes
 
 
-def test_changed_load_appends_amendment_and_preserves_original_bytes(
+def test_changed_load_issues_the_complete_contract_and_preserves_original_bytes(
     db_session, contract_sources
 ):
     teacher, theory, _practice, state = contract_sources
@@ -260,12 +260,14 @@ def test_changed_load_appends_amendment_and_preserves_original_bytes(
     assert amendment.amendment_sequence == 1
     assert amendment.root_contract_id == original.id
     assert amendment.predecessor_contract_id == original.id
-    assert amendment.effective_date == date(2026, 3, 16)
-    changed = next(line for line in amendment.lines if line.activity_kind == "theory")
-    assert changed.change_kind == "changed"
-    assert float(changed.previous_hours) == 4.0
-    assert float(changed.hours) == 2.0
+    assert sorted(
+        (line.activity_kind, line.change_kind, float(line.hours)) for line in amendment.lines
+    ) == [("practice", "full", 6.0), ("theory", "full", 2.0)]
+    text = _document_text(amendment)
+    assert "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in text
+    assert "ADENDA" not in text
     assert replay.id == amendment.id
+    assert db_session.query(ContractDocument).count() == 2
     db_session.refresh(original)
     assert bytes(original.artifact_content) == original_bytes
 
@@ -404,14 +406,14 @@ def test_name_correction_amendment_is_superseded_by_a_full_contract(
     )
     teacher.full_name = "Docente Contrato Corregido"
     db_session.flush()
-    # Reproduce the history left by the previous rule: a name-only amendment.
+    # Reproduce the history left by the previous rule: a name-only amendment
+    # (a document without lines).
     with monkeypatch.context() as previous_rule:
-        previous_rule.setattr(ledger, "_complete_contract_name", lambda _history: None)
+        previous_rule.setattr(ledger, "_contract_lines", lambda _snapshot: [])
         name_amendment = ledger.issue_contract(
             db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
         )
     assert name_amendment.lines == []
-    assert "ADENDA N.º 1" in _document_text(name_amendment)
 
     reissued = ledger.issue_contract(
         db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
@@ -430,73 +432,81 @@ def test_name_correction_amendment_is_superseded_by_a_full_contract(
     assert db_session.query(ContractDocument).count() == 3
 
 
-def test_removed_load_uses_new_authoritative_publication_date():
-    old = {
-        "activity_kind": "theory",
-        "rate_class": "regular",
-        "hourly_rate": "70.00",
-        "hours": "4.00",
-        "hour_basis": "weekly",
-        "subject_label": "Anatomía",
-        "group_label": "M-1",
-        "semester_label": "I",
-        "schedule_label": "lunes 08:00-09:30 (4h)",
-        "effective_from": "2026-01-01",
-        "effective_to": "2026-06-30",
-        "source_kind": "published",
-        "source_id": 11,
-        "designation_id": None,
-        "publication_id": 1,
-        "publication_sequence": 1,
-        "publication_program_id": 9,
-        "authority_effective_from": "2026-01-01",
-        "published_block_id": 21,
-        "published_assignment_id": 11,
-    }
-    previous = {
-        "teacher": {"ci": "123", "full_name": "Docente"},
-        "academic_period": {"identity": "I/2026", "start": "2026-01-01", "end": "2026-06-30"},
-        "department": "Pando",
-        "template_version": ledger.TEMPLATE_VERSION,
-        "lines": [old],
-        "authority_transitions": [{
-            "publication_id": 1, "program_id": 9, "sequence": 1,
-            "effective_from": "2026-01-01",
-        }],
-    }
-    current = ledger.ContractSnapshot(
-        teacher={"ci": "123", "full_name": "Docente"},
-        academic_period={"identity": "I/2026", "start": "2026-01-01", "end": "2026-06-30"},
-        department="Pando",
-        template_version=ledger.TEMPLATE_VERSION,
-        lines=(),
-        authority_transitions=({
-            "publication_id": 1, "program_id": 9, "sequence": 1,
-            "effective_from": "2026-01-01",
-        }, {
-            "publication_id": 2, "program_id": 9, "sequence": 2,
-            "effective_from": "2026-04-06",
-        }),
+def test_teacher_left_without_load_gets_no_new_contract(db_session, contract_sources):
+    teacher, _theory, _practice, state = contract_sources
+    original = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
     )
-    delta, effective_date, metadata = ledger._delta_lines(
-        previous, current, issuance_date=date(2026, 4, 7)
-    )
-    assert effective_date == date(2026, 4, 6)
-    assert delta[0]["change_kind"] == "removed"
-    assert metadata == []
+    original_hash = original.artifact_sha256
+    state["theory"] = []
+    state["practice"] = []
+
+    with pytest.raises(
+        ledger.ContractIssuanceError,
+        match=r"^El docente Docente Contrato no tiene carga efectiva en I/2026\.$",
+    ):
+        ledger.issue_contract(
+            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+        )
+
+    assert db_session.query(ContractDocument).count() == 1
+    db_session.refresh(original)
+    assert original.artifact_sha256 == original_hash
 
 
-def test_removed_load_without_authoritative_transition_is_refused(db_session, contract_sources):
+def test_batch_reports_a_teacher_left_without_load_and_issues_nothing(
+    client, db_session, contract_sources
+):
     teacher, _theory, _practice, state = contract_sources
     ledger.issue_contract(
         db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
     )
     state["theory"] = []
     state["practice"] = []
-    with pytest.raises(ledger.ContractIssuanceError, match="fecha efectiva autoritativa"):
-        ledger.issue_contract(
-            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
-        )
+
+    response = client.post(
+        "/api/contracts/generate-batch",
+        json={"department": "Pando", "academic_period": "I/2026", "teacher_cis": [teacher.ci]},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "No se pudo emitir ningún contrato. Docente Contrato (CONTRACT-1): "
+        "El docente Docente Contrato no tiene carga efectiva en I/2026."
+    )
+    assert db_session.query(ContractDocument).count() == 1
+
+
+def test_load_returning_to_an_earlier_state_issues_a_new_complete_contract(
+    db_session, contract_sources
+):
+    teacher, theory, _practice, state = contract_sources
+    first_theory = state["theory"]
+    original = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    state["theory"] = [_source(theory, activity="theory", hours=2)]
+    changed = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    state["theory"] = first_theory
+
+    restored = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    replay = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+
+    assert restored.id not in {original.id, changed.id}
+    assert restored.amendment_sequence == 2
+    assert restored.predecessor_contract_id == changed.id
+    assert sorted((line.change_kind, float(line.hours)) for line in restored.lines) == [
+        ("full", 4.0),
+        ("full", 6.0),
+    ]
+    assert replay.id == restored.id
+    assert db_session.query(ContractDocument).count() == 3
 
 
 def test_service_rejects_mixed_published_provenance(db_session, monkeypatch):
@@ -1040,7 +1050,7 @@ def test_batch_reissues_the_full_contract_after_a_name_correction_amendment(
     teacher.full_name = "Docente Contrato Corregido"
     db_session.flush()
     with monkeypatch.context() as previous_rule:
-        previous_rule.setattr(ledger, "_complete_contract_name", lambda _history: None)
+        previous_rule.setattr(ledger, "_contract_lines", lambda _snapshot: [])
         name_amendment = _issue(db_session, teacher)
     body = {"department": "Pando", "academic_period": "I/2026", "teacher_cis": [teacher.ci]}
 
@@ -1057,7 +1067,7 @@ def test_batch_reissues_the_full_contract_after_a_name_correction_amendment(
     assert db_session.query(ContractDocument).count() == 3
 
 
-def test_load_change_after_a_name_reissue_is_a_plain_amendment(db_session, contract_sources):
+def test_load_change_after_a_name_reissue_is_a_complete_contract(db_session, contract_sources):
     teacher, theory, _practice, state = contract_sources
     _issue(db_session, teacher)
     teacher.full_name = "Nombre Nuevo"
@@ -1078,5 +1088,5 @@ def test_load_change_after_a_name_reissue_is_a_plain_amendment(db_session, contr
     )
     assert amendment.predecessor_contract_id == reissued.id
     assert amendment.source_digest == snapshot.digest
-    assert {line.change_kind for line in amendment.lines} == {"changed"}
+    assert {line.change_kind for line in amendment.lines} == {"full"}
     assert _issue(db_session, teacher).id == amendment.id

@@ -9,7 +9,7 @@
 
 ## Descripcion General
 
-SIPAD procesa designaciones docentes, datos biometricos de asistencia y genera planillas de pago con calculo automatizado. Incluye retencion RC-IVA 13%, ajustes manuales del admin, publicacion de facturacion para docentes, contratos PDF con enmiendas inmutables, planificador de horarios con publicaciones, reportes multiples, auditoria de asistencia, mensajeria admin-docente y registro completo de actividad.
+SIPAD procesa designaciones docentes, datos biometricos de asistencia y genera planillas de pago con calculo automatizado. Incluye retencion RC-IVA 13%, ajustes manuales del admin, publicacion de facturacion para docentes, contratos PDF con historial inmutable de versiones, planificador de horarios con publicaciones, reportes multiples, auditoria de asistencia, mensajeria admin-docente y registro completo de actividad.
 
 Ademas cubre la gestion estudiantil de Medicina: malla curricular, historial academico importado del sistema anterior, portal del estudiante con rematricula, cursos de verano e invierno, apertura de grupos y documentos migratorios.
 
@@ -21,7 +21,7 @@ Ademas cubre la gestion estudiantil de Medicina: malla curricular, historial aca
 | Crear, editar o finalizar designaciones | [Designaciones](docs/procesos/designaciones.md) |
 | Cambiar el docente de una materia | [Cambio de docente](docs/procesos/cambio-de-docente.md) |
 | Armar y publicar horarios | [Planificador de horarios](docs/procesos/planificador-de-horarios.md) |
-| Emitir contratos y enmiendas | [Contratos](docs/procesos/contratos.md) |
+| Emitir contratos y sus versiones | [Contratos](docs/procesos/contratos.md) |
 | Cerrar el mes: biometrico, asistencia, planilla, publicacion | [Cierre mensual](docs/procesos/cierre-mensual.md) |
 | Malla, estudiantes, rematricula, intensivos | [Gestion estudiantil](docs/procesos/gestion-estudiantil.md) |
 | Docentes, usuarios y credenciales | [Docentes y usuarios](docs/procesos/docentes-y-usuarios.md) |
@@ -497,7 +497,7 @@ El detalle de cada paso esta en las [guias de procesos](docs/procesos/README.md)
 1. **Docentes**: alta en *Docentes y academico → Docentes*; el importador seguro de perfiles (*Subir biometrico → Lista de Docentes*) solo completa campos vacios y nunca crea docentes.
 2. **Designaciones**: una por una o *Importar archivo* en *Designaciones* (vista previa obligatoria, aplicacion atomica). *Gestion academica → Cargar designacion* no importa designaciones: arma un borrador del planificador a partir de las existentes.
 3. **Horario**: borrador en el *Planificador de horarios* → *Revisar publicacion completa* → publicar. Lo publicado reemplaza a las designaciones en planilla y asistencia desde su fecha efectiva.
-4. **Contratos**: *Emitir contratos* (individual o por lote). Si la carga cambia despues, la nueva emision genera una enmienda.
+4. **Contratos**: *Emitir contratos* (individual o por lote). Si la carga cambia despues, la nueva emision genera una version nueva del contrato completo.
 
 **Cada mes** ([Cierre mensual](docs/procesos/cierre-mensual.md)) — el Dashboard muestra el avance:
 
@@ -531,7 +531,7 @@ El menu del administrador se organiza en cuatro grupos. Cada guia de [docs/proce
 | | Reportes | Financiero, asistencia, comparativo, plantel, incidencias, conciliacion |
 | **Docentes y academico** | Docentes | Padron con avatar y tipo (titular, permanente, externo), detalle, foto, importacion de perfiles |
 | | Designaciones | Materias asignadas: crear, editar, finalizar, eliminar, importar Excel; KPIs y filtros rapidos |
-| | Contratos | Historial inmutable agrupado por docente (originales y enmiendas) y emision en panel lateral |
+| | Contratos | Historial inmutable agrupado por docente (originales y versiones posteriores) y emision en panel lateral |
 | | Gestion academica | Catalogos (programas, materias, grupos, aulas), horarios por semestre, conflictos, cambio de docente |
 | | Planificador de horarios | Borradores semanales con arrastrar y soltar, asignacion de docentes, publicaciones con vista previa |
 | | Solicitudes | Responde las solicitudes de los docentes |
