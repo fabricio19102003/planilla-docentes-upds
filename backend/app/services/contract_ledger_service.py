@@ -757,6 +757,23 @@ def _load_history(db: Session, teacher_ci: str, academic_period: str) -> list[Co
     )
 
 
+def _complete_contract_name(history: list[ContractDocument]) -> str | None:
+    """Teacher name on the latest document that states the whole contract."""
+    for document in reversed(history):
+        if document.lines and all(line.change_kind == "full" for line in document.lines):
+            return document.teacher_name
+    return None
+
+
+def _name_reissue_digest(snapshot_digest: str) -> str:
+    """Ledger digest of a full contract reissued only because the name changed.
+
+    The load is unchanged, so the snapshot digest may already belong to a
+    name-correction amendment; the ledger keeps digests unique per period.
+    """
+    return hashlib.sha256(f"{snapshot_digest}:name-reissue".encode("utf-8")).hexdigest()
+
+
 def _validate_history(history: list[ContractDocument]) -> None:
     if not history:
         return
@@ -818,18 +835,32 @@ def issue_contract(
         ),
         schedule_sources_cache=schedule_sources_cache,
     )
+    # A legal name change restates the whole contract with the new name; a
+    # name-only amendment would leave the complete contract under the old one.
+    complete_name = _complete_contract_name(history)
+    name_reissue = (
+        predecessor is not None
+        and bool(snapshot.lines)
+        and complete_name is not None
+        and complete_name != str(snapshot.teacher["full_name"])
+    )
+    reissue_digest = _name_reissue_digest(snapshot.digest)
+    document_digest = reissue_digest if name_reissue else snapshot.digest
     existing = db.query(ContractDocument).filter(
         ContractDocument.teacher_ci == teacher_ci,
         ContractDocument.academic_period == academic_period,
-        ContractDocument.source_digest == snapshot.digest,
-    ).first()
+        ContractDocument.source_digest.in_(
+            [reissue_digest] if name_reissue else [snapshot.digest, reissue_digest]
+        ),
+    ).order_by(ContractDocument.amendment_sequence.desc()).first()
     if existing is not None:
         return existing
 
     issued_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    # A new template, new contract dates or new comitente data supersede the
-    # latest document with a complete contract; earlier documents stay untouched.
-    reissue = predecessor is not None and bool(snapshot.lines) and (
+    # A new template, new contract dates, new comitente data or a new legal name
+    # supersede the latest document with a complete contract; earlier documents
+    # stay untouched.
+    reissue = name_reissue or predecessor is not None and bool(snapshot.lines) and (
         predecessor.template_version != TEMPLATE_VERSION
         or (predecessor.full_snapshot.get("contract_terms") or {}) != snapshot.contract_terms
         or (
@@ -881,7 +912,7 @@ def issue_contract(
         amendment_sequence=sequence,
         effective_date=effective_date,
         issued_at=issued_at,
-        source_digest=snapshot.digest,
+        source_digest=document_digest,
         template_version=TEMPLATE_VERSION,
         status="issued",
         department=department,
@@ -928,7 +959,7 @@ def issue_contract(
         replay = db.query(ContractDocument).filter(
             ContractDocument.teacher_ci == teacher_ci,
             ContractDocument.academic_period == academic_period,
-            ContractDocument.source_digest == snapshot.digest,
+            ContractDocument.source_digest == document_digest,
         ).first()
         if replay is not None:
             return replay

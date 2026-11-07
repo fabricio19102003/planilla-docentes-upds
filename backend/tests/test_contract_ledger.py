@@ -349,7 +349,11 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
         assert internal not in text
 
 
-def test_non_contractual_profile_change_is_idempotent_and_legal_name_change_is_metadata_amendment(
+def _document_text(document: ContractDocument) -> str:
+    return " ".join(_pdf_text(bytes(document.artifact_content)).split())
+
+
+def test_non_contractual_profile_change_is_idempotent_and_legal_name_change_reissues_full_contract(
     db_session, contract_sources
 ):
     teacher, _theory, _practice, _state = contract_sources
@@ -367,26 +371,63 @@ def test_non_contractual_profile_change_is_idempotent_and_legal_name_change_is_m
 
     teacher.full_name = "Docente Contrato Corregido"
     db_session.flush()
-    amendment = ledger.issue_contract(
+    reissued = ledger.issue_contract(
         db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
     )
-    assert amendment.document_kind == "amendment"
-    assert amendment.amendment_sequence == 1
-    assert amendment.lines == []
-    assert amendment.teacher_snapshot == {
-        "ci": teacher.ci,
-        "full_name": "Docente Contrato Corregido",
+    assert reissued.document_kind == "amendment"
+    assert reissued.amendment_sequence == 1
+    assert reissued.teacher_name == "Docente Contrato Corregido"
+    assert {line.change_kind for line in reissued.lines} == {"full"}
+    assert {line.subject_label for line in reissued.lines} == {
+        line.subject_label for line in original.lines
     }
-    text = "\n".join(
-        page.extract_text() or ""
-        for page in PdfReader(io.BytesIO(bytes(amendment.artifact_content))).pages
-    )
-    text = " ".join(text.split())
-    assert "ADENDA N.º 1 AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in text
-    assert "Nombre del docente Docente Contrato Docente Contrato Corregido" in text
+    text = _document_text(reissued)
+    assert "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES" in text
+    assert "ADENDA" not in text
     assert "Docente Contrato Corregido" in text
+
+    again = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    assert again.id == reissued.id
+    assert db_session.query(ContractDocument).count() == 2
     db_session.refresh(original)
     assert original.artifact_sha256 == original_hash
+
+
+def test_name_correction_amendment_is_superseded_by_a_full_contract(
+    db_session, contract_sources, monkeypatch
+):
+    teacher, _theory, _practice, _state = contract_sources
+    ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    teacher.full_name = "Docente Contrato Corregido"
+    db_session.flush()
+    # Reproduce the history left by the previous rule: a name-only amendment.
+    with monkeypatch.context() as previous_rule:
+        previous_rule.setattr(ledger, "_complete_contract_name", lambda _history: None)
+        name_amendment = ledger.issue_contract(
+            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+        )
+    assert name_amendment.lines == []
+    assert "ADENDA N.º 1" in _document_text(name_amendment)
+
+    reissued = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    assert reissued.amendment_sequence == 2
+    assert reissued.predecessor_contract_id == name_amendment.id
+    assert {line.change_kind for line in reissued.lines} == {"full"}
+    text = _document_text(reissued)
+    assert "ADENDA" not in text
+    assert "Docente Contrato Corregido" in text
+
+    again = ledger.issue_contract(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    assert again.id == reissued.id
+    assert db_session.query(ContractDocument).count() == 3
 
 
 def test_removed_load_uses_new_authoritative_publication_date():
@@ -989,3 +1030,53 @@ def test_batch_route_resolves_the_institution_load_once_for_all_teachers(
     assert {line["subject_label"] for line in documents[second.ci].full_snapshot["lines"]} == {
         "Fisiología",
     }
+
+
+def test_batch_reissues_the_full_contract_after_a_name_correction_amendment(
+    client, db_session, contract_sources, monkeypatch
+):
+    teacher, _theory, _practice, _state = contract_sources
+    _issue(db_session, teacher)
+    teacher.full_name = "Docente Contrato Corregido"
+    db_session.flush()
+    with monkeypatch.context() as previous_rule:
+        previous_rule.setattr(ledger, "_complete_contract_name", lambda _history: None)
+        name_amendment = _issue(db_session, teacher)
+    body = {"department": "Pando", "academic_period": "I/2026", "teacher_cis": [teacher.ci]}
+
+    first = client.post("/api/contracts/generate-batch", json=body)
+
+    assert first.status_code == 200
+    issued = first.json()["contracts"][0]
+    reissued = db_session.query(ContractDocument).filter_by(public_id=issued["public_id"]).one()
+    assert issued["version"] == 3
+    assert reissued.predecessor_contract_id == name_amendment.id
+    assert {line.change_kind for line in reissued.lines} == {"full"}
+    again = client.post("/api/contracts/generate-batch", json=body).json()["contracts"][0]
+    assert again["public_id"] == issued["public_id"]
+    assert db_session.query(ContractDocument).count() == 3
+
+
+def test_load_change_after_a_name_reissue_is_a_plain_amendment(db_session, contract_sources):
+    teacher, theory, _practice, state = contract_sources
+    _issue(db_session, teacher)
+    teacher.full_name = "Nombre Nuevo"
+    db_session.flush()
+    reissued = _issue(db_session, teacher)
+    state["theory"] = [
+        _source(theory, activity="theory", hours=2, effective_from=date(2026, 3, 16))
+    ]
+
+    amendment = _issue(db_session, teacher)
+
+    snapshot = ledger.build_contract_snapshot(
+        db_session,
+        teacher_ci=teacher.ci,
+        academic_period="I/2026",
+        department="Pando",
+        allow_empty=True,
+    )
+    assert amendment.predecessor_contract_id == reissued.id
+    assert amendment.source_digest == snapshot.digest
+    assert {line.change_kind for line in amendment.lines} == {"changed"}
+    assert _issue(db_session, teacher).id == amendment.id
