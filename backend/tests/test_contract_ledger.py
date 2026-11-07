@@ -292,7 +292,7 @@ def test_empty_and_incoherent_periods_are_refused(db_session, contract_sources):
         )
 
 
-def test_snapshot_pdf_is_deterministic_and_labels_amendment():
+def test_later_version_pdf_is_deterministic_and_states_the_complete_contract():
     payload = {
         "public_id": "fixed-contract-id",
         "document_kind": "amendment",
@@ -304,7 +304,6 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
         "academic_period": {"identity": "I/2026", "start": "2026-01-01", "end": "2026-06-30"},
         "department": "Pando",
         "template_version": ledger.TEMPLATE_VERSION,
-        "metadata_changes": [],
         "lines": [{
             "activity_kind": "theory",
             "rate_class": "regular",
@@ -326,9 +325,7 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
             "authority_effective_from": "2026-03-16",
             "published_block_id": None,
             "published_assignment_id": None,
-            "change_kind": "changed",
-            "previous_hours": "4.00",
-            "previous_hourly_rate": "70.00",
+            "change_kind": "full",
         }],
     }
     first = render_contract_document_pdf(payload)
@@ -337,18 +334,31 @@ def test_snapshot_pdf_is_deterministic_and_labels_amendment():
     assert b"%PDF" in first[:8]
     text = _pdf_text(first)
     for expected in (
-        "ADENDA N.º 2 AL CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
-        "el señor(a) Docente Prueba con C.I. 123, en adelante el CONTRATISTA",
-        "con efecto desde el 16 de marzo de 2026",
-        "Anatomía I Cambio 4 → 2",
+        "CONTRATO DE PRESTACIÓN DE SERVICIOS PROFESIONALES",
+        "Docente Prueba",
+        "C.I. 123",
+        "Anatomía",
         "Bs. 70,00 (Setenta bolivianos 00/100)",
-        "permanecen vigentes e inalteradas",
-        "Cobija, 16 de marzo de 2026.",
         "EL CONTRATISTA",
     ):
         assert expected in text
+    assert "ADENDA" not in text
     for internal in ("fixed-contract-id", "root-contract-id", ledger.TEMPLATE_VERSION, "designación #7"):
         assert internal not in text
+
+
+def _issue_legacy_document(db_session, teacher, monkeypatch, lines):
+    """Issue a document as the previous amendment rules did, with ``lines(snapshot)``."""
+    from app.services import contract_pdf
+
+    with monkeypatch.context() as previous_rule:
+        previous_rule.setattr(ledger, "_contract_lines", lines)
+        previous_rule.setattr(
+            contract_pdf, "render_contract_document_pdf", lambda _payload: b"%PDF-legacy-adenda"
+        )
+        return ledger.issue_contract(
+            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+        )
 
 
 def _document_text(document: ContractDocument) -> str:
@@ -408,11 +418,7 @@ def test_name_correction_amendment_is_superseded_by_a_full_contract(
     db_session.flush()
     # Reproduce the history left by the previous rule: a name-only amendment
     # (a document without lines).
-    with monkeypatch.context() as previous_rule:
-        previous_rule.setattr(ledger, "_contract_lines", lambda _snapshot: [])
-        name_amendment = ledger.issue_contract(
-            db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
-        )
+    name_amendment = _issue_legacy_document(db_session, teacher, monkeypatch, lambda _snapshot: [])
     assert name_amendment.lines == []
 
     reissued = ledger.issue_contract(
@@ -1049,9 +1055,7 @@ def test_batch_reissues_the_full_contract_after_a_name_correction_amendment(
     _issue(db_session, teacher)
     teacher.full_name = "Docente Contrato Corregido"
     db_session.flush()
-    with monkeypatch.context() as previous_rule:
-        previous_rule.setattr(ledger, "_contract_lines", lambda _snapshot: [])
-        name_amendment = _issue(db_session, teacher)
+    name_amendment = _issue_legacy_document(db_session, teacher, monkeypatch, lambda _snapshot: [])
     body = {"department": "Pando", "academic_period": "I/2026", "teacher_cis": [teacher.ci]}
 
     first = client.post("/api/contracts/generate-batch", json=body)
@@ -1090,3 +1094,77 @@ def test_load_change_after_a_name_reissue_is_a_complete_contract(db_session, con
     assert amendment.source_digest == snapshot.digest
     assert {line.change_kind for line in amendment.lines} == {"full"}
     assert _issue(db_session, teacher).id == amendment.id
+
+
+@pytest.mark.parametrize("change_kind", ["changed", "added", "removed"])
+def test_legacy_load_amendment_is_replaced_once_by_the_complete_contract(
+    db_session, contract_sources, monkeypatch, change_kind
+):
+    teacher, theory, _practice, state = contract_sources
+    _issue(db_session, teacher)
+    state["theory"] = [_source(theory, activity="theory", hours=2)]
+    legacy = _issue_legacy_document(
+        db_session,
+        teacher,
+        monkeypatch,
+        lambda snapshot: [
+            dict(ledger.asdict(line), change_kind=change_kind) for line in snapshot.lines[:1]
+        ],
+    )
+    assert {line.change_kind for line in legacy.lines} == {change_kind}
+
+    replacement = _issue(db_session, teacher)
+    again = _issue(db_session, teacher)
+
+    snapshot = ledger.build_contract_snapshot(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    assert replacement.amendment_sequence == 2
+    assert replacement.predecessor_contract_id == legacy.id
+    assert replacement.source_digest == ledger._reissue_digest(snapshot.digest, 2)
+    assert sorted((line.change_kind, float(line.hours)) for line in replacement.lines) == [
+        ("full", 2.0),
+        ("full", 6.0),
+    ]
+    assert "ADENDA" not in _document_text(replacement)
+    assert again.id == replacement.id
+    assert db_session.query(ContractDocument).count() == 3
+
+
+def test_renumbered_name_reissue_from_production_stays_the_current_contract(
+    db_session, contract_sources, monkeypatch
+):
+    teacher, theory, _practice, state = contract_sources
+    original = _issue(db_session, teacher)
+    teacher.full_name = "Docente Contrato Corregido"
+    db_session.flush()
+    adenda = _issue_legacy_document(db_session, teacher, monkeypatch, lambda _snapshot: [])
+    reissue = _issue(db_session, teacher)
+    snapshot = ledger.build_contract_snapshot(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    # Reproduce production on 2026-11-07: the name reissue carried the legacy
+    # name-reissue digest, then the adenda was deleted and the reissue renumbered.
+    reissue.source_digest = ledger._name_reissue_digest(snapshot.digest)
+    reissue.predecessor_contract_id = original.id
+    db_session.flush()
+    db_session.delete(adenda)
+    db_session.flush()
+    reissue.amendment_sequence = 1
+    db_session.commit()
+
+    current = _issue(db_session, teacher)
+
+    assert current.id == reissue.id
+    assert db_session.query(ContractDocument).count() == 2
+
+    state["theory"] = [_source(theory, activity="theory", hours=2)]
+    changed = _issue(db_session, teacher)
+    changed_snapshot = ledger.build_contract_snapshot(
+        db_session, teacher_ci=teacher.ci, academic_period="I/2026", department="Pando"
+    )
+    assert changed.amendment_sequence == 2
+    assert changed.predecessor_contract_id == reissue.id
+    assert changed.source_digest == changed_snapshot.digest
+    assert {line.change_kind for line in changed.lines} == {"full"}
+    assert _issue(db_session, teacher).id == changed.id
