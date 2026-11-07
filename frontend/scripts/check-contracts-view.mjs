@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   changeKindLabel,
   changeKindTone,
+  contractVersionLabel,
   currentLines,
   filterHistory,
   groupByTeacher,
@@ -131,4 +132,10 @@ test('change kinds map to tones and Spanish labels', () => {
   assert.equal(changeKindLabel('changed'), 'Modificada')
   assert.equal(changeKindLabel('full'), 'Completa')
   assert.equal(changeKindLabel('otro'), 'Completa')
+})
+
+test('contract versions are labelled Original and Versión N, never as amendments', () => {
+  assert.equal(contractVersionLabel({ document_kind: 'original', amendment_sequence: 0 }), 'Original')
+  assert.equal(contractVersionLabel({ document_kind: 'amendment', amendment_sequence: 1 }), 'Versión 2')
+  assert.equal(contractVersionLabel({ document_kind: 'amendment', amendment_sequence: 2 }), 'Versión 3')
 })

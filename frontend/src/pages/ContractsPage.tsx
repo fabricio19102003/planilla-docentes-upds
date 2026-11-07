@@ -35,6 +35,7 @@ import { TeacherTypeBadge } from '@/components/shared/TeacherTypeBadge'
 import { TONE_CHIP, TONE_DOT } from '@/components/shared/tones'
 import { teacherTypeLabel } from '@/domain/teacherTypes'
 import {
+  contractVersionLabel,
   filterHistory,
   groupByTeacher,
   historyKpis,
@@ -296,7 +297,7 @@ export function ContractsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Contratos Docentes"
-        description="Emití y consultá contratos consolidados y sus enmiendas inmutables"
+        description="Emití y consultá los contratos de cada docente y sus versiones"
         actions={
           <Button onClick={() => setSheetOpen(true)}>
             <FileSignature aria-hidden="true" />
@@ -489,7 +490,7 @@ export function ContractsPage() {
           tone="primary"
           title="Documentos emitidos"
           value={contractHistory.isSuccess ? <CountUp value={kpis.documents} /> : '—'}
-          hint="Originales y enmiendas del historial"
+          hint="Originales y versiones posteriores del historial"
         />
         <StatCard
           icon={FileSignature}
@@ -501,7 +502,7 @@ export function ContractsPage() {
         <StatCard
           icon={FilePenLine}
           tone="info"
-          title="Enmiendas"
+          title="Versiones posteriores"
           value={contractHistory.isSuccess ? <CountUp value={kpis.amendments} /> : '—'}
           hint="Cambios posteriores a un original"
         />
@@ -517,7 +518,7 @@ export function ContractsPage() {
           tone="cyan"
           title="Horas vigentes"
           value={contractHistory.isSuccess ? <CountUp value={kpis.hours} format={(n) => hoursFormatter.format(n)} /> : '—'}
-          hint="Carga vigente de cada docente: último original más sus enmiendas"
+          hint="Carga vigente de cada docente según su última versión"
         />
         <StatCard
           icon={Banknote}
@@ -533,7 +534,7 @@ export function ContractsPage() {
           <h3 id="contract-history-heading" className="text-base font-semibold text-foreground">
             Historial Inmutable
           </h3>
-          <p className="text-sm text-muted-foreground">Originales y enmiendas ordenados por docente y versión.</p>
+          <p className="text-sm text-muted-foreground">Contratos ordenados por docente y versión.</p>
         </div>
 
         <ContractHistoryToolbar
@@ -602,7 +603,8 @@ export function ContractsPage() {
                         {group.documents.map((document, index) => {
                           const isOriginal = document.document_kind === 'original'
                           const tone = isOriginal ? 'success' : 'info'
-                          const label = isOriginal ? 'contrato original' : `enmienda ${document.amendment_sequence}`
+                          const versionLabel = contractVersionLabel(document)
+                          const label = isOriginal ? 'contrato original' : versionLabel.toLowerCase()
                           return (
                             <li key={document.public_id} className={cn('relative pl-7', index < group.documents.length - 1 && 'pb-6')}>
                               {index < group.documents.length - 1 && (
@@ -613,7 +615,7 @@ export function ContractsPage() {
                                 <div>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <StatusBadge tone={tone}>
-                                      {isOriginal ? 'Original' : `Enmienda ${document.amendment_sequence}`}
+                                      {versionLabel}
                                     </StatusBadge>
                                     <span className="text-sm font-medium text-foreground">{document.academic_period}</span>
                                   </div>
