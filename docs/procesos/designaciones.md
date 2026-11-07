@@ -47,7 +47,7 @@ Las fechas se cambian desde **Editar**, en **4. Fechas del contrato**.
 2. Cambiá **Fecha de inicio** y/o **Fecha de fin**.
 3. Hacé clic en **Guardar cambios**.
 
-Si los campos de fecha aparecen deshabilitados, mirá el recuadro gris que está encima: te dice por qué (por ejemplo, que el contrato emitido fijó las fechas). En ese caso las fechas se corrigen con una adenda desde **Contratos**.
+Si los campos de fecha aparecen deshabilitados, mirá el recuadro gris que está encima: te dice por qué (por ejemplo, que el contrato emitido fijó las fechas). En ese caso las fechas se corrigen emitiendo una versión nueva del contrato desde **Contratos**.
 
 Para **terminar** una designación antes de tiempo no uses este camino: usá **Finalizar** (siguiente sección).
 
@@ -56,7 +56,7 @@ Para **terminar** una designación antes de tiempo no uses este camino: usá **F
 1. En la fila, hacé clic en **Finalizar**.
 2. En **Último día que dicta la materia** elegí la fecha. Se le paga hasta ese día inclusive. Por defecto propone hoy, dentro de las fechas de la designación.
 3. Hacé clic en **Finalizar**. Aparece el aviso **Designación finalizada el DD/MM/AAAA.** y la designación pasa a **Finalizadas**, sin perder el historial.
-4. Si el aviso lo indica, regenerá las planillas afectadas. Si la designación tenía contrato, el aviso agrega: «El contrato emitido no cambia; si corresponde, emití una adenda desde Contratos.»
+4. Si el aviso lo indica, regenerá las planillas afectadas. Si la designación tenía contrato, el aviso agrega: «El contrato emitido no cambia; si corresponde, emití una nueva versión del contrato desde Contratos.»
 
 Si el docente se va y entra otro en su lugar, no finalices a mano: usá **Gestión académica → Cambiar docente** (ver [cambio-de-docente.md](cambio-de-docente.md)).
 
@@ -98,7 +98,7 @@ Cosas que conviene saber de la importación:
 |---|---|---|
 | La planilla de un mes cubierto por la designación está **aprobada** | **Editar** muestra «Esta designación ya se pagó y no se puede editar». Al crear o guardar, el servidor responde «No se puede guardar porque ya se pagó con estos datos.» con el detalle, por ejemplo «La planilla de teoría 3/2026 ya está aprobada.» | Finalizá la designación en la fecha del cambio y creá una nueva desde el día siguiente. O rechazá la planilla en **Planilla** si corresponde corregir ese mes. |
 | La **facturación** de un mes cubierto está **publicada** | Mismo bloqueo, con el detalle «La facturación de teoría 3/2026 ya está publicada.» | Igual que arriba: finalizá y creá una nueva desde el día siguiente. |
-| La designación ya tiene **contrato emitido** y querés cambiar sus fechas | Los campos de fecha quedan deshabilitados: «Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una adenda desde Contratos.» Si igual se intenta, el servidor responde «No se pueden cambiar las fechas de esta designación.» | Emití una adenda desde **Contratos**. Los demás datos (horario, horas) se siguen pudiendo editar si el mes no está pagado. |
+| La designación ya tiene **contrato emitido** y querés cambiar sus fechas | Los campos de fecha quedan deshabilitados: «Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una nueva versión del contrato desde Contratos.» Si igual se intenta, el servidor responde «No se pueden cambiar las fechas de esta designación.» | Emití una versión nueva del contrato desde **Contratos**. Los demás datos (horario, horas) se siguen pudiendo editar si el mes no está pagado. |
 | Ya existe esa materia, semestre y grupo para ese docente en el período | No se guarda: «Ya existe una designación de esa materia, semestre y grupo para este docente en el período.» | Editá la existente en lugar de crear otra, o corregí materia/semestre/grupo. |
 | Falta algún dato o hay un dato inválido en el formulario | Aparece **Faltan datos o hay datos para corregir.** con la lista (por ejemplo «Elegí un docente.», «Bloque 1: elegí el día.», «Indicá las horas mensuales.», «Bloque 1: la hora de fin tiene que ser posterior a la de inicio.») | Corregí cada punto de la lista y guardá de nuevo. |
 | La fecha de fin es anterior a la de inicio | «La fecha de fin no puede ser anterior a la fecha de inicio.» | Corregí las fechas. |
@@ -109,7 +109,7 @@ Cosas que conviene saber de la importación:
 | El docente tiene asistencia registrada después de la fecha de fin elegida | «El docente tiene asistencia registrada después de esa fecha (…). Elegí una fecha posterior.» | Elegí una fecha posterior a la última asistencia. |
 | Hay un mes ya aprobado o publicado después de la nueva fecha de fin | «No se puede finalizar en esa fecha.» con el detalle del mes bloqueado | Elegí una fecha que no afecte meses pagados, o rechazá esa planilla primero. |
 | **Eliminar** una designación con asistencia | «Tiene asistencia registrada; usá Finalizar.» | Usá **Finalizar en su lugar**. |
-| **Eliminar** una designación con contrato emitido | «Ya tiene un contrato emitido; usá Finalizar.» | Finalizá; si hace falta, adenda en **Contratos**. |
+| **Eliminar** una designación con contrato emitido | «Ya tiene un contrato emitido; usá Finalizar.» | Finalizá; si hace falta, emití una versión nueva en **Contratos**. |
 | **Eliminar** una designación con monto manual en la planilla | «Una planilla tiene un monto manual para esta designación; usá Finalizar.» | Finalizá. |
 | **Eliminar** una designación que ya entró en una planilla | «La planilla de teoría 3/2026 ya se generó con esta designación; usá Finalizar.» (o el aviso de planilla aprobada / facturación publicada) | Finalizá. |
 | Después de editar, finalizar o crear, hay planillas generadas de esos meses | El aviso verde dice «Regenerá la planilla de … para que tome el cambio.» | Regenerá esas planillas en **Cierre mensual → Planilla**. |

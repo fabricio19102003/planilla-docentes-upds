@@ -185,7 +185,7 @@ def test_list_locks_dates_when_a_contract_was_issued(client, seeded):
     assert row["actions"]["edit"] == {"allowed": True, "reason": None}
     assert row["actions"]["edit_dates"] == {
         "allowed": False,
-        "reason": "Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una adenda desde Contratos.",
+        "reason": "Las fechas quedaron fijadas en el contrato emitido. Para cambiarlas, emití una nueva versión del contrato desde Contratos.",
     }
     assert row["actions"]["delete"]["allowed"] is False
 
@@ -368,7 +368,7 @@ def test_finalize_with_contract_warns(client, seeded):
 
     assert response.status_code == 200, response.text
     assert response.json()["warnings"] == [
-        "El contrato emitido no cambia; si corresponde, emití una adenda desde Contratos."]
+        "El contrato emitido no cambia; si corresponde, emití una nueva versión del contrato desde Contratos."]
 
 
 @pytest.mark.parametrize(("end_date", "code"), [
