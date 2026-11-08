@@ -24,6 +24,7 @@ from app.models.academic_management import (
     TeacherAvailability,
 )
 from app.models.chat import ChatConversation
+from app.models.classroom_reservation import ClassroomReservation
 from app.models.intensive_courses import IntensiveCourse
 from app.models.contract import ContractDocument
 from app.models.teacher import Teacher
@@ -113,6 +114,10 @@ def _seed_schedule_assignment(db_session):
         term_code="VER/2027", subject_id=subject.id, teacher_ci=OLD_CI, capacity=10,
         enrollment_starts_on=date(2027, 1, 1), enrollment_ends_on=date(2027, 1, 10),
         theory_hours=10, practice_hours=0, status="open",
+    ))
+    db_session.add(ClassroomReservation(
+        classroom_id=room.id, teacher_ci=OLD_CI, reservation_date=date(2027, 3, 1),
+        start_time=time(10), end_time=time(10, 45), academic_periods=1, status="confirmed",
     ))
     db_session.flush()
 

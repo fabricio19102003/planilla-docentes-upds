@@ -5,7 +5,9 @@ enforced and a naive child-first update fails.
 """
 from datetime import date, time
 
+from app.models.academic_management import Classroom
 from app.models.biometric import BiometricRecord, BiometricUpload
+from app.models.classroom_reservation import ClassroomReservation
 from app.models.designation import Designation
 from app.models.practice_attendance import PracticeAttendanceLog
 from app.models.teacher import Teacher
@@ -276,3 +278,21 @@ def test_every_teacher_ci_foreign_key_is_moved_or_guarded():
     }
     handled = set(TeacherIdentityService.child_tables) | set(TeacherIdentityService.guarded_tables)
     assert referencing - handled == set()
+
+
+def test_ci_change_moves_classroom_reservations(client, db_session):
+    _seed(db_session)
+    room = Classroom(code="CI-R", name="R", campus="Cobija", capacity=10, classroom_type="classroom",
+                     resources=[], active=True)
+    db_session.add(room)
+    db_session.flush()
+    db_session.add(ClassroomReservation(classroom_id=room.id, teacher_ci="111", reservation_date=date(2027, 3, 1),
+                                        start_time=time(10), end_time=time(10, 45), academic_periods=1,
+                                        status="confirmed"))
+    db_session.commit()
+
+    assert client.put("/api/teachers/111", json={"ci": "222"}).status_code == 200
+
+    db_session.expire_all()
+    assert db_session.query(ClassroomReservation).filter_by(teacher_ci="222").count() == 1
+    assert db_session.query(ClassroomReservation).filter_by(teacher_ci="111").count() == 0

@@ -137,3 +137,7 @@ __all__ += [
     "WhatsAppEvent",
     "BillingMediaToken",
 ]
+
+from app.models.classroom_reservation import ClassroomReservation
+
+__all__ += ["ClassroomReservation"]
