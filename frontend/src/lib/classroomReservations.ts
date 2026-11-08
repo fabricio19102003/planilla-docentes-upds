@@ -120,3 +120,8 @@ export function timelinePosition(start: string, end: string, dayStart: string, d
   const to = (toMinutes(end) ?? 0) - windowStart
   return { top: (from / total) * 100, height: ((to - from) / total) * 100 }
 }
+
+/** Moves the academic period count by `delta`, never leaving MIN_PERIODS..MAX_PERIODS. */
+export function stepPeriods(current: number, delta: number): number {
+  return Math.min(MAX_PERIODS, Math.max(MIN_PERIODS, current + delta))
+}
