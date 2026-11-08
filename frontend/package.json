@@ -64,7 +64,8 @@
     "test:student-schedule": "node --experimental-strip-types --test scripts/check-student-schedule.mjs",
     "test:group-opening": "node --experimental-strip-types --test scripts/check-group-opening.mjs",
     "test:migration-documents": "node --experimental-strip-types --test scripts/check-migration-documents.mjs",
-    "test:classroom-reservations": "node --experimental-strip-types --test scripts/check-classroom-reservations.mjs"
+    "test:classroom-reservations": "node --experimental-strip-types --test scripts/check-classroom-reservations.mjs",
+    "test:classroom-reservations-admin": "node --experimental-strip-types --test scripts/check-classroom-reservations-admin.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

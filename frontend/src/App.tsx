@@ -42,6 +42,7 @@ import { StudentSchedulePage } from './pages/student/StudentSchedulePage'
 import { StudentReenrollmentPage } from './pages/student/StudentReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
+import { ClassroomReservationsAdminPage } from './pages/ClassroomReservationsAdminPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -115,6 +116,7 @@ function AppRoutes() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="academic-management" element={<AcademicManagementPage />} />
             <Route path="schedule-planner" element={<SchedulePlannerPage />} />
+            <Route path="classroom-reservations" element={<ClassroomReservationsAdminPage />} />
             <Route path="students" element={<StudentsPage />} />
             <Route path="students/:id" element={<StudentDetailPage />} />
             <Route path="reenrollment" element={<ReenrollmentPage />} />
