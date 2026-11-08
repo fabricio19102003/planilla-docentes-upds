@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
 
 import { useAcademicTeacherSearch } from '@/api/hooks/useAcademicManagement'
-import { useCreateDesignation, useUpdateDesignation } from '@/api/hooks/useDesignationAdmin'
+import { useCreateDesignation, useSetDesignationClassroom, useUpdateDesignation } from '@/api/hooks/useDesignationAdmin'
 import type { DesignationAdminItem, DesignationAdminMutation } from '@/api/types'
 import { TeacherCombobox } from '@/components/academic-management/TeacherCombobox'
+import { ClassroomCombobox } from '@/components/designations/ClassroomCombobox'
 import { DesignationProblems } from '@/components/designations/DesignationProblems'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -21,6 +22,7 @@ import {
   errorDetails,
   formErrors,
   formToPayload,
+  hasOnlyClassroomChange,
   suggestedMonthlyHours,
   suggestedSemesterHours,
   weeklyHours,
@@ -28,6 +30,7 @@ import {
   type ProblemDetails,
   type SlotForm,
 } from '@/lib/designationAdminState'
+import type { DesignationRoomItem } from '@/lib/designationRoomImport'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
 const GROUP_SUGGESTIONS = ['M-1', 'M-2', 'M-3', 'M-4', 'T-1', 'T-2', 'T-3', 'N-1', 'N-2', 'N-3', 'G.E.', 'EXTRA']
@@ -80,7 +83,7 @@ export interface DesignationFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Item being edited; null creates a new designation. */
-  item: DesignationAdminItem | null
+  item: DesignationRoomItem | null
   initialForm: DesignationForm
   subjects: string[]
   onSaved: (result: DesignationAdminMutation, mode: 'create' | 'edit') => void
@@ -96,7 +99,8 @@ export function DesignationFormDialog({ open, onOpenChange, item, initialForm, s
   const teachers = useAcademicTeacherSearch(teacherSearch, teacherPage)
   const create = useCreateDesignation()
   const update = useUpdateDesignation()
-  const saving = create.isPending || update.isPending
+  const setClassroom = useSetDesignationClassroom()
+  const saving = create.isPending || update.isPending || setClassroom.isPending
   const editing = item !== null
   const editBlocked = editing && !item.actions.edit.allowed
   const datesLocked = editing && !item.actions.edit_dates.allowed
@@ -122,17 +126,25 @@ export function DesignationFormDialog({ open, onOpenChange, item, initialForm, s
     set('slots', form.slots.map((current, position) => (position === index ? slot : current)))
 
   const save = () => {
+    const onError = (error: unknown) => setProblems(errorDetails(error, 'No se pudo guardar la designación.'))
+    if (editing && hasOnlyClassroomChange(form, item)) {
+      // The classroom has its own endpoint: it leaves the rest of the record (and any payroll lock) alone.
+      setClassroom.mutate({ id: item.id, classroomId: form.classroomId }, { onSuccess: (result) => onSaved(result!, 'edit'), onError })
+      return
+    }
+    if (editBlocked) return
     const errors = formErrors(form)
     if (errors.length) {
       setProblems({ title: 'Faltan datos o hay datos para corregir.', items: errors })
       return
     }
     const body = formToPayload(form)
-    const onError = (error: unknown) => setProblems(errorDetails(error, 'No se pudo guardar la designación.'))
     if (editing) {
       update.mutate({ id: item.id, body }, { onSuccess: (result) => onSaved(result!, 'edit'), onError })
     } else {
-      create.mutate(body, { onSuccess: (result) => onSaved(result!, 'create'), onError })
+      // A new designation with no room sends no classroom at all, like before this field existed.
+      const { classroom_id: classroomId, ...withoutRoom } = body
+      create.mutate(classroomId === null ? withoutRoom : body, { onSuccess: (result) => onSaved(result!, 'create'), onError })
     }
   }
 
@@ -154,6 +166,7 @@ export function DesignationFormDialog({ open, onOpenChange, item, initialForm, s
               <AlertTitle>Esta designación ya se pagó y no se puede editar</AlertTitle>
               <AlertDescription>
                 <p>{item.actions.edit.reason}</p>
+                <p>El aula sí se puede cambiar: no afecta la planilla.</p>
                 <p>Si algo cambia desde ahora, finalizala en la fecha del cambio y creá una nueva designación desde el día siguiente.</p>
                 {onFinalizeInstead && (
                   <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => onFinalizeInstead(item)}>
@@ -277,11 +290,20 @@ export function DesignationFormDialog({ open, onOpenChange, item, initialForm, s
             </Section>
           </fieldset>
 
+          <fieldset disabled={saving} className="flex flex-col gap-4">
+            <Section title="5. Aula" description="Aula de las clases teóricas. Solo sirve para marcarla como ocupada en las reservas; no afecta la planilla.">
+              <div>
+                <Label htmlFor="designation-classroom">Aula</Label>
+                <ClassroomCombobox id="designation-classroom" value={form.classroomId} current={item?.classroom} onChange={(id) => set('classroomId', id)} />
+              </div>
+            </Section>
+          </fieldset>
+
           <DesignationProblems problems={problems} />
         </DialogPanel>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button type="button" onClick={save} disabled={editBlocked || saving}>
+          <Button type="button" onClick={save} disabled={saving || (editBlocked && !hasOnlyClassroomChange(form, item))}>
             {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear designación'}
           </Button>
         </DialogFooter>

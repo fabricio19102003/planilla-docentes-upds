@@ -1,9 +1,9 @@
 import type {
-  DesignationAdminItem,
   DesignationImportChange,
   DesignationWritePayload,
   ScheduleSlot,
 } from '@/api/types'
+import type { DesignationRoomItem } from './designationRoomImport.ts'
 
 export const SEMESTER_OPTIONS = [
   'PRIMERO', 'SEGUNDO', 'TERCERO', 'CUARTO', 'QUINTO', 'SEXTO', 'SEPTIMO', 'OCTAVO', 'NOVENO', 'DECIMO',
@@ -50,7 +50,12 @@ export interface DesignationForm {
   semesterHours: string
   contractStartDate: string
   contractEndDate: string
+  /** Room of the theory classes; null = none. Only used for classroom occupancy. */
+  classroomId: number | null
 }
+
+/** The write payload also carries the classroom: omitted keeps it, null clears it. */
+export type DesignationSavePayload = DesignationWritePayload & { classroom_id: number | null }
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -110,10 +115,11 @@ export function emptyDesignationForm(academicPeriod: string): DesignationForm {
   return {
     teacherCi: '', subject: '', semester: '', groupCode: '', academicPeriod, designationType: 'regular',
     slots: [emptySlot()], monthlyHours: '', semesterHours: '', contractStartDate: '', contractEndDate: '',
+    classroomId: null,
   }
 }
 
-export function itemToForm(item: DesignationAdminItem): DesignationForm {
+export function itemToForm(item: DesignationRoomItem): DesignationForm {
   return {
     teacherCi: item.teacher_ci,
     subject: item.subject,
@@ -130,6 +136,7 @@ export function itemToForm(item: DesignationAdminItem): DesignationForm {
     semesterHours: item.semester_hours == null ? '' : String(item.semester_hours),
     contractStartDate: item.contract_start_date ?? '',
     contractEndDate: item.contract_end_date ?? '',
+    classroomId: item.classroom_id ?? null,
   }
 }
 
@@ -158,7 +165,7 @@ export function formErrors(form: DesignationForm) {
   return errors
 }
 
-export function formToPayload(form: DesignationForm): DesignationWritePayload {
+export function formToPayload(form: DesignationForm): DesignationSavePayload {
   return {
     teacher_ci: form.teacherCi,
     subject: form.subject.trim(),
@@ -171,7 +178,15 @@ export function formToPayload(form: DesignationForm): DesignationWritePayload {
     semester_hours: form.semesterHours.trim() === '' ? null : Number(form.semesterHours),
     contract_start_date: form.contractStartDate || null,
     contract_end_date: form.contractEndDate || null,
+    classroom_id: form.classroomId,
   }
+}
+
+/** True when the admin touched nothing but the classroom (saved on its own endpoint, which a payroll lock does not block). */
+export function hasOnlyClassroomChange(form: DesignationForm, item: DesignationRoomItem) {
+  const original = itemToForm(item)
+  return form.classroomId !== original.classroomId
+    && JSON.stringify({ ...form, classroomId: null }) === JSON.stringify({ ...original, classroomId: null })
 }
 
 export function changeSummary(changes: Pick<DesignationImportChange, 'action'>[]) {

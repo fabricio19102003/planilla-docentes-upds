@@ -103,15 +103,20 @@ def _cell_text(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
-def read_rooms(content: bytes) -> tuple[dict[tuple, str], dict[tuple, set[str]]]:
-    """AULA by (CI, subject, semester, group) and the rooms seen for (subject, semester, group)."""
+def open_rooms_sheet(content: bytes):
+    """Rows of the DOCENTES TEORICOS sheet (header first), or LoaderInputError when it cannot be read."""
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:  # openpyxl raises many types for corrupt files
         raise LoaderInputError("El archivo no es un Excel válido.") from exc
     if SHEET not in workbook.sheetnames:
         raise LoaderInputError(f"El Excel debe tener la hoja {SHEET}.")
-    rows = workbook[SHEET].iter_rows(values_only=True)
+    return workbook[SHEET].iter_rows(values_only=True)
+
+
+def read_rooms(content: bytes) -> tuple[dict[tuple, str], dict[tuple, set[str]]]:
+    """AULA by (CI, subject, semester, group) and the rooms seen for (subject, semester, group)."""
+    rows = open_rooms_sheet(content)
     header = [_fold(cell) for cell in next(rows, ())]
     try:
         subject_col, semester_col = header.index("materias"), header.index("semestre")

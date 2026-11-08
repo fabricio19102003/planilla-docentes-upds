@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle2, CircleHelp, Clock, FileText, FileUp, Flag, Layers, Plus, UserCheck, X } from 'lucide-react'
+import { CheckCircle2, CircleHelp, Clock, FileText, DoorOpen, FileUp, Flag, Layers, Plus, UserCheck, X } from 'lucide-react'
 
 import { useDesignationList } from '@/api/hooks/useDesignationAdmin'
 import type { DesignationAdminFilters, DesignationAdminItem, DesignationAdminMutation } from '@/api/types'
 import { DesignationFormDialog } from '@/components/designations/DesignationFormDialog'
 import { DesignationImportWizard } from '@/components/designations/DesignationImportWizard'
+import { DesignationRoomImportWizard } from '@/components/designations/DesignationRoomImportWizard'
 import { DesignationTable } from '@/components/designations/DesignationListView'
 import { DesignationMobileCards } from '@/components/designations/DesignationMobileCards'
 import { DeleteDesignationDialog, FinalizeDesignationDialog } from '@/components/designations/DesignationLifecycleDialogs'
@@ -62,6 +63,7 @@ function HowItWorks() {
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
           <li><strong className="text-foreground">Nueva designación</strong>: asigná una materia a un docente con su horario y sus horas.</li>
           <li><strong className="text-foreground">Importar archivo</strong>: cargá el Excel del semestre; antes de guardar ves qué filas son nuevas y cuáles cambian.</li>
+          <li><strong className="text-foreground">Importar aulas</strong>: cargá el Excel para asignar el aula de cada clase de teoría; solo sirve para marcar el aula como ocupada.</li>
           <li><strong className="text-foreground">Editar</strong>: corregí materia, horario, horas o fechas mientras ese mes no esté pagado.</li>
           <li><strong className="text-foreground">Finalizar</strong>: el docente deja la materia; se le paga hasta el día que elijas y queda en el historial.</li>
           <li><strong className="text-foreground">Eliminar</strong>: solo para designaciones cargadas por error, que nadie usó todavía.</li>
@@ -84,6 +86,7 @@ export function DesignationsPage() {
   const [finalizing, setFinalizing] = useState<DesignationAdminItem | null>(null)
   const [deleting, setDeleting] = useState<DesignationAdminItem | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [roomsOpen, setRoomsOpen] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
 
   const isMobile = useIsMobile()
@@ -131,6 +134,7 @@ export function DesignationsPage() {
           <>
             <HowItWorks />
             <Button variant="outline" onClick={() => setImportOpen(true)}><FileUp aria-hidden="true" />Importar archivo</Button>
+            <Button variant="outline" onClick={() => setRoomsOpen(true)}><DoorOpen aria-hidden="true" />Importar aulas</Button>
             <Button onClick={() => openCreate()}><Plus aria-hidden="true" />Nueva designación</Button>
           </>
         )}
@@ -260,6 +264,17 @@ export function DesignationsPage() {
           onFinalizeInstead={finalizeInstead}
         />
       )}
+      <Dialog open={roomsOpen} onOpenChange={setRoomsOpen}>
+        <DialogPopup className="sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Importar aulas</DialogTitle>
+            <DialogDescription>Cargá el Excel de designaciones para asignar el aula de cada clase de teoría. Antes de aplicar ves qué cambia.</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <DesignationRoomImportWizard onApplied={() => setRoomsOpen(false)} />
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogPopup className="sm:max-w-3xl">
           <DialogHeader>

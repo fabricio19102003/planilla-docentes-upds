@@ -29,6 +29,14 @@ class DesignationWriteRequest(BaseModel):
     semester_hours: int | None = Field(default=None, ge=0)
     contract_start_date: date | None = None
     contract_end_date: date | None = None
+    # Room of the theory classes. Omitted on an edit = keep it; null = clear it.
+    classroom_id: int | None = Field(default=None, gt=0)
+
+
+class DesignationClassroomRequest(BaseModel):
+    """Only the room of a designation; null clears it."""
+
+    classroom_id: int | None = Field(gt=0)
 
 
 class DesignationFinalizeRequest(BaseModel):
@@ -45,6 +53,14 @@ class DesignationActions(BaseModel):
     edit_dates: DesignationActionState
     finalize: DesignationActionState
     delete: DesignationActionState
+
+
+class DesignationClassroom(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
 
 
 class DesignationAdminItem(BaseModel):
@@ -67,6 +83,8 @@ class DesignationAdminItem(BaseModel):
     contract_start_date: date | None
     contract_end_date: date | None
     created_at: datetime
+    classroom_id: int | None = None
+    classroom: DesignationClassroom | None = None
     status: Literal["active", "finalized"]
     has_contract: bool
     attendance_count: int
@@ -91,6 +109,8 @@ __all__ = [
     "DesignationAdminList",
     "DesignationAdminMutation",
     "DesignationChangeBlocker",
+    "DesignationClassroom",
+    "DesignationClassroomRequest",
     "DesignationFinalizeRequest",
     "DesignationWriteRequest",
     "ScheduleSlotInput",

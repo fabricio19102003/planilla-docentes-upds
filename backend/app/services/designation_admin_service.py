@@ -18,6 +18,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.academic_management import Classroom
 from app.models.attendance import AttendanceRecord
 from app.models.billing_publication import BillingPublication
 from app.models.contract import ContractLine
@@ -51,10 +52,11 @@ CONTRACT_FINALIZE_WARNING = "El contrato emitido no cambia; si corresponde, emit
 PAID_MESSAGE = "No se puede guardar porque ya se pagó con estos datos."
 DUPLICATE_MESSAGE = "Ya existe una designación de esa materia, semestre y grupo para este docente en el período."
 DATE_ORDER_ERROR = "La fecha de fin no puede ser anterior a la fecha de inicio."
+MISSING_CLASSROOM = "El aula no existe o está inactiva."
 TRACKED_FIELDS = (
     "teacher_ci", "subject", "semester", "group_code", "designation_type", "schedule_json", "monthly_hours",
     "semester_hours", "weekly_hours", "weekly_hours_calculated", "schedule_raw", "contract_start_date",
-    "contract_end_date",
+    "contract_end_date", "classroom_id",
 )
 DATE_FIELDS = {"contract_start_date", "contract_end_date"}
 
@@ -164,6 +166,7 @@ class _Usage:
     attendance: dict[int, int]
     overrides: set[int]
     payroll: _PayrollIndex
+    rooms: dict[int, Classroom] = field(default_factory=dict)
 
 
 def _usage(db: Session, ids: list[int]) -> _Usage:
@@ -183,7 +186,12 @@ def _usage(db: Session, ids: list[int]) -> _Usage:
         )
         for designation_id, count in rows:
             attendance[designation_id] = attendance.get(designation_id, 0) + count
-    return _Usage(contracts, attendance, payroll.override_ids(), payroll)
+    rooms = {
+        room.id: room
+        for room in db.query(Classroom).join(Designation, Designation.classroom_id == Classroom.id)
+        .filter(Designation.id.in_(ids))
+    }
+    return _Usage(contracts, attendance, payroll.override_ids(), payroll, rooms)
 
 
 def _status(item: Designation) -> str:
@@ -239,8 +247,9 @@ def _item(usage: _Usage, item: Designation, teacher_name: str) -> DesignationAdm
         **{name: getattr(item, name) for name in (
             "id", "teacher_ci", "subject", "semester", "group_code", "academic_period", "designation_type",
             "schedule_json", "semester_hours", "monthly_hours", "weekly_hours", "weekly_hours_calculated",
-            "schedule_raw", "contract_start_date", "contract_end_date", "created_at",
+            "schedule_raw", "contract_start_date", "contract_end_date", "created_at", "classroom_id",
         )},
+        "classroom": usage.rooms.get(item.classroom_id),
         "teacher_name": teacher_name,
         "status": status,
         "has_contract": has_contract,
@@ -356,6 +365,25 @@ def _normalized_fields(payload: DesignationWriteRequest) -> dict[str, Any]:
     }
 
 
+def _require_active_classroom(db: Session, classroom_id: int | None) -> None:
+    if classroom_id is None:
+        return
+    if db.query(Classroom.id).filter(Classroom.id == classroom_id, Classroom.active.is_(True)).first() is None:
+        raise DesignationInvalid([MISSING_CLASSROOM])
+
+
+def _classroom_field(db: Session, payload: DesignationWriteRequest, current: int | None = None) -> dict[str, Any]:
+    """The classroom to store, or nothing when the request does not mention it.
+
+    Keeping the room a designation already has is always allowed, even after the room was deactivated.
+    """
+    if "classroom_id" not in payload.model_fields_set:
+        return {}
+    if payload.classroom_id != current:
+        _require_active_classroom(db, payload.classroom_id)
+    return {"classroom_id": payload.classroom_id}
+
+
 def _require_teacher(db: Session, ci: str) -> Teacher:
     teacher = db.get(Teacher, ci)
     if teacher is None:
@@ -428,7 +456,7 @@ def create_designation(db: Session, payload: DesignationWriteRequest) -> Designa
     period = (payload.academic_period or app_settings_service.get_active_academic_period(db)).strip()
     if not PERIOD_RE.match(period):
         raise DesignationInvalid(["El período debe usar el formato I/AAAA o II/AAAA."])
-    fields = _normalized_fields(payload)
+    fields = {"classroom_id": None, **_normalized_fields(payload), **_classroom_field(db, payload)}
     _ensure_unique(db, fields, period)
     start, end = _window(period, fields["contract_start_date"], fields["contract_end_date"])
     blockers, regenerate = _PayrollIndex.load(db).check(_kind(fields["designation_type"]), start, end)
@@ -449,7 +477,7 @@ def update_designation(
         raise DesignationInvalid([
             "El período de una designación no se puede cambiar; finalizala y creá una nueva en el otro período."
         ])
-    fields = _normalized_fields(payload)
+    fields = {**_normalized_fields(payload), **_classroom_field(db, payload, item.classroom_id)}
     changes = {
         name: {"before": _json(getattr(item, name)), "after": _json(value)}
         for name, value in fields.items()
@@ -474,6 +502,21 @@ def update_designation(
         setattr(item, name, value)
     _flush_unique(db)
     return _mutation(db, item, _unique_regenerate(old_regenerate + new_regenerate)), changes
+
+
+def set_classroom(
+    db: Session, designation_id: int, classroom_id: int | None
+) -> tuple[DesignationAdminMutation, dict[str, dict[str, Any]]]:
+    """Set or clear only the classroom. It only marks a room as occupied: no payroll, attendance or contract
+    reads it, so no lock applies and nothing else on the designation is touched or regenerated."""
+    item = _require_designation(db, designation_id)
+    if classroom_id == item.classroom_id:
+        return _mutation(db, item), {}
+    _require_active_classroom(db, classroom_id)
+    changes = {"classroom_id": {"before": item.classroom_id, "after": classroom_id}}
+    item.classroom_id = classroom_id
+    db.flush()
+    return _mutation(db, item), changes
 
 
 def finalize_designation(db: Session, designation_id: int, end_date: date) -> DesignationAdminMutation:

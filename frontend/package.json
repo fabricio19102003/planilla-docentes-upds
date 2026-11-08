@@ -21,6 +21,7 @@
     "test:schedule-publication": "node --experimental-strip-types --test scripts/check-schedule-publication.mjs",
     "test:teacher-change": "node --experimental-strip-types --test scripts/check-teacher-change.mjs",
     "test:designation-admin": "node --experimental-strip-types --test scripts/check-designation-admin.mjs",
+    "test:designation-room-import": "node --experimental-strip-types --test scripts/check-designation-room-import.mjs",
     "test:schedule-conflicts": "node --experimental-strip-types --test scripts/check-schedule-conflicts.mjs",
     "test:designation-bootstrap": "node --experimental-strip-types --test scripts/check-designation-bootstrap.mjs",
     "test:contract-ledger": "node scripts/check-contract-ledger.mjs",

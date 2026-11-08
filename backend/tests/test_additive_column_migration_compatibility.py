@@ -433,3 +433,61 @@ def test_block_hours_migration_adopts_compatible_column_and_refuses_downgrade(tm
     with engine.connect() as connection:
         assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == BLOCK_HOURS_MIGRATION
     engine.dispose()
+
+
+DESIGNATION_CLASSROOM_MIGRATION = "c8d0e2f4a6b9"
+DESIGNATION_CLASSROOM_PREVIOUS = "b5c7d9e1f3a6"
+
+
+def test_designation_classroom_migration_adds_a_nullable_indexed_set_null_foreign_key(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "designation-classroom.sqlite3")
+    command.upgrade(config, DESIGNATION_CLASSROOM_PREVIOUS)
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "INSERT INTO teachers (ci, full_name, created_at, updated_at) "
+            "VALUES ('MIG-1', 'Docente Migracion', '2027-01-01 00:00:00', '2027-01-01 00:00:00')"))
+        connection.execute(sa.text(
+            "INSERT INTO designations (id, teacher_ci, subject, semester, group_code, academic_period, "
+            "schedule_json, designation_type, created_at) VALUES (1, 'MIG-1', 'ANATOMIA', 'PRIMERO', 'M-1', "
+            "'I/2027', '[]', 'regular', '2027-01-01 00:00:00')"))
+
+    command.upgrade(config, DESIGNATION_CLASSROOM_MIGRATION)
+
+    inspector = sa.inspect(engine)
+    column = {item["name"]: item for item in inspector.get_columns("designations")}["classroom_id"]
+    assert isinstance(column["type"], sa.Integer)
+    assert column["nullable"] is True
+    assert any(index["column_names"] == ["classroom_id"] for index in inspector.get_indexes("designations"))
+    with engine.connect() as connection:
+        # SQLAlchemy does not reflect the action of an inline REFERENCES on SQLite; read the pragma.
+        keys = connection.execute(sa.text("PRAGMA foreign_key_list(designations)")).mappings().all()
+        assert [(key["from"], key["table"], key["to"], key["on_delete"]) for key in keys
+                if key["from"] == "classroom_id"] == [("classroom_id", "classrooms", "id", "SET NULL")]
+        assert connection.scalar(sa.text("SELECT classroom_id FROM designations WHERE id = 1")) is None
+    engine.dispose()
+
+
+def test_designation_classroom_migration_rejects_an_incompatible_precreated_column(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "designation-classroom-bad.sqlite3")
+    command.upgrade(config, DESIGNATION_CLASSROOM_PREVIOUS)
+    with engine.begin() as connection:
+        connection.execute(sa.text("ALTER TABLE designations ADD COLUMN classroom_id VARCHAR(5)"))
+    with pytest.raises(RuntimeError, match="Incompatible pre-existing designations.classroom_id"):
+        command.upgrade(config, DESIGNATION_CLASSROOM_MIGRATION)
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == DESIGNATION_CLASSROOM_PREVIOUS
+    engine.dispose()
+
+
+def test_designation_classroom_migration_adopts_compatible_column_and_refuses_downgrade(tmp_path, monkeypatch):
+    engine, config = _config(tmp_path, monkeypatch, "designation-classroom-adopt.sqlite3")
+    command.upgrade(config, DESIGNATION_CLASSROOM_PREVIOUS)
+    with engine.begin() as connection:
+        connection.execute(sa.text("ALTER TABLE designations ADD COLUMN classroom_id INTEGER"))
+    command.upgrade(config, DESIGNATION_CLASSROOM_MIGRATION)
+    assert any(index["column_names"] == ["classroom_id"] for index in sa.inspect(engine).get_indexes("designations"))
+    with pytest.raises(RuntimeError, match="Restore an explicitly approved backup"):
+        command.downgrade(config, DESIGNATION_CLASSROOM_PREVIOUS)
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == DESIGNATION_CLASSROOM_MIGRATION
+    engine.dispose()

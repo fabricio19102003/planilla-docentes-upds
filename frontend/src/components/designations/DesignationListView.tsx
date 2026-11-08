@@ -12,6 +12,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { semesterTone, shiftFromGroupCode, shiftLabel, shiftTone } from '@/lib/academicTones'
 import { formatSlots } from '@/lib/designationAdminState'
+import { roomLabel, type DesignationRoomItem } from '@/lib/designationRoomImport'
 import { contractText, displayName, semesterChipLabel, weeklyHoursOf } from '@/lib/designationListView'
 import { cn } from '@/lib/utils'
 
@@ -64,6 +65,13 @@ export function SchedulePills({ item }: { item: DesignationAdminItem }) {
   )
 }
 
+export function ClassroomCell({ item }: { item: DesignationRoomItem }) {
+  const room = item.classroom
+  return room
+    ? <span className="text-sm font-medium text-foreground">{roomLabel(room)}</span>
+    : <span className="text-sm text-muted-foreground">{roomLabel(null)}</span>
+}
+
 export function StatusCell({ item }: { item: DesignationAdminItem }) {
   const active = item.status === 'active'
   return (
@@ -111,6 +119,7 @@ function SkeletonRows() {
       <TableCell className="px-4 py-3"><div className="flex items-center gap-3"><Skeleton className="size-7 rounded-full" /><div className="space-y-1.5"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-16" /></div></div></TableCell>
       <TableCell className="px-4 py-3"><div className="space-y-1.5"><Skeleton className="h-4 w-44" /><Skeleton className="h-4 w-36" /></div></TableCell>
       <TableCell className="px-4 py-3"><Skeleton className="h-5 w-28" /></TableCell>
+      <TableCell className="px-4 py-3"><Skeleton className="h-4 w-16" /></TableCell>
       <TableCell className="px-4 py-3"><Skeleton className="ml-auto h-4 w-12" /></TableCell>
       <TableCell className="px-4 py-3"><div className="space-y-1.5"><Skeleton className="h-5 w-20" /><Skeleton className="h-3 w-32" /></div></TableCell>
       <TableCell className="px-4 py-3"><Skeleton className="ml-auto h-7 w-40" /></TableCell>
@@ -120,25 +129,27 @@ function SkeletonRows() {
 
 export function DesignationTable({ items, loading, ...handlers }: { items: DesignationAdminItem[]; loading: boolean } & DesignationRowHandlers) {
   return (
-    <TableCard tableClassName="min-w-[900px]">
+    <TableCard tableClassName="min-w-[980px]">
       <TableHeader>
         <TableRow className="bg-muted/40 hover:bg-muted/40">
           <TableHead className="px-4">Docente</TableHead>
           <TableHead className="px-4">Materia</TableHead>
           <TableHead className="px-4">Horario</TableHead>
+          <TableHead className="px-4">Aula</TableHead>
           <TableHead className="px-4 text-right">Horas<br />sem. / mes</TableHead>
           <TableHead className="px-4">Estado y contrato</TableHead>
           <TableHead className="px-4 text-right">Acciones</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {loading && <TableRow><TableCell colSpan={6} role="status" className="sr-only">Cargando designaciones…</TableCell></TableRow>}
+        {loading && <TableRow><TableCell colSpan={7} role="status" className="sr-only">Cargando designaciones…</TableCell></TableRow>}
         {loading && <SkeletonRows />}
         {!loading && items.map((item) => (
           <TableRow key={item.id}>
             <TableCell className="px-4 py-3"><TeacherCell item={item} /></TableCell>
             <TableCell className="min-w-56 px-4 py-3 whitespace-normal"><SubjectCell item={item} /></TableCell>
             <TableCell className="px-4 py-3 whitespace-normal"><div className="max-w-44"><SchedulePills item={item} /></div></TableCell>
+            <TableCell className="px-4 py-3"><ClassroomCell item={item} /></TableCell>
             <TableCell className="px-4 py-3 text-right tabular-nums">{weeklyHoursOf(item)} / {item.monthly_hours ?? '—'}</TableCell>
             <TableCell className="px-4 py-3"><StatusCell item={item} /></TableCell>
             <TableCell className="px-4 py-3"><div className="flex justify-end"><RowActions item={item} {...handlers} /></div></TableCell>
