@@ -19,8 +19,10 @@ from app.models.academic_management import (
     AcademicScheduleDraft,
     AcademicSchedulePublishedBlock,
     AcademicSubject,
+    Classroom,
     SubjectOffering,
 )
+from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.services import academic_management_service as academic
 from app.services.effective_schedule_service import canonical_weekday, effective_schedule_slots
@@ -122,6 +124,18 @@ def _teacher_names(db: Session, cis: set[str]) -> dict[str, str]:
     return {ci: name for ci, name in db.query(Teacher.ci, Teacher.full_name).filter(Teacher.ci.in_(cis))}
 
 
+def _designation_rooms(db: Session, designation_ids: set[int]) -> dict[int, Classroom]:
+    """Classroom of each legacy designation that has one (occupancy only; payroll never reads it)."""
+    if not designation_ids:
+        return {}
+    return {
+        designation_id: room
+        for designation_id, room in db.query(Designation.id, Classroom)
+        .join(Classroom, Classroom.id == Designation.classroom_id)
+        .filter(Designation.id.in_(designation_ids))
+    }
+
+
 def _current_blocks(db: Session, academic_period: str, reference: date) -> list[ViewBlock]:
     slots = effective_schedule_slots(db, academic_period, reference, include_practice=True)
     published_ids = {slot.published_block_id for slot in slots if slot.published_block_id}
@@ -131,6 +145,7 @@ def _current_blocks(db: Session, academic_period: str, reference: date) -> list[
             AcademicSchedulePublishedBlock.id.in_(published_ids)
         )
     } if published_ids else {}
+    legacy_rooms = _designation_rooms(db, {slot.designation_id for slot in slots if slot.designation_id})
     resolver = SubjectResolver(db, academic_period)
     names = _teacher_names(db, {slot.teacher_ci for slot in slots})
     blocks = []
@@ -141,6 +156,7 @@ def _current_blocks(db: Session, academic_period: str, reference: date) -> list[
         semester = semester_number(slot.semester)
         subject = (resolver.by_subject_code(source.subject_code) if source
                    else resolver.resolve(slot.subject, semester))
+        legacy_room = legacy_rooms.get(slot.designation_id) if not source else None
         blocks.append(ViewBlock(
             key=f"{slot.source_type}:{identity}:{slot.weekday}:{start}",
             semester=semester,
@@ -153,8 +169,8 @@ def _current_blocks(db: Session, academic_period: str, reference: date) -> list[
             end_time=end,
             teacher_ci=slot.teacher_ci,
             teacher_name=names.get(slot.teacher_ci),
-            classroom_code=source.classroom_code if source else None,
-            classroom_name=source.classroom_name if source else None,
+            classroom_code=source.classroom_code if source else (legacy_room.code if legacy_room else None),
+            classroom_name=source.classroom_name if source else (legacy_room.name if legacy_room else None),
             source_type=slot.source_type,
         ))
     return blocks

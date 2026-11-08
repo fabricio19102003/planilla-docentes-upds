@@ -45,8 +45,13 @@ class Designation(Base):
     contract_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     contract_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    # Room of the theory classes. Read only by classroom occupancy; payroll never uses it.
+    classroom_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("classrooms.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relationships
+    classroom: Mapped[Optional["Classroom"]] = relationship("Classroom", lazy="select")  # noqa: F821
     teacher: Mapped["Teacher"] = relationship(  # noqa: F821
         "Teacher", back_populates="designations"
     )
