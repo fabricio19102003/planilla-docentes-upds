@@ -42,6 +42,7 @@ import { StudentSchedulePage } from './pages/student/StudentSchedulePage'
 import { StudentReenrollmentPage } from './pages/student/StudentReenrollmentPage'
 import { SchedulePlannerPage } from './pages/SchedulePlannerPage'
 import { AdminChatPage } from './pages/AdminChatPage'
+import { ClassroomReservationsAdminPage } from './pages/ClassroomReservationsAdminPage'
 
 // Pages — Auth
 import { LoginPage } from './pages/LoginPage'
@@ -56,6 +57,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { SchedulePage } from './pages/SchedulePage'
 import { RetentionLetterPage } from './pages/RetentionLetterPage'
 import { PortalChatPage } from './pages/PortalChatPage'
+import { ClassroomReservationPage } from './pages/ClassroomReservationPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -114,6 +116,7 @@ function AppRoutes() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="academic-management" element={<AcademicManagementPage />} />
             <Route path="schedule-planner" element={<SchedulePlannerPage />} />
+            <Route path="classroom-reservations" element={<ClassroomReservationsAdminPage />} />
             <Route path="students" element={<StudentsPage />} />
             <Route path="students/:id" element={<StudentDetailPage />} />
             <Route path="reenrollment" element={<ReenrollmentPage />} />
@@ -140,6 +143,7 @@ function AppRoutes() {
             <Route path="profile" element={<MyProfilePage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="classroom-reservations" element={<ClassroomReservationPage />} />
             <Route path="retention-letter" element={<RetentionLetterPage />} />
             <Route path="chat" element={<PortalChatPage />} />
           </Route>

@@ -534,6 +534,7 @@ El menu del administrador se organiza en cuatro grupos. Cada guia de [docs/proce
 | | Contratos | Historial inmutable agrupado por docente (originales y versiones posteriores) y emision en panel lateral |
 | | Gestion academica | Catalogos (programas, materias, grupos, aulas), horarios por semestre, conflictos, cambio de docente |
 | | Planificador de horarios | Borradores semanales con arrastrar y soltar, asignacion de docentes, publicaciones con vista previa |
+| | Reservas de aulas | Grilla diaria (aulas y laboratorios × hora) con todas las reservas confirmadas de los docentes, filtro Aulas/Laboratorios y lista accesible |
 | | Solicitudes | Responde las solicitudes de los docentes |
 | | Mensajes | Chat con los docentes (adjuntos, respuestas, reacciones) |
 | **Gestion estudiantil** | Estudiantes | Ficha, historial, cuenta del portal y documentos migratorios |
@@ -555,6 +556,7 @@ El menu del administrador se organiza en cuatro grupos. Cada guia de [docs/proce
 | **Mi Facturacion** | Monto a cobrar del mes publicado: bruto, retencion y neto, con detalle por materia |
 | **Historico** | Facturacion de meses anteriores |
 | **Mi Horario** | Horario publicado vigente: por dia, por materia o grilla semanal; exporta PDF/PNG |
+| **Reservar aula** | Disponibilidad diaria de un aula o laboratorio (clases publicadas como *Ocupada*, otras reservas como *Reservada*) y reserva puntual por hora de inicio y cantidad de periodos academicos (`ACADEMIC_HOUR_MINUTES`), confirmada al instante; lista y cancelacion de las propias reservas futuras |
 | **Carta Retencion** | Carta RC-IVA 13% en PDF (solo para docentes con retencion) |
 | **Mis Solicitudes** | Consultas al admin y sus respuestas |
 | **Mensajes** | Chat con administracion |
@@ -668,6 +670,15 @@ El estudiante pide su rematricula desde SIPAD y Registro la carga en el sistema 
 - **Mi horario** (`/estudiante/horario`): cuando Registro marca la rematricula como *Realizada*, el estudiante ve el horario publicado de su grupo (solo las materias del semestre que cursa) y de cada grupo de recursado o pendiente, mas sus cursos intensivos, con aula y docente. Usa la publicacion vigente hoy (la misma regla que el portal docente) o, antes de que empiecen las clases, la proxima con su fecha de inicio.
 - **Apertura de grupos** (*Gestion estudiantil → Apertura de grupos*): por ventana de rematricula, semestre y turno compara las solicitudes pendientes y realizadas con el tamano de grupo configurable (40 por defecto): grupos sugeridos = solicitudes / tamano redondeado hacia arriba, frente a los grupos ya creados en Gestion academica y su capacidad (falta, sobra o correcto). Los recursantes se informan aparte y no suman grupos.
 - **Documentos migratorios** (*Gestion estudiantil → Documentos migratorios*): el admin define la lista de documentos (con o sin vencimiento, orden, desactivar). En la ficha de cada estudiante extranjero se registra cuales presento y su vencimiento; queda *Regularizado* cuando tiene todos los documentos activos y ninguno vencido (un documento que vence hoy sigue vigente). Registro no puede marcar como realizada la rematricula de un extranjero no regularizado: la API responde `409` con la lista, por ejemplo `Documentos migratorios pendientes: Visa de estudiante, Carnet de extranjero (vencido el 15/10/2026)`. El estudiante ve en su portal que le falta presentar.
+
+## Reservas de aulas y laboratorios
+
+- Se reservan las aulas y laboratorios **activos** del catalogo (Gestion academica → Aulas; los laboratorios se dan de alta ahi con tipo *Laboratorio* y capacidad).
+- El docente elige fecha, hora de inicio (multiplos de 5 minutos) y de 1 a 8 periodos academicos; la hora de fin es inicio + periodos × `ACADEMIC_HOUR_MINUTES`. La reserva debe quedar entre las 06:30 y las 23:05 y no puede empezar en el pasado (hora de Bolivia).
+- Una reserva puntual se confirma al crearla si su rango `[inicio, fin)` no se superpone con una clase **publicada** del aula ese dia de la semana ni con otra reserva confirmada; reservas contiguas estan permitidas. La fila del aula se bloquea (`SELECT ... FOR UPDATE`) antes de comprobar, asi dos pedidos simultaneos no reservan el mismo rango.
+- El docente puede cancelar sus reservas que todavia no empezaron (quedan con estado `cancelled`). La disponibilidad nunca muestra quien reservo.
+- Portal: `GET /api/portal/classroom-reservations/classrooms`, `GET .../availability?classroom_id=&date=`, `POST /api/portal/classroom-reservations`, `GET .../mine`, `POST .../{id}/cancel`.
+- Admin: `GET /api/admin/classroom-reservations?date_from=&date_to=` (rango de hasta 31 dias) devuelve las aulas reservables (mas las desactivadas que tengan reservas en el rango) y las reservas confirmadas.
 
 ## Tests
 

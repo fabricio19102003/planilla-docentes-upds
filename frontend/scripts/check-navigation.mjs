@@ -63,6 +63,7 @@ test('admin sidebar keeps the monthly-closing order', () => {
         ['Contratos', '/contracts'],
         ['Gestión académica', '/academic-management'],
         ['Planificador de horarios', '/schedule-planner'],
+        ['Reservas de aulas', '/classroom-reservations'],
         ['Solicitudes', '/requests'],
         ['Mensajes', '/chat'],
       ],
