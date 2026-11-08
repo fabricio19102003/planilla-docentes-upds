@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Database,
+  DoorOpen,
   FileSignature,
   FileSpreadsheet,
   FileText,
@@ -94,6 +95,7 @@ const navIcons: Record<NavIconName, LucideIcon> = {
   messages: MessagesSquare,
   students: BookUser,
   curriculum: BookOpen,
+  classroom: DoorOpen,
 }
 
 function NavItemLink({ item }: { item: NavItemDef }) {
