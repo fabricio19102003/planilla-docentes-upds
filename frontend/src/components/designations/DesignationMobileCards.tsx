@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { blockedReason, weeklyHoursOf } from '@/lib/designationListView'
 
 import {
+  ClassroomCell,
   RowActions,
   SchedulePills,
   StatusCell,
@@ -37,6 +38,7 @@ export function DesignationMobileCards({ items, loading, ...handlers }: { items:
               <TeacherCell item={item} />
               <SubjectCell item={item} />
               <SchedulePills item={item} />
+              <p className="text-sm text-muted-foreground">Aula: <ClassroomCell item={item} /></p>
               <p className="text-sm text-muted-foreground">
                 Horas: <span className="font-medium tabular-nums text-foreground">{weeklyHoursOf(item)}</span> sem. ·{' '}
                 <span className="font-medium tabular-nums text-foreground">{item.monthly_hours ?? '—'}</span> mes

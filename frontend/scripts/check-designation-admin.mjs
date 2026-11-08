@@ -72,6 +72,7 @@ test('an item becomes an editable form and back into the API payload', () => {
       { dia: 'miercoles', hora_inicio: '17:00', hora_fin: '19:15' },
     ],
     monthlyHours: '20', semesterHours: '100', contractStartDate: '2026-08-10', contractEndDate: '',
+    classroomId: null,
   })
   assert.deepEqual(formToPayload(form), {
     teacher_ci: 'T1', subject: 'ANATOMIA', semester: 'PRIMERO', group_code: 'M-1', academic_period: 'II/2026',
@@ -81,6 +82,7 @@ test('an item becomes an editable form and back into the API payload', () => {
       { dia: 'miercoles', hora_inicio: '17:00', hora_fin: '19:15' },
     ],
     monthly_hours: 20, semester_hours: 100, contract_start_date: '2026-08-10', contract_end_date: null,
+    classroom_id: null,
   })
 })
 
@@ -140,7 +142,7 @@ test('page, route, menu entry and hooks are wired to the admin designations API'
     assert.ok(hooks.includes(fragment), fragment)
   }
   const page = read('src/pages/DesignationsPage.tsx')
-  for (const text of ['Nueva designación', 'Importar archivo', 'Finalizar', 'Eliminar', 'Buscar docente o materia']) {
+  for (const text of ['Nueva designación', 'Importar archivo', 'Importar aulas', 'Finalizar', 'Eliminar', 'Buscar docente o materia']) {
     assert.ok(page.includes(text), text)
   }
 })
