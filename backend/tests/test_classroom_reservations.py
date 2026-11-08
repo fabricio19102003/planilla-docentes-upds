@@ -392,3 +392,54 @@ def test_the_admin_listing_requires_the_admin_role(client, world):
     response = client.get(ADMIN, params={"date_from": "2027-03-01", "date_to": "2027-03-01"})
 
     assert response.status_code == 403
+
+
+DAY = f"{PORTAL}/day"
+
+
+def test_day_availability_lists_every_bookable_room_with_its_busy_ranges_and_free_time(client, db_session, world):
+    rooms = world["rooms"]
+    _publish_class(db_session, rooms["a5"], start="08:00", end="09:30")
+    _publish_class(db_session, rooms["a5"], weekday="tuesday", start="14:00", end="15:30")
+    _reserve_as(db_session, world["other"], rooms["a5"], start="09:00", end="10:15")
+    _reserve_as(db_session, world["teacher"], rooms["lab"], start="10:00", end="11:30")
+    _reserve_as(db_session, world["other"], rooms["lab"], start="12:00", end="12:45", status="cancelled")
+    _reserve_as(db_session, world["other"], rooms["closed"], start="08:00", end="08:45")
+
+    response = client.get(DAY, params={"date": "2027-03-01"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["date"], body["academic_hour_minutes"], body["day_start"], body["day_end"]) == (
+        "2027-03-01", 45, "06:30", "23:05")
+    by_code = {item["classroom"]["code"]: item for item in body["rooms"]}
+    assert list(by_code) == ["COB-ANTIGUO-P1-A5", "COB-ANTIGUO-P2-A6", "LAB-ANAT"]
+    assert by_code["COB-ANTIGUO-P1-A5"]["busy"] == [
+        {"start_time": "08:00", "end_time": "09:30", "kind": "class", "label": "Ocupada",
+         "detail": "Bioquímica III", "mine": False},
+        {"start_time": "09:00", "end_time": "10:15", "kind": "reservation", "label": "Reservada",
+         "detail": None, "mine": False},
+    ]
+    # 06:30-23:05 is 995 minutes; 08:00-10:15 overlapping ranges count once (135).
+    assert by_code["COB-ANTIGUO-P1-A5"]["free_minutes"] == 995 - 135
+    assert by_code["COB-ANTIGUO-P2-A6"] == {**by_code["COB-ANTIGUO-P2-A6"], "busy": [], "free_minutes": 995}
+    assert by_code["LAB-ANAT"]["busy"][0]["mine"] is True
+    assert by_code["LAB-ANAT"]["free_minutes"] == 995 - 90
+    assert "RES-2" not in response.text and "Docente Otra" not in response.text
+
+
+def test_day_availability_matches_the_single_room_availability(client, db_session, world):
+    room = world["rooms"]["a5"]
+    _publish_class(db_session, room, start="08:00", end="09:30")
+    _reserve_as(db_session, world["teacher"], room, start="16:00", end="17:30")
+
+    single = client.get(f"{PORTAL}/availability", params={"classroom_id": room.id, "date": "2027-03-01"}).json()
+    day = client.get(DAY, params={"date": "2027-03-01"}).json()
+
+    assert next(item for item in day["rooms"] if item["classroom"]["id"] == room.id)["busy"] == single["busy"]
+
+
+def test_day_availability_requires_the_teacher_role(client, world, admin_token):
+    client.headers["Authorization"] = f"Bearer {admin_token}"
+
+    assert client.get(DAY, params={"date": "2027-03-01"}).status_code == 403

@@ -66,6 +66,21 @@ def room_availability(
     return {**result, "classroom": room_out(result["classroom"]), "date": day.isoformat()}
 
 
+@portal_router.get("/day")
+def day_availability(
+    day: date = Query(alias="date"),
+    current_user: User = Depends(require_docente),
+    db: Session = Depends(get_db),
+):
+    teacher = _get_teacher_or_raise(current_user, db)
+    result = service.day_availability(db, day, teacher.ci)
+    return {
+        **result,
+        "date": day.isoformat(),
+        "rooms": [{**item, "classroom": room_out(item["classroom"])} for item in result["rooms"]],
+    }
+
+
 @portal_router.post("", status_code=status.HTTP_201_CREATED)
 def create_reservation(
     payload: ReservationCreate,
