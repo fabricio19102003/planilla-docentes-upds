@@ -11,6 +11,7 @@ from app.models.academic_management import (
     AcademicSchedulePublishedBlock, Classroom,
 )
 from app.models.classroom_reservation import ClassroomReservation
+from app.models.designation import Designation
 from app.models.teacher import Teacher
 from app.services import app_settings_service, classroom_reservation_service
 from app.services.reenrollment import BOLIVIA
@@ -58,7 +59,8 @@ def world(client, db_session):
     return {"teacher": teacher, "other": other, "rooms": rooms}
 
 
-def _publish_class(db_session, room, *, weekday="monday", start="08:00", end="09:30", subject="Bioquímica III"):
+def _publish_class(db_session, room, *, weekday="monday", start="08:00", end="09:30", subject="Bioquímica III",
+                   group="M-01", semester=3):
     n = next(_ids)
     program = AcademicProgram(code=f"RES-P{n}", name=f"Programa {n}")
     db_session.add(program)
@@ -77,7 +79,7 @@ def _publish_class(db_session, room, *, weekday="monday", start="08:00", end="09
     block = AcademicSchedulePublishedBlock(
         publication_id=publication.id, source_block_id=n, source_offering_id=1, source_subject_id=0,
         source_group_id=n, source_classroom_id=room.id, subject_code=f"SUB {n}", subject_name=subject,
-        group_code="M-01", semester=3, classroom_code=room.code, classroom_name=room.name,
+        group_code=group, semester=semester, classroom_code=room.code, classroom_name=room.name,
         activity_type="theory", weekday=weekday,
         start_time=time.fromisoformat(start), end_time=time.fromisoformat(end),
     )
@@ -443,3 +445,86 @@ def test_day_availability_requires_the_teacher_role(client, world, admin_token):
     client.headers["Authorization"] = f"Bearer {admin_token}"
 
     assert client.get(DAY, params={"date": "2027-03-01"}).status_code == 403
+
+
+# -- theory classes (odd/tasks/theory-classrooms.md S1) ---------------------------------------------
+
+def _theory(db_session, room, *, teacher="RES-2", day="lunes", start="08:00", end="09:30", subject="ANATOMIA",
+            kind="regular", contract_start=None, contract_end=None, group="M-1", semester="PRIMERO"):
+    period = app_settings_service.get_active_academic_period(db_session)
+    item = Designation(
+        teacher_ci=teacher, subject=subject, semester=semester, group_code=group, academic_period=period,
+        designation_type=kind, classroom_id=room.id if room else None,
+        schedule_json=[{"dia": day, "hora_inicio": start, "hora_fin": end, "horas_academicas": 2}],
+        monthly_hours=8, weekly_hours=2, contract_start_date=contract_start, contract_end_date=contract_end,
+    )
+    db_session.add(item)
+    db_session.flush()
+    return item
+
+
+def _busy(client, room, day="2027-03-01"):
+    response = client.get(f"{PORTAL}/availability", params={"classroom_id": room.id, "date": day})
+    assert response.status_code == 200, response.text
+    return response.json()["busy"]
+
+
+def test_a_theory_designation_with_a_classroom_marks_it_occupied_in_availability_and_day(client, db_session, world):
+    rooms = world["rooms"]
+    _theory(db_session, rooms["a5"], subject="ANATOMIA")
+
+    assert _busy(client, rooms["a5"]) == [
+        {"start_time": "08:00", "end_time": "09:30", "kind": "class", "label": "Ocupada",
+         "detail": "ANATOMIA", "mine": False}]
+    assert _busy(client, rooms["a6"]) == []
+    assert _busy(client, rooms["a5"], day="2027-03-02") == []
+    day = client.get(f"{PORTAL}/day", params={"date": "2027-03-01"}).json()
+    by_code = {item["classroom"]["code"]: item for item in day["rooms"]}
+    assert [(b["label"], b["detail"]) for b in by_code["COB-ANTIGUO-P1-A5"]["busy"]] == [("Ocupada", "ANATOMIA")]
+    assert by_code["COB-ANTIGUO-P2-A6"]["busy"] == []
+
+
+def test_a_reservation_overlapping_a_theory_class_is_rejected_with_the_class_conflict_message(
+        client, db_session, world):
+    _theory(db_session, world["rooms"]["a5"])
+
+    response = _post(client, world["rooms"]["a5"], start="09:00", periods=1)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "El aula está ocupada por una clase de 08:00 a 09:30."
+    assert _stored(db_session) == 0
+    assert _post(client, world["rooms"]["a5"], start="09:30", periods=1).status_code == 201
+
+
+def test_a_theory_designation_without_a_classroom_marks_nothing(client, db_session, world):
+    _theory(db_session, None)
+
+    for room in ("a5", "a6", "lab"):
+        assert _busy(client, world["rooms"][room]) == []
+    assert _post(client, world["rooms"]["a5"], start="08:00", periods=1).status_code == 201
+
+
+def test_a_theory_designation_marks_only_the_dates_it_is_effective_on(client, db_session, world):
+    room = world["rooms"]["a5"]
+    _theory(db_session, room, contract_start=date(2027, 3, 8), contract_end=date(2027, 3, 15))
+    _theory(db_session, room, subject="HISTOLOGIA", start="14:00", end="15:30", day="monday",
+            contract_end=date(2027, 2, 28))
+
+    assert _busy(client, room, day="2027-03-01") == []
+    assert [item["detail"] for item in _busy(client, room, day="2027-03-08")] == ["ANATOMIA"]
+    assert _busy(client, room, day="2027-03-22") == []
+    assert _post(client, room, start="08:00", periods=2).status_code == 201
+
+
+def test_a_published_class_still_marks_its_room_and_wins_over_a_designation_it_represents(
+        client, db_session, world):
+    rooms = world["rooms"]
+    _publish_class(db_session, rooms["a6"], start="11:00", end="12:30", subject="Bioquímica III")
+    _theory(db_session, rooms["a5"], start="13:00", end="14:30", subject="ANATOMIA", semester="1")
+
+    assert [item["detail"] for item in _busy(client, rooms["a6"])] == ["Bioquímica III"]
+    assert [item["detail"] for item in _busy(client, rooms["a5"])] == ["ANATOMIA"]
+    # The same subject/group/semester published in another room replaces the legacy designation.
+    _publish_class(db_session, rooms["lab"], start="15:00", end="16:30", subject="ANATOMIA", group="M-1", semester=1)
+    assert _busy(client, rooms["a5"]) == []
+    assert [item["detail"] for item in _busy(client, rooms["lab"])] == ["ANATOMIA"]

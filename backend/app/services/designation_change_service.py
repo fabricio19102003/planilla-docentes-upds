@@ -223,6 +223,7 @@ def _mutate(db: Session, plan: _Plan) -> tuple[list[int], list[int]]:
             designation_type=item.designation_type,
             contract_start_date=plan.effective_from,
             contract_end_date=original_end,
+            classroom_id=item.classroom_id,
         ))
     db.add_all(created)
     db.flush()
