@@ -34,6 +34,8 @@ export interface NavItemDef {
   icon: NavIconName
   exact?: boolean
   badge?: number
+  /** Draws a divider above this item inside its group. */
+  separatorBefore?: boolean
 }
 
 export interface NavGroupDef {
@@ -59,25 +61,31 @@ export const adminNav: AdminNavEntry[] = [
       { to: '/observations', label: 'Observaciones', icon: 'observations' },
       { to: '/attendance-audit', label: 'Auditoría de asistencia', icon: 'audit' },
       { to: '/planilla', label: 'Planilla', icon: 'planilla' },
-      { to: '/reports', label: 'Reportes', icon: 'reports' },
+      { to: '/reports', label: 'Reportes', icon: 'reports', separatorBefore: true },
     ],
   },
   {
-    label: 'Docentes y académico',
-    icon: 'academic',
+    label: 'Docentes',
+    icon: 'teachers',
     children: [
       { to: '/teachers', label: 'Docentes', icon: 'teachers' },
       { to: '/designations', label: 'Designaciones', icon: 'designations' },
       { to: '/contracts', label: 'Contratos', icon: 'contracts' },
-      { to: '/academic-management', label: 'Gestión académica', icon: 'school' },
-      { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },
-      { to: '/classroom-reservations', label: 'Reservas de aulas', icon: 'classroom' },
       { to: '/requests', label: 'Solicitudes', icon: 'requests' },
       { to: '/chat', label: 'Mensajes', icon: 'messages' },
     ],
   },
   {
-    label: 'Gestión estudiantil',
+    label: 'Académico',
+    icon: 'academic',
+    children: [
+      { to: '/academic-management', label: 'Gestión académica', icon: 'school' },
+      { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },
+      { to: '/classroom-reservations', label: 'Reservas de aulas', icon: 'classroom' },
+    ],
+  },
+  {
+    label: 'Estudiantes',
     icon: 'students',
     children: [
       { to: '/students', label: 'Estudiantes', icon: 'students' },
@@ -90,7 +98,7 @@ export const adminNav: AdminNavEntry[] = [
     ],
   },
   {
-    label: 'Administración',
+    label: 'Sistema',
     icon: 'settings',
     children: [
       { to: '/users', label: 'Usuarios', icon: 'users' },
@@ -99,6 +107,14 @@ export const adminNav: AdminNavEntry[] = [
       { to: '/settings', label: 'Configuración', icon: 'settings' },
     ],
   },
+]
+
+/** Daily-use pages pinned above the groups; each must also live in `adminNav`. */
+export const adminQuickAccess: NavItemDef[] = [
+  { to: '/', label: 'Dashboard', icon: 'dashboard', exact: true },
+  { to: '/planilla', label: 'Planilla', icon: 'planilla' },
+  { to: '/attendance', label: 'Asistencia teóricas', icon: 'attendance' },
+  { to: '/chat', label: 'Mensajes', icon: 'messages' },
 ]
 
 export const docenteNav: NavItemDef[] = [

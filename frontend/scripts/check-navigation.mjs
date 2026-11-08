@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   adminNav,
+  adminQuickAccess,
   docenteNav,
   FALLBACK_TITLE,
   getActiveGroupLabel,
@@ -34,10 +35,10 @@ function routedPaths() {
   return paths.map((path) => path.replace(':ci', '123'))
 }
 
-test('admin sidebar keeps the monthly-closing order', () => {
+test('admin sidebar groups pages by task, in the agreed order', () => {
   const shape = adminNav.map((entry) =>
     'children' in entry
-      ? { group: entry.label, items: entry.children.map((child) => [child.label, child.to]) }
+      ? { group: entry.label, icon: entry.icon, items: entry.children.map((child) => [child.label, child.to]) }
       : { top: [entry.label, entry.to] },
   )
 
@@ -45,6 +46,7 @@ test('admin sidebar keeps the monthly-closing order', () => {
     { top: ['Dashboard', '/'] },
     {
       group: 'Cierre mensual',
+      icon: 'calendarCheck',
       items: [
         ['Subir biométrico', '/upload'],
         ['Asistencia teóricas', '/attendance'],
@@ -56,20 +58,28 @@ test('admin sidebar keeps the monthly-closing order', () => {
       ],
     },
     {
-      group: 'Docentes y académico',
+      group: 'Docentes',
+      icon: 'teachers',
       items: [
         ['Docentes', '/teachers'],
         ['Designaciones', '/designations'],
         ['Contratos', '/contracts'],
-        ['Gestión académica', '/academic-management'],
-        ['Planificador de horarios', '/schedule-planner'],
-        ['Reservas de aulas', '/classroom-reservations'],
         ['Solicitudes', '/requests'],
         ['Mensajes', '/chat'],
       ],
     },
     {
-      group: 'Gestión estudiantil',
+      group: 'Académico',
+      icon: 'academic',
+      items: [
+        ['Gestión académica', '/academic-management'],
+        ['Planificador de horarios', '/schedule-planner'],
+        ['Reservas de aulas', '/classroom-reservations'],
+      ],
+    },
+    {
+      group: 'Estudiantes',
+      icon: 'students',
       items: [
         ['Estudiantes', '/students'],
         ['Rematrícula', '/reenrollment'],
@@ -81,7 +91,8 @@ test('admin sidebar keeps the monthly-closing order', () => {
       ],
     },
     {
-      group: 'Administración',
+      group: 'Sistema',
+      icon: 'settings',
       items: [
         ['Usuarios', '/users'],
         ['Registro de actividad', '/activity'],
@@ -90,6 +101,34 @@ test('admin sidebar keeps the monthly-closing order', () => {
       ],
     },
   ])
+  assert.equal(adminNav[0].exact, true)
+})
+
+test('Reportes is visually separated from the monthly-closing steps', () => {
+  const closing = adminNav.find((entry) => 'children' in entry && entry.label === 'Cierre mensual')
+  const separated = adminNav
+    .flatMap((entry) => ('children' in entry ? entry.children : [entry]))
+    .filter((item) => item.separatorBefore)
+  assert.deepEqual(separated.map((item) => item.to), ['/reports'])
+  assert.equal(closing.children.at(-1).to, '/reports')
+})
+
+test('quick access entries exist in adminNav with the same label', () => {
+  assert.deepEqual(
+    adminQuickAccess.map((item) => [item.label, item.to]),
+    [
+      ['Dashboard', '/'],
+      ['Planilla', '/planilla'],
+      ['Asistencia teóricas', '/attendance'],
+      ['Mensajes', '/chat'],
+    ],
+  )
+  const all = adminNav.flatMap((entry) => ('children' in entry ? entry.children : [entry]))
+  for (const quick of adminQuickAccess) {
+    const match = all.find((item) => item.to === quick.to)
+    assert.ok(match, `${quick.to} is not in adminNav`)
+    assert.equal(match.label, quick.label)
+  }
 })
 
 test('every routed page resolves to its own non-fallback title', () => {
@@ -143,8 +182,11 @@ test('nested and unknown paths', () => {
 
 test('active group follows the current route, including nested paths', () => {
   assert.equal(getActiveGroupLabel('/planilla', adminNav), 'Cierre mensual')
-  assert.equal(getActiveGroupLabel('/teachers/9', adminNav), 'Docentes y académico')
-  assert.equal(getActiveGroupLabel('/settings', adminNav), 'Administración')
+  assert.equal(getActiveGroupLabel('/teachers/9', adminNav), 'Docentes')
+  assert.equal(getActiveGroupLabel('/chat', adminNav), 'Docentes')
+  assert.equal(getActiveGroupLabel('/schedule-planner', adminNav), 'Académico')
+  assert.equal(getActiveGroupLabel('/students/12', adminNav), 'Estudiantes')
+  assert.equal(getActiveGroupLabel('/settings', adminNav), 'Sistema')
   assert.equal(getActiveGroupLabel('/', adminNav), undefined)
 })
 
