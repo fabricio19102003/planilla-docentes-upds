@@ -18,8 +18,8 @@ Branch `fix/practice-room-codes` (worktree `planilla-docentes-upds-worktrees/pra
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| P1 | S1-S5 | gentle-ai-worker: operator `deploy/operators/practice_room_codes_2026_11.py` + tests | |
-| P2 | S1-S5 | gentle-ai-verify: independent review (items 1 data, 6) | |
+| P1 | S1-S5 | gentle-ai-worker: operator `deploy/operators/practice_room_codes_2026_11.py` + tests | 2d66650 |
+| P2 | S1-S5 | gentle-ai-verify: independent review (items 1 data, 6); defect fixed; rehearsal on restored production copy | 2d66650 |
 | P3 | S1-S5 | parent: user runs catalog sync; agent runs `preview` on production, then `apply` after backup and the user's go | |
 
 ## Log
@@ -30,3 +30,5 @@ Branch `fix/practice-room-codes` (worktree `planilla-docentes-upds-worktrees/pra
 - **L4** (user): "ok dale" to "¿Querés que prepare el script del paso 2 (clonar la publicación #5, mover las 3 aulas y publicar vigente desde mañana) con backup previo y verificación independiente?"
 - **L5** (explore): published drafts cannot be edited; cloned blocks with assignments refuse room changes (`save_schedule_block`); `publish()` requires teacher availability, which II/2026 likely lacks; precedent bypass via `_materialize_publication` with `EXPECTED_BLOCKERS`. Deactivating a classroom has no cascade.
 - **L6** (verify finding, fixed): the operator did not check the target rooms for conflicts. `check_preconditions` now aborts (preview and apply, before any write) on a confirmed reservation from the effective date overlapping the moved slot, on a class of another program's effective publication in the target room, or on another publication-5 block already in it.
+- **L7** (verify): S1-S4 PASS; S5 FAIL: target rooms were not checked for reservations or other classes (probe double-booked COB-ANTIGUO-P1-A1). Fixed test-first (`target_room_conflicts`, RED 3 failed, GREEN 75 passed).
+- **L8** (rehearsal, local Postgres 16 restored from production dump `private-output/sipad-backups/rehearsal/20261108T222802Z/`, sha256 cacec593…): catalog sync created 15 rooms, updated 4, conflicts = the three wrong codes. `preview --effective-from 2026-11-09` exit 0, 33 blocks/33 assignments equal except the three rooms, tolerated blocker `draft_validation` x33 (availability). Fingerprint unchanged after preview. `apply` exit 0: +1 publication, +33 published blocks/assignments, +1 draft, three rooms inactive; everything else identical. Rerun no-op. Day availability: Aula 1 Antiguo busy Thu 15:10-17:25, Aula 26 Nuevo busy Fri 17:30-19:55, 31 bookable rooms, wrong codes gone.
