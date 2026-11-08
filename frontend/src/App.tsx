@@ -56,6 +56,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { SchedulePage } from './pages/SchedulePage'
 import { RetentionLetterPage } from './pages/RetentionLetterPage'
 import { PortalChatPage } from './pages/PortalChatPage'
+import { ClassroomReservationPage } from './pages/ClassroomReservationPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +141,7 @@ function AppRoutes() {
             <Route path="profile" element={<MyProfilePage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="classroom-reservations" element={<ClassroomReservationPage />} />
             <Route path="retention-letter" element={<RetentionLetterPage />} />
             <Route path="chat" element={<PortalChatPage />} />
           </Route>

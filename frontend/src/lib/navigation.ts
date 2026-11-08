@@ -26,6 +26,7 @@ export type NavIconName =
   | 'profile'
   | 'students'
   | 'curriculum'
+  | 'classroom'
 
 export interface NavItemDef {
   to: string
@@ -103,6 +104,7 @@ export const docenteNav: NavItemDef[] = [
   { to: '/portal', label: 'Mi Facturación', icon: 'billing', exact: true },
   { to: '/portal/history', label: 'Histórico', icon: 'history' },
   { to: '/portal/schedule', label: 'Mi Horario', icon: 'schedule' },
+  { to: '/portal/classroom-reservations', label: 'Reservar aula', icon: 'classroom' },
   { to: RETENTION_LETTER_PATH, label: 'Carta Retención', icon: 'letter' },
   { to: '/portal/requests', label: 'Mis Solicitudes', icon: 'requests' },
   { to: '/portal/chat', label: 'Mensajes', icon: 'messages' },
