@@ -21,6 +21,20 @@ export interface ClassroomAvailability {
   busy: BusyRange[]
 }
 
+export interface ClassroomDayRoom {
+  classroom: ReservableClassroom
+  busy: BusyRange[]
+  free_minutes: number
+}
+
+export interface ClassroomDay {
+  date: string
+  academic_hour_minutes: number
+  day_start: string
+  day_end: string
+  rooms: ClassroomDayRoom[]
+}
+
 export interface ClassroomReservation {
   id: number
   classroom: ReservableClassroom
@@ -72,6 +86,17 @@ export function useClassroomAvailability(classroomId: number | null, date: strin
   })
 }
 
+export function useClassroomDay(date: string) {
+  return useQuery({
+    queryKey: [PORTAL_KEY, 'day', date],
+    queryFn: async () => {
+      const res = await api.get<ClassroomDay>(`${PORTAL_PATH}/day`, { params: { date } })
+      return res.data
+    },
+    enabled: date !== '',
+  })
+}
+
 export function useMyClassroomReservations() {
   return useQuery({
     queryKey: [PORTAL_KEY, 'mine'],
@@ -96,6 +121,7 @@ export function useCreateClassroomReservation() {
     // A 409/422 may mean the day changed under the teacher: show fresh ranges next to the message.
     onError: () => {
       void qc.invalidateQueries({ queryKey: [PORTAL_KEY, 'availability'] })
+      void qc.invalidateQueries({ queryKey: [PORTAL_KEY, 'day'] })
     },
   })
 }

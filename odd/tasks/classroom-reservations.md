@@ -13,6 +13,9 @@ Branch `feat/classroom-reservations` (worktree `planilla-docentes-upds-worktrees
 - **S6 Catalog.** All active classrooms of the existing catalog are reservable, including rooms 20-29 ("Todas reservables"). The user's list (rooms 1-19, A, B, floors and capacities) already matches `classroom_catalog_service.CATALOG`.
 - **S7 Laboratories.** "El admin los da de alta": the admin creates and edits laboratories (name, capacity) and they become reservable.
 - **S8 Admin grid.** "del lado del admin ver en formato de grilla estilo calnedario u horario ver todos las recervas que los docentes vayan haciendo". The admin sees all reservations in a calendar/timetable grid.
+- **S9 No selects; coss calendar.** "no me gustan que sea un select el elegir la aula y tampoco el horario. quiero darle un upgrade a la UI de la reserva, usa calendarios shadcn y demas". The portal page picks the date with the coss (shadcn) Calendar, the room with cards and the start time from the day agenda; no `<select>`.
+- **S10 Combined design 03 + 02.** "quiero combinar el design 2 y el 3. me gusta casi todo del 3 solo que cambiaria el componente de la seleccion de duracion y mostrar mas detalle en las tarjetas de aulas asi como tiene el design 2". Visual spec: `design/classroom-reservation-ui/04-agenda-tarjetas-detalladas.html` (layout of 03: room cards grouped by building with search and Todos/Aulas/Laboratorios filter, clickable vertical day agenda with live selection, calendar and duration on the right). From 02: duration as a −/+ stepper and, on each room card, the day's occupancy bar and free time.
+- **S11 Day availability of every room.** Room cards need the chosen day's busy ranges of every bookable room at once: a new portal endpoint returns them (anonymous, same rules as S2).
 
 ## Tasks
 
@@ -24,6 +27,8 @@ Branch `feat/classroom-reservations` (worktree `planilla-docentes-upds-worktrees
 | T4 | S8 | gentle-ai-worker (context backstop): admin page "Reservas de aulas" day grid (rooms × time) with date navigation, nav + route | C3 (feat(admin)) |
 | T5 | S7 | gentle-ai-worker: verified, no change needed (`frontend/src/pages/AcademicManagementPage.tsx:454`, capacity required for laboratory) | none |
 | T6 | all | inline: full backend suite, frontend checks/tsc/lint, README; gentle-ai-verify (items 2 and 4) | C3 (feat(admin)) |
+| T7 | S11 | inline: `GET /api/portal/classroom-reservations/day?date=` with every bookable room's busy ranges and free minutes, tests | 6c5e27b |
+| T8 | S9-S10 | gentle-ai-worker: coss Calendar (`@daypicker/react`), redesigned portal page per artboard 04, node tests | b30c21a |
 
 ## Log
 
@@ -46,3 +51,6 @@ Branch `feat/classroom-reservations` (worktree `planilla-docentes-upds-worktrees
 - **L10** (verify, gentle-ai-verify on 7eaf412's backend): S1-S6 PASS; permissions PASS (no IDOR, availability does not reveal who reserved); migration PASS (single head b5c7d9e1f3a6); CI change PASS; concurrency PASS by code reasoning, UNVERIFIED at runtime (no PostgreSQL test DB). Advisories fixed test-first: start time with seconds rejected; admin listing keeps rooms deactivated after being reserved. RDD is off for this clone (assess: rdd-off), so no native review ran.
 - **L11** (delivery, feature-branch-chain): PR1 backend = 7eaf412; PR2 portal = f4f11f2; PR3 admin grid + README + feature document = the `feat(admin)` commit after f4f11f2. Push and PR creation remain the user's decision.
 - **L12** (evidence): final full suite found `tests/services/test_teacher_identity_service.py` seeding one row per `child_tables` entry; a reservation was added to its seed (RED then 21 passed). Commits rebased: backend 7eaf412, portal f4f11f2.
+- **L13** (user): "ok ahora necesito que me ayudes a mejorar bastante la ui de la reserva de aulas, no me gustan que sea un select el elegir la aula y tampoco el horario. quiero darle un upgrade a la UI de la reserva, usa calendarios shadcn y demas"
+- **L14** (user): "ok quiero combinar el design 2 y el 3. me gusta casi todo del 3 solo que cambiaria el componente de la seleccion de duracion y mostrar mas detalle en las tarjetas de aulas asi como tiene el design 2". Design `design/classroom-reservation-ui/` (outside the repo), chosen artboard 04; 01-03 are alternatives. Branch `feat/classroom-reservation-ui` from master ce97ed1.
+- **L15** (evidence): T7 RED 3 failed then 34 passed (6c5e27b). T8 by gentle-ai-worker: RED on missing module, then `test:classroom-reservations` 27/27, every other frontend `test:*` green, tsc/lint/build clean; screenshots with mocked API at desktop and mobile (b30c21a). Added dependency `@daypicker/react` 10.0.2 (exact). Removed the unused AvailabilityTimeline and ReservationForm.
