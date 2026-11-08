@@ -76,48 +76,89 @@ def _bookable_room(db: Session, classroom_id: int, *, lock: bool = False) -> Cla
     return room
 
 
-def _class_ranges(db: Session, room: Classroom, day: date) -> list[tuple[int, int, str]]:
-    """Published class blocks of ``room`` on ``day`` as (start, end, subject) minutes."""
+def _classes_by_code(db: Session, day: date) -> dict[str, list[tuple[int, int, str]]]:
+    """Published class blocks on ``day`` as (start, end, subject) minutes, by classroom code."""
     weekday = WEEKDAYS[day.weekday()]
     blocks = schedule_blocks(db, academic_period=get_active_academic_period(db), source="current", reference=day)
-    return sorted(
-        (_minutes(block.start_time), _minutes(block.end_time), block.subject_name)
-        for block in blocks
-        if block.classroom_code == room.code and block.weekday == weekday
-    )
+    by_code: dict[str, list[tuple[int, int, str]]] = {}
+    for block in blocks:
+        if block.classroom_code and block.weekday == weekday:
+            by_code.setdefault(block.classroom_code, []).append(
+                (_minutes(block.start_time), _minutes(block.end_time), block.subject_name))
+    return {code: sorted(ranges) for code, ranges in by_code.items()}
+
+
+def _class_ranges(db: Session, room: Classroom, day: date) -> list[tuple[int, int, str]]:
+    return _classes_by_code(db, day).get(room.code, [])
+
+
+def _confirmed_query(db: Session, day: date):
+    return db.query(ClassroomReservation).filter(
+        ClassroomReservation.reservation_date == day,
+        ClassroomReservation.status == "confirmed",
+    ).order_by(ClassroomReservation.start_time)
 
 
 def _confirmed(db: Session, room: Classroom, day: date) -> list[ClassroomReservation]:
-    return db.query(ClassroomReservation).filter(
-        ClassroomReservation.classroom_id == room.id,
-        ClassroomReservation.reservation_date == day,
-        ClassroomReservation.status == "confirmed",
-    ).order_by(ClassroomReservation.start_time).all()
+    return _confirmed_query(db, day).filter(ClassroomReservation.classroom_id == room.id).all()
+
+
+def _busy(classes: list[tuple[int, int, str]], reservations: list[ClassroomReservation], teacher_ci: str) -> list[dict]:
+    """Anonymous busy ranges: classes are "Ocupada", reservations "Reservada" (``mine`` for the caller's)."""
+    busy = [
+        {"start": start, "end": end, "kind": "class", "label": "Ocupada", "detail": subject, "mine": False}
+        for start, end, subject in classes
+    ] + [
+        {"start": _minutes(row.start_time), "end": _minutes(row.end_time), "kind": "reservation",
+         "label": "Reservada", "detail": None, "mine": row.teacher_ci == teacher_ci}
+        for row in reservations
+    ]
+    busy.sort(key=lambda item: (item["start"], item["end"]))
+    return busy
+
+
+def _busy_out(busy: list[dict]) -> list[dict]:
+    return [
+        {"start_time": _clock(item["start"]), "end_time": _clock(item["end"]),
+         **{key: item[key] for key in ("kind", "label", "detail", "mine")}}
+        for item in busy
+    ]
+
+
+def _free_minutes(busy: list[dict]) -> int:
+    """Minutes of the day window not covered by any busy range (overlaps count once)."""
+    window_start, window_end = _minutes(DAY_START), _minutes(DAY_END)
+    covered, cursor = 0, window_start
+    for item in busy:
+        start, end = max(item["start"], cursor), min(item["end"], window_end)
+        if end > start:
+            covered += end - start
+            cursor = end
+    return window_end - window_start - covered
+
+
+def _day_frame(db: Session, day: date) -> dict:
+    return {"date": day, "academic_hour_minutes": get_academic_hour_minutes(db),
+            "day_start": DAY_START, "day_end": DAY_END}
 
 
 def availability(db: Session, classroom_id: int, day: date, teacher_ci: str) -> dict:
     room = _bookable_room(db, classroom_id)
-    busy = [
-        {"start": start, "end": end, "kind": "class", "label": "Ocupada", "detail": subject, "mine": False}
-        for start, end, subject in _class_ranges(db, room, day)
-    ] + [
-        {"start": _minutes(row.start_time), "end": _minutes(row.end_time), "kind": "reservation",
-         "label": "Reservada", "detail": None, "mine": row.teacher_ci == teacher_ci}
-        for row in _confirmed(db, room, day)
-    ]
-    busy.sort(key=lambda item: (item["start"], item["end"]))
-    return {
-        "classroom": room,
-        "date": day,
-        "academic_hour_minutes": get_academic_hour_minutes(db),
-        "day_start": DAY_START,
-        "day_end": DAY_END,
-        "busy": [
-            {"start_time": _clock(item["start"]), "end_time": _clock(item["end"]),
-             **{key: item[key] for key in ("kind", "label", "detail", "mine")}}
-            for item in busy
-        ],
-    }
+    busy = _busy(_class_ranges(db, room, day), _confirmed(db, room, day), teacher_ci)
+    return {"classroom": room, **_day_frame(db, day), "busy": _busy_out(busy)}
+
+
+def day_availability(db: Session, day: date, teacher_ci: str) -> dict:
+    """Busy ranges and free minutes of every bookable room on ``day``."""
+    classes = _classes_by_code(db, day)
+    reservations: dict[int, list[ClassroomReservation]] = {}
+    for row in _confirmed_query(db, day).all():
+        reservations.setdefault(row.classroom_id, []).append(row)
+    rooms = []
+    for room in bookable_rooms(db):
+        busy = _busy(classes.get(room.code, []), reservations.get(room.id, []), teacher_ci)
+        rooms.append({"classroom": room, "busy": _busy_out(busy), "free_minutes": _free_minutes(busy)})
+    return {**_day_frame(db, day), "rooms": rooms}
 
 
 def reserve(db: Session, *, teacher: Teacher, user_id: int | None, classroom_id: int, day: date,
