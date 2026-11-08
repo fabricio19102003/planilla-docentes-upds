@@ -71,6 +71,7 @@ export const adminNav: AdminNavEntry[] = [
       { to: '/contracts', label: 'Contratos', icon: 'contracts' },
       { to: '/academic-management', label: 'Gestión académica', icon: 'school' },
       { to: '/schedule-planner', label: 'Planificador de horarios', icon: 'schedule' },
+      { to: '/classroom-reservations', label: 'Reservas de aulas', icon: 'classroom' },
       { to: '/requests', label: 'Solicitudes', icon: 'requests' },
       { to: '/chat', label: 'Mensajes', icon: 'messages' },
     ],
