@@ -121,7 +121,7 @@ test('the app routes the admin grid page inside the admin block, before the port
 })
 
 test('the admin menu offers Reservas de aulas right after Planificador de horarios', () => {
-  const group = adminNav.find((entry) => 'children' in entry && entry.label === 'Docentes y académico')
+  const group = adminNav.find((entry) => 'children' in entry && entry.label === 'Académico')
   const labels = group.children.map((item) => item.label)
   assert.equal(labels.indexOf('Reservas de aulas'), labels.indexOf('Planificador de horarios') + 1)
   const item = group.children.find((entry) => entry.label === 'Reservas de aulas')
