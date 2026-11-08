@@ -38,6 +38,10 @@ from app.routers import (
     academic_management_router,
 )
 from app.routers.chat import router as chat_router
+from app.routers.classroom_reservations import (
+    admin_router as classroom_reservations_admin_router,
+    portal_router as classroom_reservations_portal_router,
+)
 from app.routers.designation_admin import router as designation_admin_router
 from app.routers.academic_records import router as academic_records_router
 from app.routers.student_portal import router as student_portal_router
@@ -445,6 +449,8 @@ app.include_router(intensive_courses_admin_router)
 app.include_router(migration_documents_admin_router)
 app.include_router(group_opening_router)
 app.include_router(chat_router)
+app.include_router(classroom_reservations_portal_router)
+app.include_router(classroom_reservations_admin_router)
 app.include_router(designation_admin_router)
 
 
