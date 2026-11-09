@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, CalendarDays, CheckCircle, Download, FileSignature, RotateCcw } from 'lucide-react'
+import { AlertCircle, CalendarDays, CheckCircle, ChevronsUpDown, Download, FileSignature, RotateCcw, X } from 'lucide-react'
 
 import { TONE_CHIP } from '@/components/shared/tones'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -7,7 +7,16 @@ import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardPanel, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxTrigger,
+} from '@/components/ui/combobox'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   downloadContractDocument,
   useContractTerms,
@@ -21,6 +30,7 @@ import {
   validateTermsForm,
   type ContractTermsForm,
 } from '@/lib/contractTermsForm'
+import { matchesTeacher, teacherOptionLabel } from '@/lib/contractTeacherPicker'
 import { cn } from '@/lib/utils'
 
 const EMPTY_FORM: ContractTermsForm = { start: '', end: '', signature: '' }
@@ -39,6 +49,7 @@ interface Props {
 /** Issue one teacher's contract with custom start, end and signing dates. */
 export function IndividualContractCard({ teachers, department, academicPeriod }: Props) {
   const [teacherCi, setTeacherCi] = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [form, setForm] = useState<ContractTermsForm>(EMPTY_FORM)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [issued, setIssued] = useState<ContractDocument | null>(null)
@@ -78,6 +89,7 @@ export function IndividualContractCard({ teachers, department, academicPeriod }:
     }
   }
 
+  const selectedTeacher = teachers.find((t) => t.ci === teacherCi) ?? null
   const defaults = terms.data
   const defaultStart = defaults?.default_start ? formatSpanishDate(defaults.default_start) : 'sin carga'
   const defaultEnd = defaults?.default_end ? formatSpanishDate(defaults.default_end) : 'sin carga'
@@ -101,22 +113,77 @@ export function IndividualContractCard({ teachers, department, academicPeriod }:
       </CardHeader>
       <CardPanel className="space-y-4">
         <Field>
-          <FieldLabel htmlFor="individual-contract-teacher">Docente</FieldLabel>
-          <Select
-            value={teacherCi}
-            items={teachers.map((t) => ({ value: t.ci, label: `${t.full_name} — CI ${t.ci}` }))}
-            onValueChange={(value) => selectTeacher(value)}
-          >
-            <SelectTrigger id="individual-contract-teacher">
-              <SelectValue placeholder="Elegí un docente" />
-            </SelectTrigger>
-            <SelectPopup>
-              {teachers.map((t) => (
-                <SelectItem key={t.ci} value={t.ci}>{t.full_name} — CI {t.ci}</SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+          <FieldLabel id="individual-contract-teacher-label" htmlFor="individual-contract-teacher">Docente</FieldLabel>
+          <div className="flex w-full items-center gap-1">
+            <Combobox
+              items={teachers}
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              value={selectedTeacher}
+              onValueChange={(teacher) => {
+                if (!teacher) return
+                selectTeacher(teacher.ci)
+                setPickerOpen(false)
+              }}
+              filter={matchesTeacher}
+              itemToStringLabel={teacherOptionLabel}
+              isItemEqualToValue={(item, other) => item.ci === other.ci}
+            >
+              <ComboboxTrigger
+                render={
+                  <Button
+                    id="individual-contract-teacher"
+                    aria-labelledby="individual-contract-teacher-label individual-contract-teacher"
+                    type="button"
+                    variant="outline"
+                    className={cn('min-w-0 flex-1 justify-between font-normal', !selectedTeacher && 'text-muted-foreground')}
+                  />
+                }
+              >
+                <span className="truncate">{selectedTeacher ? teacherOptionLabel(selectedTeacher) : 'Elegí un docente'}</span>
+                <ChevronsUpDown className="opacity-50" aria-hidden="true" />
+              </ComboboxTrigger>
+              <ComboboxPopup className="w-(--anchor-width) min-w-72">
+                <div className="border-b p-2">
+                  <ComboboxInput aria-label="Buscar docente" placeholder="Buscar por nombre o CI…" maxLength={60} showTrigger={false} />
+                </div>
+                <ComboboxEmpty>Ningún docente coincide con la búsqueda.</ComboboxEmpty>
+                <ComboboxList>
+                  {(teacher: (typeof teachers)[number]) => (
+                    <ComboboxItem key={teacher.ci} value={teacher}>
+                      <span className="flex items-center gap-2">
+                        <span className="truncate">{teacher.full_name}</span>
+                        <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">CI {teacher.ci}</span>
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxPopup>
+            </Combobox>
+            {teacherCi && (
+              <Button type="button" size="icon" variant="ghost" aria-label="Quitar docente" onClick={() => selectTeacher(null)}>
+                <X aria-hidden="true" />
+              </Button>
+            )}
+          </div>
         </Field>
+
+        <div aria-live="polite" className="empty:hidden">
+          {teacherCi && terms.isLoading && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Calculando la carga del docente…</p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3" aria-hidden="true">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="space-y-2">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-9 w-full rounded-lg" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {teacherCi && terms.isError && (
           <Alert variant="error" role="alert">

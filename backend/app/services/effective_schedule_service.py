@@ -94,6 +94,187 @@ def schedule_scope_key(
     return _scope_key(subject, group, semester, activity)
 
 
+@dataclass(frozen=True)
+class _PreparedBlock:
+    block: AcademicSchedulePublishedBlock
+    scope_key: tuple[str, ...]
+    weekday: str
+    academic_hours: int
+
+
+@dataclass(frozen=True)
+class _PreparedPublication:
+    publication: AcademicSchedulePublication
+    blocks: tuple[_PreparedBlock, ...]
+
+
+@dataclass(frozen=True)
+class _PreparedDesignation:
+    designation: Designation
+    activity: str
+    scope_key: tuple[str, ...]
+    # Slots whose start/end parse; the rest are skipped exactly as the per-day reader did.
+    slots: tuple[tuple[dict, time, time, str], ...]
+
+
+@dataclass(frozen=True)
+class LoadedSchedulePeriod:
+    """Everything ``effective_schedule_slots`` reads for one academic period, loaded once."""
+
+    academic_period: str
+    # Same order as the per-day query: program, newest effective_from, sequence, id.
+    publications: tuple[_PreparedPublication, ...]
+    designations: tuple[_PreparedDesignation, ...]
+
+    @property
+    def designation_rows(self) -> list[Designation]:
+        return [item.designation for item in self.designations]
+
+
+def load_effective_schedule_period(db: Session, academic_period: str) -> LoadedSchedulePeriod:
+    """Load every publication (with blocks and assignments) and designation of a period."""
+    publications = db.query(AcademicSchedulePublication).options(
+        joinedload(AcademicSchedulePublication.blocks)
+        .joinedload(AcademicSchedulePublishedBlock.assignments)
+    ).filter(
+        AcademicSchedulePublication.academic_period == academic_period,
+    ).order_by(
+        AcademicSchedulePublication.program_id,
+        AcademicSchedulePublication.effective_from.desc(),
+        AcademicSchedulePublication.sequence.desc(),
+        AcademicSchedulePublication.id.desc(),
+    ).all()
+    prepared_publications = tuple(
+        _PreparedPublication(
+            publication=publication,
+            blocks=tuple(
+                _PreparedBlock(
+                    block=block,
+                    scope_key=_scope_key(
+                        block.subject_name, block.group_code, block.semester, block.activity_type
+                    ),
+                    weekday=_canonical_weekday(block.weekday),
+                    academic_hours=block_paid_hours(block.start_time, block.end_time, block.academic_hours),
+                )
+                for block in publication.blocks
+            ),
+        )
+        for publication in publications
+    )
+    prepared_designations = []
+    for designation in db.query(Designation).filter(
+        Designation.academic_period == academic_period,
+    ).all():
+        activity = _legacy_activity(designation)
+        slots = []
+        for slot in designation.schedule_json or []:
+            try:
+                start = time.fromisoformat(str(slot["hora_inicio"]))
+                end = time.fromisoformat(str(slot["hora_fin"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            slots.append((slot, start, end, _canonical_weekday(slot.get("dia", ""))))
+        prepared_designations.append(_PreparedDesignation(
+            designation=designation,
+            activity=activity,
+            scope_key=_scope_key(
+                designation.subject, designation.group_code, designation.semester, activity
+            ),
+            slots=tuple(slots),
+        ))
+    return LoadedSchedulePeriod(
+        academic_period=academic_period,
+        publications=prepared_publications,
+        designations=tuple(prepared_designations),
+    )
+
+
+def resolve_effective_schedule_slots(
+    loaded: LoadedSchedulePeriod,
+    target_date: date,
+    include_practice: bool = False,
+) -> list[EffectiveScheduleSlot]:
+    """Resolve one day from an already loaded period without touching the database.
+
+    Same rules as ``effective_schedule_slots``: the effective publication of each
+    program on ``target_date`` wins; legacy designations fill the tuples it does not
+    represent.
+    """
+    effective_by_program: dict[int, _PreparedPublication] = {}
+    for prepared in loaded.publications:
+        if prepared.publication.effective_from <= target_date:
+            effective_by_program.setdefault(prepared.publication.program_id, prepared)
+
+    published: list[EffectiveScheduleSlot] = []
+    represented: set[tuple[str, ...]] = set()
+    for prepared in effective_by_program.values():
+        publication = prepared.publication
+        for prepared_block in prepared.blocks:
+            block = prepared_block.block
+            if block.activity_type == "practice" and not include_practice:
+                continue
+            assignment = next((
+                item for item in block.assignments
+                if item.effective_from <= target_date
+                and (item.effective_to is None or item.effective_to >= target_date)
+            ), None)
+            if assignment is None:
+                continue
+            represented.add(prepared_block.scope_key)
+            published.append(EffectiveScheduleSlot(
+                source_type="published",
+                teacher_ci=assignment.teacher_ci,
+                subject=block.subject_name,
+                group_code=block.group_code,
+                semester=str(block.semester),
+                activity_type=block.activity_type,
+                weekday=prepared_block.weekday,
+                start_time=block.start_time,
+                end_time=block.end_time,
+                academic_hours=prepared_block.academic_hours,
+                published_block_id=block.id,
+                published_assignment_id=assignment.id,
+                publication_id=publication.id,
+                effective_from=max(publication.effective_from, assignment.effective_from),
+                effective_to=assignment.effective_to,
+            ))
+
+    legacy: list[EffectiveScheduleSlot] = []
+    for prepared_designation in loaded.designations:
+        designation = prepared_designation.designation
+        activity = prepared_designation.activity
+        if activity == "practice" and not include_practice:
+            continue
+        if prepared_designation.scope_key in represented:
+            continue
+        if designation.contract_start_date and target_date < designation.contract_start_date:
+            continue
+        if designation.contract_end_date and target_date > designation.contract_end_date:
+            continue
+        for slot, start, end, weekday in prepared_designation.slots:
+            legacy.append(EffectiveScheduleSlot(
+                source_type="legacy",
+                teacher_ci=designation.teacher_ci,
+                subject=designation.subject,
+                group_code=designation.group_code,
+                semester=designation.semester,
+                activity_type=activity,
+                weekday=weekday,
+                start_time=start,
+                end_time=end,
+                academic_hours=int(slot.get("horas_academicas", 0)),
+                designation_id=designation.id,
+                effective_from=designation.contract_start_date,
+                effective_to=designation.contract_end_date,
+                monthly_hours=designation.monthly_hours,
+                weekly_hours=designation.weekly_hours,
+            ))
+    return sorted(
+        [*published, *legacy],
+        key=lambda item: (item.weekday, item.start_time, item.teacher_ci, item.source_type),
+    )
+
+
 def effective_schedule_slots(
     db: Session,
     academic_period: str,
@@ -110,101 +291,11 @@ def effective_schedule_slots(
     This adapter is intentionally read-only in increment 4. Persisting attendance
     against published rows requires a separate dual-source AttendanceRecord
     migration and is not simulated with synthetic Designation rows.
+
+    Callers resolving many days of one period should call
+    ``load_effective_schedule_period`` once and ``resolve_effective_schedule_slots``
+    per day instead of this per-day query.
     """
-    candidates = db.query(AcademicSchedulePublication).options(
-        joinedload(AcademicSchedulePublication.blocks)
-        .joinedload(AcademicSchedulePublishedBlock.assignments)
-    ).filter(
-        AcademicSchedulePublication.academic_period == academic_period,
-        AcademicSchedulePublication.effective_from <= target_date,
-    ).order_by(
-        AcademicSchedulePublication.program_id,
-        AcademicSchedulePublication.effective_from.desc(),
-        AcademicSchedulePublication.sequence.desc(),
-        AcademicSchedulePublication.id.desc(),
-    ).all()
-    effective_by_program: dict[int, AcademicSchedulePublication] = {}
-    for publication in candidates:
-        effective_by_program.setdefault(publication.program_id, publication)
-
-    published: list[EffectiveScheduleSlot] = []
-    represented: set[tuple[str, ...]] = set()
-    for publication in effective_by_program.values():
-        for block in publication.blocks:
-            if block.activity_type == "practice" and not include_practice:
-                continue
-            assignment = next((
-                item for item in block.assignments
-                if item.effective_from <= target_date
-                and (item.effective_to is None or item.effective_to >= target_date)
-            ), None)
-            if assignment is None:
-                continue
-            represented.add(_scope_key(
-                block.subject_name, block.group_code, block.semester, block.activity_type
-            ))
-            duration = (
-                block.end_time.hour * 60 + block.end_time.minute
-                - block.start_time.hour * 60 - block.start_time.minute
-            )
-            published.append(EffectiveScheduleSlot(
-                source_type="published",
-                teacher_ci=assignment.teacher_ci,
-                subject=block.subject_name,
-                group_code=block.group_code,
-                semester=str(block.semester),
-                activity_type=block.activity_type,
-                weekday=_canonical_weekday(block.weekday),
-                start_time=block.start_time,
-                end_time=block.end_time,
-                academic_hours=block_paid_hours(block.start_time, block.end_time, block.academic_hours),
-                published_block_id=block.id,
-                published_assignment_id=assignment.id,
-                publication_id=publication.id,
-                effective_from=max(publication.effective_from, assignment.effective_from),
-                effective_to=assignment.effective_to,
-            ))
-
-    legacy: list[EffectiveScheduleSlot] = []
-    designations = db.query(Designation).filter(
-        Designation.academic_period == academic_period,
-    ).all()
-    for designation in designations:
-        activity = _legacy_activity(designation)
-        if activity == "practice" and not include_practice:
-            continue
-        if _scope_key(
-            designation.subject, designation.group_code, designation.semester, activity
-        ) in represented:
-            continue
-        if designation.contract_start_date and target_date < designation.contract_start_date:
-            continue
-        if designation.contract_end_date and target_date > designation.contract_end_date:
-            continue
-        for slot in designation.schedule_json or []:
-            try:
-                start = time.fromisoformat(str(slot["hora_inicio"]))
-                end = time.fromisoformat(str(slot["hora_fin"]))
-            except (KeyError, TypeError, ValueError):
-                continue
-            legacy.append(EffectiveScheduleSlot(
-                source_type="legacy",
-                teacher_ci=designation.teacher_ci,
-                subject=designation.subject,
-                group_code=designation.group_code,
-                semester=designation.semester,
-                activity_type=activity,
-                weekday=_canonical_weekday(slot.get("dia", "")),
-                start_time=start,
-                end_time=end,
-                academic_hours=int(slot.get("horas_academicas", 0)),
-                designation_id=designation.id,
-                effective_from=designation.contract_start_date,
-                effective_to=designation.contract_end_date,
-                monthly_hours=designation.monthly_hours,
-                weekly_hours=designation.weekly_hours,
-            ))
-    return sorted(
-        [*published, *legacy],
-        key=lambda item: (item.weekday, item.start_time, item.teacher_ci, item.source_type),
+    return resolve_effective_schedule_slots(
+        load_effective_schedule_period(db, academic_period), target_date, include_practice
     )
