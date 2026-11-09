@@ -7,9 +7,12 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
-from app.models.designation import Designation
 from app.services.designation_window import overlaps_cutoff
-from app.services.effective_schedule_service import EffectiveScheduleSlot, effective_schedule_slots
+from app.services.effective_schedule_service import (
+    EffectiveScheduleSlot,
+    load_effective_schedule_period,
+    resolve_effective_schedule_slots,
+)
 
 
 @dataclass(frozen=True)
@@ -92,13 +95,12 @@ def payroll_schedule_sources(
     """
     groups: dict[str, PayrollScheduleSource] = {}
     active_dates: dict[str, list[date]] = {}
-    legacy_by_id = {
-        item.id: item
-        for item in db.query(Designation).filter(Designation.academic_period == academic_period).all()
-    }
+    # The institution's schedule is loaded once; each day is resolved in memory.
+    loaded = load_effective_schedule_period(db, academic_period)
+    legacy_by_id = {item.id: item for item in loaded.designation_rows}
     current = period_start
     while current <= period_end:
-        for slot in effective_schedule_slots(db, academic_period, current, include_practice=True):
+        for slot in resolve_effective_schedule_slots(loaded, current, include_practice=True):
             if slot.activity_type != activity_kind:
                 continue
             key = f"{slot.source_type}:{slot.source_id}"
