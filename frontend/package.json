@@ -12,6 +12,7 @@
     "test:designation-import": "node scripts/check-designation-import-state.mjs",
     "test:settings-form": "node --experimental-strip-types --test scripts/check-settings-form.mjs",
     "test:contract-terms": "node --experimental-strip-types --test scripts/check-contract-terms-form.mjs",
+    "test:contract-teacher-picker": "node --experimental-strip-types --test scripts/check-contract-teacher-picker.mjs",
     "test:teacher-profile-import": "node --experimental-strip-types --test scripts/check-teacher-profile-import-state.mjs",
     "test:academic-management": "node --experimental-strip-types --test scripts/check-academic-management.mjs",
     "test:academic-records": "node --experimental-strip-types --test scripts/check-academic-records.mjs",
