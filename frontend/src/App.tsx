@@ -36,6 +36,7 @@ import { StudentChangePasswordPage } from './pages/student/StudentChangePassword
 import { StudentHistoryPage } from './pages/student/StudentHistoryPage'
 import { StudentHomePage } from './pages/student/StudentHomePage'
 import { StudentLoginPage } from './pages/student/StudentLoginPage'
+import { StudentNotFoundPage } from './pages/student/StudentNotFoundPage'
 import { StudentPortalLayout } from './pages/student/StudentPortalLayout'
 import { StudentIntensivePage } from './pages/student/StudentIntensivePage'
 import { StudentSchedulePage } from './pages/student/StudentSchedulePage'
@@ -85,6 +86,7 @@ function AppRoutes() {
             <Route path="/estudiante/rematricula" element={<StudentReenrollmentPage />} />
             <Route path="/estudiante/horario" element={<StudentSchedulePage />} />
             <Route path="/estudiante/intensivos" element={<StudentIntensivePage />} />
+            <Route path="/estudiante/*" element={<StudentNotFoundPage />} />
           </Route>
 
           {/* Admin routes */}
