@@ -252,6 +252,8 @@
   --color-student-accent-foreground: var(--student-accent-foreground);
   --color-student-accent-text: var(--student-accent-text);
   --color-student-accent-soft: var(--student-accent-soft);
+  --color-student-accent-line: var(--student-accent-line);
+  --color-student-accent-on-band: var(--student-accent-on-band);
 }
 
 /* Dark theme: deep blue-grey canvas with lighter cards so they still float, navy brand band, darker navy sidebar. */
