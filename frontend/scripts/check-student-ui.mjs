@@ -9,7 +9,7 @@ import test from 'node:test'
 const root = resolve(import.meta.dirname, '..')
 
 const PAGES = ['StudentHomePage', 'StudentHistoryPage', 'StudentReenrollmentPage', 'StudentSchedulePage', 'StudentIntensivePage']
-// Inicio keeps its welcome card (with the page h1) as its header.
+// Inicio keeps its welcome card (the R5 glass hero, with the page h1) as its header.
 const HEADER_PAGES = PAGES.filter((name) => name !== 'StudentHomePage')
 
 const sources = Object.fromEntries(
@@ -62,7 +62,9 @@ for (const name of HEADER_PAGES) {
 test('Inicio keeps its welcome card as the page header with the single h1', () => {
   const code = sources.StudentHomePage
   assert.equal((code.match(/<h1\b/g) ?? []).length, 1)
-  assert.match(code, /bg-brand-soft/)
+  // The welcome is the R5 glass card on an Aurora strip (it replaced the bg-brand-soft wash).
+  assert.match(code, /<GlassStage\b/)
+  assert.match(code, /<GlassCard\b/)
   assert.match(code, /Hola/)
 })
 

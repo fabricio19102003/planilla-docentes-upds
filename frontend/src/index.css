@@ -545,6 +545,10 @@
   to { stroke-dasharray: 1 3000; stroke-dashoffset: -1000; }
 }
 
+@keyframes sp-pop {
+  from { opacity: 0; transform: scale(0.6); }
+}
+
 @keyframes lg-drift {
   0%, 100% { transform: translate(0, 0) scale(1); }
   33% { transform: translate(8%, -6%) scale(1.12); }
@@ -1427,6 +1431,133 @@
     font-weight: 500;
   }
 
+  /* Inicio hero: R5 glass card on the Aurora strip ------------- */
+  .sp-home-stage {
+    border-radius: var(--radius-2xl);
+  }
+
+  .sp-home-stage .sp-glass-fg {
+    padding: 20px 16px;
+  }
+
+  .sp-glass-card.sp-home-hero {
+    gap: 16px;
+  }
+
+  .sp-home-tile {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, .18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5);
+  }
+
+  .sp-home-tile svg {
+    width: 28px;
+    height: 28px;
+    stroke-width: 1.5;
+  }
+
+  .sp-home-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sp-home-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, .18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4);
+    font-size: 13px;
+    font-weight: 600;
+    transition: transform .3s cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  .sp-home-badge:hover {
+    transform: scale(1.08);
+  }
+
+  .sp-home-badge svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .sp-home-badge:nth-child(2) { animation-delay: .06s; }
+  .sp-home-badge:nth-child(3) { animation-delay: .12s; }
+
+  .sp-home-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0 22px;
+    border-radius: 99px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform .3s cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  .sp-home-cta > span {
+    position: relative;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sp-home-cta svg {
+    width: 18px;
+    height: 18px;
+    transition: transform .25s;
+  }
+
+  .sp-home-cta:hover {
+    transform: translateY(-2px);
+  }
+
+  .sp-home-cta:hover svg {
+    transform: translateX(3px);
+  }
+
+  .sp-home-cta:active {
+    transform: scale(.95);
+  }
+
+  .sp-home-cta:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+  }
+
+  .sp-pop {
+    animation: sp-pop .45s cubic-bezier(.34, 1.56, .64, 1) both;
+  }
+
+  @media (min-width: 640px) {
+    .sp-glass-card.sp-home-hero {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .sp-home-row {
+      grid-column: 1 / -1;
+    }
+
+    .sp-home-cta {
+      margin-left: auto;
+    }
+  }
+
   /* Reduced motion: same end state, no movement. ------------------ */
   @media (prefers-reduced-motion: reduce) {
     .sp-notch-bar,
@@ -1480,7 +1611,14 @@
       transform: none!important;
     }
 
+    .sp-pop {
+      animation: none!important;
+    }
+
     .lg-glass::after,
+    .sp-home-badge,
+    .sp-home-cta,
+    .sp-home-cta svg,
     .sp-glass-switch-tab,
     .sp-glass-switch-icon,
     .sp-receipt-button,
