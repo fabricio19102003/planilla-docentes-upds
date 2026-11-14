@@ -126,15 +126,23 @@ function Form({ view }: { view: StudentReenrollment }) {
           <CheckCircle2 aria-hidden="true" /><AlertTitle>Solicitud enviada. Registro la va a revisar y vas a ver el estado acá.</AlertTitle>
         </Alert>
       )}
+      {submit.isPending && (
+        // R3 as a panel: centered over the page, above the bottom bar, while the request is on its way.
+        <div className="sp-sending fixed inset-0 z-20 grid place-items-center bg-background/80 px-4 pt-6 pb-[calc(7.5rem+env(safe-area-inset-bottom))] backdrop-blur-sm md:pb-6">
+          <Card className="w-full max-w-sm items-center text-center">
+            <CardContent className="flex flex-col items-center gap-4 py-4">
+              <ThermalLoader label="Enviando tu solicitud a Registro…" />
+              <div className="space-y-1" aria-hidden="true">
+                <p className="text-base font-semibold text-foreground">Enviando tu solicitud a Registro…</p>
+                <p className="text-sm text-muted-foreground">No cerrés esta pantalla. Tu solicitud queda guardada cuando Registro la confirme.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {!locked && (
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" size="lg" className="active:scale-95 motion-reduce:active:scale-100" loading={submit.isPending} disabled={problem !== null}>{request ? 'Guardar cambios' : 'Enviar solicitud'}</Button>
-          {submit.isPending && (
-            <span className="inline-flex items-center gap-3 text-sm text-muted-foreground">
-              <ThermalLoader label="Enviando tu solicitud a Registro…" size={12} />
-              <span aria-hidden="true">Enviando tu solicitud a Registro…</span>
-            </span>
-          )}
           {problem && <p className="text-sm text-muted-foreground">{problem}</p>}
         </div>
       )}

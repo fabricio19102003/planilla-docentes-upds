@@ -57,6 +57,19 @@ test('desktop top nav marks the active destination and follows navigation', asyn
   expect(await noHorizontalOverflow(page)).toBe(true)
 })
 
+test('desktop nav links show a focus ring', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop navigation behavior')
+  await mockStudent(page)
+  await page.goto('/estudiante')
+
+  const second = page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Mi horario' })
+  await second.focus()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(second).toBeFocused()
+  expect(await second.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none')
+})
+
 test('desktop account menu holds Cambiar contraseña and Salir', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop navigation behavior')
   await mockStudent(page)
@@ -86,6 +99,14 @@ for (const size of [{ width: 390, height: 844 }, { width: 320, height: 640 }]) {
       const box = await link.boundingBox()
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
     }
+
+    // Tab reaches the active tab and the ring (on its bubble) is visible; arrows move it on.
+    const home = bar.getByRole('link', { name: 'Inicio' })
+    await home.focus()
+    await page.keyboard.press('ArrowRight')
+    const next = bar.getByRole('link', { name: 'Horario' })
+    await expect(next).toBeFocused()
+    expect(await next.locator('.sp-notch-icon').evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none')
 
     await bar.getByRole('link', { name: 'Historial' }).click()
     await expect(page).toHaveURL('/estudiante/historial')
@@ -159,7 +180,12 @@ test('Rematrícula prints the receipt with the total, shows the sending state an
   const receipt = page.locator('.sp-receipt-ticket')
   await expect(receipt).toContainText('UPDS COBIJA')
   await expect(receipt).toContainText('Valeria Mamani · 9876543')
-  await expect(receipt).toContainText('Cuota: 1.600 Bs × 5')
+  await expect(receipt).toContainText('Cuotas × 1.600 Bs')
+  // The subtotal column holds only the amount, on one line.
+  const subtotal = receipt.locator('li').first().locator('span').last()
+  await expect(subtotal).toHaveText('8.000 Bs')
+  const lineHeight = await subtotal.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
+  expect((await subtotal.boundingBox())?.height ?? 0).toBeLessThanOrEqual(lineHeight * 1.2)
   await expect(receipt.locator('.sp-receipt-total')).toContainText('8.000 Bs')
   await expect(receipt).toContainText('Montos informativos')
 
@@ -171,6 +197,15 @@ test('Rematrícula prints the receipt with the total, shows the sending state an
   await page.getByRole('radio').check()
   await page.getByRole('button', { name: 'Enviar solicitud' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Enviando tu solicitud a Registro…' })).toBeVisible()
+  // The loader is a centered panel, fully inside the viewport and above the bottom bar.
+  const loader = page.locator('.sp-printer')
+  const loaderBox = (await loader.boundingBox())!
+  const viewport = page.viewportSize()!
+  expect(loaderBox.y).toBeGreaterThanOrEqual(0)
+  expect(loaderBox.y + loaderBox.height).toBeLessThanOrEqual(viewport.height)
+  const bar = page.getByRole('navigation', { name: 'Navegación' })
+  if (await bar.isVisible()) expect(loaderBox.y + loaderBox.height).toBeLessThanOrEqual((await bar.boundingBox())!.y)
+  await expect(page.getByText('Enviando tu solicitud a Registro…')).toHaveCount(2)
   await expect(page.getByRole('button', { name: /Enviar solicitud/ })).toBeDisabled()
   await expect(page.getByText('Solicitud enviada. Registro la va a revisar y vas a ver el estado acá.')).toBeVisible()
   expect(await noHorizontalOverflow(page)).toBe(true)
@@ -199,6 +234,21 @@ test('Horario switches between Hoy, Semana and Próximo and does not overflow', 
   await expect(tabs.getByRole('tab', { name: 'Hoy' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('tabpanel').getByText(/^Hoy · /)).toHaveCount(1)
   expect(await noHorizontalOverflow(page)).toBe(true)
+
+  // Labels do not touch, the targets are at least 44px and the strip fits the switch.
+  const boxes = await Promise.all((await tabs.getByRole('tab').all()).map((tab) => tab.boundingBox()))
+  for (const box of boxes) {
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+  }
+  for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 0.5)
+  const labels = await Promise.all((await tabs.locator('.sp-glass-switch-label').all()).map((label) => label.boundingBox()))
+  for (let i = 1; i < labels.length; i += 1) expect(labels[i]!.x - (labels[i - 1]!.x + labels[i - 1]!.width)).toBeGreaterThanOrEqual(2)
+  const strip = await page.locator('.sp-glass-stage').boundingBox()
+  const switchBox = await tabs.boundingBox()
+  expect(strip!.height - switchBox!.height).toBeLessThanOrEqual(48)
+  expect(switchBox!.x).toBeGreaterThanOrEqual(strip!.x)
+  expect(switchBox!.x + switchBox!.width).toBeLessThanOrEqual(strip!.x + strip!.width)
 
   await tabs.getByRole('tab', { name: 'Semana' }).click()
   await expect(tabs.getByRole('tab', { name: 'Semana' })).toHaveAttribute('aria-selected', 'true')

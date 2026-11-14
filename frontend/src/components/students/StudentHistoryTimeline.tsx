@@ -41,14 +41,14 @@ function HistorySummaryCard({ history }: { history: StudentDetail['history'] }) 
             <span aria-hidden="true" className={metricIcon}><Award className="size-5" /></span>
             <div>
               <dt className="text-xs text-muted-foreground">Promedio general</dt>
-              <dd className="text-2xl font-semibold tabular-nums text-brand">{average ?? '—'}</dd>
+              <dd className="text-2xl font-semibold tabular-nums text-student-accent-text">{average ?? '—'}</dd>
             </div>
           </div>
           <div className="group flex items-center gap-3">
             <span aria-hidden="true" className={metricIcon}><GraduationCap className="size-5" /></span>
             <div>
               <dt className="text-xs text-muted-foreground">Materias aprobadas</dt>
-              <dd className="text-2xl font-semibold tabular-nums text-brand">{approved} / {total}</dd>
+              <dd className="text-2xl font-semibold tabular-nums text-student-accent-text">{approved} / {total}</dd>
             </div>
           </div>
         </dl>
@@ -57,7 +57,7 @@ function HistorySummaryCard({ history }: { history: StudentDetail['history'] }) 
             <ProgressLabel>Avance de tu carrera</ProgressLabel>
             <ProgressValue>{() => `${progress}%`}</ProgressValue>
           </div>
-          <ProgressTrack className="h-2.5"><ProgressIndicator className="bg-brand-strong duration-1000 ease-out motion-reduce:transition-none" /></ProgressTrack>
+          <ProgressTrack className="h-2.5"><ProgressIndicator className="bg-student-accent duration-1000 ease-out motion-reduce:transition-none" /></ProgressTrack>
         </Progress>
         <p className="text-xs text-muted-foreground">El avance se calcula sobre las materias que figuran en tu historial.</p>
       </CardContent>
@@ -74,8 +74,8 @@ export function StudentHistoryTimeline({ history }: { history: StudentDetail['hi
         {history.map(({ term, records }, index) => {
           const average = termAverage(records)
           return (
-            <li key={term.code} className="relative border-l-2 border-brand-strong/30 pl-6">
-              <span aria-hidden="true" style={{ '--i': index } as CSSProperties} className="sp-timeline-dot absolute -left-[7px] top-1.5 size-3 rounded-full bg-brand-strong ring-4 ring-background" />
+            <li key={term.code} className="relative border-l-2 border-student-accent-border pl-6">
+              <span aria-hidden="true" style={{ '--i': index } as CSSProperties} className="sp-timeline-dot absolute -left-[7px] top-1.5 size-3 rounded-full bg-student-accent ring-4 ring-background" />
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-semibold">{term.name}</h3>
                 {term.is_intensive && <Badge variant="info" size="sm">Curso intensivo</Badge>}

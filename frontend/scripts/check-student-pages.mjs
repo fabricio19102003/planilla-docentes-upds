@@ -28,7 +28,7 @@ test('without recursado the receipt has the cuotas line and the total is the cuo
   const result = receipt({})
   assert.equal(result.title, 'UPDS COBIJA')
   assert.deepEqual(result.subtitle, ['Rematrícula I/2027', 'Valeria Mamani · 9876543'])
-  assert.deepEqual(result.items, [{ qty: 1, label: 'Cuota: 1.600 Bs × 5', amount: '8.000 Bs' }])
+  assert.deepEqual(result.items, [{ qty: 5, label: 'Cuotas × 1.600 Bs', amount: '8.000 Bs' }])
   assert.equal(result.total, '8.000 Bs')
   assert.deepEqual(result.notes, ['Montos informativos', 'se paga en caja'])
   assert.equal(result.limitNote, null)
@@ -37,7 +37,7 @@ test('without recursado the receipt has the cuotas line and the total is the cuo
 test('each chosen recursado subject is a line with its fee; pending subjects never are', () => {
   const result = receipt({ 'LIN 0130': 1, 'MRF 0110': '', 'CBC 0200': 4 })
   assert.deepEqual(result.items, [
-    { qty: 1, label: 'Cuota: 1.600 Bs × 5', amount: '8.000 Bs' },
+    { qty: 5, label: 'Cuotas × 1.600 Bs', amount: '8.000 Bs' },
     { qty: 1, label: 'Recursado: Lingüística', amount: '1.200 Bs' },
   ])
   assert.equal(result.total, '9.200 Bs')
@@ -168,4 +168,13 @@ test('Cursos de verano e invierno puts an icon on each course and keeps the conf
 test('the new CSS lives in index.css, with reduced motion ending on the same state', () => {
   const css = read('src/index.css')
   for (const name of ['sp-timeline-dot', 'sp-radio-card', 'sp-sched-row']) assert.ok(css.includes(`.${name}`), `${name} is styled`)
+})
+
+test('the portal scopes the violet accent, keeps the notch edge visible and the switch 74px wide', () => {
+  const css = read('src/index.css')
+  assert.match(css, /\.student-scope \{[^}]*--primary: var\(--student-accent\)[^}]*--brand-strong: var\(--student-accent\)/)
+  assert.match(read('src/pages/student/StudentPortalLayout.tsx'), /student-scope/)
+  assert.doesNotMatch(read('src/pages/student/StudentPortalLayout.tsx'), /\boutline-none\b/, 'outline-none hides the nav focus ring')
+  assert.match(css, /\.sp-notch-shade \{[^}]*drop-shadow/)
+  assert.match(css, /\.sp-glass-switch-tab \{[^}]*width: 74px/)
 })

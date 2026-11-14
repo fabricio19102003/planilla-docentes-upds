@@ -98,7 +98,7 @@ function ScheduleContent({ view }: { view: StudentScheduleView }) {
 
   return (
     <>
-      <GlassStage wallpaper="aurora" className="sp-home-stage">
+      <GlassStage wallpaper="aurora" className="sp-switch-stage">
         <GlassSwitch id="schedule" label="Vista del horario" options={MODE_OPTIONS} value={mode} onChange={setMode} />
       </GlassStage>
       {upcoming && (

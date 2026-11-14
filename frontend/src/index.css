@@ -252,6 +252,7 @@
   --color-student-accent-foreground: var(--student-accent-foreground);
   --color-student-accent-text: var(--student-accent-text);
   --color-student-accent-soft: var(--student-accent-soft);
+  --color-student-accent-border: var(--student-accent-border);
   --color-student-accent-line: var(--student-accent-line);
   --color-student-accent-on-band: var(--student-accent-on-band);
 }
@@ -323,6 +324,23 @@
   --student-tab-idle: #9ca3af;
   --student-notch-surface: var(--card);
 }
+
+/* Inside the student portal the primary actions, focus rings and header accents use the violet accent. */
+.student-scope {
+  --primary: var(--student-accent);
+  --primary-foreground: var(--student-accent-foreground);
+  --brand-strong: var(--student-accent);
+  --ring: var(--student-accent-ring);
+}
+
+/*
+ * Alert edges: the translucent border (Tailwind's border-info/32) resolves to an out-of-gamut blue, and Chromium
+ * paints yellow-green pixels on its rounded corners. The same 32% edge over the canvas is opaque and in gamut.
+ */
+.student-scope [data-slot='alert'][class*='border-info/'] { border-color: color-mix(in srgb, var(--info) 32%, var(--canvas)); }
+.student-scope [data-slot='alert'][class*='border-success/'] { border-color: color-mix(in srgb, var(--success) 32%, var(--canvas)); }
+.student-scope [data-slot='alert'][class*='border-warning/'] { border-color: color-mix(in srgb, var(--warning) 32%, var(--canvas)); }
+.student-scope [data-slot='alert'][class*='border-destructive/'] { border-color: color-mix(in srgb, var(--destructive) 32%, var(--canvas)); }
 
 @layer base {
   * {
@@ -579,6 +597,11 @@
     pointer-events: none;
   }
 
+  /* Canvas colored backdrop: the notch cut-out shows it, never the page content scrolling underneath. */
+  .sp-notch-dock--fixed {
+    background: linear-gradient(to bottom, transparent, var(--color-canvas) 22px);
+  }
+
   .sp-notch-dock--fixed {
     position: fixed;
     left: 0;
@@ -600,6 +623,14 @@
     margin-inline: auto;
     height: 4.2em;
     --sp-notch-x: 10%;
+  }
+
+  /* The mask on the bar clips its own box-shadow, so the edge is drawn by a drop-shadow on the wrapper: it follows the notch too. */
+  .sp-notch-shade {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    filter: drop-shadow(0 0 .5px color-mix(in srgb, var(--fg) 45%, transparent)) drop-shadow(0 .6em .8em rgba(0, 0, 0, .3));
   }
 
   .sp-notch-bar {
@@ -820,8 +851,19 @@
 
   .sp-receipt-ticket li {
     display: grid;
+    font-size: .9em;
     grid-template-columns: 1.4em 1fr auto;
     gap: .4em;
+  }
+
+  /* The label may wrap; the subtotal never does. */
+  .sp-receipt-ticket li > :nth-child(2) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .sp-receipt-ticket li > :last-child {
+    white-space: nowrap;
   }
 
   .sp-receipt-total {
@@ -1378,11 +1420,12 @@
     position: relative;
     z-index: 3;
     display: flex;
-    flex: 0 1 74px;
+    flex: 0 1 auto;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 2px;
+    width: 74px;
     min-width: 44px;
     height: 54px;
     border: 0;
@@ -1429,6 +1472,15 @@
     position: relative;
     font-size: 11px;
     font-weight: 500;
+  }
+
+  /* Horario: the Aurora strip fits the switch (54px tabs + padding) and stays inside 320px. */
+  .sp-switch-stage {
+    border-radius: var(--radius-2xl);
+  }
+
+  .sp-switch-stage .sp-glass-fg {
+    padding: 14px 16px;
   }
 
   /* Inicio hero: R5 glass card on the Aurora strip ------------- */

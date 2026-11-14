@@ -38,7 +38,7 @@ export function buildReceipt({ eligibility, choices, termCode, studentName, docu
 
   const items: ReceiptLine[] = []
   if (scholarship.cuotas > 0) {
-    items.push({ qty: 1, label: `Cuota: ${formatBs(scholarship.cuota)} × ${scholarship.cuotas}`, amount: formatBs(scholarship.total) })
+    items.push({ qty: scholarship.cuotas, label: `Cuotas × ${formatBs(scholarship.cuota)}`, amount: formatBs(scholarship.total) })
   }
   chosen.forEach((subject, index) => {
     items.push({ qty: 1, label: `Recursado: ${subject.name}`, amount: index < charged ? formatBs(perSubject) : 'Sin cobro' })
