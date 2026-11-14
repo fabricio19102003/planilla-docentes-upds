@@ -78,6 +78,27 @@
   --sidebar-ring: oklch(0.7 0.13 240);
 }
 
+/*
+ * Student portal accent (violet #7c3aed family). Solid fills keep white text at AA in both themes;
+ * --student-accent-text is the same hue as readable text/icons on cards (AA on white and on the dark card).
+ */
+:root {
+  --student-accent: #7c3aed;
+  --student-accent-foreground: #ffffff;
+  --student-accent-text: #7c3aed;
+  --student-accent-ring: #7c3aed;
+  --student-accent-soft: color-mix(in oklab, var(--student-accent) 8%, transparent);
+  --student-accent-border: color-mix(in oklab, var(--student-accent) 30%, transparent);
+  /* Over the navy brand band: underline and focus ring. */
+  --student-accent-line: #a78bfa;
+  --student-accent-on-band: #c4b5fd;
+  --student-fg: #1d1d1f;
+  --student-tab-idle: #6b7280;
+  /* Bottom notch bar surface: white in light, the card token in dark. */
+  --student-notch-surface: #ffffff;
+  --student-clinic-accent: #2dd4bf;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -226,6 +247,13 @@
   }
 }
 
+@theme inline {
+  --color-student-accent: var(--student-accent);
+  --color-student-accent-foreground: var(--student-accent-foreground);
+  --color-student-accent-text: var(--student-accent-text);
+  --color-student-accent-soft: var(--student-accent-soft);
+}
+
 /* Dark theme: deep blue-grey canvas with lighter cards so they still float, navy brand band, darker navy sidebar. */
 .dark {
   color-scheme: dark;
@@ -283,6 +311,15 @@
   --sidebar-accent-foreground: var(--color-white);
   --sidebar-border: --alpha(var(--color-white) / 9%);
   --sidebar-ring: oklch(0.7 0.13 240);
+}
+
+/* Student portal accent in dark mode: lighter violet for text, the card token under the notch bar. */
+.dark {
+  --student-accent-text: #a78bfa;
+  --student-accent-ring: #a78bfa;
+  --student-fg: #f5f5f7;
+  --student-tab-idle: #9ca3af;
+  --student-notch-surface: var(--card);
 }
 
 @layer base {
@@ -456,5 +493,998 @@
   .animate-slide-in-left,
   .animate-count-up {
     animation: none;
+  }
+}
+
+/* ─── Student portal redesign components (R1-R6) ───────────── */
+/*
+ * Values come from the AIMRAN reference code (sizes, colours, radii, shadows, timings, easing) with the
+ * contrast, 44px and dark-mode adjustments of design/student-portal-redesign/02-campus-violeta.html.
+ * Each component reads --s (size), --k (speed), --c1 / --c2 (main / secondary colour); the defaults map
+ * to the student tokens above. All of it sits in the components layer, so utilities can still override it.
+ */
+@property --sp-notch-x {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 10%;
+}
+
+@keyframes sp-receipt-led {
+  50% { opacity: 0.3; }
+}
+
+@keyframes sp-printer-led {
+  50% { opacity: 0.25; }
+}
+
+@keyframes sp-printer-feed {
+  0% { transform: translateY(-100%); opacity: 1; animation-timing-function: steps(14,end); }
+  60% { transform: translateY(0); opacity: 1; animation-timing-function: ease-out; }
+  72% { transform: translateY(0) rotate(0); }
+  76% { transform: translateY(0.25em) rotate(-3deg); animation-timing-function: ease-in; }
+  92%, 100% { transform: translateY(2.6em) rotate(7deg); opacity: 0; }
+}
+
+@keyframes sp-404-fade {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+@keyframes sp-404-in {
+  from { opacity: 0; }
+}
+
+@keyframes sp-404-trail {
+  from { stroke-dasharray: 180 3000; stroke-dashoffset: 180; }
+  to { stroke-dasharray: 180 3000; stroke-dashoffset: -1000; }
+}
+
+@keyframes sp-404-beam {
+  from { stroke-dasharray: 1 3000; stroke-dashoffset: 1; }
+  to { stroke-dasharray: 1 3000; stroke-dashoffset: -1000; }
+}
+
+@keyframes lg-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(8%, -6%) scale(1.12); }
+  66% { transform: translate(-6%, 7%) scale(0.94); }
+}
+
+@layer components {
+  .sp-sr-only,
+  .sp-printer-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* R1 · Bottom tab bar with notch ----------------------------- */
+  .sp-notch-dock {
+    --c1: var(--student-accent);
+    --c2: var(--student-notch-surface);
+    --c1-text: var(--student-accent-text);
+    --fg: var(--student-fg);
+    --s: 16px;
+    --k: 1;
+    container-type: inline-size;
+    padding: 30px 4px calc(12px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+  }
+
+  .sp-notch-dock--fixed {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+  }
+
+  .sp-notch {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    font-size: var(--s);
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+    pointer-events: auto;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(var(--sp-notch-count), 1fr);
+    width: min(20em, 100%);
+    margin-inline: auto;
+    height: 4.2em;
+    --sp-notch-x: 10%;
+  }
+
+  .sp-notch-bar {
+    position: absolute;
+    inset: 0;
+    border-radius: 1.4em;
+    background: var(--c2);
+    box-shadow: 0 1em 2em -1em rgba(0,0,0,.4);
+    -webkit-mask: radial-gradient(circle 2.15em at var(--sp-notch-x) -.25em,transparent 98%,#000);
+    mask: radial-gradient(circle 2.15em at var(--sp-notch-x) -.25em,transparent 98%,#000);
+    transition: -webkit-mask-position calc(0.5s / var(--k)),--sp-notch-x calc(0.5s / var(--k)) cubic-bezier(.22,1,.36,1);
+  }
+
+  .sp-notch-bubble {
+    position: absolute;
+    left: var(--sp-notch-x);
+    top: -1.6em;
+    width: 3em;
+    height: 3em;
+    margin-left: -1.5em;
+    border-radius: 50%;
+    background: var(--c1);
+    box-shadow: 0 .6em 1.2em -.4em var(--c1);
+    transition: left calc(0.5s / var(--k)) cubic-bezier(.22,1,.36,1);
+  }
+
+  /* No tab matches the route (for example the password page): no bubble and no notch. */
+  .sp-notch[data-active='none'] .sp-notch-bar {
+    -webkit-mask: none;
+    mask: none;
+  }
+
+  .sp-notch[data-active='none'] .sp-notch-bubble {
+    opacity: 0;
+  }
+
+  .sp-notch-link {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .25em;
+    min-height: 44px;
+    min-width: 0;
+    padding-bottom: .55em;
+    cursor: pointer;
+    color: var(--student-tab-idle);
+    text-decoration: none;
+  }
+
+  .sp-notch-icon {
+    display: grid;
+    transition: transform calc(0.5s / var(--k)) cubic-bezier(.22,1,.36,1),color calc(0.3s / var(--k)) cubic-bezier(.25,.1,.25,1);
+  }
+
+  .sp-notch-icon svg {
+    width: 1.35em;
+    height: 1.35em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sp-notch-text {
+    font-size: .68em;
+    font-weight: 650;
+    white-space: nowrap;
+    transition: opacity calc(0.3s / var(--k)) cubic-bezier(.25,.1,.25,1),color calc(0.3s / var(--k)) cubic-bezier(.25,.1,.25,1);
+  }
+
+  .sp-notch-link[aria-current='page'] .sp-notch-icon {
+    color: var(--student-accent-foreground);
+    transform: translateY(-1.95em);
+  }
+
+  .sp-notch-link[aria-current='page'] .sp-notch-text {
+    color: var(--c1-text);
+  }
+
+  .sp-notch-link:focus-visible {
+    outline: none;
+  }
+
+  .sp-notch-link:focus-visible .sp-notch-icon {
+    outline: 2px solid var(--c1-text);
+    outline-offset: 3px;
+    border-radius: 50%;
+  }
+
+  /* White ring over the violet bubble. */
+  .sp-notch-link[aria-current='page']:focus-visible .sp-notch-icon {
+    outline-color: var(--student-accent-foreground);
+  }
+
+  /* 360px or less: the bar fills the width instead of the fixed 20em. */
+  @container (max-width: 360px) {
+    .sp-notch {
+      width: 100%;
+    }
+  }
+
+  /* R2 · Printing receipt card --------------------------------- */
+  .sp-receipt-wrap {
+    --c1: #e4572e;
+    --c2: #2d2a26;
+    --fg: var(--student-fg);
+    --s: 16px;
+    --k: 1;
+    position: relative;
+    width: 16em;
+    max-width: 100%;
+    font-size: var(--s);
+  }
+
+  .sp-receipt {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    font-size: var(--s);
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+    display: grid;
+    justify-items: center;
+    width: 16em;
+    max-width: 100%;
+  }
+
+  .sp-receipt-printer {
+    position: relative;
+    z-index: 1;
+    width: 16em;
+    max-width: 100%;
+    height: 2.6em;
+    border-radius: 1em 1em .5em .5em;
+    background: linear-gradient(180deg,color-mix(in srgb,var(--c2) 75%,#fff),var(--c2) 60%);
+    box-shadow: 0 .8em 1.4em -.8em rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.25),0 0 0 1px color-mix(in srgb,var(--fg) 10%,transparent);
+  }
+
+  .sp-receipt-slot {
+    position: absolute;
+    left: 1.2em;
+    right: 1.2em;
+    bottom: .45em;
+    height: .3em;
+    border-radius: 1em;
+    background: #0b0a09;
+    box-shadow: inset 0 .1em .2em #000;
+  }
+
+  .sp-receipt-led {
+    position: absolute;
+    right: 1em;
+    top: .7em;
+    width: .45em;
+    height: .45em;
+    border-radius: 50%;
+    background: color-mix(in srgb,var(--c1) 35%,#333);
+  }
+
+  .sp-receipt.pg .sp-receipt-led {
+    background: var(--c1);
+    box-shadow: 0 0 .5em var(--c1);
+    animation: sp-receipt-led calc(0.4s / var(--k)) steps(1) infinite;
+  }
+
+  .sp-receipt-paper {
+    width: 13.4em;
+    max-width: 92%;
+    margin-top: -.75em;
+    overflow: hidden;
+    filter: drop-shadow(0 .5em .5em rgba(0,0,0,.16));
+  }
+
+  .sp-receipt-ticket {
+    padding: 1.6em 1.1em 1.9em;
+    font-family: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size: .72em;
+    line-height: 1.5;
+    color: #2a2622;
+    background: linear-gradient(180deg,rgba(0,0,0,.14),transparent 1.4em),#fffef8;
+    transform: translateY(-101%);
+    -webkit-mask: conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/.9em 100%;
+    mask: conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/.9em 100%;
+  }
+
+  .sp-receipt.on .sp-receipt-ticket {
+    transform: none;
+    transition: transform calc(2.4s / var(--k)) steps(18,end);
+  }
+
+  .sp-receipt-ticket p {
+    margin: 0;
+  }
+
+  .sp-receipt-head {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    margin-bottom: .9em!important;
+  }
+
+  .sp-receipt-head b {
+    font-size: 1.5em;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .sp-receipt-ticket ul {
+    list-style: none;
+    margin: 0;
+    padding: .7em 0;
+    display: grid;
+    gap: .15em;
+    border-block: 1px dashed rgba(42,38,34,.45);
+  }
+
+  .sp-receipt-ticket li {
+    display: grid;
+    grid-template-columns: 1.4em 1fr auto;
+    gap: .4em;
+  }
+
+  .sp-receipt-total {
+    display: flex;
+    justify-content: space-between;
+    margin: .6em 0 .1em!important;
+    font-size: 1.35em;
+    font-weight: 700;
+  }
+
+  .sp-receipt-total b {
+    color: var(--c1);
+    /* Large text: keeps 3:1 against the paper. */
+    font-size: 1.25em;
+  }
+
+  .sp-receipt-notes {
+    display: flex;
+    justify-content: space-between;
+    font-size: .9em;
+    opacity: .7;
+  }
+
+  .sp-receipt-barcode {
+    display: block;
+    height: 3em;
+    margin: 1em .4em .8em;
+    background: repeating-linear-gradient(90deg,#2a2622 0 2px,transparent 2px 3px,#2a2622 3px 4px,transparent 4px 7px,#2a2622 7px 10px,transparent 10px 11px);
+  }
+
+  .sp-receipt-footer {
+    text-align: center;
+    letter-spacing: .1em;
+  }
+
+  .sp-receipt-button {
+    font: inherit;
+    color: inherit;
+    border: 0;
+    margin: 0;
+    background: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: .45em;
+    margin-top: 1.1em;
+    padding: .7em 1.25em;
+    border-radius: 2em;
+    font-weight: 700;
+    color: #fff;
+    background: var(--c1);
+    box-shadow: 0 .5em 1em -.5em var(--c1);
+    transition: transform calc(0.3s / var(--k)) cubic-bezier(.34,1.56,.64,1);
+    /* Large bold text (3:1) and a 44px target. */
+    font-size: 1.2em;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  .sp-receipt-button svg {
+    width: 1.15em;
+    height: 1.15em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sp-receipt-button:hover {
+    transform: translateY(-2px);
+  }
+
+  .sp-receipt-button:active {
+    transform: scale(.95);
+  }
+
+  .sp-receipt-button:focus-visible {
+    outline: 2px solid var(--c1);
+    outline-offset: 3px;
+  }
+
+  /* R3 · Thermal receipt printer loader ------------------------ */
+  .sp-printer {
+    --c1: #2b2d31;
+    --c2: #34d399;
+    --fg: var(--student-fg);
+    --s: 16px;
+    --k: 1;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    font-size: var(--s);
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 9em;
+  }
+
+  .sp-printer-body {
+    position: relative;
+    z-index: 2;
+    width: 9em;
+    height: 2.6em;
+    border-radius: .9em .9em .5em .5em;
+    background: linear-gradient(180deg,color-mix(in srgb,var(--c1) 70%,#fff),var(--c1) 30%,color-mix(in srgb,var(--c1) 82%,#000));
+    box-shadow: 0 .6em 1em -.5em rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.25),0 0 0 1px color-mix(in srgb,var(--fg) 10%,transparent);
+  }
+
+  .sp-printer-led {
+    position: absolute;
+    right: .9em;
+    top: .75em;
+    width: .38em;
+    height: .38em;
+    border-radius: 50%;
+    background: var(--c2);
+    box-shadow: 0 0 .5em var(--c2);
+    animation: sp-printer-led calc(0.4s / var(--k)) steps(1) infinite;
+  }
+
+  .sp-printer-slot {
+    position: absolute;
+    left: 1.1em;
+    right: 1.1em;
+    bottom: .45em;
+    height: .3em;
+    border-radius: .2em;
+    background: #0b0b0d;
+    box-shadow: inset 0 .1em .15em rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.12);
+  }
+
+  .sp-printer-window {
+    position: relative;
+    width: 6.6em;
+    height: 7.4em;
+    margin-top: -.75em;
+    overflow: hidden;
+  }
+
+  .sp-printer-paper {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: .36em;
+    width: 6em;
+    height: 6.6em;
+    margin: 0 auto;
+    padding: 1em .6em .9em;
+    background: #fbfaf5;
+    color: #2b2b2b;
+    clip-path: polygon(0 0,100% 0,100% calc(100% - .35em),93.75% 100%,87.5% calc(100% - .35em),81.25% 100%,75% calc(100% - .35em),68.75% 100%,62.5% calc(100% - .35em),56.25% 100%,50% calc(100% - .35em),43.75% 100%,37.5% calc(100% - .35em),31.25% 100%,25% calc(100% - .35em),18.75% 100%,12.5% calc(100% - .35em),6.25% 100%,0% calc(100% - .35em));
+    transform-origin: 50% 0;
+    transform: translateY(-100%);
+    animation: sp-printer-feed calc(3.4s / var(--k)) infinite;
+  }
+
+  .sp-printer-paper > * {
+    display: block;
+    flex: none;
+  }
+
+  .sp-printer-head {
+    width: 46%;
+    height: .42em;
+    margin: 0 auto .15em;
+    border-radius: .1em;
+    background: currentColor;
+  }
+
+  .sp-printer-paper b {
+    height: .2em;
+    background: linear-gradient(90deg,currentColor 0 var(--w),transparent 0 78%,currentColor 0);
+    opacity: .7;
+  }
+
+  .sp-printer-rule {
+    height: 0;
+    border-top: .12em dashed currentColor;
+    opacity: .45;
+  }
+
+  .sp-printer-paper b.sp-printer-total {
+    height: .32em;
+    opacity: 1;
+  }
+
+  .sp-printer-barcode {
+    height: .95em;
+    margin-top: auto;
+    background: repeating-linear-gradient(90deg,currentColor 0 .08em,transparent 0 .16em,currentColor 0 .2em,transparent 0 .32em,currentColor 0 .46em,transparent 0 .54em);
+  }
+
+  /* R4 · Clinic 404 -------------------------------------------- */
+  .sp-404 {
+    --accent: var(--student-clinic-accent);
+    --k: 1;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    container-type: size;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(80% 60% at 50% 38%,#07302b,#021210 70%,#010807);
+    color: #eafffb;
+    font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","Inter","Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  .sp-404--contained {
+    position: absolute;
+  }
+
+  .sp-404 *,
+  .sp-404 *::before,
+  .sp-404 *::after {
+    box-sizing: border-box;
+  }
+
+  .sp-404::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px);
+    background-size: 5cqmin 5cqmin;
+    -webkit-mask: radial-gradient(circle at 50% 38%,#000 5%,transparent 70%);
+    mask: radial-gradient(circle at 50% 38%,#000 5%,transparent 70%);
+  }
+
+  .sp-404-copy {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.6cqmin;
+    width: 100%;
+    min-width: 0;
+    max-width: 680px;
+    padding: 0 6cqw;
+  }
+
+  .sp-404-copy > :not(.sp-404-ecg) {
+    animation: sp-404-fade calc(1s / var(--k)) calc(.4s / var(--k)) cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .sp-404-ecg {
+    flex: none;
+    display: block;
+    width: max(100cqw,min(196cqmin,1300px));
+    height: auto;
+    margin-bottom: 1cqmin;
+    overflow: visible;
+    animation: sp-404-in calc(1s / var(--k)) ease-out both;
+  }
+
+  .sp-404-ecg path {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sp-404-base {
+    stroke: color-mix(in srgb,var(--accent) 38%,transparent);
+    stroke-width: 3.5;
+  }
+
+  .sp-404-trail {
+    stroke: color-mix(in srgb,var(--accent) 70%,#fff);
+    stroke-width: 4.5;
+    filter: drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 12px color-mix(in srgb,var(--accent) 60%,transparent));
+    animation: sp-404-trail calc(5s / var(--k)) linear infinite;
+  }
+
+  .sp-404-beam {
+    stroke: #fff;
+    stroke-width: 7;
+    filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px var(--accent));
+    animation: sp-404-beam calc(5s / var(--k)) linear infinite;
+  }
+
+  .sp-404-tag {
+    font: 600 clamp(10px,1.9cqmin,13px)/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .sp-404-title {
+    margin: 0;
+    font-size: clamp(22px,5.6cqmin,48px);
+    font-weight: 700;
+    letter-spacing: -.03em;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  .sp-404-sub {
+    margin: 0;
+    max-width: 34em;
+    font-size: clamp(13px,2.4cqmin,18px);
+    color: #8fb3ad;
+    text-wrap: balance;
+  }
+
+  .sp-404-cta {
+    margin-top: 1.8cqmin;
+    display: inline-flex;
+    align-items: center;
+    gap: .5em;
+    min-height: 44px;
+    padding: .85em 1.5em;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #021210;
+    font-size: clamp(13px,2.2cqmin,16px);
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform .3s cubic-bezier(.25,.1,.25,1),box-shadow .3s cubic-bezier(.25,.1,.25,1);
+  }
+
+  .sp-404-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px -10px var(--accent);
+  }
+
+  .sp-404-cta:active {
+    transform: scale(.95);
+  }
+
+  .sp-404-cta:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  /* R5/R6 · Liquid Glass --------------------------------------- */
+  .lg-font {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .lg-glass {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, var(--lg-a, 0.12));
+    -webkit-backdrop-filter: blur(var(--lg-blur, 20px)) saturate(180%);
+    backdrop-filter: blur(var(--lg-blur, 20px)) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 20px rgba(255, 255, 255, 0.08),
+      0 8px 32px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Border of light */
+  .lg-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.05) 40%, rgba(255, 255, 255, 0.05) 60%, rgba(255, 255, 255, 0.4));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+
+  /* Reflection that follows the pointer (--x / --y are set by trackPointer) */
+  .lg-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: var(--lg-hover, 0);
+    transition: opacity 0.3s;
+    background: radial-gradient(circle 140px at var(--x, 50%) var(--y, 0%), rgba(255, 255, 255, var(--lg-shine, 0.25)), transparent 70%);
+  }
+
+  .lg-glass:hover {
+    --lg-hover: 1;
+  }
+
+  /* Touch / no hover: a static highlight instead of the pointer reflection. */
+  @media (hover: none) {
+    .lg-glass {
+      --lg-hover: 1;
+      --x: 50%;
+      --y: 0%;
+    }
+  }
+
+  .lg-text {
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+
+  .lg-light .lg-text {
+    color: #1d1d1f;
+    text-shadow: none;
+  }
+
+  .sp-glass-stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    --sp-wall-base: #0b0b1a;
+    --sp-blob-1: #5b21b6;
+    --sp-blob-2: #2563eb;
+    --sp-blob-3: #ec4899;
+  }
+
+  .sp-glass-stage[data-wallpaper='aurora'] {
+    --sp-wall-base: #0b0b1a;
+    --sp-blob-1: #5b21b6;
+    --sp-blob-2: #2563eb;
+    --sp-blob-3: #ec4899;
+  }
+
+  .sp-glass-stage[data-wallpaper='sunset'] {
+    --sp-wall-base: #1a0b14;
+    --sp-blob-1: #f97316;
+    --sp-blob-2: #f43f5e;
+    --sp-blob-3: #8b5cf6;
+  }
+
+  .sp-glass-stage[data-wallpaper='ocean'] {
+    --sp-wall-base: #031a1f;
+    --sp-blob-1: #06b6d4;
+    --sp-blob-2: #3b82f6;
+    --sp-blob-3: #10b981;
+  }
+
+  .sp-glass-stage[data-wallpaper='light'] {
+    --sp-wall-base: #f8fafc;
+    --sp-blob-1: #fed7aa;
+    --sp-blob-2: #ddd6fe;
+    --sp-blob-3: #bae6fd;
+  }
+
+  .sp-glass-wall {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: var(--sp-wall-base);
+  }
+
+  .sp-glass-blobs {
+    position: absolute;
+    inset: 0;
+    filter: blur(60px);
+  }
+
+  .sp-glass-blob {
+    position: absolute;
+    width: 75%;
+    height: 75%;
+    border-radius: 50%;
+    opacity: .9;
+    animation: lg-drift 20s ease-in-out infinite;
+  }
+
+  .sp-glass-stage[data-wallpaper='light'] .sp-glass-blob {
+    opacity: 1;
+  }
+
+  .sp-glass-blob:nth-child(1) {
+    left: -10%;
+    top: -15%;
+    background: radial-gradient(circle, var(--sp-blob-1) 0%, transparent 68%);
+  }
+
+  .sp-glass-blob:nth-child(2) {
+    left: 45%;
+    top: 5%;
+    background: radial-gradient(circle, var(--sp-blob-2) 0%, transparent 68%);
+    animation-delay: -6s;
+  }
+
+  .sp-glass-blob:nth-child(3) {
+    left: 5%;
+    top: 50%;
+    background: radial-gradient(circle, var(--sp-blob-3) 0%, transparent 68%);
+    animation-delay: -12s;
+  }
+
+  .sp-glass-grain {
+    position: absolute;
+    inset: 0;
+    opacity: .04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Keeps the white text at AA over the brightest blobs. */
+  .sp-glass-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(6,6,24,.38);
+  }
+
+  .sp-glass-stage[data-wallpaper='light'] .sp-glass-scrim {
+    display: none;
+  }
+
+  .sp-glass-fg {
+    position: relative;
+    display: grid;
+    grid-template-columns: 100%;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 16px;
+  }
+
+  .sp-glass-perspective {
+    display: grid;
+    place-items: center;
+    max-width: 100%;
+  }
+
+  .sp-glass-card {
+    display: flex;
+    flex-direction: column;
+    max-width: calc(100vw - 48px);
+    padding: 1.75rem;
+    border-radius: 32px;
+    will-change: transform;
+  }
+
+  .sp-glass-card > * {
+    position: relative;
+    z-index: 3;
+  }
+
+  /* R6 as a segmented switch */
+  .sp-glass-switch {
+    position: relative;
+    display: flex;
+    max-width: 100%;
+    padding: 4px;
+    border-radius: 99px;
+  }
+
+  .sp-glass-switch-tab {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex: 0 1 74px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 44px;
+    height: 54px;
+    border: 0;
+    border-radius: 99px;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .sp-glass-switch-tab[aria-selected='false'] {
+    opacity: .88;
+  }
+
+  .sp-glass-switch-tab:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 0;
+  }
+
+  .lg-light .sp-glass-switch-tab:focus-visible {
+    outline-color: #1d1d1f;
+  }
+
+  .sp-glass-switch-pill {
+    position: absolute;
+    inset: 0;
+    border-radius: 99px;
+    background: rgba(255,255,255,.22);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 2px 8px rgba(0,0,0,.08);
+  }
+
+  .sp-glass-switch-icon {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.75;
+    transition: transform .25s;
+  }
+
+  .sp-glass-switch-tab:hover .sp-glass-switch-icon {
+    transform: translateY(-2px);
+  }
+
+  .sp-glass-switch-label {
+    position: relative;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* Reduced motion: same end state, no movement. ------------------ */
+  @media (prefers-reduced-motion: reduce) {
+    .sp-notch-bar,
+    .sp-notch-bubble,
+    .sp-notch-icon,
+    .sp-notch-text {
+      transition-duration: .01ms!important;
+    }
+
+    .sp-receipt,
+    .sp-receipt *,
+    .sp-receipt *::before,
+    .sp-receipt *::after {
+      animation-duration: .01ms!important;
+      animation-iteration-count: 1!important;
+      transition-duration: .01ms!important;
+    }
+
+    .sp-printer,
+    .sp-printer *,
+    .sp-printer *::before,
+    .sp-printer *::after {
+      animation-duration: .01ms!important;
+      animation-iteration-count: 1!important;
+      transition-duration: .01ms!important;
+    }
+
+    .sp-printer-paper {
+      animation: none!important;
+      transform: none;
+    }
+
+    .sp-404 *,
+    .sp-404 *::before,
+    .sp-404 *::after {
+      animation: none!important;
+      transition: none!important;
+    }
+
+    /* No animated trace: the base line stays. */
+    .sp-404-trail,
+    .sp-404-beam {
+      display: none;
+    }
+
+    .sp-glass-stage .sp-glass-blob {
+      animation: none;
+    }
+
+    .sp-glass-card {
+      transform: none!important;
+    }
+
+    .lg-glass::after,
+    .sp-glass-switch-tab,
+    .sp-glass-switch-icon,
+    .sp-receipt-button,
+    .sp-404-cta {
+      transform: none!important;
+      transition: none!important;
+    }
   }
 }
