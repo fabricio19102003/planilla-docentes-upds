@@ -1541,6 +1541,56 @@
     animation: sp-pop .45s cubic-bezier(.34, 1.56, .64, 1) both;
   }
 
+  /* Student pages: Historial dots, Rematrícula group cards and Horario rows ---- */
+  .sp-timeline-dot {
+    animation: sp-pop .45s cubic-bezier(.34, 1.56, .64, 1) both;
+    animation-delay: calc(var(--i, 0) * 80ms);
+  }
+
+  .sp-radio-card {
+    transition: border-color .2s, background-color .2s, transform .15s;
+  }
+
+  .sp-radio-card:not(:has(input:disabled)):hover {
+    border-color: var(--student-accent-border);
+  }
+
+  .sp-radio-card:active {
+    transform: scale(.985);
+  }
+
+  .sp-radio-card:has(input:focus-visible) {
+    outline: 2px solid var(--student-accent-ring);
+    outline-offset: 2px;
+  }
+
+  .sp-radio-card[data-selected] {
+    border-color: var(--student-accent);
+    background: var(--student-accent-soft);
+  }
+
+  .sp-radio-icon {
+    transition: background-color .2s, color .2s;
+  }
+
+  .sp-radio-card[data-selected] .sp-radio-icon {
+    background: var(--student-accent);
+    color: var(--student-accent-foreground);
+    animation: sp-pop .4s cubic-bezier(.34, 1.56, .64, 1) both;
+  }
+
+  .sp-sched-row {
+    transition: background-color .2s, transform .15s;
+  }
+
+  .sp-sched-row:hover {
+    background: var(--student-accent-soft);
+  }
+
+  .sp-sched-row:active {
+    transform: scale(.992);
+  }
+
   @media (min-width: 640px) {
     .sp-glass-card.sp-home-hero {
       display: grid;
@@ -1611,8 +1661,16 @@
       transform: none!important;
     }
 
-    .sp-pop {
+    .sp-pop,
+    .sp-timeline-dot,
+    .sp-radio-icon {
       animation: none!important;
+    }
+
+    .sp-radio-card,
+    .sp-sched-row {
+      transform: none!important;
+      transition: none!important;
     }
 
     .lg-glass::after,

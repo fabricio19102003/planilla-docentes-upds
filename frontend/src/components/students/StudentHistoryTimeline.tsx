@@ -1,3 +1,7 @@
+import { Award, GraduationCap } from 'lucide-react'
+import { useReducedMotion } from 'motion/react'
+import { useEffect, useState, type CSSProperties } from 'react'
+
 import { TONE_CHIP, type Tone } from '@/components/shared/tones'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,28 +16,48 @@ const OUTCOME_TONE: Record<RecordOutcome, Tone> = {
   pending: 'warning',
 }
 
+const metricIcon = 'grid size-9 shrink-0 place-items-center rounded-xl bg-student-accent-soft text-student-accent-text transition-transform duration-300 ease-out group-hover:-rotate-6 motion-reduce:transition-none motion-reduce:group-hover:rotate-0'
+
+/** The width the progress bar shows: it grows from 0 to `target` when it mounts; with reduced motion it starts at the final width. */
+function useFill(target: number): number {
+  const reduceMotion = useReducedMotion()
+  const [grown, setGrown] = useState(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setGrown(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  return reduceMotion || grown ? target : 0
+}
+
 function HistorySummaryCard({ history }: { history: StudentDetail['history'] }) {
   const { average, approved, total, progress } = summarizeHistory(history)
+  const fill = useFill(progress)
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Resumen de tu avance</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <dl className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Promedio general</dt>
-            <dd className="text-2xl font-semibold tabular-nums text-brand">{average ?? '—'}</dd>
+          <div className="group flex items-center gap-3">
+            <span aria-hidden="true" className={metricIcon}><Award className="size-5" /></span>
+            <div>
+              <dt className="text-xs text-muted-foreground">Promedio general</dt>
+              <dd className="text-2xl font-semibold tabular-nums text-brand">{average ?? '—'}</dd>
+            </div>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Materias aprobadas</dt>
-            <dd className="text-2xl font-semibold tabular-nums text-brand">{approved} / {total}</dd>
+          <div className="group flex items-center gap-3">
+            <span aria-hidden="true" className={metricIcon}><GraduationCap className="size-5" /></span>
+            <div>
+              <dt className="text-xs text-muted-foreground">Materias aprobadas</dt>
+              <dd className="text-2xl font-semibold tabular-nums text-brand">{approved} / {total}</dd>
+            </div>
           </div>
         </dl>
-        <Progress value={progress}>
+        <Progress value={fill}>
           <div className="flex items-center justify-between">
             <ProgressLabel>Avance de tu carrera</ProgressLabel>
-            <ProgressValue>{(_formatted, value) => `${value ?? 0}%`}</ProgressValue>
+            <ProgressValue>{() => `${progress}%`}</ProgressValue>
           </div>
-          <ProgressTrack className="h-2.5"><ProgressIndicator className="bg-brand-strong" /></ProgressTrack>
+          <ProgressTrack className="h-2.5"><ProgressIndicator className="bg-brand-strong duration-1000 ease-out motion-reduce:transition-none" /></ProgressTrack>
         </Progress>
         <p className="text-xs text-muted-foreground">El avance se calcula sobre las materias que figuran en tu historial.</p>
       </CardContent>
@@ -47,11 +71,11 @@ export function StudentHistoryTimeline({ history }: { history: StudentDetail['hi
     <>
       <HistorySummaryCard history={history} />
       <ol className="space-y-6">
-        {history.map(({ term, records }) => {
+        {history.map(({ term, records }, index) => {
           const average = termAverage(records)
           return (
             <li key={term.code} className="relative border-l-2 border-brand-strong/30 pl-6">
-              <span aria-hidden="true" className="absolute -left-[7px] top-1.5 size-3 rounded-full bg-brand-strong ring-4 ring-background" />
+              <span aria-hidden="true" style={{ '--i': index } as CSSProperties} className="sp-timeline-dot absolute -left-[7px] top-1.5 size-3 rounded-full bg-brand-strong ring-4 ring-background" />
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-semibold">{term.name}</h3>
                 {term.is_intensive && <Badge variant="info" size="sm">Curso intensivo</Badge>}
