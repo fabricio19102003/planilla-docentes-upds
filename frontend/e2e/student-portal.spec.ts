@@ -13,15 +13,26 @@ const studentProfile = {
   must_change_password: false,
 }
 
-async function mockStudent(page: Page) {
+const reenrollment = {
+  window: { id: 1, term_code: 'I/2027', starts_on: '2027-01-10', ends_on: '2027-01-25', is_open: true },
+  eligibility: {
+    last_term: 'II/2026', graded_term: 'II/2026', primary_semester: 3, target_semester: 4, regular: [], recursado: [], pending: [],
+    scholarship: { category: 'sin_beca', label: 'Sin beca', average: 72, cuota: 1150, cuotas: 5, total: 5750, never_failed: true },
+    recursado_fee: {},
+  },
+  main_groups: [], groups_by_semester: {}, request: null,
+}
+
+async function mockStudent(page: Page, extra: Record<string, unknown> = {}) {
   await page.addInitScript(() => {
     window.localStorage.setItem('student_token', 'e2e-student-token')
   })
   // Filter by pathname: a '**/api/**' glob also catches Vite's /src/api modules.
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const pathname = new URL(route.request().url()).pathname
+    const mocks: Record<string, unknown> = { '/api/student-portal/me': studentProfile, ...extra }
     const [status, body] =
-      pathname === '/api/student-portal/me' ? [200, studentProfile] : [404, { detail: `Unmocked E2E request: ${pathname}` }]
+      pathname in mocks ? [200, mocks[pathname]] : [404, { detail: `Unmocked E2E request: ${pathname}` }]
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
   })
 }
@@ -95,4 +106,24 @@ test('unknown /estudiante route renders the contained 404 inside the shell', asy
   expect(await noHorizontalOverflow(page)).toBe(true)
   await page.getByRole('link', { name: 'Volver a recepción' }).click()
   await expect(page).toHaveURL('/estudiante')
+})
+
+test('Inicio shows the glass hero, the summary cards and does not overflow', async ({ page }, testInfo) => {
+  await page.setViewportSize(testInfo.project.name === 'mobile-chromium' ? { width: 320, height: 640 } : { width: 1280, height: 800 })
+  await mockStudent(page, {
+    '/api/student-portal/reenrollment': reenrollment,
+    '/api/student-portal/schedule': { status: { code: 'ok', message: null }, effective_from: null, entries: [], unscheduled: [] },
+    '/api/student-portal/history': { history: [] },
+    '/api/student-portal/migration-documents': { applies: false },
+  })
+  await page.goto('/estudiante')
+
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hola, Valeria')
+  await expect(page.getByRole('link', { name: 'Solicitar rematrícula' })).toHaveAttribute('href', '/estudiante/rematricula')
+  await expect(page.getByRole('heading', { level: 2, name: 'Rematrícula' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'Cuotas' })).toBeVisible()
+  await expect(page.getByText('No tenés clases hoy.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver mi horario' })).toBeVisible()
+  await expect(page.getByText('Todavía no tenés materias en tu historial académico.')).toBeVisible()
+  expect(await noHorizontalOverflow(page)).toBe(true)
 })
