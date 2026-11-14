@@ -48,7 +48,7 @@ export function StudentPortalLayout() {
   const slide = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 420, damping: 36 }
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="student-scope min-h-screen bg-canvas">
       <header className="bg-brand shadow-lg shadow-brand-surface/20">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 md:py-4">
           <div className="flex min-w-0 items-center gap-4">
@@ -101,8 +101,8 @@ export function StudentPortalLayout() {
               to={to}
               end={end}
               className={({ isActive }) => cn(
-                'group relative inline-flex min-h-12 items-center gap-2 whitespace-nowrap rounded-t-lg px-3.5 text-sm font-medium outline-none transition-colors',
-                'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-student-accent-on-band active:scale-95 motion-reduce:active:scale-100',
+                'group relative inline-flex min-h-12 items-center gap-2 whitespace-nowrap rounded-t-lg px-3.5 text-sm font-medium transition-colors',
+                'focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-student-accent-on-band active:scale-95 motion-reduce:active:scale-100',
                 isActive ? 'text-brand-foreground' : 'text-brand-foreground/80 hover:bg-brand-foreground/10 hover:text-brand-foreground',
               )}
             >
