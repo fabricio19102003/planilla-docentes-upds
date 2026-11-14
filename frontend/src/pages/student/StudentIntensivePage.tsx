@@ -1,4 +1,4 @@
-import { BookOpen, CheckCircle2, ClipboardList } from 'lucide-react'
+import { BookOpen, CheckCircle2, ClipboardList, Snowflake, Sun } from 'lucide-react'
 import { useState } from 'react'
 
 import { useIntensiveEnrollment, useStudentIntensiveCourses } from '@/api/hooks/useStudentPortal'
@@ -22,14 +22,26 @@ import { apiErrorMessage } from '@/lib/userCredentials'
 
 type Action = 'enroll' | 'cancel'
 
+const pressClass = 'active:scale-95 motion-reduce:active:scale-100'
+
+// Terms are VER/2027 (summer) or INV/2027 (winter); anything else gets a book.
+function SeasonIcon({ termCode }: { termCode: string }) {
+  const kind = termCode.split('/')[0]
+  if (kind === 'VER') return <Sun className="size-5" />
+  return kind === 'INV' ? <Snowflake className="size-5" /> : <BookOpen className="size-5" />
+}
+
 function CourseCard({ course, action, onAction }: {
   course: StudentIntensiveCourse; action: Action; onAction: (course: StudentIntensiveCourse, action: Action) => void
 }) {
   const status = courseStatus(course, getTodayInBolivia())
   const blocked = action === 'enroll' && (!course.is_enrollment_open || course.is_full)
   return (
-    <li className="flex flex-wrap items-start justify-between gap-3 p-4">
-      <div className="space-y-1 text-sm">
+    <li className="group flex flex-wrap items-start justify-between gap-3 p-4">
+      <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-student-accent-soft text-student-accent-text transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:-rotate-6 motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-hover:rotate-0">
+        <SeasonIcon termCode={course.term_code} />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1 text-sm">
         <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
           {course.subject.name}
           <span className="text-xs font-normal text-muted-foreground">{course.subject.code}</span>
@@ -46,12 +58,12 @@ function CourseCard({ course, action, onAction }: {
         </p>
       </div>
       {action === 'enroll' && (
-        <Button disabled={blocked} onClick={() => onAction(course, 'enroll')}>
+        <Button className={pressClass} disabled={blocked} onClick={() => onAction(course, 'enroll')}>
           {course.is_full ? 'Sin cupos' : course.is_enrollment_open ? 'Inscribirme' : 'Inscripción no abierta'}
         </Button>
       )}
       {action === 'cancel' && course.status === 'open' && course.is_enrollment_open && (
-        <Button variant="outline" onClick={() => onAction(course, 'cancel')}>Cancelar inscripción</Button>
+        <Button className={pressClass} variant="outline" onClick={() => onAction(course, 'cancel')}>Cancelar inscripción</Button>
       )}
     </li>
   )
