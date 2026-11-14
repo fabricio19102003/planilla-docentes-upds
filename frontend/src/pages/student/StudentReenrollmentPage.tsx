@@ -1,16 +1,18 @@
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Users } from 'lucide-react'
 import { useState } from 'react'
 
-import { useStudentReenrollment, useSubmitReenrollment, type StudentReenrollment } from '@/api/hooks/useStudentPortal'
+import { useStudentMe, useStudentReenrollment, useSubmitReenrollment, type StudentReenrollment } from '@/api/hooks/useStudentPortal'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PrintReceipt, ThermalLoader } from '@/components/student'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateInBolivia } from '@/lib/boliviaDates'
-import { formatBs, requestStatus, type CurriculumItem } from '@/lib/reenrollmentState'
-import { buildSubmission, estimateAmounts, groupLabel, submissionProblem, type GroupChoices } from '@/lib/studentPortalState'
+import { requestStatus, type CurriculumItem } from '@/lib/reenrollmentState'
+import { buildSubmission, groupLabel, submissionProblem, type GroupChoices } from '@/lib/studentPortalState'
+import { buildReceipt } from '@/lib/studentReceipt'
 import { apiErrorMessage } from '@/lib/userCredentials'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60'
@@ -59,12 +61,15 @@ function ExtraSubjects({ title, description, subjects, view, choices, setChoice,
 
 function Form({ view }: { view: StudentReenrollment }) {
   const submit = useSubmitReenrollment()
+  const me = useStudentMe()
   const [mainGroup, setMainGroup] = useState<number | null>(view.request?.main_group.id ?? null)
   const [choices, setChoices] = useState<GroupChoices>(() => initialChoices(view))
   const setChoice = (code: string, group: number | '') => setChoices((current) => ({ ...current, [code]: group }))
   const { eligibility, request } = view
   const locked = !view.window?.is_open || request?.status === 'realizada'
-  const amounts = estimateAmounts(eligibility, choices)
+  const receipt = buildReceipt({
+    eligibility, choices, termCode: view.window?.term_code, studentName: me.data?.full_name, documentNumber: me.data?.document_number,
+  })
   const problem = submissionProblem(view, mainGroup)
 
   return (
@@ -81,9 +86,11 @@ function Form({ view }: { view: StudentReenrollment }) {
           <fieldset className="grid gap-2 sm:grid-cols-2" disabled={locked}>
             <legend className="sr-only">Grupo del semestre</legend>
             {view.main_groups.map((group) => (
-              <label key={group.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${mainGroup === group.id ? 'border-primary bg-primary/5' : ''} ${group.is_full && mainGroup !== group.id ? 'cursor-not-allowed opacity-60' : ''}`}>
+              <label key={group.id} data-selected={mainGroup === group.id ? '' : undefined}
+                className={`sp-radio-card flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${group.is_full && mainGroup !== group.id ? 'cursor-not-allowed opacity-60' : ''}`}>
                 <input type="radio" name="main-group" value={group.id} checked={mainGroup === group.id}
                   disabled={group.is_full && mainGroup !== group.id} onChange={() => setMainGroup(group.id)} />
+                <span aria-hidden="true" className="sp-radio-icon grid size-8 shrink-0 place-items-center rounded-lg bg-student-accent-soft text-student-accent-text"><Users className="size-4" /></span>
                 {groupLabel(group)}
               </label>
             ))}
@@ -107,16 +114,9 @@ function Form({ view }: { view: StudentReenrollment }) {
 
       <Card>
         <CardHeader><CardTitle className="text-base">Resumen de montos (informativo)</CardTitle></CardHeader>
-        <CardContent>
-          <dl className="grid grid-cols-2 gap-2 text-sm">
-            <dt className="text-muted-foreground">{amounts.scholarshipLabel}</dt>
-            <dd>{formatBs(amounts.cuota)} × {amounts.cuotas} cuotas = {formatBs(amounts.cuotasTotal)}</dd>
-            <dt className="text-muted-foreground">Recursado</dt>
-            <dd>
-              {amounts.recursadoChosen} materia(s) · {formatBs(amounts.recursadoTotal)}
-              {amounts.recursadoChosen > amounts.recursadoCharged && <span className="block text-xs text-muted-foreground">Se cobran como máximo {amounts.recursadoCharged} materias.</span>}
-            </dd>
-          </dl>
+        <CardContent className="space-y-3">
+          <PrintReceipt className="mx-auto" title={receipt.title} subtitle={receipt.subtitle} items={receipt.items} total={receipt.total} notes={receipt.notes} />
+          {receipt.limitNote && <p className="text-center text-xs text-muted-foreground">{receipt.limitNote}</p>}
         </CardContent>
       </Card>
 
@@ -126,9 +126,23 @@ function Form({ view }: { view: StudentReenrollment }) {
           <CheckCircle2 aria-hidden="true" /><AlertTitle>Solicitud enviada. Registro la va a revisar y vas a ver el estado acá.</AlertTitle>
         </Alert>
       )}
+      {submit.isPending && (
+        // R3 as a panel: centered over the page, above the bottom bar, while the request is on its way.
+        <div className="sp-sending fixed inset-0 z-20 grid place-items-center bg-background/80 px-4 pt-6 pb-[calc(7.5rem+env(safe-area-inset-bottom))] backdrop-blur-sm md:pb-6">
+          <Card className="w-full max-w-sm items-center text-center">
+            <CardContent className="flex flex-col items-center gap-4 py-4">
+              <ThermalLoader label="Enviando tu solicitud a Registro…" />
+              <div className="space-y-1" aria-hidden="true">
+                <p className="text-base font-semibold text-foreground">Enviando tu solicitud a Registro…</p>
+                <p className="text-sm text-muted-foreground">No cerrés esta pantalla. Tu solicitud queda guardada cuando Registro la confirme.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {!locked && (
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" size="lg" loading={submit.isPending} disabled={problem !== null}>{request ? 'Guardar cambios' : 'Enviar solicitud'}</Button>
+          <Button type="submit" size="lg" className="active:scale-95 motion-reduce:active:scale-100" loading={submit.isPending} disabled={problem !== null}>{request ? 'Guardar cambios' : 'Enviar solicitud'}</Button>
           {problem && <p className="text-sm text-muted-foreground">{problem}</p>}
         </div>
       )}

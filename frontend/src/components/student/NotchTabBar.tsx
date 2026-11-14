@@ -54,7 +54,9 @@ export function NotchTabBar({ items, label = 'Navegación', size = 16, speed = 1
   return (
     <div className={cn('sp-notch-dock', fixed && 'sp-notch-dock--fixed', className)}>
       <nav className="sp-notch" aria-label={label} data-active={activeIndex === -1 ? 'none' : undefined} style={style} onKeyDown={onKeyDown}>
-        <div className="sp-notch-bar" />
+        <div className="sp-notch-shade" aria-hidden="true">
+          <div className="sp-notch-bar" />
+        </div>
         <span className="sp-notch-bubble" aria-hidden="true" />
         {items.map(({ to, label: text, icon: Icon }, index) => {
           const active = index === activeIndex

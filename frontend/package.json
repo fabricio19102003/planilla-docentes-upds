@@ -51,6 +51,7 @@
     "test:student-ui": "node --experimental-strip-types --test scripts/check-student-ui.mjs",
     "test:student-components": "node --experimental-strip-types --test scripts/check-student-components.mjs",
     "test:student-shell": "node --experimental-strip-types --test scripts/check-student-shell.mjs",
+    "test:student-pages": "node --experimental-strip-types --test scripts/check-student-pages.mjs",
     "test:student-home": "node --experimental-strip-types --test scripts/check-student-home.mjs",
     "test:monthly-close": "node --experimental-strip-types --test scripts/check-monthly-close.mjs",
     "test:chart-palette": "node --experimental-strip-types --test scripts/check-chart-palette.mjs",
