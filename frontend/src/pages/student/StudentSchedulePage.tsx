@@ -4,14 +4,16 @@ import { useState } from 'react'
 import { useStudentSchedule } from '@/api/hooks/useStudentPortal'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { GlassStage, GlassSwitch, type GlassSwitchOption } from '@/components/student'
+import { GlassStage, GlassSwitch, Sheet, type GlassSwitchOption } from '@/components/student'
+import { Eyebrow } from '@/components/student/Eyebrow'
+import { DayTimeline } from '@/components/student/schedule/DayTimeline'
 import { useNow } from '@/components/student/use-now'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { termLabel } from '@/lib/intensiveCoursesState'
-import { countdownLabel, nextClassToday, type TodayClass } from '@/lib/studentHomeState'
+import { toneIndex } from '@/lib/studentDayTimeline'
+import { nextClassToday } from '@/lib/studentHomeState'
 import {
   activityLabel,
   emptyMessage,
@@ -23,23 +25,21 @@ import {
   type StudentScheduleView,
 } from '@/lib/studentScheduleState'
 import { defaultScheduleMode, scheduleViewDays, scheduleViewEmpty, type ScheduleViewMode } from '@/lib/studentScheduleView'
+import '@/styles/student/schedule.css'
 
-const iconChip = 'grid size-6 shrink-0 place-items-center rounded-lg bg-student-accent-soft text-student-accent-text'
-
-function EntryRow({ entry, state }: { entry: ScheduleEntry; state: TodayClass | null }) {
+function EntryRow({ entry }: { entry: ScheduleEntry }) {
   const badge = sourceBadge(entry.source)
   return (
-    <li className="sp-sched-row grid gap-2 p-4 text-sm sm:grid-cols-[9rem_1fr] sm:gap-4">
+    <li className="sp-sched-row sp-week-row grid gap-2 p-4 text-sm sm:grid-cols-[9rem_1fr] sm:gap-4" data-tone={toneIndex(entry.subject_code)}>
       <p className="flex items-center gap-2 font-medium tabular-nums">
-        <span aria-hidden="true" className={iconChip}><Clock className="size-3.5" /></span>
+        <span aria-hidden="true" className="sp-week-chip"><Clock className="size-3.5" /></span>
         {timeRange(entry)}
       </p>
       <div className="min-w-0 space-y-1.5">
-        <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+        <p className="sp-week-title flex flex-wrap items-center gap-2">
           {entry.subject_name}
           <span className="text-xs font-normal text-muted-foreground">{entry.subject_code}</span>
           {badge && <Badge variant={badge.variant} size="sm">{badge.label}</Badge>}
-          {state && <Badge variant={state.state === 'in_progress' ? 'success' : 'info'} size="sm">{countdownLabel(state)}</Badge>}
         </p>
         <p className="text-muted-foreground">
           Grupo {entry.group_code} · {activityLabel(entry.activity_type)}
@@ -47,10 +47,10 @@ function EntryRow({ entry, state }: { entry: ScheduleEntry; state: TodayClass | 
         </p>
         <p className="flex flex-wrap gap-x-4 gap-y-1.5 text-muted-foreground">
           <span className="inline-flex items-center gap-2">
-            <span aria-hidden="true" className={iconChip}><MapPin className="size-3.5" /></span>{entry.classroom.name}
+            <span aria-hidden="true" className="sp-week-chip"><MapPin className="size-3.5" /></span>{entry.classroom.name}
           </span>
           <span className="inline-flex items-center gap-2">
-            <span aria-hidden="true" className={iconChip}><User className="size-3.5" /></span>{teacherLabel(entry.teacher_name)}
+            <span aria-hidden="true" className="sp-week-chip"><User className="size-3.5" /></span>{teacherLabel(entry.teacher_name)}
           </span>
         </p>
       </div>
@@ -63,7 +63,8 @@ export function StudentSchedulePage() {
 
   return (
     <>
-      <PageHeader as="h1"
+      <PageHeader as="h1" className="sp-sched-head"
+        breadcrumb={<Eyebrow icon={<CalendarDays />}>Clases y aulas</Eyebrow>}
         title="Mi horario"
         description="Horario publicado de tu grupo, de las materias que recursás o tenés pendientes y de tus cursos de verano e invierno."
       />
@@ -93,7 +94,7 @@ function ScheduleContent({ view }: { view: StudentScheduleView }) {
   const days = scheduleViewDays(entries, mode, now)
   const message = days.length === 0 ? (mode === 'week' ? emptyMessage(view) : scheduleViewEmpty(mode)) : null
   const upcoming = upcomingNote(entries)
-  // In Hoy the class in progress (or the next one) says how long is left.
+  // In Hoy the class in progress (or the next one) says how long is left, in its block.
   const current = mode === 'today' ? nextClassToday(entries, now).next : null
 
   return (
@@ -109,37 +110,36 @@ function ScheduleContent({ view }: { view: StudentScheduleView }) {
       )}
       <div id={PANEL_ID} role="tabpanel" aria-labelledby={`schedule-${mode}`} className="space-y-6">
         {message && <EmptyState illustration="empty-calendar" icon={CalendarX} title="Sin clases para mostrar" description={message} />}
-        {days.map((day) => (
-          <Card key={day.weekday}>
-            <CardHeader><CardTitle className="text-base">{day.label}</CardTitle></CardHeader>
-            <CardContent className="p-0">
-              <ul className="divide-y">
-                {day.entries.map((entry) => (
-                  <EntryRow key={`${entry.source}-${entry.subject_code}-${entry.group_code}-${entry.weekday}-${entry.start_time}-${entry.activity_type}`}
-                    entry={entry} state={current?.entry === entry ? current : null} />
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+        {mode === 'today' && days.map((day) => (
+          <DayTimeline key={day.weekday} label={day.label} entries={day.entries} now={now} current={current} />
+        ))}
+        {mode !== 'today' && days.map((day) => (
+          <Sheet key={day.weekday} as="section" depth={2} padding="none" className="sp-week-sheet">
+            <h2 className="sp-title-2 sp-week-head">{day.label}</h2>
+            <ul className="sp-week-list">
+              {day.entries.map((entry) => (
+                <EntryRow key={`${entry.source}-${entry.subject_code}-${entry.group_code}-${entry.weekday}-${entry.start_time}-${entry.activity_type}`}
+                  entry={entry} />
+              ))}
+            </ul>
+          </Sheet>
         ))}
         {mode === 'week' && unscheduled.length > 0 && (
-          <Card>
-            <CardHeader><CardTitle className="text-base">Cursos intensivos sin horario publicado</CardTitle></CardHeader>
-            <CardContent className="p-0">
-              <ul className="divide-y">
-                {unscheduled.map((course) => (
-                  <li key={`${course.term_code}-${course.subject_code}`} className="p-4 text-sm">
-                    <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
-                      {course.subject_name}
-                      <span className="text-xs font-normal text-muted-foreground">{course.subject_code}</span>
-                      <Badge variant="success" size="sm">Intensivo</Badge>
-                    </p>
-                    <p className="text-muted-foreground">{termLabel(course.term_code)} · El horario todavía no fue publicado.</p>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          <Sheet as="section" depth={2} padding="none" className="sp-week-sheet">
+            <h2 className="sp-title-2 sp-week-head">Cursos intensivos sin horario publicado</h2>
+            <ul className="sp-week-list">
+              {unscheduled.map((course) => (
+                <li key={`${course.term_code}-${course.subject_code}`} className="sp-week-row p-4 text-sm" data-tone={toneIndex(course.subject_code)}>
+                  <p className="sp-week-title flex flex-wrap items-center gap-2">
+                    {course.subject_name}
+                    <span className="text-xs font-normal text-muted-foreground">{course.subject_code}</span>
+                    <Badge variant="success" size="sm">Intensivo</Badge>
+                  </p>
+                  <p className="text-muted-foreground">{termLabel(course.term_code)} · El horario todavía no fue publicado.</p>
+                </li>
+              ))}
+            </ul>
+          </Sheet>
         )}
       </div>
     </>
