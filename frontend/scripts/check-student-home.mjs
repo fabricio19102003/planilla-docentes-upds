@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
 
@@ -11,7 +11,7 @@ import {
   rematriculaCta,
 } from '../src/lib/studentHomeState.ts'
 
-// S1/S2/S8/S9: the redesigned Inicio (R5 glass hero, cards Rematrícula / Cuotas / Mi horario de hoy / Avance).
+// S1/S2/S8/S9: the redesigned Inicio (glass hero with the request stepper, stats strip, Hoy sheet, career sheet).
 // Bolivia is UTC-4 all year, so 12:00Z is 08:00 in La Paz.
 
 const root = resolve(import.meta.dirname, '..')
@@ -124,37 +124,58 @@ test('the hero call to action keeps the open-window copy and falls back to "Ver 
 const page = read('src/pages/student/StudentHomePage.tsx')
 const card = read('src/components/student/HomeCard.tsx')
 const css = read('src/index.css')
+const homeCss = read('src/styles/student/home.css')
+// The editorial Inicio is split into components/student/home/*: the strings live next to the piece that shows them.
+const HOME_DIR = 'src/components/student/home'
+const home = (name) => read(`${HOME_DIR}/${name}`)
+const homeCode = readdirSync(resolve(root, HOME_DIR)).filter((name) => name.endsWith('.tsx')).map(home).join('\n')
 
-test('Inicio has exactly one h1 inside the glass hero (R5) on an Aurora stage', () => {
+test('Inicio has exactly one h1 in the hero, with the request stepper on a glass card over an Aurora stage', () => {
   assert.equal((page.match(/<h1\b/g) ?? []).length, 1)
   assert.match(page, /Hola/)
   assert.match(page, /import \{[^}]*\bGlassCard\b[^}]*\} from '@\/components\/student'/)
   assert.match(page, /import \{[^}]*\bGlassStage\b[^}]*\} from '@\/components\/student'/)
   assert.match(page, /<GlassStage\b[^>]*wallpaper="aurora"/)
   assert.match(page, /<GlassCard\b/)
-  assert.ok(page.indexOf('<GlassCard') < page.indexOf('<h1') && page.indexOf('<h1') < page.indexOf('</GlassCard>'))
+  const hero = page.slice(page.indexOf('<section className="sph-hero"'), page.indexOf('</section>'))
+  assert.ok(hero.includes('<h1') && hero.includes('<GlassCard') && hero.includes('<RequestStepper'), 'the h1 and the glass request card live in the hero')
+  assert.ok(hero.indexOf('<GlassStage') < hero.indexOf('<GlassCard') && hero.indexOf('<GlassCard') < hero.indexOf('<RequestStepper'), 'the stepper sits on the glass card on the stage')
   assert.match(page, /to="\/estudiante\/rematricula"/)
   assert.match(page, /rematriculaCta\(/)
 })
 
-test('Inicio shows the Rematrícula, Cuotas, Mi horario de hoy and Avance de carrera cards with icons', () => {
-  for (const title of ['Rematrícula', 'Cuotas', 'Mi horario de hoy', 'Avance de carrera', 'Documentos migratorios', 'Mis datos']) {
-    assert.match(page, new RegExp(`title="${title}"|>${title}<`), `${title} card`)
-  }
-  assert.equal((page.match(/<HomeCard\b/g) ?? []).length >= 6, true)
-  assert.match(page, /icon=\{CalendarCheck\}|icon=\{ClipboardPen\}/)
-  for (const text of ['Montos informativos; el pago se realiza en caja.', 'No tenés clases hoy', 'Ver mi horario', 'Ver historial', 'Cargando tu rematrícula']) {
-    assert.ok(page.includes(text), `keeps "${text}"`)
-  }
-  assert.match(page, /Cuota: <strong>/)
+test('Inicio shows the Rematrícula request, the four stats, the Hoy and career sheets, migration documents and Mis datos, each with its icon', () => {
+  assert.ok(page.includes('Rematrícula'), 'the request card is titled Rematrícula')
+  assert.match(page, /<RequestStepper\b/)
+  const stats = home('StatsStrip.tsx')
+  for (const label of ['Promedio', 'Avance de carrera', 'Aprobadas', 'Cuota mensual']) assert.ok(stats.includes(`label="${label}"`), `${label} stat`)
+  assert.match(stats, /<DisplayFigure\b[^>]*prefix="Bs"/, 'the cuota is a display figure in Bs')
+  assert.match(page, /<StatsStrip\b/)
+  assert.match(page, /<TodaySheet\b/)
+  assert.match(page, /<CareerSheet\b/)
+  assert.match(page, /<MigrationChecklist\b/)
+  assert.match(page, /<DataGrid\b/)
+  assert.ok(home('TodaySheet.tsx').includes('Hoy · siguiente clase'))
+  assert.ok(home('MigrationChecklist.tsx').includes('Documentos migratorios'))
+  assert.ok(home('DataGrid.tsx').includes('Mis datos'))
+  for (const icon of ['CalendarCheck', 'Clock', 'MapPin']) assert.match(home('TodaySheet.tsx'), new RegExp(`\\b${icon}\\b`), `Hoy uses ${icon}`)
+  assert.match(page, /GraduationCap|Award|ClipboardCheck/)
+  for (const [text, file] of [
+    ['Montos informativos; el pago se realiza en caja.', 'StatsStrip.tsx'],
+    ['No tenés clases hoy', 'TodaySheet.tsx'],
+    ['Ver mi horario', 'TodaySheet.tsx'],
+    ['Ver historial', 'CareerSheet.tsx'],
+  ]) assert.ok(home(file).includes(text), `${file} keeps "${text}"`)
+  assert.ok(page.includes('Cargando tu rematrícula'))
 })
 
 test('Inicio reuses the schedule and history data with the pure helpers', () => {
-  assert.match(page, /useStudentSchedule\(\)/)
+  assert.match(home('TodaySheet.tsx'), /useStudentSchedule\(\)/)
   assert.match(page, /useStudentHistory\(\)/)
-  assert.match(page, /nextClassToday\(/)
+  assert.match(home('TodaySheet.tsx'), /nextClassToday\(/)
   assert.match(page, /summarizeHistory\(/)
-  assert.match(page, /<Progress\b/)
+  assert.match(home('StatsStrip.tsx'), /<ProgressRing\b/, 'the career progress is a ring')
+  assert.match(home('CareerSheet.tsx'), /Avance|progress/)
 })
 
 test('Inicio has loading skeletons and error states for the reenrollment query and the new cards', () => {
@@ -162,8 +183,10 @@ test('Inicio has loading skeletons and error states for the reenrollment query a
   assert.match(page, /aria-label="Cargando tu rematrícula"/)
   assert.match(page, /import \{[^}]*\bAlert\b[^}]*\} from '@\/components\/ui\/alert'/)
   assert.match(page, /view\.isError[\s\S]*?<Alert variant="error" role="alert">[\s\S]*?No se pudo cargar tu rematrícula\./)
-  assert.match(page, /No se pudo cargar tu horario\./)
-  assert.match(page, /No se pudo cargar tu avance\./)
+  assert.match(home('TodaySheet.tsx'), /schedule\.isError[\s\S]*?No se pudo cargar tu horario\./)
+  assert.match(home('TodaySheet.tsx'), /<Skeleton\b/)
+  assert.match(home('CareerSheet.tsx'), /history\.isError[\s\S]*?No se pudo cargar tu avance\./)
+  assert.match(home('HomeSkeleton.tsx'), /role="status" aria-label="Cargando tu resumen"/)
   assert.match(page, /request\?\.status === 'observada'/, 'keeps the observada alert')
 })
 
@@ -181,11 +204,15 @@ test('cards lift on hover, give press feedback and fade in with a stagger that r
   for (const name of ['.sp-pop', '.sp-home-cta']) assert.ok(reduced.includes(name), `reduced motion covers ${name}`)
 })
 
-test('Inicio keeps colors in tokens: no hex, gradients or palette classes in the TSX and the cards are single-column on phones', () => {
-  for (const code of [page, card]) {
+test('Inicio keeps colors in tokens: no hex, gradients or palette classes in the TSX and the sheets stack on phones', () => {
+  for (const code of [page, card, homeCode]) {
     assert.doesNotMatch(code, /#[0-9a-fA-F]{3,8}\b/)
     assert.doesNotMatch(code, /gradient|rgba?\(/)
+    assert.doesNotMatch(code, /\b(?:bg|text|border|from|to|via)-(?:red|green|blue|violet|purple|slate|gray|zinc|amber|emerald)-\d/, 'no palette classes')
   }
-  assert.match(page, /grid gap-4 md:grid-cols-2/)
-  assert.doesNotMatch(page, /["'\s]grid-cols-[2-9]/, 'no multi-column grid without a breakpoint')
+  const row = homeCss.match(/\.sph-row \{[^}]*\}/)?.[0] ?? ''
+  assert.doesNotMatch(row, /grid-template-columns/, 'the Hoy and career sheets are one column by default')
+  const wide = homeCss.slice(homeCss.indexOf('@media (min-width: 60rem)'))
+  assert.match(wide, /\.sph-row \{[^}]*grid-template-columns: minmax\(0, 26rem\) minmax\(0, 1fr\)/, 'two columns only from 60rem')
+  assert.match(homeCss, /\.sph-data \{[^}]*grid-template-columns: minmax\(0, 1fr\)/, 'Mis datos is one column on phones')
 })

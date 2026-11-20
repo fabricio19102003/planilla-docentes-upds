@@ -1,0 +1,378 @@
+/* Student portal · Historial (editorial): summary sheet, period timeline and subject rows. Colors come from the --sp-* tokens. */
+
+/* Page head: the shared PageHeader keeps the single h1; only its look moves to the editorial scale (eyebrow, 900 title, violet rule). Unlayered so it beats the stock PageHeader utilities. */
+.sp-hist-head { margin-bottom: 1.5rem; }
+.sp-hist-head h1 {
+  font-size: clamp(2.25rem, 1.5rem + 3.2vw, 3.5rem);
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  color: var(--sp-ink);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.sp-hist-head .flex > span[aria-hidden='true'] { display: none; }
+.sp-hist-head p { padding-left: 0; max-width: 52ch; font-size: 1.0625rem; line-height: 1.5; color: var(--sp-ink-2); text-wrap: pretty; }
+.sp-hist-head > div:first-child::after {
+  content: '';
+  display: block;
+  width: 4rem;
+  height: 3px;
+  margin-top: 0.875rem;
+  border-radius: 2px;
+  background: var(--sp-violet);
+}
+
+@layer components {
+  .sp-hist {
+    display: grid;
+    gap: 2.5rem;
+  }
+
+  /* Summary ------------------------------------------------------- */
+  .sp-hist-summary {
+    display: grid;
+    gap: 1.5rem;
+    justify-items: start;
+    padding: 1.5rem 1.25rem;
+    border-radius: 1.75rem;
+  }
+
+  .sp-hist-avg {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .sp-hist-avg-label,
+  .sp-hist-ring-caption {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sp-ink-2);
+  }
+
+  .sp-hist-avg .sp-figure {
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-avg-sub {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--sp-ink-2);
+  }
+
+  .sp-hist-ring {
+    display: grid;
+    justify-items: center;
+    gap: 0.5rem;
+  }
+
+  .sp-hist-ring-text {
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-legend {
+    display: grid;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .sp-hist-legend-row {
+    --sp-hist-tone: var(--sp-ok);
+    --sp-hist-fill: var(--sp-fill-ok);
+    display: grid;
+    grid-template-columns: 2.75rem 1fr auto;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.875rem 0;
+    border-top: 1px solid var(--sp-line-2);
+  }
+
+  .sp-hist-legend-row:first-child {
+    border-top: 0;
+  }
+
+  .sp-hist-legend-row[data-tone='bad'] { --sp-hist-tone: var(--sp-bad); --sp-hist-fill: var(--sp-fill-bad); }
+  .sp-hist-legend-row[data-tone='warn'] { --sp-hist-tone: var(--sp-warn); --sp-hist-fill: var(--sp-fill-warn); }
+
+  .sp-hist-legend-tile {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.875rem;
+    color: var(--sp-hist-tone);
+    background: color-mix(in oklab, var(--sp-hist-fill) 14%, var(--sp-sheet));
+  }
+
+  .sp-hist-legend-tile svg {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .sp-hist-legend-label {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-legend-value {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-legend-value small {
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--sp-mute);
+  }
+
+  /* Period head (inside the Timeline primitive) -------------------- */
+  .sp-hist-period {
+    font-size: 1.25rem;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    line-height: 1.15;
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-period-sub {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--sp-ink-2);
+  }
+
+  .sp-hist-period-avg {
+    display: grid;
+    justify-items: end;
+  }
+
+  .sp-hist-period-avg small {
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sp-ink-2);
+  }
+
+  .sp-hist-period-avg b {
+    font-size: 2.25rem;
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    line-height: 1;
+    color: var(--sp-ink);
+  }
+
+  /* Subjects ------------------------------------------------------- */
+  .sp-hist-subjects {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0.5rem;
+    list-style: none;
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-line-2);
+    border-radius: 1.5rem;
+    box-shadow: var(--sp-sh2);
+  }
+
+  .sp-hist-row {
+    --sp-hist-tone: var(--sp-ok);
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    grid-template-areas: 'icon name grade' 'meter meter meter';
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.875rem 0.75rem;
+    border-radius: 1rem;
+    transition: background-color 0.2s;
+  }
+
+  .sp-hist-row:hover {
+    background: var(--sp-tint);
+  }
+
+  .sp-hist-row[data-outcome='failed'] { --sp-hist-tone: var(--sp-bad); }
+  .sp-hist-row[data-outcome='pending'] { --sp-hist-tone: var(--sp-warn); }
+  .sp-hist-row[data-outcome='withdrawn'] { --sp-hist-tone: var(--sp-mute); }
+
+  /* A failed subject stands out: tinted row with a bar on its edge. */
+  .sp-hist-row[data-outcome='failed'] {
+    background: color-mix(in oklab, var(--sp-fill-bad) 10%, var(--sp-sheet));
+    box-shadow: inset 5px 0 0 var(--sp-fill-bad);
+  }
+
+  .sp-hist-row-icon {
+    grid-area: icon;
+    width: 1.75rem;
+    height: 1.75rem;
+    color: var(--sp-hist-tone);
+    transition: transform 0.3s var(--sp-spring);
+  }
+
+  .sp-hist-row:hover .sp-hist-row-icon {
+    transform: scale(1.15) rotate(-6deg);
+  }
+
+  .sp-hist-row-name {
+    grid-area: name;
+    display: grid;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .sp-hist-row-name > b {
+    font-size: 1.0625rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+    color: var(--sp-ink);
+    overflow-wrap: anywhere;
+  }
+
+  .sp-hist-row-codes {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+  }
+
+  .sp-hist-code,
+  .sp-hist-oos {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font: inherit;
+    cursor: help;
+  }
+
+  /* 44 px touch target without making the row taller. */
+  .sp-hist-code::after,
+  .sp-hist-oos::after {
+    content: '';
+    position: absolute;
+    inset: -0.75rem -0.375rem;
+  }
+
+  .sp-hist-code {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--sp-ink-2);
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+
+  .sp-hist-oos {
+    min-height: 1.75rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 800;
+    color: var(--sp-violet-text);
+    background: var(--sp-tint-2);
+  }
+
+  .sp-hist-oos svg {
+    width: 0.9375rem;
+    height: 0.9375rem;
+  }
+
+  .sp-hist-code:focus-visible,
+  .sp-hist-oos:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .sp-hist-meter,
+  .sp-hist-meter-empty {
+    grid-area: meter;
+    height: 0.75rem;
+  }
+
+  /* No grade yet (en curso, retirado): a dashed empty track. */
+  .sp-hist-meter-empty {
+    background: repeating-linear-gradient(90deg, var(--sp-track) 0 0.5rem, transparent 0.5rem 0.875rem);
+  }
+
+  .sp-hist-grade {
+    grid-area: grade;
+    display: grid;
+    justify-items: end;
+    gap: 0.125rem;
+  }
+
+  .sp-hist-grade .sp-figure {
+    color: var(--sp-ink);
+  }
+
+  .sp-hist-grade small {
+    font-size: 0.8125rem;
+    font-weight: 800;
+    color: var(--sp-hist-tone);
+  }
+
+  @media (min-width: 640px) {
+    .sp-hist-summary {
+      grid-template-columns: auto auto 1fr;
+      align-items: center;
+      justify-items: stretch;
+      gap: 3rem;
+      padding: 2.25rem 2.5rem;
+    }
+
+    .sp-hist-period {
+      font-size: 1.75rem;
+    }
+
+    .sp-hist-row {
+      grid-template-columns: 2rem minmax(0, 1fr) 15rem 7rem;
+      grid-template-areas: 'icon name meter grade';
+      gap: 1.25rem;
+      padding: 0.875rem 1.125rem;
+    }
+
+    .sp-hist-row-name > b {
+      font-size: 1.125rem;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .sp-hist-avg .sp-figure[data-size='xl'] {
+      font-size: 4rem;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-hist-row,
+  .sp-hist-row-icon {
+    transition: none !important;
+  }
+
+  .sp-hist-row:hover .sp-hist-row-icon {
+    transform: none !important;
+  }
+}

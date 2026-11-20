@@ -129,7 +129,7 @@ test('unknown /estudiante route renders the contained 404 inside the shell', asy
   await expect(page).toHaveURL('/estudiante')
 })
 
-test('Inicio shows the glass hero, the summary cards and does not overflow', async ({ page }, testInfo) => {
+test('Inicio shows the glass hero, the stats strip and does not overflow', async ({ page }, testInfo) => {
   await page.setViewportSize(testInfo.project.name === 'mobile-chromium' ? { width: 320, height: 640 } : { width: 1280, height: 800 })
   await mockStudent(page, {
     '/api/student-portal/reenrollment': reenrollment,
@@ -142,7 +142,12 @@ test('Inicio shows the glass hero, the summary cards and does not overflow', asy
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hola, Valeria')
   await expect(page.getByRole('link', { name: 'Solicitar rematrícula' })).toHaveAttribute('href', '/estudiante/rematricula')
   await expect(page.getByRole('heading', { level: 2, name: 'Rematrícula' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 2, name: 'Cuotas' })).toBeVisible()
+  // The cuota is a stat of the strip: its label, the figure with the Bs prefix and the number of cuotas.
+  const cuota = page.getByRole('list', { name: 'Resumen académico' }).getByRole('listitem').filter({ hasText: 'Cuota mensual' })
+  await expect(cuota).toContainText('Bs')
+  await expect(cuota).toContainText('1.150')
+  await expect(cuota).toContainText('× 5')
+  await expect(cuota).toContainText('Montos informativos; el pago se realiza en caja.')
   await expect(page.getByText('No tenés clases hoy.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver mi horario' })).toBeVisible()
   await expect(page.getByText('Todavía no tenés materias en tu historial académico.')).toBeVisible()
@@ -189,10 +194,25 @@ test('Rematrícula prints the receipt with the total, shows the sending state an
   await expect(receipt.locator('.sp-receipt-total')).toContainText('8.000 Bs')
   await expect(receipt).toContainText('Montos informativos')
 
-  await page.getByLabel('Lingüística').selectOption('3')
+  // The recursado picker is a switch plus a custom combobox named with the subject (no native select).
+  await expect(page.locator('select')).toHaveCount(0)
+  await page.getByRole('switch', { name: 'Recursar Lingüística' }).click()
+  const picker = page.getByRole('combobox', { name: 'Grupo y turno de Lingüística' })
+  await expect(picker).toBeVisible()
   await expect(receipt).toContainText('Recursado: Lingüística')
   await expect(receipt.locator('.sp-receipt-total')).toContainText('9.200 Bs')
   expect(await noHorizontalOverflow(page)).toBe(true)
+
+  // "No la curso este período" drops the subject from the receipt; turning it on again picks the group.
+  await picker.click()
+  await page.getByRole('option', { name: 'No la curso este período' }).click()
+  await expect(receipt).not.toContainText('Recursado: Lingüística')
+  await expect(receipt.locator('.sp-receipt-total')).toContainText('8.000 Bs')
+  await page.getByRole('switch', { name: 'Recursar Lingüística' }).click()
+  await picker.click()
+  await page.getByRole('option', { name: /R-01/ }).click()
+  await expect(receipt).toContainText('Recursado: Lingüística')
+  await expect(receipt.locator('.sp-receipt-total')).toContainText('9.200 Bs')
 
   await page.getByRole('radio').check()
   await page.getByRole('button', { name: 'Enviar solicitud' }).click()
@@ -261,3 +281,111 @@ test('Horario switches between Hoy, Semana and Próximo and does not overflow', 
   await expect(page.getByText('Este horario todavía no empezó a regir; puede cambiar hasta esa fecha.')).toBeVisible()
   expect(await noHorizontalOverflow(page)).toBe(true)
 })
+
+// T9 (S2/S3): tooltips, collapsible Historial, the Hoy timeline and 320px on every upgraded screen.
+
+const phone = { width: 320, height: 640 }
+const history = {
+  history: [
+    {
+      term: { code: 'II/2026', name: 'Segundo semestre 2026', year: 2026, kind: 'II', is_intensive: false },
+      records: [
+        { legacy_registration_id: 1, subject_code: 'MED 210', subject_name: 'Fisiología humana con laboratorio integrado', group_code: 'M-01', shift: 'M', teacher_name: 'Docente A', status: 'aprobado', grade: 82, in_curriculum: true },
+        { legacy_registration_id: 2, subject_code: 'MED 220', subject_name: 'Bioquímica', group_code: 'M-02', shift: 'M', teacher_name: 'Docente B', status: 'reprobado', grade: 41, in_curriculum: false },
+      ],
+    },
+    {
+      term: { code: 'I/2026', name: 'Primer semestre 2026', year: 2026, kind: 'I', is_intensive: false },
+      records: [
+        { legacy_registration_id: 3, subject_code: 'MED 110', subject_name: 'Anatomía', group_code: 'M-01', shift: 'M', teacher_name: 'Docente A', status: 'aprobado', grade: 90, in_curriculum: true },
+      ],
+    },
+  ],
+}
+const intensiveCourse = (id: number, term: string, over: Record<string, unknown> = {}) => ({
+  id, term_code: term, subject: { id, code: `MED 3${id}0`, name: id === 1 ? 'Fisiología humana con laboratorio integrado' : 'Bioquímica' },
+  capacity: 30, enrolled: 12, free: 18, is_full: false, enrollment_starts_on: '2099-01-05', enrollment_ends_on: '2099-01-20',
+  is_enrollment_open: true, theory_hours: 40, practice_hours: 20, status: 'open', price: { amount: 450, is_final: false },
+  teacher_name: 'Docente con un nombre bastante largo', ...over,
+})
+const intensive = {
+  courses: [intensiveCourse(1, 'VER/2099'), intensiveCourse(2, 'INV/2099', { is_full: true, free: 0, enrolled: 30 })],
+  enrollments: [{ ...intensiveCourse(3, 'VER/2099'), enrolled_at: '2099-01-06T12:00:00Z' }],
+}
+
+test('Inicio tooltips open on keyboard focus and close with Escape', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Keyboard behavior')
+  await mockStudent(page, {
+    '/api/student-portal/reenrollment': reenrollment,
+    '/api/student-portal/schedule': { status: { code: 'ok', message: null }, effective_from: null, entries: [], unscheduled: [] },
+    '/api/student-portal/history': history,
+    '/api/student-portal/migration-documents': { applies: false },
+  })
+  await page.goto('/estudiante')
+
+  const trigger = page.getByRole('button', { name: 'Qué es el promedio', exact: true })
+  await expect(trigger).toBeVisible()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await trigger.focus()
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await expect(page.getByRole('tooltip')).toContainText('Promedio')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+})
+
+test('Historial collapses a period and keeps the metrics', async ({ page }) => {
+  await mockStudent(page, { '/api/student-portal/history': history })
+  await page.goto('/estudiante/historial')
+
+  await expect(page.getByText('Promedio general').first()).toBeVisible()
+  await expect(page.getByText('Materias aprobadas').first()).toBeVisible()
+  const first = page.getByRole('button', { name: /^Segundo semestre 2026/ })
+  await expect(first).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText('Bioquímica')).toBeVisible()
+  await first.click()
+  await expect(first).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByText('Bioquímica')).toBeHidden()
+  await first.click()
+  await expect(first).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText('Bioquímica')).toBeVisible()
+})
+
+test('Horario Hoy renders the day timeline with a block for today\'s class', async ({ page }) => {
+  await mockStudent(page, {
+    '/api/student-portal/schedule': {
+      status: { code: 'ok', message: null }, effective_from: null, unscheduled: [],
+      entries: WEEKDAYS.map((weekday) => scheduleEntry(weekday)),
+    },
+  })
+  await page.goto('/estudiante/horario')
+
+  await expect(page.getByRole('tab', { name: 'Hoy' })).toHaveAttribute('aria-selected', 'true')
+  const block = page.locator('.sp-day-block')
+  await expect(block).toHaveCount(1)
+  await expect(block.getByRole('heading', { level: 3 })).toContainText('Anatomía')
+  await expect(block).toContainText('08:00')
+})
+
+// Compared with clientWidth: the phone emulation can report an innerWidth wider than the 320px layout.
+const fitsLayoutWidth = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
+
+for (const [name, path] of [['Inicio', '/estudiante'], ['Rematrícula', '/estudiante/rematricula'], ['Historial', '/estudiante/historial'], ['Horario', '/estudiante/horario'], ['Cursos', '/estudiante/intensivos']]) {
+  test(`${name} does not overflow at 320px`, async ({ page }) => {
+    await page.setViewportSize(phone)
+    await mockStudent(page, {
+      '/api/student-portal/reenrollment': reenrollmentWithRecursado,
+      '/api/student-portal/schedule': {
+        status: { code: 'ok', message: null }, effective_from: null, unscheduled: [],
+        entries: WEEKDAYS.map((weekday) => scheduleEntry(weekday, { subject_name: 'Fisiología humana con laboratorio integrado', teacher_name: 'Docente con un nombre bastante largo' })),
+      },
+      '/api/student-portal/history': history,
+      '/api/student-portal/migration-documents': { applies: false },
+      '/api/student-portal/intensive-courses': intensive,
+    })
+    await page.goto(path)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expect(page.locator('[role=status][aria-label^="Cargando"]')).toHaveCount(0)
+    expect(await fitsLayoutWidth(page), `${path} overflows at 320px`).toBe(true)
+  })
+}
