@@ -48,7 +48,7 @@ export function StudentPortalLayout() {
   const slide = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 420, damping: 36 }
 
   return (
-    <div className="student-scope min-h-screen bg-canvas">
+    <div className="student-scope font-student min-h-screen bg-canvas">
       <header className="bg-brand shadow-lg shadow-brand-surface/20">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 md:py-4">
           <div className="flex min-w-0 items-center gap-4">
