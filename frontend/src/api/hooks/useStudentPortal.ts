@@ -37,11 +37,17 @@ export function useStudentLogin() {
 }
 
 export function useStudentChangePassword() {
+  const queryClient = useQueryClient()
   const save = useSession()
   return useMutation({
     mutationFn: async (payload: { current_password: string; new_password: string }) =>
       (await studentApi.put<Session>('/auth/change-password', payload)).data,
-    onSuccess: save,
+    onSuccess: (session) => {
+      save(session)
+      // The portal guard reads this cached profile as soon as the page navigates home: clear the flag now,
+      // not after the refetch that `save` starts, or the stale `true` bounces the student back to the form.
+      queryClient.setQueryData<StudentProfile>([...key, 'me'], (me) => me && { ...me, must_change_password: false })
+    },
   })
 }
 
