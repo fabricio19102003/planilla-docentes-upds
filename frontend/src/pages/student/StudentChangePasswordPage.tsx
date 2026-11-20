@@ -1,16 +1,20 @@
-import { AlertCircle, Lock } from 'lucide-react'
+import { AlertCircle, Lock, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 
 import { useStudentChangePassword, useStudentMe } from '@/api/hooks/useStudentPortal'
 import { STUDENT_TOKEN_KEY } from '@/api/studentClient'
-import { Logo } from '@/components/layout/Logo'
+import { AccessCard } from '@/components/student/access/AccessCard'
+import { PasswordChecklist } from '@/components/student/access/PasswordChecklist'
+import { PasswordStrength } from '@/components/student/access/PasswordStrength'
+import { StudentPasswordField } from '@/components/student/access/StudentPasswordField'
+import { passwordRules } from '@/components/student/access/student-access'
+import { InfoTip } from '@/components/student/InfoTip'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Field, FieldLabel } from '@/components/ui/field'
-import { PasswordInput, PasswordStrengthBar, ValidationItem } from '@/pages/ForceChangePasswordPage'
 import { apiErrorMessage } from '@/lib/userCredentials'
+import '@/styles/student/access.css'
 
 export function StudentChangePasswordPage() {
   const navigate = useNavigate()
@@ -23,56 +27,50 @@ export function StudentChangePasswordPage() {
 
   if (!localStorage.getItem(STUDENT_TOKEN_KEY)) return <Navigate to="/estudiante/login" replace />
 
-  const rules = [
-    [next.length >= 8, 'Al menos 8 caracteres'],
-    [/[A-Z]/.test(next), 'Una mayúscula'],
-    [/[a-z]/.test(next), 'Una minúscula'],
-    [/\d/.test(next), 'Un número'],
-    [next !== '' && next === confirm, 'Las dos contraseñas coinciden'],
-  ] as const
-  const valid = rules.every(([passes]) => passes) && current !== ''
-  const toggle = { visible, onToggle: () => setVisible((v) => !v), toggleLabel: visible ? 'Ocultar contraseñas' : 'Mostrar contraseñas' }
+  const rules = passwordRules(next, confirm)
+  const valid = rules.every((rule) => rule.passes) && current !== ''
+  const toggle = { visible, onToggle: () => setVisible((v) => !v), plural: true, disabled: change.isPending, invalid: false }
 
   return (
-    <main className="bg-brand flex min-h-screen flex-col items-center justify-center p-4">
-      <div className="mb-6 rounded-2xl border border-brand-foreground/15 bg-brand-foreground/10 px-8 py-5 shadow-lg shadow-brand-surface/30 backdrop-blur">
-        <Logo />
-      </div>
-      <Card className="w-full max-w-md overflow-hidden p-6 shadow-2xl shadow-brand-surface/40 sm:p-8">
-        <span aria-hidden="true" className="bg-brand-line absolute inset-x-0 top-0 h-1" />
-        <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <h1 className="flex items-center gap-2 text-xl font-semibold text-brand"><Lock aria-hidden="true" />Creá tu contraseña</h1>
-          <p className="text-sm text-muted-foreground">
-            {me.data?.must_change_password === false ? 'Cambiá tu contraseña del portal.' : 'Antes de seguir, reemplazá la clave temporal por una contraseña tuya.'}
-          </p>
-        </div>
-        <form className="space-y-5" onSubmit={(event) => {
+    <main className="student-scope font-student bg-brand sa-root">
+      <AccessCard
+        icon={<Lock />} eyebrow="Tu cuenta" shake={change.isError}
+        title="Creá tu contraseña"
+        lead={me.data?.must_change_password === false ? 'Cambiá tu contraseña del portal.' : 'Antes de seguir, reemplazá la clave temporal por una contraseña tuya.'}
+      >
+        <form className="sa-form" onSubmit={(event) => {
           event.preventDefault()
           change.mutate({ current_password: current, new_password: next }, { onSuccess: () => navigate('/estudiante', { replace: true }) })
         }}>
           <Field>
-            <FieldLabel htmlFor="student-current">Clave actual (la temporal si es tu primer ingreso)</FieldLabel>
-            <PasswordInput id="student-current" value={current} onChange={setCurrent} placeholder="Clave actual" disabled={change.isPending} invalid={false} {...toggle} />
+            <div className="sa-label-row">
+              <FieldLabel htmlFor="student-current" className="sa-label">Clave actual</FieldLabel>
+              <InfoTip label="Qué clave usar" content="Clave actual (la temporal si es tu primer ingreso): es la que te dio Registro." />
+            </div>
+            <StudentPasswordField id="student-current" value={current} onChange={setCurrent} placeholder="Clave actual" autoComplete="current-password" {...toggle} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="student-new">Nueva contraseña</FieldLabel>
-            <PasswordInput id="student-new" value={next} onChange={setNext} placeholder="Nueva contraseña" disabled={change.isPending} invalid={false} {...toggle} />
-            <PasswordStrengthBar password={next} />
+            <FieldLabel htmlFor="student-new" className="sa-label">Nueva contraseña</FieldLabel>
+            <StudentPasswordField id="student-new" value={next} onChange={setNext} placeholder="Nueva contraseña" autoComplete="new-password" {...toggle} />
+            <PasswordStrength password={next} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="student-confirm">Repetí la nueva contraseña</FieldLabel>
-            <PasswordInput id="student-confirm" value={confirm} onChange={setConfirm} placeholder="Repetila" disabled={change.isPending} invalid={false} {...toggle} />
+            <FieldLabel htmlFor="student-confirm" className="sa-label">Repetí la nueva contraseña</FieldLabel>
+            <StudentPasswordField id="student-confirm" value={confirm} onChange={setConfirm} placeholder="Repetila" autoComplete="new-password" {...toggle} />
           </Field>
-          <div className="space-y-1">{rules.map(([passes, label]) => <ValidationItem key={label} passes={passes} label={label} />)}</div>
+          <PasswordChecklist rules={rules} />
           {change.isError && (
             <Alert variant="error" role="alert">
               <AlertCircle aria-hidden="true" />
               <AlertDescription>{apiErrorMessage(change.error, 'No se pudo cambiar la contraseña.')}</AlertDescription>
             </Alert>
           )}
-          <Button type="submit" size="lg" loading={change.isPending} disabled={!valid} className="w-full">Guardar contraseña</Button>
+          <Button type="submit" size="lg" loading={change.isPending} disabled={!valid}
+            className="sa-submit w-full active:scale-95 motion-reduce:active:scale-100">
+            <ShieldCheck aria-hidden="true" />Guardar contraseña
+          </Button>
         </form>
-      </Card>
+      </AccessCard>
     </main>
   )
 }

@@ -134,7 +134,13 @@ test('Rematrícula prints the receipt and shows the thermal loader while sending
   assert.match(code, /Enviando tu solicitud a Registro…/)
   assert.match(code, /submit\.isPending/)
   assert.ok(code.includes('Resumen de montos (informativo)'))
-  assert.ok(code.includes('<select'), 'recursado keeps native selects')
+  assert.doesNotMatch(code, /<select\b/, 'no native select on the page')
+  assert.match(code, /<RecursadoPicker\b/, 'recursado is picked with the custom picker')
+  const picker = read('src/components/student/reenrollment/RecursadoPicker.tsx')
+  assert.doesNotMatch(picker, /<select\b/, 'the picker is not a native select')
+  assert.match(picker, /<Select\b[\s\S]*<SelectTrigger\b[^>]*aria-label=\{`Grupo y turno de \$\{subject\.name\}`\}/, 'an accessible combobox named with the subject')
+  assert.ok(picker.includes('No la curso este período'), 'the picker still offers "No la curso este período"')
+  assert.match(picker, /role="switch"/)
   assert.doesNotMatch(code, /<dl\b/, 'the amounts live in the receipt now')
 })
 
@@ -149,13 +155,23 @@ test('Horario switches Hoy / Semana / Próximo with the glass switch on a glass 
   assert.match(code, /<EmptyState\b[^>]*icon=\{/)
 })
 
-test('Historial adds metric icons, an animated fill and staggered timeline dots, keeping the outcome chips', () => {
-  const code = read('src/components/students/StudentHistoryTimeline.tsx')
-  assert.match(code, /from 'lucide-react'/)
-  assert.match(code, /useReducedMotion/)
-  assert.match(code, /sp-timeline-dot/)
-  assert.match(code, /TONE_CHIP\[OUTCOME_TONE\[outcome\]\]/)
-  assert.ok(code.includes('Promedio general') && code.includes('Materias aprobadas'))
+test('Historial keeps the metrics, icons, animated fills that respect reduced motion and the outcome tones', () => {
+  const summary = read('src/components/student/history/HistorySummary.tsx')
+  const row = read('src/components/student/history/SubjectRow.tsx')
+  const timeline = read('src/components/students/StudentHistoryTimeline.tsx')
+  for (const code of [summary, row]) assert.match(code, /from 'lucide-react'/)
+  assert.ok(summary.includes('Promedio general') && summary.includes('Materias aprobadas'))
+  assert.match(summary, /<ProgressRing\b/)
+  // The animated fills are shared primitives: each one starts at its final state with reduced motion.
+  for (const name of ['Meter', 'ProgressRing', 'DisplayFigure', 'Timeline']) assert.match(read(`src/components/student/${name}.tsx`), /useReducedMotion/, `${name} respects reduced motion`)
+  assert.match(row, /<Meter\b/)
+  assert.match(timeline, /<Timeline>/)
+  assert.match(timeline, /<TimelineItem\b[^>]*tone=\{periodTone\(records\)\}/)
+  assert.match(row, /OUTCOME_ICON\[outcome\]/)
+  assert.match(row, /data-outcome=\{outcome\}/)
+  assert.match(row, /tone=\{outcome === 'failed' \? 'bad' : 'ok'\}/)
+  const css = read('src/styles/student/history.css')
+  for (const outcome of ['failed', 'pending', 'withdrawn']) assert.ok(css.includes(`.sp-hist-row[data-outcome='${outcome}']`), `${outcome} has its tone`)
 })
 
 test('Cursos de verano e invierno puts an icon on each course and keeps the confirmation', () => {
@@ -167,7 +183,7 @@ test('Cursos de verano e invierno puts an icon on each course and keeps the conf
 
 test('the new CSS lives in index.css, with reduced motion ending on the same state', () => {
   const css = read('src/index.css')
-  for (const name of ['sp-timeline-dot', 'sp-radio-card', 'sp-sched-row']) assert.ok(css.includes(`.${name}`), `${name} is styled`)
+  for (const name of ['sp-timeline-dot', 'sp-radio-card', 'sp-sched-row', 'sp-tl-dot']) assert.ok(css.includes(`.${name}`), `${name} is styled`)
 })
 
 test('the portal scopes the violet accent, keeps the notch edge visible and the switch 74px wide', () => {

@@ -6,66 +6,57 @@ import { ConfirmAlertDialog, type ConfirmAlertSummary } from '@/components/share
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Alert, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDateInBolivia, getTodayInBolivia } from '@/lib/boliviaDates'
-import {
-  courseStatus,
-  priceLabel,
-  studentPriceNote,
-  termLabel,
-  type StudentIntensiveCourse,
-} from '@/lib/intensiveCoursesState'
+import { CourseCard, type CourseAction } from '@/components/student/courses/CourseCard'
+import { seasonTone } from '@/components/student/courses/course-season'
+import { Eyebrow } from '@/components/student/Eyebrow'
+import { Sheet } from '@/components/student/Sheet'
+import { priceLabel, termLabel, type StudentIntensiveCourse } from '@/lib/intensiveCoursesState'
 import { apiErrorMessage } from '@/lib/userCredentials'
+import '@/styles/student/courses.css'
 
-type Action = 'enroll' | 'cancel'
+type Action = CourseAction
 
 const pressClass = 'active:scale-95 motion-reduce:active:scale-100'
 
 // Terms are VER/2027 (summer) or INV/2027 (winter); anything else gets a book.
 function SeasonIcon({ termCode }: { termCode: string }) {
-  const kind = termCode.split('/')[0]
-  if (kind === 'VER') return <Sun className="size-5" />
-  return kind === 'INV' ? <Snowflake className="size-5" /> : <BookOpen className="size-5" />
+  const season = seasonTone(termCode)
+  if (season === 'summer') return <Sun />
+  return season === 'winter' ? <Snowflake /> : <BookOpen />
 }
 
-function CourseCard({ course, action, onAction }: {
-  course: StudentIntensiveCourse; action: Action; onAction: (course: StudentIntensiveCourse, action: Action) => void
+function CourseGrid({ courses, action, onAction }: {
+  courses: StudentIntensiveCourse[]; action: Action; onAction: (course: StudentIntensiveCourse, action: Action) => void
 }) {
-  const status = courseStatus(course, getTodayInBolivia())
-  const blocked = action === 'enroll' && (!course.is_enrollment_open || course.is_full)
   return (
-    <li className="group flex flex-wrap items-start justify-between gap-3 p-4">
-      <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-student-accent-soft text-student-accent-text transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:-rotate-6 motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-hover:rotate-0">
-        <SeasonIcon termCode={course.term_code} />
-      </span>
-      <div className="min-w-0 flex-1 space-y-1 text-sm">
-        <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
-          {course.subject.name}
-          <span className="text-xs font-normal text-muted-foreground">{course.subject.code}</span>
-          <Badge variant={status.variant} size="sm">{status.label}</Badge>
-        </p>
-        <p className="text-muted-foreground">{termLabel(course.term_code)} · Docente: {course.teacher_name}</p>
-        <p className="text-muted-foreground">
-          Inscripción del {formatDateInBolivia(course.enrollment_starts_on)} al {formatDateInBolivia(course.enrollment_ends_on)} ·{' '}
-          {course.is_full ? 'Sin cupos' : `${course.free} cupo(s) libre(s)`}
-        </p>
-        <p>
-          <span className="font-medium">{priceLabel(course.price)}</span>
-          <span className="block text-xs text-muted-foreground">{studentPriceNote(course.price)}</span>
-        </p>
+    <ul className="cc-grid">
+      {courses.map((course) => (
+        <CourseCard key={course.id} course={course} action={action} onAction={onAction}
+          seasonIcon={<SeasonIcon termCode={course.term_code} />} pressClass={pressClass} />
+      ))}
+    </ul>
+  )
+}
+
+function CourseSkeleton() {
+  return (
+    <Sheet as="li" depth={2} padding="none" className="cc-card cc-card--skeleton cc-card--other">
+      <div className="cc-skel-band" />
+      <div className="cc-body">
+        <div className="grid gap-2">
+          <Skeleton className="h-8 w-4/5 rounded-lg" />
+          <Skeleton className="h-4 w-1/2 rounded-md" />
+        </div>
+        <Skeleton className="h-14 w-40 rounded-lg" />
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-9 w-36 rounded-xl" />
+          <Skeleton className="h-9 w-16 rounded-xl" />
+        </div>
+        <Skeleton className="h-3 w-full rounded-md" />
+        <Skeleton className="h-11 w-full rounded-2xl" />
       </div>
-      {action === 'enroll' && (
-        <Button className={pressClass} disabled={blocked} onClick={() => onAction(course, 'enroll')}>
-          {course.is_full ? 'Sin cupos' : course.is_enrollment_open ? 'Inscribirme' : 'Inscripción no abierta'}
-        </Button>
-      )}
-      {action === 'cancel' && course.status === 'open' && course.is_enrollment_open && (
-        <Button className={pressClass} variant="outline" onClick={() => onAction(course, 'cancel')}>Cancelar inscripción</Button>
-      )}
-    </li>
+    </Sheet>
   )
 }
 
@@ -90,31 +81,33 @@ export function StudentIntensivePage() {
   const view = useStudentIntensiveCourses()
   const change = useIntensiveEnrollment()
   const [confirm, setConfirm] = useState<{ course: StudentIntensiveCourse; action: Action } | null>(null)
+  const request = (course: StudentIntensiveCourse, action: Action) => { change.reset(); setConfirm({ course, action }) }
 
   const header = (
-    <>
-      <PageHeader as="h1"
-        title="Cursos de verano e invierno"
-        description="Podés inscribirte a los cursos de las materias que reprobaste o tenés pendientes. Es informativo: el cobro no se hace desde el portal."
-      />
-    </>
+    <PageHeader as="h1" className="cc-head"
+      breadcrumb={<Eyebrow icon={<Sun />}>Verano e invierno</Eyebrow>}
+      title="Cursos de verano e invierno"
+      description="Podés inscribirte a los cursos de las materias que reprobaste o tenés pendientes. Es informativo: el cobro no se hace desde el portal."
+    />
   )
-  if (view.isError) return <>{header}<Alert variant="error" role="alert"><AlertTitle>No se pudieron cargar los cursos de verano e invierno.</AlertTitle></Alert></>
+  if (view.isError) return <div className="cc-page">{header}<Alert variant="error" role="alert"><AlertTitle>No se pudieron cargar los cursos de verano e invierno.</AlertTitle></Alert></div>
   if (!view.data) {
     return (
-      <>
+      <div className="cc-page">
         {header}
-        <div role="status" aria-label="Cargando cursos" className="space-y-4">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
+        <div role="status" aria-label="Cargando cursos">
+          <ul className="cc-grid">
+            <CourseSkeleton />
+            <CourseSkeleton />
+          </ul>
         </div>
-      </>
+      </div>
     )
   }
   const { courses, enrollments } = view.data
 
   return (
-    <>
+    <div className="cc-page">
       {header}
       {change.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(change.error, 'No se pudo actualizar tu inscripción.')}</AlertTitle></Alert>}
       {change.isSuccess && (
@@ -123,26 +116,26 @@ export function StudentIntensivePage() {
         </Alert>
       )}
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">Mis inscripciones</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {enrollments.length === 0
-            ? <EmptyState illustration="empty-inbox" icon={ClipboardList} className="py-8" title="Sin inscripciones" description="No estás inscrito en ningún curso intensivo." />
-            : <ul className="divide-y">{enrollments.map((course) => <CourseCard key={course.id} course={course} action="cancel" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
-        </CardContent>
-      </Card>
+      <section className="cc-section" aria-labelledby="cc-enrolled-title">
+        <div className="cc-section-head">
+          <h2 id="cc-enrolled-title" className="cc-section-title">Mis inscripciones</h2>
+          <span className="cc-count" aria-label={`${enrollments.length} inscripciones`}>{enrollments.length}</span>
+        </div>
+        {enrollments.length === 0
+          ? <div className="cc-empty"><EmptyState illustration="empty-inbox" icon={ClipboardList} className="py-8" title="Sin inscripciones" description="No estás inscrito en ningún curso intensivo." /></div>
+          : <CourseGrid courses={enrollments} action="cancel" onAction={request} />}
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cursos disponibles para vos</CardTitle>
-          <CardDescription>Solo aparecen materias que reprobaste o tenés pendientes (retiradas).</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {courses.length === 0
-            ? <EmptyState illustration="empty-box" icon={BookOpen} className="py-8" title="Sin cursos disponibles" description="Por ahora no hay cursos abiertos para tus materias." />
-            : <ul className="divide-y">{courses.map((course) => <CourseCard key={course.id} course={course} action="enroll" onAction={(c, a) => { change.reset(); setConfirm({ course: c, action: a }) }} />)}</ul>}
-        </CardContent>
-      </Card>
+      <section className="cc-section" aria-labelledby="cc-available-title">
+        <div className="cc-section-head">
+          <h2 id="cc-available-title" className="cc-section-title">Cursos disponibles para vos</h2>
+          <span className="cc-count" aria-label={`${courses.length} cursos`}>{courses.length}</span>
+          <p className="cc-section-note">Solo aparecen materias que reprobaste o tenés pendientes (retiradas).</p>
+        </div>
+        {courses.length === 0
+          ? <div className="cc-empty"><EmptyState illustration="empty-box" icon={BookOpen} className="py-8" title="Sin cursos disponibles" description="Por ahora no hay cursos abiertos para tus materias." /></div>
+          : <CourseGrid courses={courses} action="enroll" onAction={request} />}
+      </section>
 
       <ConfirmAlertDialog
         summary={confirm ? summaryFor(confirm.course, confirm.action) : null}
@@ -150,6 +143,6 @@ export function StudentIntensivePage() {
         onConfirm={() => confirm && change.mutate({ courseId: confirm.course.id, action: confirm.action }, { onSettled: () => setConfirm(null) })}
         onCancel={() => setConfirm(null)}
       />
-    </>
+    </div>
   )
 }
