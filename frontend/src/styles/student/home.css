@@ -1,0 +1,1021 @@
+/*
+ * Inicio of the student portal (artboard 03 · editorial): hero + glass request poster, stats strip, "Hoy" ink sheet,
+ * career track, Mis datos icon grid, migration checklist and link-buttons.
+ * Type, sheets, rings and steppers come from the sp- primitives in index.css; this file only lays them out.
+ * Colors are student tokens (--student-*, --sp-*) and color-mix(); nothing is a literal color.
+ */
+@layer components {
+  /* Hero ------------------------------------------------------------ */
+  .sph-hero {
+    display: grid;
+    gap: 2rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .sph-hero-copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.25rem;
+    min-width: 0;
+    padding-block: 0.5rem;
+  }
+
+  .sph-hola {
+    overflow-wrap: anywhere;
+  }
+
+  /* The violet full stop is decoration, so it is not part of the heading text. */
+  .sph-hola::after {
+    content: '.';
+    color: var(--sp-violet);
+  }
+
+  .sph-chips,
+  .sph-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem 1.25rem;
+  }
+
+  .sph-chips {
+    gap: 0.625rem;
+  }
+
+  .sph-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.375rem 1rem;
+    border: 1px solid var(--sp-line);
+    border-radius: 0.875rem;
+    background: var(--sp-sheet-2);
+    color: var(--sp-ink);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    transition: transform 0.2s var(--sp-spring), border-color 0.2s, background-color 0.2s;
+  }
+
+  .sph-chip svg {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--sp-violet-text);
+    transition: transform 0.25s var(--sp-spring);
+  }
+
+  .sph-chip:hover {
+    transform: translateY(-2px);
+    border-color: var(--sp-violet);
+    background: var(--sp-tint);
+  }
+
+  .sph-chip:hover svg {
+    transform: scale(1.18) rotate(-6deg);
+  }
+
+  .sph-chip:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+  }
+
+  /* Link-buttons ------------------------------------------------------- */
+  .sph-link {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    border-bottom: 2px solid transparent;
+    color: var(--sp-violet-text);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-decoration: none;
+    transition: transform 0.25s var(--sp-spring), box-shadow 0.25s var(--sp-ease), border-color 0.2s, background-color 0.2s;
+  }
+
+  .sph-link:hover {
+    border-bottom-color: var(--sp-violet);
+  }
+
+  .sph-link:active {
+    transform: scale(0.97);
+  }
+
+  .sph-link:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+  }
+
+  .sph-nudge {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    transition: transform 0.25s var(--sp-ease);
+  }
+
+  .sph-link:hover .sph-nudge,
+  .sph-link:focus-visible .sph-nudge {
+    transform: translateX(4px);
+  }
+
+  .sph-link--primary {
+    justify-content: center;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid transparent;
+    border-radius: 0.875rem;
+    background: var(--student-accent);
+    color: var(--student-accent-foreground);
+    box-shadow: 0 8px 20px -8px color-mix(in oklab, var(--student-accent) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--student-accent-foreground) 25%, transparent);
+    animation: sph-halo 2.8s ease-in-out infinite;
+  }
+
+  .sph-link--primary:hover,
+  .sph-link--primary:focus-visible {
+    border-color: transparent;
+    background: color-mix(in oklab, var(--student-accent) 84%, black);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--student-accent) 22%, transparent), 0 14px 34px -6px color-mix(in oklab, var(--student-accent) 85%, transparent);
+  }
+
+  .sph-link--light {
+    color: var(--student-accent-foreground);
+  }
+
+  .sph-link--light:hover {
+    border-bottom-color: var(--student-accent-foreground);
+  }
+
+  .sph-link--light:focus-visible {
+    outline-color: var(--student-accent-foreground);
+  }
+
+  .sph-link--warn {
+    color: var(--sp-warn);
+    border-bottom-color: currentColor;
+  }
+
+  @keyframes sph-halo {
+    0%, 100% { box-shadow: 0 8px 20px -8px color-mix(in oklab, var(--student-accent) 70%, transparent), 0 0 0 0 color-mix(in oklab, var(--student-accent) 45%, transparent); }
+    60% { box-shadow: 0 8px 20px -8px color-mix(in oklab, var(--student-accent) 70%, transparent), 0 0 0 10px transparent; }
+  }
+
+  /* Status pills ------------------------------------------------------- */
+  .sph-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.875rem;
+    border-radius: 9999px;
+    background: var(--sp-tint-2);
+    color: var(--sp-violet-text);
+    font-size: 0.875rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .sph-pill svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .sph-pill[data-tone='ok'] { background: color-mix(in oklab, var(--sp-fill-ok) 16%, transparent); color: var(--sp-ok); }
+  .sph-pill[data-tone='warn'] { background: color-mix(in oklab, var(--sp-fill-warn) 18%, transparent); color: var(--sp-warn); }
+  .sph-pill[data-tone='bad'] { background: color-mix(in oklab, var(--sp-fill-bad) 14%, transparent); color: var(--sp-bad); }
+
+  .sph-pill--on-glass {
+    background: var(--student-accent-foreground);
+    color: color-mix(in oklab, var(--student-accent) 62%, black);
+  }
+
+  .sph-pill--on-glass[data-tone='realizada'] { background: var(--student-accent-foreground); color: color-mix(in oklab, var(--sp-fill-ok) 55%, black); }
+  .sph-pill--on-glass[data-tone='observada'] { background: var(--sp-fill-warn); color: color-mix(in oklab, var(--sp-fill-warn) 20%, black); }
+
+  .sph-dot-pulse {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: sph-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes sph-pulse {
+    50% { opacity: 0.35; transform: scale(0.8); }
+  }
+
+  .sph-missing {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: fit-content;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--sp-fill-warn) 16%, transparent);
+    color: var(--sp-warn);
+    font-size: 0.9375rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .sph-missing svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .sph-missing[tabindex] {
+    min-height: 2.75rem;
+    cursor: help;
+  }
+
+  .sph-missing:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Glass poster with the request stepper -------------------------------- */
+  .sph-poster-wrap {
+    min-width: 0;
+  }
+
+  .sph-poster.sp-glass-stage {
+    min-height: 22rem;
+    border-radius: 1.75rem;
+    box-shadow: var(--sp-sh3);
+  }
+
+  .sph-poster .sp-glass-fg {
+    min-height: 22rem;
+    align-content: end;
+    place-items: stretch;
+    padding: 1.25rem;
+  }
+
+  .sph-poster .sp-glass-perspective {
+    display: block;
+    width: 100%;
+  }
+
+  .sph-poster .sp-glass-card {
+    width: 100%;
+    max-width: none;
+    gap: 1rem;
+    padding: 1.375rem 1.375rem 1.25rem;
+    border-radius: 1.375rem;
+  }
+
+  .sph-poster-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.625rem;
+  }
+
+  .sph-poster-title {
+    font-size: 1.25rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  .sph-poster-empty {
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .sph-poster-skel {
+    display: grid;
+    gap: 0.875rem;
+  }
+
+  .sph-stepper[data-alert='true'] .sp-step[data-state='current'] .sp-step-node {
+    border-color: var(--sp-fill-warn);
+    background: var(--sp-fill-warn);
+    color: color-mix(in oklab, var(--sp-fill-warn) 20%, black);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--sp-fill-warn) 30%, transparent);
+    animation: none;
+  }
+
+  .sph-stepper[data-alert='true'] .sp-step[data-state='current'] .sp-step-label {
+    color: color-mix(in oklab, var(--sp-fill-warn) 55%, white);
+  }
+
+  /* Stats strip --------------------------------------------------------- */
+  .sph-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-block: 1.25rem;
+    border-block: 1px solid var(--sp-line);
+  }
+
+  .sph-stat {
+    position: relative;
+    display: grid;
+    align-content: start;
+    gap: 0.375rem;
+    min-width: 0;
+    padding: 1.5rem 1rem 1.25rem;
+    border-left: 2px solid var(--sp-tint-2);
+  }
+
+  .sph-stat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -2px;
+    width: 2px;
+    height: 2.75rem;
+    background: var(--sp-violet);
+  }
+
+  .sph-stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .sph-stat:nth-child(odd)::before {
+    display: none;
+  }
+
+  .sph-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--sp-line);
+  }
+
+  .sph-lbl {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sp-ink-2);
+  }
+
+  .sph-stat-sub {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--sp-ink-2);
+    overflow-wrap: anywhere;
+  }
+
+  .sph-stat-note {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--sp-mute);
+  }
+
+  .sph-stat .sp-ring {
+    margin-block: 0.125rem;
+  }
+
+  /* Sheets: shared bits ------------------------------------------------- */
+  .sph-row {
+    display: grid;
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .sph-row > * {
+    min-width: 0;
+  }
+
+  .sph-today,
+  .sph-career,
+  .sph-data-sheet,
+  .sph-check-sheet {
+    display: grid;
+    align-content: start;
+    gap: 1.25rem;
+  }
+
+  .sph-sheet-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+  }
+
+  .sph-sub {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--sp-ink-2);
+  }
+
+  .sph-tile {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: var(--sp-tint-2);
+    color: var(--sp-violet-text);
+    transition: transform 0.3s var(--sp-spring), background-color 0.2s, color 0.2s;
+  }
+
+  .sph-tile svg {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  /* "Hoy": ink sheet ------------------------------------------------------ */
+  .sph-today {
+    --sph-fg: var(--student-accent-foreground);
+    --sph-soft: color-mix(in oklab, var(--student-accent-foreground) 84%, var(--student-accent-on-band));
+    border-color: color-mix(in oklab, var(--student-accent-foreground) 12%, transparent);
+    background:
+      radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--student-accent) 85%, black) 0%, transparent 55%),
+      linear-gradient(160deg, color-mix(in oklab, var(--student-accent) 34%, black) 0%, color-mix(in oklab, var(--student-accent) 12%, black) 100%);
+    color: var(--sph-fg);
+  }
+
+  .sph-today .sp-eyebrow {
+    color: var(--student-accent-on-band);
+  }
+
+  .sph-today .sp-eyebrow::before {
+    background: var(--student-accent-on-band);
+  }
+
+  .sph-countdown {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+  }
+
+  .sph-countdown-figure.sp-figure {
+    color: var(--sph-fg);
+    font-size: clamp(3.5rem, 2.25rem + 5vw, 5.5rem);
+    line-height: 0.9;
+  }
+
+  .sph-countdown-unit {
+    font-size: 1.625rem;
+    font-weight: 800;
+    color: var(--student-accent-on-band);
+  }
+
+  .sph-countdown-caption {
+    flex-basis: 100%;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--sph-soft);
+  }
+
+  .sph-today-title {
+    font-size: clamp(1.375rem, 1.1rem + 1.2vw, 1.625rem);
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+
+  .sph-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.125rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+  }
+
+  .sph-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding-inline: 0.125rem;
+    border-radius: 0.625rem;
+  }
+
+  .sph-meta-item svg {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--student-accent-on-band);
+  }
+
+  .sph-meta-item[tabindex] {
+    cursor: help;
+  }
+
+  .sph-meta-item:focus-visible {
+    outline: 3px solid var(--sph-fg);
+    outline-offset: 2px;
+  }
+
+  .sph-prog {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .sph-prog .sp-meter {
+    height: 0.5rem;
+    background: color-mix(in oklab, var(--sph-fg) 22%, transparent);
+  }
+
+  .sph-prog .sp-meter-fill {
+    background: var(--sph-fg);
+  }
+
+  .sph-prog small {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--sph-soft);
+  }
+
+  .sph-later {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.9375rem;
+    color: var(--sph-soft);
+  }
+
+  .sph-later li {
+    display: flex;
+    gap: 0.75rem;
+    padding-block: 0.5rem;
+    border-top: 1px solid color-mix(in oklab, var(--sph-fg) 18%, transparent);
+  }
+
+  .sph-later time {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--sph-fg);
+  }
+
+  .sph-later span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .sph-state {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    font-size: 1.125rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  .sph-state-icon {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--sph-fg) 14%, transparent);
+  }
+
+  .sph-state-icon svg {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .sph-today-skel {
+    display: grid;
+    gap: 0.875rem;
+  }
+
+  /* Career track -------------------------------------------------------- */
+  .sph-track {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1.25rem 0;
+    padding-top: 0.5rem;
+  }
+
+  .sph-track-item {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: 0.625rem;
+  }
+
+  .sph-track-item::before {
+    content: '';
+    position: absolute;
+    top: 1.3125rem;
+    right: 50%;
+    width: 100%;
+    height: 0.25rem;
+    border-radius: 0.125rem;
+    background: var(--sp-track);
+  }
+
+  .sph-track-item:nth-child(5n + 1)::before {
+    display: none;
+  }
+
+  .sph-track-item[data-state='done']::before,
+  .sph-track-item[data-state='current']::before,
+  .sph-track-item[data-state='retake']::before {
+    background: var(--sp-violet);
+  }
+
+  .sph-track-item[data-state='next']::before {
+    background: repeating-linear-gradient(90deg, var(--sp-violet) 0 6px, transparent 6px 10px);
+  }
+
+  .sph-node {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 3px solid var(--sp-track);
+    border-radius: 9999px;
+    background: var(--sp-sheet);
+    color: var(--sp-mute);
+    font-size: 0.9375rem;
+    font-weight: 900;
+    cursor: help;
+    transition: transform 0.3s var(--sp-spring);
+  }
+
+  .sph-node svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .sph-node:hover {
+    transform: scale(1.15);
+  }
+
+  .sph-node:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+  }
+
+  .sph-track-item[data-state='done'] .sph-node {
+    border-color: var(--sp-violet);
+    background: var(--sp-violet);
+    color: var(--student-accent-foreground);
+  }
+
+  .sph-track-item[data-state='retake'] .sph-node {
+    border-color: var(--sp-fill-warn);
+    background: color-mix(in oklab, var(--sp-fill-warn) 18%, var(--sp-sheet));
+    color: var(--sp-warn);
+  }
+
+  .sph-track-item[data-state='current'] .sph-node {
+    border-color: var(--sp-violet);
+    color: var(--sp-violet-text);
+    font-size: 1.0625rem;
+    box-shadow: 0 0 0 6px var(--sp-tint-2);
+    transform: scale(1.1);
+  }
+
+  .sph-track-item[data-state='current'] .sph-node:hover {
+    transform: scale(1.22);
+  }
+
+  .sph-track-item[data-state='next'] .sph-node {
+    border-style: dashed;
+    border-color: var(--sp-violet);
+    color: var(--sp-violet-text);
+  }
+
+  .sph-track-item small {
+    max-width: 100%;
+    font-size: 0.75rem;
+    font-weight: 800;
+    white-space: nowrap;
+    color: var(--sp-mute);
+  }
+
+  .sph-track-item[data-state='current'] small,
+  .sph-track-item[data-state='next'] small {
+    color: var(--sp-violet-text);
+  }
+
+  .sph-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding: 0.875rem 1.125rem;
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--sp-fill-warn) 17%, transparent);
+  }
+
+  .sph-foot p {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--sp-warn);
+    overflow-wrap: anywhere;
+  }
+
+  .sph-foot p svg {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .sph-upnext {
+    display: grid;
+  }
+
+  .sph-upnext li {
+    display: grid;
+    grid-template-columns: 4.75rem minmax(0, 1fr);
+    align-items: center;
+    gap: 1rem;
+    padding-block: 0.75rem;
+    border-top: 1px solid var(--sp-line);
+  }
+
+  .sph-upnext time {
+    display: inline-grid;
+    place-items: center;
+    min-height: 2.75rem;
+    border-radius: 0.75rem;
+    background: var(--sp-tint-2);
+    color: var(--sp-violet-text);
+    font-size: 0.9375rem;
+    font-weight: 900;
+  }
+
+  .sph-upnext b {
+    display: block;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .sph-upnext span {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--sp-ink-2);
+  }
+
+  /* Mis datos: icon grid ------------------------------------------------ */
+  .sph-data {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .sph-data-item {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    min-width: 0;
+    padding: 0.875rem;
+    border: 1px solid var(--sp-line-2);
+    border-radius: 1.125rem;
+    background: var(--sp-sheet-2);
+  }
+
+  .sph-data-item:hover .sph-tile {
+    transform: rotate(-8deg) scale(1.08);
+    background: var(--sp-violet);
+    color: var(--student-accent-foreground);
+  }
+
+  .sph-data-body {
+    display: grid;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .sph-data-label {
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sp-ink-2);
+  }
+
+  .sph-data-value {
+    font-size: 1.0625rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    overflow-wrap: anywhere;
+  }
+
+  /* Migration checklist ------------------------------------------------------ */
+  .sph-check {
+    display: grid;
+    gap: 0.625rem;
+  }
+
+  .sph-check-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--sp-line-2);
+    border-radius: 1.125rem;
+    background: var(--sp-sheet-2);
+  }
+
+  .sph-check-item[data-tone='bad'] .sph-tile {
+    background: color-mix(in oklab, var(--sp-fill-bad) 14%, transparent);
+    color: var(--sp-bad);
+  }
+
+  .sph-check-item[data-tone='warn'] .sph-tile {
+    background: color-mix(in oklab, var(--sp-fill-warn) 18%, transparent);
+    color: var(--sp-warn);
+  }
+
+  .sph-check-text {
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .sph-check-ok {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.0625rem;
+    font-weight: 800;
+    color: var(--sp-ok);
+  }
+
+  .sph-check-ok svg {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  /* Skeleton shapes --------------------------------------------------------------- */
+  .sph-skeleton {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .sph-strip--skeleton {
+    margin-block: 0;
+  }
+
+  .sph-skel-line {
+    width: 100%;
+    height: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  .sph-skel-line--short {
+    width: 45%;
+  }
+
+  .sph-skel-fig {
+    width: 7rem;
+    max-width: 100%;
+    height: 3.5rem;
+    border-radius: 0.75rem;
+  }
+
+  .sph-skel-ring {
+    width: 6.5rem;
+    height: 6.5rem;
+    border-radius: 9999px;
+  }
+
+  .sph-skel-big {
+    width: 9rem;
+    height: 5rem;
+    border-radius: 1rem;
+  }
+
+  .sph-skel-node {
+    width: 100%;
+    height: 2.75rem;
+    border-radius: 9999px;
+  }
+
+  .sph-skel-sheet {
+    height: 20rem;
+    border-radius: 1.5rem;
+  }
+
+  /* Wider screens ------------------------------------------------------------------ */
+  @media (min-width: 40rem) {
+    .sph-data {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sph-track {
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+    }
+
+    .sph-track-item:nth-child(5n + 1)::before {
+      display: block;
+    }
+
+    .sph-track-item:first-child::before {
+      display: none;
+    }
+  }
+
+  @media (min-width: 60rem) {
+    .sph-hero {
+      grid-template-columns: minmax(0, 1fr) 23rem;
+      gap: 3rem;
+      align-items: stretch;
+    }
+
+    .sph-strip {
+      grid-template-columns: 0.95fr 1.1fr 0.85fr 1.3fr;
+      margin-block: 1.5rem;
+    }
+
+    .sph-stat,
+    .sph-stat:nth-child(odd) {
+      padding: 1.75rem 1.5rem 1.5rem;
+      border-top: 0;
+      border-left: 2px solid var(--sp-tint-2);
+    }
+
+    .sph-stat:first-child {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .sph-stat:nth-child(odd)::before {
+      display: block;
+    }
+
+    .sph-stat:first-child::before {
+      display: none;
+    }
+
+    .sph-row {
+      grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+      gap: 1.75rem;
+    }
+
+    .sph-data {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* Phones: stats keep two columns, the cuota and the approved subjects take a full row. */
+  @media (max-width: 40rem) {
+    .sph-check-item {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .sph-check-item .sph-pill {
+      grid-column: 2;
+      justify-self: start;
+    }
+
+    .sph-stat:nth-child(n + 3) {
+      grid-column: 1 / -1;
+    }
+
+    .sph-actions .sph-link--primary {
+      width: 100%;
+    }
+
+    .sph-track-item[data-state='current'] .sph-node {
+      transform: none;
+    }
+  }
+}
+
+/* Reduced motion: same end state, no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .sph-chip,
+  .sph-chip svg,
+  .sph-link,
+  .sph-nudge,
+  .sph-link--primary,
+  .sph-dot-pulse,
+  .sph-tile,
+  .sph-node {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .sph-chip:hover,
+  .sph-chip:hover svg,
+  .sph-link:active,
+  .sph-link:hover .sph-nudge,
+  .sph-link:focus-visible .sph-nudge,
+  .sph-node:hover,
+  .sph-data-item:hover .sph-tile {
+    transform: none !important;
+  }
+}

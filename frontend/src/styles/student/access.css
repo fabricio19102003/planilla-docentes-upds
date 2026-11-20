@@ -1,0 +1,190 @@
+/*
+ * Student Login and Cambiar contraseña (artboard 03 language: 900-weight title, glass sheet, spring micro-interactions).
+ * The pages sit on the brand background; every color comes from the --sp-* / theme tokens.
+ */
+@layer components {
+  .sa-root {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 1.5rem 1rem;
+    overflow: hidden;
+  }
+
+  /* Soft violet glow behind the sheet; decorative only. */
+  .sa-root::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 12% 50% auto auto;
+    width: min(46rem, 120vw);
+    aspect-ratio: 1;
+    transform: translateX(50%);
+    border-radius: 50%;
+    background: radial-gradient(closest-side, color-mix(in oklab, var(--sp-violet) 45%, transparent), transparent);
+    pointer-events: none;
+  }
+
+  .sa-logo {
+    padding: 1.25rem 2rem;
+    border-radius: 1.5rem;
+    border: 1px solid color-mix(in oklab, var(--brand-foreground) 18%, transparent);
+    background: color-mix(in oklab, var(--brand-foreground) 10%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    animation: sa-rise 0.5s var(--sp-ease) both;
+  }
+
+  .sa-card {
+    display: grid;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 28rem;
+    padding: 1.5rem;
+    border-radius: 1.75rem;
+    animation: sa-rise 0.55s var(--sp-ease) 80ms both;
+  }
+  @media (min-width: 640px) {
+    .sa-card { padding: 2rem; }
+  }
+
+  .sa-card[data-shake='true'] { animation: sa-shake 0.45s var(--sp-ease) both; }
+
+  .sa-tile {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 1.125rem;
+    background: var(--sp-tint-2);
+    color: var(--sp-violet-text);
+  }
+  .sa-tile svg { width: 1.75rem; height: 1.75rem; }
+
+  .sa-head { display: grid; gap: 0.75rem; }
+  .sa-title {
+    font-size: clamp(2rem, 1.5rem + 2.4vw, 2.75rem);
+    font-weight: 900;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    color: var(--sp-ink);
+    text-wrap: balance;
+  }
+  .sa-lead { font-size: 1rem; line-height: 1.5; color: var(--sp-ink-2); text-wrap: pretty; }
+
+  .sa-form { display: grid; gap: 1.25rem; }
+  .sa-label { font-size: 0.875rem; font-weight: 800; letter-spacing: -0.01em; color: var(--sp-ink); }
+  .sa-label-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; width: 100%; }
+
+  .sa-input { position: relative; width: 100%; }
+  .sa-input-icon {
+    position: absolute;
+    z-index: 1;
+    inset: 0 auto 0 0.875rem;
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    color: var(--sp-mute);
+    pointer-events: none;
+    transition: color 0.2s, transform 0.25s var(--sp-spring);
+  }
+  .sa-input-icon svg { width: 1.25rem; height: 1.25rem; }
+  .sa-input:focus-within .sa-input-icon { color: var(--sp-violet-text); transform: scale(1.12); }
+
+  .sa-eye {
+    position: absolute;
+    inset: 0 0.125rem 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    margin: auto 0;
+    height: 2.75rem;
+    border-radius: 0.875rem;
+    color: var(--sp-mute);
+    transition: color 0.2s, background-color 0.2s, transform 0.25s var(--sp-spring);
+  }
+  .sa-eye svg { width: 1.25rem; height: 1.25rem; }
+  .sa-eye:hover { color: var(--sp-violet-text); background: var(--sp-tint); }
+  .sa-eye:active { transform: scale(0.9); }
+  .sa-eye[aria-pressed='true'] { color: var(--sp-violet-text); background: var(--sp-tint); }
+  .sa-eye:focus-visible { outline: 3px solid var(--ring); outline-offset: -3px; }
+
+  .sa-submit { min-height: 3rem; border-radius: 1rem; font-size: 1rem; font-weight: 800; }
+
+  .sa-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    background: var(--sp-tint);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--sp-ink-2);
+  }
+  .sa-hint svg { flex: none; width: 1.125rem; height: 1.125rem; margin-top: 0.0625rem; color: var(--sp-violet-text); }
+
+  /* Strength meter: four fat segments and its word. */
+  .sa-strength { display: grid; gap: 0.375rem; width: 100%; margin-top: 0.25rem; }
+  .sa-strength .sp-seats { gap: 6px; height: 0.5rem; }
+  .sa-strength-label { margin: 0; font-size: 0.8125rem; font-weight: 800; color: var(--sp-mute); }
+  .sa-strength-label[data-tone='bad'] { color: var(--sp-bad); }
+  .sa-strength-label[data-tone='warn'] { color: var(--sp-warn); }
+  .sa-strength-label[data-tone='ok'] { color: var(--sp-ok); }
+
+  /* Rule checklist: each tick pops when its rule is satisfied. */
+  .sa-rules { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+  .sa-rule { display: flex; align-items: center; gap: 0.625rem; font-size: 0.875rem; font-weight: 700; color: var(--sp-mute); transition: color 0.25s; }
+  .sa-rule-tick {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 50%;
+    border: 2px solid var(--sp-line);
+    color: transparent;
+    transition: background-color 0.25s, border-color 0.25s, color 0.25s;
+  }
+  .sa-rule-tick svg { width: 0.875rem; height: 0.875rem; stroke-width: 3.5; transform: scale(0); transition: transform 0.35s var(--sp-spring); }
+  .sa-rule[data-ok='true'] { color: var(--sp-ink); }
+  .sa-rule[data-ok='true'] .sa-rule-tick { background: var(--sp-fill-ok); border-color: var(--sp-fill-ok); color: var(--sp-sheet); animation: sa-pop 0.4s var(--sp-spring); }
+  .sa-rule[data-ok='true'] .sa-rule-tick svg { transform: scale(1); }
+
+  @keyframes sa-rise {
+    from { opacity: 0; transform: translateY(14px); }
+  }
+  @keyframes sa-pop {
+    50% { transform: scale(1.25); }
+  }
+  @keyframes sa-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-10px); }
+    40% { transform: translateX(8px); }
+    60% { transform: translateX(-6px); }
+    80% { transform: translateX(3px); }
+  }
+}
+
+/* Reduced motion: same end state, no movement and no shake. */
+@media (prefers-reduced-motion: reduce) {
+  .sa-logo,
+  .sa-card,
+  .sa-card[data-shake='true'],
+  .sa-rule[data-ok='true'] .sa-rule-tick { animation: none; }
+  .sa-input-icon,
+  .sa-eye,
+  .sa-rule,
+  .sa-rule-tick,
+  .sa-rule-tick svg { transition: none; }
+  .sa-input:focus-within .sa-input-icon,
+  .sa-eye:active { transform: none; }
+}
