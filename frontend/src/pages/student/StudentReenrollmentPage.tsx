@@ -1,21 +1,25 @@
-import { CheckCircle2, Users } from 'lucide-react'
+import { CheckCircle2, Info, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
 import { useStudentMe, useStudentReenrollment, useSubmitReenrollment, type StudentReenrollment } from '@/api/hooks/useStudentPortal'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { PrintReceipt, ThermalLoader } from '@/components/student'
+import { Eyebrow, PrintReceipt, Sheet, ThermalLoader } from '@/components/student'
+import { GroupCards } from '@/components/student/reenrollment/GroupCards'
+import { RecursadoPicker } from '@/components/student/reenrollment/RecursadoPicker'
+import { RmSection } from '@/components/student/reenrollment/RmSection'
+import { StatusFlow, StatusPill } from '@/components/student/reenrollment/StatusFlow'
+import { SubjectChips } from '@/components/student/reenrollment/SubjectChips'
+import { SubmitBar } from '@/components/student/reenrollment/SubmitBar'
+import { SummarySheet } from '@/components/student/reenrollment/SummarySheet'
+import { chosenSummary, requestFlow } from '@/components/student/reenrollment/reenrollment-view'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateInBolivia } from '@/lib/boliviaDates'
-import { requestStatus, type CurriculumItem } from '@/lib/reenrollmentState'
-import { buildSubmission, groupLabel, submissionProblem, type GroupChoices } from '@/lib/studentPortalState'
+import { formatBs } from '@/lib/reenrollmentState'
+import { buildSubmission, estimateAmounts, submissionProblem, type GroupChoices } from '@/lib/studentPortalState'
 import { buildReceipt } from '@/lib/studentReceipt'
 import { apiErrorMessage } from '@/lib/userCredentials'
-
-const selectClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60'
+import '@/styles/student/reenrollment.css'
 
 function initialChoices(view: StudentReenrollment): GroupChoices {
   const choices: GroupChoices = {}
@@ -24,39 +28,6 @@ function initialChoices(view: StudentReenrollment): GroupChoices {
   }
   for (const item of view.request?.items ?? []) choices[item.subject_code] = item.group.id
   return choices
-}
-
-function ExtraSubjects({ title, description, subjects, view, choices, setChoice, disabled }: {
-  title: string; description: string; subjects: CurriculumItem[]; view: StudentReenrollment
-  choices: GroupChoices; setChoice: (code: string, group: number | '') => void; disabled: boolean
-}) {
-  if (subjects.length === 0) return null
-  return (
-    <Card>
-      <CardHeader><CardTitle className="text-base">{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader>
-      <CardContent className="space-y-3">
-        {subjects.map((subject) => {
-          const code = subject.code ?? subject.name
-          const groups = view.groups_by_semester[String(subject.semester)] ?? []
-          return (
-            <div key={code} className="grid gap-2 sm:grid-cols-2 sm:items-center">
-              <label htmlFor={`group-${code}`} className="text-sm">
-                <span className="font-medium">{subject.name}</span>
-                <span className="block text-xs text-muted-foreground">{subject.code} · semestre {subject.semester}</span>
-              </label>
-              <select id={`group-${code}`} className={selectClass} disabled={disabled} value={choices[code] ?? ''}
-                onChange={(event) => setChoice(code, event.target.value ? Number(event.target.value) : '')}>
-                <option value="">No la curso este período</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id} disabled={group.is_full && choices[code] !== group.id}>{groupLabel(group)}</option>
-                ))}
-              </select>
-            </div>
-          )
-        })}
-      </CardContent>
-    </Card>
-  )
 }
 
 function Form({ view }: { view: StudentReenrollment }) {
@@ -70,55 +41,53 @@ function Form({ view }: { view: StudentReenrollment }) {
   const receipt = buildReceipt({
     eligibility, choices, termCode: view.window?.term_code, studentName: me.data?.full_name, documentNumber: me.data?.document_number,
   })
+  const amounts = estimateAmounts(eligibility, choices)
   const problem = submissionProblem(view, mainGroup)
+  const hasRecursado = eligibility.recursado.length > 0
+  const hasPending = eligibility.pending.length > 0
+  const pendingStep = hasRecursado ? 3 : 2
+  const chipsStep = pendingStep + (hasPending ? 1 : 0)
+  const chosenExtra = [...eligibility.recursado, ...eligibility.pending].filter((subject) => subject.code && choices[subject.code]).length
 
   return (
-    <form className="space-y-5" onSubmit={(event) => {
+    <form className="rm-form" onSubmit={(event) => {
       event.preventDefault()
       if (mainGroup !== null) submit.mutate(buildSubmission(mainGroup, choices))
     }}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Semestre {eligibility.target_semester}: elegí tu grupo</CardTitle>
-          <CardDescription>Cursás las materias del semestre con este grupo.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <fieldset className="grid gap-2 sm:grid-cols-2" disabled={locked}>
-            <legend className="sr-only">Grupo del semestre</legend>
-            {view.main_groups.map((group) => (
-              <label key={group.id} data-selected={mainGroup === group.id ? '' : undefined}
-                className={`sp-radio-card flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${group.is_full && mainGroup !== group.id ? 'cursor-not-allowed opacity-60' : ''}`}>
-                <input type="radio" name="main-group" value={group.id} checked={mainGroup === group.id}
-                  disabled={group.is_full && mainGroup !== group.id} onChange={() => setMainGroup(group.id)} />
-                <span aria-hidden="true" className="sp-radio-icon grid size-8 shrink-0 place-items-center rounded-lg bg-student-accent-soft text-student-accent-text"><Users className="size-4" /></span>
-                {groupLabel(group)}
-              </label>
-            ))}
-          </fieldset>
-          {eligibility.regular.length > 0 && (
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted-foreground">Materias del semestre ({eligibility.regular.length})</summary>
-              <ul className="mt-2 list-disc pl-5">
-                {eligibility.regular.map((subject) => <li key={subject.code ?? subject.name}>{subject.name} {subject.code && <span className="text-muted-foreground">({subject.code})</span>}</li>)}
-              </ul>
-            </details>
+      <div className="rm-grid">
+        <div className="rm-main">
+          <RmSection fieldset step={1} id="rm-group" title={`Semestre ${eligibility.target_semester}: elegí tu grupo`}
+            description="Cursás las materias del semestre con este grupo." disabled={locked}>
+            <GroupCards groups={view.main_groups} mainGroup={mainGroup} onChange={setMainGroup} disabled={locked} />
+          </RmSection>
+          {hasRecursado && (
+            <RmSection step={2} id="rm-recursado" title="Materias para recursar" description="Elegí en qué grupo y turno las recursás.">
+              <RecursadoPicker kind="recursado" subjects={eligibility.recursado} groupsBySemester={view.groups_by_semester}
+                choices={choices} setChoice={setChoice} disabled={locked} />
+              <p className="rm-note"><Info aria-hidden="true" />Antes de que Registro complete tu rematrícula tenés que haber pagado el recursado en caja.</p>
+            </RmSection>
           )}
-        </CardContent>
-      </Card>
-
-      <ExtraSubjects title="Materias para recursar" view={view} choices={choices} setChoice={setChoice} disabled={locked}
-        subjects={eligibility.recursado}
-        description="Elegí en qué grupo y turno las recursás. Antes de que Registro complete tu rematrícula tenés que haber pagado el recursado en caja." />
-      <ExtraSubjects title="Materias pendientes" view={view} choices={choices} setChoice={setChoice} disabled={locked}
-        subjects={eligibility.pending} description="Materias de semestres anteriores de las que te retiraste. No tienen costo de recursado." />
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Resumen de montos (informativo)</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <PrintReceipt className="mx-auto" title={receipt.title} subtitle={receipt.subtitle} items={receipt.items} total={receipt.total} notes={receipt.notes} />
-          {receipt.limitNote && <p className="text-center text-xs text-muted-foreground">{receipt.limitNote}</p>}
-        </CardContent>
-      </Card>
+          {hasPending && (
+            <RmSection step={pendingStep} id="rm-pending" title="Materias pendientes"
+              description="Materias de semestres anteriores de las que te retiraste.">
+              <RecursadoPicker kind="pendiente" subjects={eligibility.pending} groupsBySemester={view.groups_by_semester}
+                choices={choices} setChoice={setChoice} disabled={locked} />
+              <p className="rm-note"><Info aria-hidden="true" />No tienen costo de recursado.</p>
+            </RmSection>
+          )}
+          {eligibility.regular.length > 0 && (
+            <RmSection step={chipsStep} id="rm-regular" title={`Materias del semestre (${eligibility.regular.length})`}
+              description="Van incluidas con tu grupo. Pasá el cursor o tocá una para ver el detalle.">
+              <SubjectChips subjects={eligibility.regular} />
+            </RmSection>
+          )}
+        </div>
+        <aside className="rm-side" aria-label="Resumen de montos">
+          <SummarySheet title="Resumen de montos (informativo)" limitNote={receipt.limitNote} amounts={amounts} eligibility={eligibility}>
+            <PrintReceipt className="mx-auto" title={receipt.title} subtitle={receipt.subtitle} items={receipt.items} total={receipt.total} notes={receipt.notes} />
+          </SummarySheet>
+        </aside>
+      </div>
 
       {submit.isError && <Alert variant="error" role="alert"><AlertTitle>{apiErrorMessage(submit.error, 'No se pudo enviar tu solicitud.')}</AlertTitle></Alert>}
       {submit.isSuccess && (
@@ -128,23 +97,21 @@ function Form({ view }: { view: StudentReenrollment }) {
       )}
       {submit.isPending && (
         // R3 as a panel: centered over the page, above the bottom bar, while the request is on its way.
-        <div className="sp-sending fixed inset-0 z-20 grid place-items-center bg-background/80 px-4 pt-6 pb-[calc(7.5rem+env(safe-area-inset-bottom))] backdrop-blur-sm md:pb-6">
-          <Card className="w-full max-w-sm items-center text-center">
-            <CardContent className="flex flex-col items-center gap-4 py-4">
-              <ThermalLoader label="Enviando tu solicitud a Registro…" />
-              <div className="space-y-1" aria-hidden="true">
-                <p className="text-base font-semibold text-foreground">Enviando tu solicitud a Registro…</p>
-                <p className="text-sm text-muted-foreground">No cerrés esta pantalla. Tu solicitud queda guardada cuando Registro la confirme.</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="rm-sending">
+          <Sheet depth={3} padding="md" className="rm-sending-card">
+            <ThermalLoader label="Enviando tu solicitud a Registro…" />
+            <div className="rm-sending-text" aria-hidden="true">
+              <p>Enviando tu solicitud a Registro…</p>
+              <p>No cerrés esta pantalla. Tu solicitud queda guardada cuando Registro la confirme.</p>
+            </div>
+          </Sheet>
         </div>
       )}
       {!locked && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" size="lg" className="active:scale-95 motion-reduce:active:scale-100" loading={submit.isPending} disabled={problem !== null}>{request ? 'Guardar cambios' : 'Enviar solicitud'}</Button>
-          {problem && <p className="text-sm text-muted-foreground">{problem}</p>}
-        </div>
+        <SubmitBar state={request ? `Solicitud ${requestFlow(request.status).label.toLowerCase()}` : 'Solicitud nueva'}
+          summary={chosenSummary(view.main_groups.find((group) => group.id === mainGroup), chosenExtra)}
+          total={formatBs(amounts.cuotasTotal + amounts.recursadoTotal)} problem={problem} loading={submit.isPending}
+          label={request ? 'Guardar cambios' : 'Enviar solicitud'} />
       )}
     </form>
   )
@@ -154,19 +121,25 @@ export function StudentReenrollmentPage() {
   const view = useStudentReenrollment()
   const window = view.data?.window
   const request = view.data?.request
+  const semester = view.data?.eligibility.target_semester
 
   return (
     <>
-      <PageHeader as="h1"
+      <PageHeader as="h1" className="rm-head"
+        breadcrumb={semester != null ? <Eyebrow>Semestre {semester}</Eyebrow> : undefined}
         title={`Rematrícula${window ? ` ${window.term_code}` : ''}`}
         description={window ? `Abierta del ${formatDateInBolivia(window.starts_on)} al ${formatDateInBolivia(window.ends_on)}.` : 'Elegí tu grupo y las materias que vas a cursar el próximo período.'}
-        actions={request && <Badge variant={requestStatus(request.status).variant}>{requestStatus(request.status).label}</Badge>}
+        actions={request && <StatusPill request={request} />}
       />
       {view.isError && <Alert variant="error" role="alert"><AlertTitle>No se pudo cargar la rematrícula.</AlertTitle></Alert>}
       {!view.isError && !view.data && (
-        <div role="status" aria-label="Cargando rematrícula" className="space-y-4">
-          <Skeleton className="h-40 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
+        <div role="status" aria-label="Cargando rematrícula" className="rm-skeleton">
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <div className="rm-skeleton-grid">
+            <Skeleton className="h-36 rounded-2xl" />
+            <Skeleton className="h-36 rounded-2xl" />
+          </div>
+          <Skeleton className="h-32 w-full rounded-2xl" />
         </div>
       )}
       {view.data && <ReenrollmentContent view={view.data} />}
@@ -180,11 +153,13 @@ function ReenrollmentContent({ view }: { view: StudentReenrollment }) {
     <>
       {!window && <Alert variant="info"><AlertTitle>Todavía no hay una rematrícula programada.</AlertTitle></Alert>}
       {window && !window.is_open && <Alert variant="info"><AlertTitle>La rematrícula no está abierta en este momento.</AlertTitle></Alert>}
+      {request && <StatusFlow request={request} window={window} />}
       {request?.status === 'realizada' && (
         <Alert variant="success"><AlertTitle>Tu rematrícula fue realizada por Registro.</AlertTitle></Alert>
       )}
       {request?.status === 'observada' && (
-        <Alert variant="error" role="alert">
+        <Alert variant="error" role="alert" className="rm-observation">
+          <TriangleAlert aria-hidden="true" />
           <AlertTitle>Observación de Registro: {request.observation_label}</AlertTitle>
           <AlertDescription>{request.observation_message} Cuando lo resuelvas, guardá tu solicitud de nuevo.</AlertDescription>
         </Alert>
