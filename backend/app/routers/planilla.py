@@ -41,7 +41,7 @@ from app.services.monetary_snapshot import (
     calculation_snapshot_rows,
     require_reconciled_snapshot,
 )
-from app.services.payment_overrides import PaymentOverrideError
+from app.services.payment_overrides import PaymentOverrideError, normalize_payment_overrides
 from app.utils.auth import require_admin
 
 MONTH_NAMES = {
@@ -462,9 +462,17 @@ def get_planilla_detail(
                 discount_mode=discount_mode, excluded_days=effective_exclusions,
             )
 
-        stored_overrides: dict[str, float] = {}
+        stored_overrides: dict[str, Decimal] = {}
         if stored is not None and stored.payment_overrides_json:
-            stored_overrides = stored.payment_overrides_json
+            # The generator persists amounts as strings; the allocation math needs Decimals.
+            try:
+                stored_overrides = normalize_payment_overrides(stored.payment_overrides_json)
+            except PaymentOverrideError as exc:
+                raise PayrollDataError(
+                    "La planilla almacenada contiene ajustes de monto inválidos; regenerala antes de previsualizar",
+                    code="invalid_stored_overrides",
+                    sample=exc.sample,
+                ) from exc
 
         def normalize_exclusions(items) -> list[dict]:
             normalized = []
@@ -489,6 +497,9 @@ def get_planilla_detail(
         if overrides_match_request:
             rows_by_teacher: dict[str, list] = {}
             for row in rows:
+                # Snapshot rows carry payable_hours only; allocation weights use total_hours.
+                if not hasattr(row, "total_hours"):
+                    row.total_hours = row.payable_hours
                 rows_by_teacher.setdefault(row.teacher_ci, []).append(row)
 
             teacher_allocations: dict[str, dict[int, float]] = {}
@@ -572,7 +583,8 @@ def get_planilla_detail(
             teacher_totals[ci]["total_base_hours"] += row.base_monthly_hours
             teacher_totals[ci]["total_absent_hours"] += row.absent_hours
             teacher_totals[ci]["total_payable_hours"] += row.payable_hours
-            row_key = f"{row.teacher_ci}:{row.designation_id}"
+            source_key = getattr(row, "source_key", None) or f"legacy:{row.designation_id}"
+            row_key = f"{row.teacher_ci}:{source_key}"
             effective_payment = resolved_payments.get(row_key, row.final_payment)
             teacher_totals[ci]["total_payment"] += Decimal(str(effective_payment))
             teacher_totals[ci]["retention_amount"] += Decimal(str(row.retention_amount))
